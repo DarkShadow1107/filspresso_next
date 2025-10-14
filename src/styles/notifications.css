@@ -1,0 +1,252 @@
+.notifications-root {
+	position: fixed;
+	right: 96px;
+	bottom: 24px;
+	display: flex;
+	/* make the DOM order natural: top -> bottom; newest will be rendered last and sit at bottom/front */
+	flex-direction: column;
+	gap: 12px;
+	/* very high z-index so notifications appear above UI elements like header bars */
+	z-index: 2147483000;
+	/* allow pointer-events for notification children while keeping the root non-interactive itself */
+	pointer-events: none;
+	align-items: flex-end;
+	/* enable 3D perspective for stacked notifications */
+	perspective: 900px;
+	/* ensure notifications stay within the viewport horizontally */
+	box-sizing: border-box;
+	max-width: calc(100vw - 48px);
+}
+
+.notifications-root.compact {
+	/* allow overlap by removing explicit gap; position slightly inset */
+	gap: 0px;
+	right: 16px;
+	bottom: 16px;
+}
+
+/* Machine-only notifications: slightly more inset and narrower for the machines page layout */
+.notifications-root.machine-only {
+	right: 80px;
+	bottom: 24px;
+}
+
+.notification-card.machine-only {
+	width: min(280px, calc(100vw - 64px));
+	max-width: 280px;
+}
+
+.notifications-root.compact .notification-card {
+	transform-origin: right bottom;
+	width: min(320px, calc(100vw - 48px));
+	max-width: 320px;
+	padding: 10px 12px;
+	border-radius: 12px;
+	box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+	/* stacking is handled via inline styles from the provider; keep a small overlap fallback */
+	margin-top: -6px;
+}
+
+/* ensure pointer interactions work for stacked items (root has pointer-events:none) */
+.notifications-root .notification-card {
+	pointer-events: auto;
+}
+
+.notification-card {
+	pointer-events: auto;
+	background: linear-gradient(180deg, rgba(25, 22, 19, 0.98), rgba(18, 16, 14, 0.96));
+	color: #fff8f4;
+	padding: 12px 14px;
+	border-radius: 12px;
+	box-shadow: 0 14px 36px rgba(14, 10, 8, 0.8), 0 0 36px rgba(255, 140, 60, 0.12);
+	border: 1px solid rgba(255, 200, 150, 0.06);
+	width: min(320px, calc(100vw - 48px)); /* responsive width */
+	max-width: 320px;
+	font-weight: 500;
+	line-height: 1.3;
+	transform-origin: right bottom;
+	transform-style: preserve-3d;
+	backface-visibility: hidden;
+	animation: notif-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+	will-change: transform, opacity;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	transition: transform 320ms cubic-bezier(0.16, 0.84, 0.23, 1), opacity 240ms ease, filter 240ms ease, box-shadow 240ms ease;
+}
+
+.notification-card:hover {
+	transform: translateZ(0) scale(1.01);
+	box-shadow: 0 22px 48px rgba(6, 6, 6, 0.28);
+}
+
+.notif-row {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+}
+
+.notif-icon-wrap {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 44px;
+	height: 44px;
+	border-radius: 10px;
+	flex: 0 0 44px;
+	color: rgb(255, 185, 115);
+	background: linear-gradient(180deg, rgba(255, 185, 115, 0.06), rgba(255, 160, 90, 0.02));
+}
+
+.notif-icon {
+	display: block;
+	color: inherit;
+}
+
+.notif-body {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
+}
+
+.notif-message {
+	font-size: 14px;
+	color: #fff8f4;
+	margin-bottom: 0;
+}
+
+.notif-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 2px;
+}
+
+.notif-action {
+	border: none;
+	background: rgba(255, 185, 115, 0.12);
+	color: #ffe7c8;
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	border-radius: 999px;
+	padding: 5px 14px;
+	transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+	cursor: pointer;
+	box-shadow: inset 0 0 0 1px rgba(255, 185, 115, 0.25);
+}
+
+.notif-action:hover,
+.notif-action:focus-visible {
+	background: rgba(255, 185, 115, 0.3);
+	color: #140f0c;
+	box-shadow: inset 0 0 0 1px rgba(255, 185, 115, 0.45);
+	outline: none;
+}
+
+.notif-action.primary {
+	background: rgba(255, 204, 153, 0.95);
+	color: #2f1e16;
+	box-shadow: inset 0 0 0 1px rgba(255, 185, 115, 0.48), 0 10px 28px rgba(255, 185, 115, 0.35);
+}
+
+.notif-action.primary:hover,
+.notif-action.primary:focus-visible {
+	background: rgba(255, 220, 182, 1);
+	box-shadow: inset 0 0 0 1px rgba(255, 185, 115, 0.6), 0 14px 32px rgba(255, 185, 115, 0.45);
+}
+
+.notif-action.ghost {
+	background: rgba(255, 185, 115, 0.14);
+}
+
+.notif-meta {
+	font-size: 12px;
+	color: rgba(255, 224, 208, 0.65);
+}
+
+.notif-progress {
+	height: 4px;
+	background: linear-gradient(90deg, rgba(255, 185, 115, 0.95), rgba(255, 140, 60, 0.9));
+	transform-origin: left center;
+	animation-name: progress;
+	animation-timing-function: linear;
+	animation-fill-mode: forwards;
+}
+
+@keyframes progress {
+	from {
+		transform: scaleX(1);
+	}
+	to {
+		transform: scaleX(0);
+	}
+}
+
+@keyframes notif-in {
+	0% {
+		opacity: 0;
+		transform: translate3d(0, 18px, 0) scale(0.985);
+	}
+	60% {
+		opacity: 1;
+		transform: translate3d(0, -6px, 0) scale(1.02);
+	}
+	100% {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+}
+
+/* subtle exit hint when the card is removed — rely on transition for smoothness */
+.notification-card[data-exiting="true"] {
+	opacity: 0;
+	transform: translate3d(0, 8px, 0) scale(0.995);
+}
+
+.notification-card:hover .notif-progress,
+.notification-card:focus-within .notif-progress,
+.notification-card[data-paused="true"] .notif-progress {
+	animation-play-state: paused;
+}
+
+/* Variant / category colors */
+/* base variant placeholders (colors are applied on .notif-progress and icon-wrap per category) */
+
+.notification-card.coffee .notif-icon-wrap {
+	color: rgb(216, 174, 131);
+	background: linear-gradient(180deg, rgba(216, 174, 131, 0.06), rgba(150, 110, 80, 0.02));
+}
+.notification-card.machine .notif-icon-wrap {
+	/* make machine notifications visually consistent with coffee notifications */
+	color: rgb(216, 174, 131);
+	background: linear-gradient(180deg, rgba(216, 174, 131, 0.06), rgba(150, 110, 80, 0.02));
+}
+.notification-card.subscription .notif-icon-wrap {
+	color: rgb(180, 155, 210);
+	background: linear-gradient(180deg, rgba(180, 155, 210, 0.04), rgba(120, 90, 160, 0.02));
+}
+.notification-card.account .notif-icon-wrap {
+	color: rgb(120, 200, 160);
+	background: linear-gradient(180deg, rgba(120, 200, 160, 0.04), rgba(80, 140, 100, 0.02));
+}
+.notification-card.bag .notif-icon-wrap {
+	color: rgb(255, 210, 150);
+	background: linear-gradient(180deg, rgba(255, 210, 150, 0.06), rgba(180, 140, 90, 0.02));
+}
+.notification-card.payment .notif-icon-wrap {
+	color: rgb(150, 200, 255);
+	background: linear-gradient(180deg, rgba(150, 200, 255, 0.05), rgba(70, 110, 180, 0.02));
+}
+
+.notification-card.success .notif-progress {
+	background: linear-gradient(90deg, rgba(120, 200, 110, 0.95), rgba(60, 160, 60, 0.9));
+}
+.notification-card.error .notif-progress {
+	background: linear-gradient(90deg, rgba(255, 100, 100, 0.95), rgba(200, 80, 80, 0.9));
+}
+.notification-card.info .notif-progress {
+	background: linear-gradient(90deg, rgba(255, 185, 115, 0.95), rgba(255, 140, 60, 0.9));
+}

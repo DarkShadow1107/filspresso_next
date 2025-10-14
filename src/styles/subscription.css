@@ -1,0 +1,217 @@
+.subscription-page {
+	position: relative;
+	box-sizing: border-box;
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	padding: clamp(5.5rem, 12vh, 7.5rem) clamp(1.5rem, 4vw, 3rem) clamp(5.5rem, 13vh, 7.5rem);
+	background-image: url("/images/nespresso-banner.jpg");
+	background-size: cover;
+	background-position: center;
+	color: #ddd;
+	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+}
+
+.subscription-page::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.6);
+	backdrop-filter: blur(10px);
+	z-index: 0;
+}
+
+.subscription-page .content {
+	position: relative;
+	z-index: 1;
+	width: 100%;
+	max-width: 80rem;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: clamp(2.75rem, 7vh, 4.25rem);
+}
+
+.subscription-page .main_heading {
+	font-weight: 600;
+	font-size: 2.25em;
+	text-align: center;
+	margin: 0;
+	color: #eceff1;
+	letter-spacing: 0.06em;
+}
+
+.subscription-page .cards {
+	position: relative;
+	width: 100%;
+	--opacity: 0;
+	--x: 50%;
+	--y: 50%;
+}
+
+.subscription-page .cards_inner {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2.25em;
+	justify-content: center;
+}
+
+.subscription-page .cards_inner > .card {
+	--flow-space: 0.5em;
+	--hsl: var(--hue), var(--saturation), var(--lightness);
+	flex: 1 1 14rem;
+	width: min(25rem, 100%);
+	min-height: 28rem;
+	padding: 1.5em 2em;
+	display: grid;
+	grid-template-rows: auto auto auto 1fr;
+	align-items: start;
+	gap: 1.25em;
+	color: #eceff1;
+	background-color: rgba(0, 0, 0, 0.725);
+	backdrop-filter: blur(10px);
+	box-shadow: 0 0 40px rgba(8, 7, 16, 0.6);
+	border-radius: 15px;
+	border: 1px solid rgba(253, 202, 136, 0.12);
+	transition: 500ms background ease;
+}
+
+.subscription-page .cards_inner > .card:nth-child(1) {
+	--hue: 165;
+	--saturation: 82.26%;
+	--lightness: 51.37%;
+}
+
+.subscription-page .cards_inner > .card:nth-child(2) {
+	--hue: 291.34;
+	--saturation: 95.9%;
+	--lightness: 61.76%;
+}
+
+.subscription-page .cards_inner > .card:nth-child(3) {
+	--hue: 338.69;
+	--saturation: 100%;
+	--lightness: 48.04%;
+}
+
+.subscription-page .cards_inner > .card:hover {
+	background-color: rgba(9, 9, 9, 0.525);
+	backdrop-filter: blur(15px);
+}
+
+.subscription-page .card_heading {
+	font-size: 2.05em;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	margin: 0;
+	color: rgb(253, 224, 208);
+}
+
+.subscription-page .card_price {
+	font-size: 2.05em;
+	font-weight: 700;
+	margin: 0;
+	color: rgb(251, 185, 92);
+}
+
+.subscription-page .card_bullets {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+	line-height: 1.4;
+	font-size: 1.05rem;
+	color: rgba(248, 220, 204, 0.9);
+}
+
+.subscription-page .card_bullets li + li {
+	margin-top: 0.75rem;
+}
+
+.subscription-page .card_bullets li::before {
+	content: url("/svg.svg");
+	display: inline-block;
+	transform: translateY(0.25ch);
+	margin-right: 1ch;
+}
+
+.subscription-page .cta {
+	align-self: end;
+	margin: 1em 0 0.5em 0;
+	width: 100%;
+	text-align: center;
+	text-decoration: none;
+	cursor: pointer;
+	color: #fff;
+	background-color: #0d0d0d;
+	padding: 0.7em;
+	border-radius: 10px;
+	border: 1px solid rgba(253, 202, 136, 0.095);
+	font-size: 1.15rem;
+	font-weight: 600;
+	transition: 0.35s background ease, 0.35s box-shadow ease;
+}
+
+.subscription-page .cta:hover,
+.subscription-page .cta:focus-visible {
+	background-color: rgba(36, 37, 48, 0.74);
+	box-shadow: 0 16px 30px rgba(140, 135, 135, 0.25);
+	outline: none;
+}
+
+.subscription-page .cta:focus-visible {
+	outline: 2px solid rgba(253, 202, 136, 0.8);
+	outline-offset: 2px;
+}
+
+.subscription-page .overlay {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	user-select: none;
+	opacity: var(--opacity);
+	mask: radial-gradient(25rem 25rem at var(--x) var(--y), #000 3%, transparent 55%);
+	-webkit-mask: radial-gradient(25rem 25rem at var(--x) var(--y), #000 3%, transparent 55%);
+	transition: 0.4s mask ease, 0.25s opacity ease;
+	will-change: mask;
+}
+
+.subscription-page .overlay .card {
+	background-color: hsla(var(--hsl), 0.2);
+	border-color: hsla(var(--hsl), 1);
+	box-shadow: 0 0 0 1px inset hsl(var(--hsl));
+	filter: drop-shadow(0 0 40px rgba(8, 7, 16, 0.6));
+}
+
+.subscription-page .overlay .cta {
+	display: block;
+	grid-row: -1;
+	width: 100%;
+	background-color: hsl(var(--hsl));
+	box-shadow: 0 0 0 1px inset hsl(var(--hsl));
+	color: #0d0d0d;
+}
+
+.subscription-page .overlay .card:nth-child(1) {
+	--hsl: 165, 82.26%, 51.37%;
+}
+
+.subscription-page .overlay .card:nth-child(2) {
+	--hsl: 291.34, 95.9%, 61.76%;
+}
+
+.subscription-page .overlay .card:nth-child(3) {
+	--hsl: 338.69, 100%, 48.04%;
+}
+
+@media (max-width: 640px) {
+	.subscription-page {
+		padding: clamp(4.25rem, 15vh, 5.5rem) 1rem clamp(4.5rem, 16vh, 6rem);
+	}
+
+	.subscription-page .cards_inner > .card {
+		min-height: 26rem;
+	}
+}

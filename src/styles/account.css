@@ -1,0 +1,390 @@
+.account-page {
+	position: relative;
+	color: rgb(255, 244, 235);
+	background-image: url("/images/coffee_account.avif");
+	background-repeat: no-repeat;
+	background-size: cover;
+	background-position: center;
+	background-attachment: fixed;
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	box-sizing: border-box;
+	padding: clamp(1.91rem, 4.19vw, 2.98rem) clamp(1.4rem, 2.79vw, 2.28rem) clamp(1.91rem, 3.5vw, 2.79rem);
+}
+
+.account-page a {
+	cursor: pointer;
+	transition: all 200ms linear;
+}
+
+.account-page a:hover {
+	text-decoration: none;
+}
+
+.account-page .font {
+	font-family: var(--font-poppins), sans-serif !important;
+}
+
+.account-page .margin {
+	margin-top: clamp(1rem, 2.5vh, 2rem);
+	margin-bottom: clamp(0rem, 1.2vh, 0.5rem);
+}
+.account-page .mt-2 {
+	margin-top: 0.75rem;
+}
+.account-page .mt-4 {
+	margin-top: 1.5rem;
+}
+.account-page .mb-0 {
+	margin-bottom: 0;
+}
+.account-page .mb-4 {
+	margin-bottom: 1.5rem;
+}
+
+.account-page .font_sizing {
+	font-size: 15px;
+	font-weight: 300;
+	line-height: 1.7;
+}
+
+.account-page .link {
+	color: #fff;
+}
+
+.account-page .link:hover {
+	color: rgb(255, 185, 115);
+}
+
+.account-page p {
+	font-weight: 500;
+	font-size: 14px;
+	line-height: 1.7;
+}
+
+.account-page h4 {
+	font-weight: 600 !important;
+	font-family: var(--font-poppins), sans-serif !important;
+	font-size: 1.65rem;
+}
+
+.account-page h6 span {
+	padding: 0 20px;
+	text-transform: uppercase;
+	font-weight: 700;
+}
+
+.account-page .section {
+	position: relative;
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	min-height: 100%;
+}
+
+.account-page .row.full-height {
+	min-height: 100%;
+	align-items: center;
+}
+
+.account-page [type="checkbox"]:checked,
+.account-page [type="checkbox"]:not(:checked) {
+	position: absolute;
+	left: -9999px;
+}
+
+.account-page .checkbox:checked + label,
+.account-page .checkbox:not(:checked) + label {
+	position: relative;
+	display: block;
+	text-align: center;
+	width: 60px;
+	height: 16px;
+	border-radius: 8px;
+	margin: 10px auto;
+	cursor: pointer;
+	background-color: rgba(0, 0, 0, 0.374);
+}
+
+.account-page .checkbox:checked + label:before,
+.account-page .checkbox:not(:checked) + label:before {
+	position: absolute;
+	display: block;
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	color: rgb(255, 185, 115);
+	background-color: rgba(0, 0, 0, 0.438);
+	font-family: "unicons";
+	content: "\eb4f";
+	z-index: 20;
+	top: -10px;
+	left: -10px;
+	line-height: 36px;
+	text-align: center;
+	font-size: 24px;
+	transition: all 0.5s ease;
+}
+
+.account-page .checkbox:checked + label:before {
+	transform: translateX(44px) rotate(-270deg);
+}
+
+.account-page .card-3d-wrap {
+	position: relative;
+	width: min(440px, 100%);
+	height: 400px;
+	transform-style: preserve-3d;
+	perspective: 800px;
+	margin-top: clamp(0.25rem, 1vh, 0.75rem);
+}
+
+.account-page .card-3d-wrapper {
+	width: 100%;
+	height: 100%;
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform-style: preserve-3d;
+	transition: all 600ms ease-out;
+}
+
+.account-page .card-front,
+.account-page .card-back {
+	width: 100%;
+	height: 100%;
+	background-color: rgba(0, 0, 0, 0.374);
+	backdrop-filter: blur(16px);
+	position: absolute;
+	border-radius: 10px;
+	left: 0;
+	top: 0;
+	transform-style: preserve-3d;
+	backface-visibility: hidden;
+}
+
+.account-page .card-back {
+	transform: rotateY(180deg);
+}
+
+.account-page .checkbox:checked ~ .card-3d-wrap .card-3d-wrapper {
+	transform: rotateY(180deg);
+}
+
+.account-page .center-wrap {
+	position: absolute;
+	width: 100%;
+	padding: 0 35px;
+	top: 50%;
+	left: 0;
+	transform: translate3d(0, -50%, 35px) perspective(100px);
+	z-index: 20;
+	display: block;
+}
+
+.account-page .form-group {
+	position: relative;
+	display: block;
+	margin: 0;
+	padding: 0;
+	width: 100%;
+}
+
+.account-page .form-group + .form-group {
+	margin-top: clamp(1rem, 2vh, 1.5rem);
+}
+
+.account-page .form-style {
+	padding: 13px 48px 13px 55px;
+	height: 48px;
+	width: 100%;
+	max-width: 480px;
+	box-sizing: border-box;
+	margin-left: -10%;
+	margin-right: -10%;
+	font-weight: 500;
+	border-radius: 8px;
+	font-size: 14px;
+	line-height: 22px;
+	letter-spacing: 0.5px;
+	outline: none;
+	color: #c4c3ca;
+	background-color: rgba(16, 16, 17, 0.442);
+	border: none;
+	transition: all 200ms linear;
+	box-shadow: 0 4px 8px 0 rgba(21, 21, 21, 0.2);
+}
+
+.account-page .form-style:focus,
+.account-page .form-style:active {
+	border: none;
+	outline: none;
+	box-shadow: 0 4px 8px 0 rgba(21, 21, 21, 0.2);
+}
+
+.account-page .input-icon {
+	position: absolute;
+	top: 0;
+	left: 18px;
+	height: 48px;
+	font-size: 24px;
+	line-height: 48px;
+	text-align: left;
+	color: rgb(255, 185, 115);
+	transition: all 200ms linear;
+}
+
+.account-page .input-toggle {
+	position: absolute;
+	right: 14px;
+	top: 8px;
+	height: 32px;
+	width: 36px;
+	border: none;
+	background: transparent;
+	color: rgb(255, 185, 115);
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 18px;
+	padding: 0;
+	border-radius: 6px;
+	transition: color 150ms ease;
+}
+
+.account-page .input-toggle:focus,
+.account-page .input-toggle:hover {
+	color: rgb(255, 224, 208);
+	outline: none;
+}
+
+.account-page .form-group input::placeholder {
+	color: #c4c3ca;
+	opacity: 0.7;
+	transition: all 200ms linear;
+}
+
+.account-page .form-group input:focus::placeholder {
+	opacity: 0;
+}
+
+.account-page .btn {
+	border-radius: 8px;
+	height: 44px;
+	font-size: 13px;
+	font-weight: 600;
+	text-transform: uppercase;
+	transition: all 200ms linear;
+	padding: 0 30px;
+	width: 30%;
+	letter-spacing: 1px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	border: none;
+	background-color: rgba(223, 172, 120, 0.938);
+	color: #1b1b20;
+	box-shadow: 0 8px 24px 0 rgba(226, 153, 26, 0.214);
+	cursor: pointer;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+.account-page .btn:active,
+.account-page .btn:focus,
+.account-page .btn:hover {
+	background-color: rgba(36, 37, 48, 0.556);
+	color: rgb(255, 179, 103);
+	box-shadow: 0 8px 24px 0 rgba(140, 135, 135, 0.2);
+}
+
+.account-page .container {
+	max-width: 960px;
+	margin: 0 auto;
+	padding: 0 1.5rem;
+}
+
+.account-page .row {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+}
+
+.account-page .col-12 {
+	flex: 0 0 100%;
+	max-width: 100%;
+}
+
+.account-page .py-5 {
+	padding-top: clamp(1.75rem, 4vw, 2.5rem);
+	padding-bottom: clamp(1.5rem, 3.5vw, 2.25rem);
+}
+
+.account-page .pt-5 {
+	padding-top: 3rem;
+}
+
+.account-page .pb-5 {
+	padding-bottom: 3rem;
+}
+
+.account-page .pb-3 {
+	padding-bottom: 1rem;
+}
+
+.account-page .pt-sm-2 {
+	padding-top: 1rem;
+}
+
+.account-page .mx-auto {
+	margin-left: auto;
+	margin-right: auto;
+}
+
+.account-page .text-center {
+	text-align: center;
+}
+
+.account-page .align-self-center {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+}
+
+@media (min-width: 1440px) {
+	.account-page {
+		background-position: center top;
+		padding: clamp(2.42rem, 3.5vw, 3.87rem) clamp(2.09rem, 4.19vw, 3.5rem) clamp(2.28rem, 4.19vw, 3.31rem);
+	}
+}
+
+@media (max-width: 1024px) {
+	.account-page {
+		background-attachment: scroll;
+		padding: clamp(1.77rem, 4.88vw, 2.6rem) clamp(1.03rem, 4.19vw, 2.1rem) clamp(1.59rem, 4.56vw, 2.42rem);
+	}
+}
+
+@media (max-width: 640px) {
+	.account-page {
+		justify-content: center;
+		padding: clamp(1.21rem, 9.78vw, 1.91rem) clamp(0.7rem, 6.29vw, 1.21rem) clamp(1.4rem, 7.68vw, 1.91rem);
+	}
+	.account-page .card-3d-wrap {
+		margin-top: 8px;
+	}
+	.account-page .form-style {
+		width: 110%;
+		max-width: 420px;
+		margin-left: -5%;
+		margin-right: -5%;
+	}
+}

@@ -1,0 +1,21 @@
+"use client";
+
+import type { PropsWithChildren } from "react";
+import { usePathname } from "next/navigation";
+import Navbar from "@/components/Navbar";
+
+export default function LayoutChrome({ children }: PropsWithChildren) {
+	const pathname = usePathname();
+	const hideNavbar = typeof pathname === "string" && pathname.startsWith("/payment");
+
+	return (
+		<>
+			{!hideNavbar ? <Navbar /> : null}
+			{children}
+			{/* Scroll to top button */}
+			<div id="scroll-to-top-portal">
+				{typeof window !== "undefined" && require("@/components/ScrollToTopButton").default()}
+			</div>
+		</>
+	);
+}

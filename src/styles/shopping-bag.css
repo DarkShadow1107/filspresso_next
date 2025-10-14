@@ -1,0 +1,155 @@
+.shopping-bag-page {
+	position: relative;
+	min-height: calc(100vh - 12vh);
+	padding-bottom: clamp(3rem, 8vw, 7rem);
+}
+
+.shopping-bag-page .bag_pres img {
+	margin-top: 12vh;
+	margin-left: 25%;
+	margin-right: 25%;
+	width: 50%;
+	height: auto;
+	display: block;
+	object-fit: cover;
+}
+
+.shopping-bag-page #total {
+	position: relative;
+	margin-top: clamp(1.5rem, 6vh, 3.5rem);
+	margin-bottom: clamp(2rem, 6vh, 4rem);
+	color: rgb(250, 204, 144);
+	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+}
+
+.shopping-bag-page #resultDiv {
+	padding: 5px;
+	font-size: 23px;
+	margin-left: 2%;
+	width: 42%;
+	background-color: transparent;
+}
+
+.shopping-bag-page #resetButton {
+	float: right;
+	padding: 7px;
+	width: 16%;
+	font-size: 23px;
+	transform: translateY(-40px);
+	cursor: pointer;
+	margin-right: 2%;
+	color: rgb(250, 204, 144);
+	border: none;
+	border-radius: 30px;
+	background-color: rgba(200, 151, 123, 0.233);
+	transition: background-color 0.6s ease, color 0.6s ease, box-shadow 0.6s ease;
+	font-family: inherit;
+}
+
+.shopping-bag-page #resetButton:hover,
+.shopping-bag-page #resetButton:focus-visible,
+.shopping-bag-page #placeOrderButton:hover,
+.shopping-bag-page #placeOrderButton:focus-visible {
+	background-color: rgba(36, 37, 48, 0.556);
+	color: rgb(255, 179, 103);
+	box-shadow: 0 8px 24px 0 rgba(140, 135, 135, 0.2);
+	outline: none;
+}
+
+.shopping-bag-page #resetButton:focus-visible,
+.shopping-bag-page #placeOrderButton:focus-visible {
+	outline: 2px solid rgba(255, 179, 103, 0.65);
+	outline-offset: 2px;
+}
+
+.shopping-bag-page .itemListBag {
+	border-radius: 10px;
+	width: 45%;
+	margin-bottom: 1%;
+	transform: translateY(12%);
+	border: 1px solid rgb(253, 202, 136);
+	margin-left: 2%;
+	padding: 1.25rem 1.5rem;
+	background-color: rgba(0, 0, 0, 0.15);
+	font-size: 19px;
+	line-height: 1.6;
+}
+
+.shopping-bag-page .itemListBag ul {
+	margin: 0;
+	padding-left: 1.25rem;
+	list-style: decimal;
+}
+
+.shopping-bag-page .itemListBag li {
+	margin-bottom: 0.75rem;
+}
+
+.shopping-bag-page .itemListBag li:last-child {
+	margin-bottom: 0;
+}
+
+.shopping-bag-page #placeOrderButton {
+	float: right;
+	/* slightly larger bottom padding for a better touch target */
+	padding: 7px;
+	width: 13%;
+	font-size: 23px;
+	cursor: pointer;
+	position: absolute;
+	left: 43.5%;
+	margin-bottom: 1.2%;
+	margin-top: 1.2%;
+	transform: translateY(80%);
+	color: rgb(250, 204, 144);
+	border: none;
+	border-radius: 30px;
+	background-color: rgba(200, 151, 123, 0.233);
+	transition: background-color 0.6s ease, color 0.6s ease, box-shadow 0.6s ease;
+	font-family: inherit;
+}
+
+@media (max-width: 980px) {
+	.shopping-bag-page #resultDiv,
+	.shopping-bag-page .itemListBag,
+	.shopping-bag-page #resetButton,
+	.shopping-bag-page #placeOrderButton {
+		width: auto;
+	}
+
+	.shopping-bag-page #resultDiv {
+		width: 100%;
+	}
+
+	.shopping-bag-page #resetButton {
+		float: none;
+		transform: none;
+		display: inline-flex;
+		margin: 1rem 0 0 2%;
+		width: auto;
+		padding: 7px 24px;
+		font-size: 20px;
+	}
+
+	.shopping-bag-page .itemListBag {
+		width: calc(100% - 4%);
+		transform: none;
+	}
+
+	.shopping-bag-page #placeOrderButton {
+		position: static;
+		transform: none;
+		float: none;
+		display: inline-flex;
+		margin: 1.5rem auto 0 auto;
+		width: clamp(220px, 60%, 320px);
+		justify-content: center;
+		padding: 10px 20px 14px 20px;
+	}
+
+	.shopping-bag-page .bag_pres img {
+		margin-left: auto;
+		margin-right: auto;
+		width: 90%;
+	}
+}

@@ -1,0 +1,3252 @@
+[
+  {
+    "id": "original",
+    "title": "Original",
+    "groups": [
+      {
+        "title": "Édition Limitée",
+        "dimmer": "25 ml - 110 ml",
+        "description": "Variétés uniques disponibles pour une durée limitée.",
+        "products": [
+          {
+            "id": "dharkan",
+            "name": "Dharkan",
+            "description": "Notes de torréfaction intense et de cacao.",
+            "image": "images/Capsules/Original/Limited Edition/Dharkan.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 11,
+            "priceText": "55,00 RON",
+            "priceRon": 55,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Torréfaction",
+              "Intense",
+              "Cacao"
+            ]
+          },
+          {
+            "id": "espresso-noir-festif",
+            "name": "Espresso noir festif",
+            "description": "Notes boisées et épicées.",
+            "image": "images/Capsules/Original/Limited Edition/Festive Black Espresso.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "47,50 RON",
+            "priceRon": 47.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Boisées",
+              "Épicées"
+            ]
+          },
+          {
+            "id": "-pices-d-lices-de-saison",
+            "name": "Épices délices de saison",
+            "description": "Arôme naturel de vin et d'épices.",
+            "image": "images/Capsules/Original/Limited Edition/Seasonal Delight Spices.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "47,50 RON",
+            "priceRon": 47.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Vin",
+              "Épices"
+            ]
+          },
+          {
+            "id": "no20",
+            "name": "No20",
+            "description": "Un café d'exception aux notes fraîches d'agrumes, cultivé au cœur d'un terroir montagneux et luxuriant.",
+            "image": "images/Capsules/Original/Limited Edition/No20.avif",
+            "imageStyle": "scale: 0.9; margin-top: 0;",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "135,00 RON",
+            "priceRon": 135,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Exception",
+              "Fraîches",
+              "Agrumes",
+              "Cultivé"
+            ]
+          },
+          {
+            "id": "galapagos",
+            "name": "Galapagos",
+            "description": "Un café rare, cultivé sur des sols riches en biodiversité.",
+            "image": "images/Capsules/Original/Limited Edition/Galapagos.avif",
+            "imageStyle": "scale: 0.9; margin-top: 0;",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "80,00 RON",
+            "priceRon": 80,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Rare",
+              "Cultivé",
+              "Sols",
+              "Riches"
+            ]
+          },
+          {
+            "id": "hawaii-kona",
+            "name": "Hawaii Kona",
+            "description": "Un café très rare cultivé sur les pentes d'un volcan.",
+            "image": "images/Capsules/Original/Limited Edition/Hawaii Kona.avif",
+            "imageStyle": "scale: 0.95; margin-top: 0;",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "80,00 RON",
+            "priceRon": 80,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Très",
+              "Rare",
+              "Cultivé",
+              "Pentes"
+            ]
+          },
+          {
+            "id": "almond-croissant-flavor",
+            "name": "Almond Croissant Flavor",
+            "description": "Un café au goût naturel d'amande et de vanille, avec des notes de caramel.",
+            "image": "images/Capsules/Original/Limited Edition/Almond Croissant Flavour.avif",
+            "imageStyle": "scale: 0.9; margin-top: 0;",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "67,50 RON",
+            "priceRon": 67.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_3",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Amande",
+              "Vanille",
+              "Caramel"
+            ]
+          },
+          {
+            "id": "peanut-and-roasted-sesame-flavour",
+            "name": "Peanut and Roasted Sesame Flavour",
+            "description": "Un café au goût naturel de cacahuète et de sésame torréfié.",
+            "image": "images/Capsules/Original/Limited Edition/Peanut and Roasted Sesame Flavour.avif",
+            "imageStyle": "scale: 0.9; margin-top: 0;",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "67,50 RON",
+            "priceRon": 67.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_3",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Cacahuète",
+              "Sésame",
+              "Torréfié"
+            ]
+          },
+          {
+            "id": "unforgettable-espresso",
+            "name": "Unforgettable Espresso",
+            "description": "Un café intense aux notes de céréales toastées et boisées.",
+            "image": "images/Capsules/Original/Limited Edition/Unforgettable Espresso.avif",
+            "imageStyle": "scale: 0.9; margin-top: 0;",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "67,50 RON",
+            "priceRon": 67.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Intense",
+              "Céréales",
+              "Toastées",
+              "Boisées"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Espresso",
+        "dimmer": "25 ml - 40 ml",
+        "description": "Expérience Espresso authentique, avec différentes intensités et notes aromatiques.",
+        "products": [
+          {
+            "id": "capriccio",
+            "name": "Capriccio",
+            "description": "Un café affirmé, avec une fine acidité. Notes de céréales.",
+            "image": "images/Capsules/Original/Espresso/Capriccio.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 11,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Affirmé",
+              "Fine",
+              "Acidité",
+              "Céréales"
+            ]
+          },
+          {
+            "id": "cosi",
+            "name": "Cosi",
+            "description": "Équilibré et délicatement torréfié.",
+            "image": "images/Capsules/Original/Espresso/Cosi.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Équilibré",
+              "Délicatement",
+              "Torréfié"
+            ]
+          },
+          {
+            "id": "volutto",
+            "name": "Volutto",
+            "description": "Doux et léger avec des notes de céréales et de fruits.",
+            "image": "images/Capsules/Original/Espresso/Volluto.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 10,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Doux",
+              "Léger",
+              "Céréales",
+              "Fruits"
+            ]
+          },
+          {
+            "id": "volutto-decaffeinato",
+            "name": "Volutto Decaffeinato",
+            "description": "Doux et léger avec des notes de céréales et de fruits, décaféiné.",
+            "image": "images/Capsules/Original/Espresso/Volluto Decaffeinato.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 13,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Doux",
+              "Léger",
+              "Céréales",
+              "Fruits"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ispirazione Italiana",
+        "dimmer": "25 ml - 40 ml",
+        "description": "Une large gamme de capsules de café espresso et ristretto qui vous transporteront dans les villes emblématiques italiennes avec des cafés inspirés de la richesse de la tradition de torréfaction italienne.",
+        "products": [
+          {
+            "id": "kazaar",
+            "name": "Kazaar",
+            "description": "Intense et sirupeux - Notes intenses et épicées.",
+            "image": "images/Capsules/Original/Ispirazione Italiana/Kazaar.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 11,
+            "priceText": "22,00 RON",
+            "priceRon": 22,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Intense",
+              "Sirupeux",
+              "Intenses",
+              "Épicées"
+            ]
+          },
+          {
+            "id": "livanto",
+            "name": "Livanto",
+            "description": "Rond et équilibré - Notes caramel.",
+            "image": "images/Capsules/Original/Ispirazione Italiana/Livanto.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "22,00 RON",
+            "priceRon": 22,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Rond",
+              "Équilibré",
+              "Caramel"
+            ]
+          },
+          {
+            "id": "ristretto",
+            "name": "Ristretto",
+            "description": "Fort et contrasté - Notes grillées et fruitées.",
+            "image": "images/Capsules/Original/Ispirazione Italiana/Ristretto.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 10,
+            "priceText": "22,00 RON",
+            "priceRon": 22,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Fort",
+              "Contrasté",
+              "Grillées",
+              "Fruitées"
+            ]
+          },
+          {
+            "id": "inspirazione-napoli",
+            "name": "Inspirazione Napoli",
+            "description": "L’assortiment le plus intense – Notes de torréfaction et de cacao.",
+            "image": "images/Capsules/Original/Ispirazione Italiana/Ispirazione Napoli.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 13,
+            "priceText": "22,00 RON",
+            "priceRon": 22,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Assortiment",
+              "Plus",
+              "Intense",
+              "Torréfaction"
+            ]
+          },
+          {
+            "id": "inspirazione-roma",
+            "name": "Inspirazione Roma",
+            "description": "Plein et équilibré - Notes boisées et granuleuses.",
+            "image": "images/Capsules/Original/Ispirazione Italiana/Ispirazione Roma.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "22,00 RON",
+            "priceRon": 22,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Plein",
+              "Équilibré",
+              "Boisées",
+              "Granuleuses"
+            ]
+          },
+          {
+            "id": "inspirazione-venezia",
+            "name": "Inspirazione Venezia",
+            "description": "Equilibré et corsé - Notes caramel, céréales et florales.",
+            "image": "images/Capsules/Original/Ispirazione Italiana/Ispirazione Venezia.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "22,00 RON",
+            "priceRon": 22,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Equilibré",
+              "Corsé",
+              "Caramel",
+              "Céréales"
+            ]
+          },
+          {
+            "id": "arpeggio",
+            "name": "Arpeggio",
+            "description": "Intense et crémeux - Notes grillées et cacaotées.",
+            "image": "images/Capsules/Original/Ispirazione Italiana/Arpeggio.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "22,00 RON",
+            "priceRon": 22,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Intense",
+              "Crémeux",
+              "Grillées",
+              "Cacaotées"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Italian Explorations",
+        "dimmer": "25 ml - 40 ml",
+        "description": "Le goût inoubliable Nespresso, dans une capsule à base de papier.",
+        "products": [
+          {
+            "id": "ispirazione-palermo",
+            "name": "Ispirazione Palermo",
+            "description": "Un espresso corsé dans une capsule compostable.",
+            "image": "images/Capsules/Original/Italian Explorations/Ispirazione Palermo.avif",
+            "imageStyle": "scale: 0.8; margin-top: 0%;",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 11,
+            "priceText": "28,50 RON",
+            "priceRon": 28.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Corsé",
+              "Compostable"
+            ]
+          },
+          {
+            "id": "ispirazione-sicilia",
+            "name": "Ispirazione Sicilia",
+            "description": "Un café noir et intense dans une capsule compostable.",
+            "image": "images/Capsules/Original/Italian Explorations/Ispirazione Sicilia.avif",
+            "imageStyle": "scale: 0.8; margin-top: 0%",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "28,50 RON",
+            "priceRon": 28.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Noir",
+              "Intense",
+              "Compostable"
+            ]
+          },
+          {
+            "id": "ispirazione-aosta",
+            "name": "Ispirazione Aosta",
+            "description": "Un espresso doux et équilibré dans une capsule compostable.",
+            "image": "images/Capsules/Original/Italian Explorations/Ispirazione Aosta.avif",
+            "imageStyle": "scale: 0.8; margin-top: 0%",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 10,
+            "priceText": "28,50 RON",
+            "priceRon": 28.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Doux",
+              "Équilibré",
+              "Compostable"
+            ]
+          },
+          {
+            "id": "inspirazione-emilia",
+            "name": "Inspirazione Emilia",
+            "description": "Un espresso riche et intense dans une capsule compostable.",
+            "image": "images/Capsules/Original/Italian Explorations/Ispirazione Emilia.avif",
+            "imageStyle": "scale: 0.8; margin-top: 0%",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 13,
+            "priceText": "28,50 RON",
+            "priceRon": 28.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Riche",
+              "Intense",
+              "Compostable"
+            ]
+          },
+          {
+            "id": "decaffeinato",
+            "name": "Decaffeinato",
+            "description": "Un espresso décaféiné et intense dans une capsule compostable.",
+            "image": "images/Capsules/Original/Italian Explorations/Decaffeinato.avif",
+            "imageStyle": "scale: 0.8; margin-top: 0%",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "29,50 RON",
+            "priceRon": 29.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Décaféiné",
+              "Intense",
+              "Compostable"
+            ]
+          },
+          {
+            "id": "peru-organic",
+            "name": "Peru Organic",
+            "description": "Un café biologique dans une capsule compostable.",
+            "image": "images/Capsules/Original/Italian Explorations/Peru Organic.avif",
+            "imageStyle": "scale: 0.8; margin-top: 0%",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "32,00 RON",
+            "priceRon": 32,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Biologique",
+              "Compostable"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Créations Barista",
+        "dimmer": "25 ml - 110 ml",
+        "description": "Spécialement créé pour préparer de délicieuses recettes de café au lait à la maison.",
+        "products": [
+          {
+            "id": "caramello",
+            "name": "Caramello",
+            "description": "Arôme naturel de caramel et de biscuit.",
+            "image": "images/Capsules/Original/Barista Creations/Caramello.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Caramel",
+              "Biscuit"
+            ]
+          },
+          {
+            "id": "chiaro",
+            "name": "Chiaro",
+            "description": "Pour des recettes sucrées avec du lait.",
+            "image": "images/Capsules/Original/Barista Creations/Chiaro.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Recettes",
+              "Sucrées",
+              "Lait"
+            ]
+          },
+          {
+            "id": "cioccolatino",
+            "name": "Cioccolatino",
+            "description": "Arôme naturel de chocolat, céréales et biscuits.",
+            "image": "images/Capsules/Original/Barista Creations/Cioccolatino.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Chocolat",
+              "Céréales",
+              "Biscuits"
+            ]
+          },
+          {
+            "id": "corto",
+            "name": "Corto",
+            "description": "Pour des recettes intensives avec du lait.",
+            "image": "images/Capsules/Original/Barista Creations/Corto.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 10,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Recettes",
+              "Intensives",
+              "Lait"
+            ]
+          },
+          {
+            "id": "nocciola",
+            "name": "Nocciola",
+            "description": "Arôme naturel de noisettes et pralines.",
+            "image": "images/Capsules/Original/Barista Creations/Nocciola.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Noisettes",
+              "Pralines"
+            ]
+          },
+          {
+            "id": "scuro",
+            "name": "Scuro",
+            "description": "Pour des recettes équilibrées avec du lait.",
+            "image": "images/Capsules/Original/Barista Creations/Scuro.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 11,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Recettes",
+              "Équilibrées",
+              "Lait"
+            ]
+          },
+          {
+            "id": "vanille",
+            "name": "Vanille",
+            "description": "Arôme naturel de vanille, biscuit et céréales.",
+            "image": "images/Capsules/Original/Barista Creations/Vaniglia.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Vanille",
+              "Biscuit",
+              "Céréales"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Explorations du Monde",
+        "dimmer": "40 ml - 110 ml",
+        "description": "Des notes aromatiques uniques, propres aux villes fascinantes du monde entier.",
+        "products": [
+          {
+            "id": "buenos-aires-lungo",
+            "name": "Buenos Aires Lungo",
+            "description": "Doux et distinct - Notes céréalières.",
+            "image": "images/Capsules/Original/World Explorations/Buenos Aires Lungo.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 4,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Doux",
+              "Distinct",
+              "Céréalières"
+            ]
+          },
+          {
+            "id": "cape-town-lungo",
+            "name": "Cape Town Lungo",
+            "description": "Fort et amer - Notes boisées.",
+            "image": "images/Capsules/Original/World Explorations/Cape Town Lungo.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 10,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Fort",
+              "Amer",
+              "Boisées"
+            ]
+          },
+          {
+            "id": "istanbul-espresso",
+            "name": "Istanbul Espresso",
+            "description": "Une intersection de saveurs - Notes grillées légèrement fruitées.",
+            "image": "images/Capsules/Original/World Explorations/Istanbul Espresso.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "23,00 RON",
+            "priceRon": 23,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Intersection",
+              "Grillées",
+              "Légèrement",
+              "Fruitées"
+            ]
+          },
+          {
+            "id": "paris-espresso",
+            "name": "Paris Espresso",
+            "description": "Café Culture - Notes de céréales et de biscuits, avec un subtil arôme d'agrumes.",
+            "image": "images/Capsules/Original/World Explorations/Paris Espresso.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "23,00 RON",
+            "priceRon": 23,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Culture",
+              "Céréales",
+              "Biscuits",
+              "Subtil"
+            ]
+          },
+          {
+            "id": "rio-de-janeiro-espresso",
+            "name": "Rio de Janeiro Espresso",
+            "description": "Une palette aromatique complète - Notes d'herbes aromatiques.",
+            "image": "images/Capsules/Original/World Explorations/Rio de Janeiro Espresso.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "23,00 RON",
+            "priceRon": 23,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_3",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Palette",
+              "Aromatique",
+              "Complète",
+              "Herbes"
+            ]
+          },
+          {
+            "id": "shanghai-lungo",
+            "name": "Shanghai Lungo",
+            "description": "Fruité et onctueux - Notes de baies.",
+            "image": "images/Capsules/Original/World Explorations/Shanghai Lungo.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 5,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Fruité",
+              "Onctueux",
+              "Baies"
+            ]
+          },
+          {
+            "id": "stockholm-lungo",
+            "name": "Stockholm Lungo",
+            "description": "Raffiné et corsé - Notes de céréales sucrées et de malt.",
+            "image": "images/Capsules/Original/World Explorations/Stockholm Lungo.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Raffiné",
+              "Corsé",
+              "Céréales",
+              "Sucrées"
+            ]
+          },
+          {
+            "id": "tokyo-lungo",
+            "name": "Tokyo Lungo",
+            "description": "Gouttes d'élégance - Notes florales et fruitées.",
+            "image": "images/Capsules/Original/World Explorations/Tokyo Lungo.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Gouttes",
+              "Élégance",
+              "Florales",
+              "Fruitées"
+            ]
+          },
+          {
+            "id": "vienna-lungo",
+            "name": "Vienna Lungo",
+            "description": "Equilibré et raffiné - Notes de malt.",
+            "image": "images/Capsules/Original/World Explorations/Vienna Lungo.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "24,50 RON",
+            "priceRon": 24.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Equilibré",
+              "Raffiné",
+              "Malt"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Origines Principales",
+        "dimmer": "40 ml - 110 ml",
+        "description": "Une gamme de cafés d'origine unique et des méthodes de transformation spécifiques du café.",
+        "products": [
+          {
+            "id": "kahawa-ya-congo-organic",
+            "name": "Kahawa ya Congo Organic",
+            "description": "Café biologique doux et fruité. Notes de céréales grillées et noix.",
+            "image": "images/Capsules/Original/Master Origins/Kahawa ya Congo Organic.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "42,50 RON",
+            "priceRon": 42.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_3",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Biologique",
+              "Doux",
+              "Fruité",
+              "Céréales"
+            ]
+          },
+          {
+            "id": "zambia",
+            "name": "Zambia",
+            "description": "Un café inspiré par la gastronomie aux notes de fruits mürs et de céréales.",
+            "image": "images/Capsules/Original/Master Origins/Zambia.avif",
+            "imageStyle": "scale: 0.84; margin-top: 0;",
+            "servings": [
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "34,50 RON",
+            "priceRon": 34.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Inspiré",
+              "Gastronomie",
+              "Fruits",
+              "Mürs"
+            ]
+          },
+          {
+            "id": "colombia",
+            "name": "Colombia",
+            "description": "Aux Arabica récoltés tardivement - Notes de fruits rouges et de forêt.",
+            "image": "images/Capsules/Original/Master Origins/Colombia.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "24,90 RON",
+            "priceRon": 24.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Arabica",
+              "Récoltés",
+              "Tardivement",
+              "Fruits"
+            ]
+          },
+          {
+            "id": "ethiopia",
+            "name": "Ethiopia",
+            "description": "À l'Arabica de transformation tardive - Notes de fleur d'oranger et de confiture de fruits.",
+            "image": "images/Capsules/Original/Master Origins/Ethiopia.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 4,
+            "priceText": "24,90 RON",
+            "priceRon": 24.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_4",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Arabica",
+              "Transformation",
+              "Tardive",
+              "Fleur"
+            ]
+          },
+          {
+            "id": "india",
+            "name": "India",
+            "description": "Robusta exposé aux vents de mousson - Notes épicées.",
+            "image": "images/Capsules/Original/Master Origins/India.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 11,
+            "priceText": "24,90 RON",
+            "priceRon": 24.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Robusta",
+              "Exposé",
+              "Vents",
+              "Mousson"
+            ]
+          },
+          {
+            "id": "indonesia",
+            "name": "Indonesia",
+            "description": "Arabica pelé humide - Feuille de tabac et notes boisées.",
+            "image": "images/Capsules/Original/Master Origins/Indonesia.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "24,90 RON",
+            "priceRon": 24.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Arabica",
+              "Pelé",
+              "Humide",
+              "Feuille"
+            ]
+          },
+          {
+            "id": "nicaragua",
+            "name": "Nicaragua",
+            "description": "À l'Arabica \"Miel Noir\" - Notes sucrées de céréales.",
+            "image": "images/Capsules/Original/Master Origins/Nicaragua.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/espresso.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              },
+              {
+                "icon": "images/svg/lungo.svg",
+                "title": "Lungo",
+                "volume": "110 ml"
+              }
+            ],
+            "intensity": 5,
+            "priceText": "24,90 RON",
+            "priceRon": 24.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Arabica",
+              "Miel",
+              "Noir",
+              "Sucrées"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "vertuo",
+    "title": "Vertuo",
+    "groups": [
+      {
+        "title": "Édition Limitée",
+        "dimmer": "80 ml - 230 ml",
+        "description": "Variétés uniques disponibles pour une durée limitée.",
+        "products": [
+          {
+            "id": "white-chocolate-and-strawberry",
+            "name": "White Chocolate and Strawberry",
+            "description": "Un café aromatisé au délicat parfum de chocolat blanc et de fraise.",
+            "image": "images/Capsules/Vertuo/Limited Edition/White Chocolate and Strawberry.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "88,50 RON",
+            "priceRon": 88.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_3",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Aromatisé",
+              "Délicat",
+              "Parfum",
+              "Chocolat"
+            ]
+          },
+          {
+            "id": "peanut-and-roasted-sesame-flavour",
+            "name": "Peanut and Roasted Sesame Flavour",
+            "description": "Un café gourmand aromatisé au sésame grillé et à la cacahuète.",
+            "image": "images/Capsules/Vertuo/Limited Edition/Peanut and Roasted Sesame Flavour.avif",
+            "imageStyle": "margin-top: 0",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 11,
+            "priceText": "74,90 RON",
+            "priceRon": 74.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_3",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Gourmand",
+              "Aromatisé",
+              "Sésame",
+              "Grillé"
+            ]
+          },
+          {
+            "id": "almond-croissant-flavour",
+            "name": "Almond Croissant Flavour",
+            "description": "Un café aromatisé au doux parfum d’amande et de vanille, teinté de caramel.",
+            "image": "images/Capsules/Vertuo/Limited Edition/Almond Croissant Flavour.avif",
+            "imageStyle": "margin-top: 0",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "74,90 RON",
+            "priceRon": 74.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_3",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Aromatisé",
+              "Doux",
+              "Parfum",
+              "Amande"
+            ]
+          },
+          {
+            "id": "unforgettable-double-espresso",
+            "name": "Unforgettable Double Espresso",
+            "description": "Un café intense aux notes de céréales toastées et boisées.",
+            "image": "images/Capsules/Vertuo/Limited Edition/Unforgettable Double Espresso.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "74,90 RON",
+            "priceRon": 74.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Intense",
+              "Céréales",
+              "Toastées",
+              "Boisées"
+            ]
+          },
+          {
+            "id": "no20",
+            "name": "No20",
+            "description": "Un café d'exception aux notes fraîches d'agrumes, cultivé au coeur d'un terroir montagneux et luxuriant.​",
+            "image": "images/Capsules/Vertuo/Limited Edition/No20.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "155,00 RON",
+            "priceRon": 155,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Exception",
+              "Fraîches",
+              "Agrumes",
+              "Cultivé"
+            ]
+          },
+          {
+            "id": "hawaii-kona",
+            "name": "Hawaii Kona",
+            "description": "Un café très rare cultivé sur les pentes d'un volcan.",
+            "image": "images/Capsules/Vertuo/Limited Edition/Hawaii Kona VL.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "110,00 RON",
+            "priceRon": 110,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Très",
+              "Rare",
+              "Cultivé",
+              "Pentes"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Coffee+",
+        "dimmer": "80 ml - 230 ml",
+        "description": "Un café élaboré avec soin pour s'adapter à votre style de vie. Un goût emblématique avec des ingrédients ajoutés. Un café avec un petit plus.",
+        "products": [
+          {
+            "id": "ginseng-delight",
+            "name": "Ginseng Delight",
+            "description": "Café à l'extrait de ginseng et au caramel.",
+            "image": "images/Capsules/Vertuo/Coffee+/Ginseng Delight.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 5,
+            "priceText": "45,00 RON",
+            "priceRon": 45,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Extrait",
+              "Ginseng",
+              "Caramel"
+            ]
+          },
+          {
+            "id": "melozio-go",
+            "name": "Melozio Go",
+            "description": "Mélange doux et équilibré avec un boost de caféine.",
+            "image": "images/Capsules/Vertuo/Coffee+/Melozio Go.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "49,50 RON",
+            "priceRon": 49.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Mélange",
+              "Doux",
+              "Équilibré",
+              "Boost"
+            ]
+          },
+          {
+            "id": "stormio-go",
+            "name": "Stormio Go",
+            "description": "Mélange intense avec ajout de caféine.",
+            "image": "images/Capsules/Vertuo/Coffee+/Stormio Go.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "49,50 RON",
+            "priceRon": 49.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Mélange",
+              "Intense",
+              "Ajout",
+              "Caféine"
+            ]
+          },
+          {
+            "id": "vivida",
+            "name": "Vivida",
+            "description": "Céréales, sucrées et enrichiest.",
+            "image": "images/Capsules/Vertuo/Coffee+/Vivida.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "49,50 RON",
+            "priceRon": 49.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Céréales",
+              "Sucrées",
+              "Enrichiest"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Créations Barista",
+        "dimmer": "40 ml - 230 ml",
+        "description": "Inspirées par la créativité et l'expertise des baristas les plus qualifiés du monde, ces capsules de café sont spécialement créées pour préparer facilement des recettes de café à la maison.",
+        "products": [
+          {
+            "id": "bianco-doppio",
+            "name": "Bianco Doppio",
+            "description": "Notes fruitées et biscuits.",
+            "image": "images/Capsules/Vertuo/Barista Creation/Bianco Doppio.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "29,00 RON",
+            "priceRon": 29,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Fruitées",
+              "Biscuits"
+            ]
+          },
+          {
+            "id": "bianco-forte",
+            "name": "Bianco Forte",
+            "description": "Notes de torréfaction intense et de céréales.",
+            "image": "images/Capsules/Vertuo/Barista Creation/Bianco Forte.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 11,
+            "priceText": "33,90 RON",
+            "priceRon": 33.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Torréfaction",
+              "Intense",
+              "Céréales"
+            ]
+          },
+          {
+            "id": "bianco-piccolo",
+            "name": "Bianco Piccolo",
+            "description": "Notes de caramel et de biscuits.",
+            "image": "images/Capsules/Vertuo/Barista Creation/Bianco Piccolo.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "27,50 RON",
+            "priceRon": 27.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Caramel",
+              "Biscuits"
+            ]
+          },
+          {
+            "id": "caramel-dor-",
+            "name": "Caramel doré",
+            "description": "Arôme naturel de caramel et de biscuit.",
+            "image": "images/Capsules/Vertuo/Barista Creation/Golden Caramel.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "36,50 RON",
+            "priceRon": 36.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Caramel",
+              "Biscuit"
+            ]
+          },
+          {
+            "id": "chocolat-riche",
+            "name": "Chocolat riche",
+            "description": "Arôme naturel de chocolat.",
+            "image": "images/Capsules/Vertuo/Barista Creation/Rich Chocolate.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "36,50 RON",
+            "priceRon": 36.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Chocolat"
+            ]
+          },
+          {
+            "id": "noisettes-grill-es",
+            "name": "Noisettes grillées",
+            "description": "Arôme naturel de noisettes torréfiées, biscuits et caramel.",
+            "image": "images/Capsules/Vertuo/Barista Creation/Roasted Hazelnut.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "36,50 RON",
+            "priceRon": 36.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Noisettes",
+              "Torréfiées",
+              "Biscuits"
+            ]
+          },
+          {
+            "id": "vanille-douce",
+            "name": "Vanille Douce",
+            "description": "Arôme naturel de vanille et biscuits sucrés.",
+            "image": "images/Capsules/Vertuo/Barista Creation/Sweet Vanilla.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 10,
+            "priceText": "36,50 RON",
+            "priceRon": 36.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Vanille",
+              "Biscuits",
+              "Sucrés"
+            ]
+          },
+          {
+            "id": "vanille-douce-decaffeinato",
+            "name": "Vanille Douce Decaffeinato",
+            "description": "Arôme naturel de vanille et biscuits sucrés, décaféiné.",
+            "image": "images/Capsules/Vertuo/Barista Creation/Sweet Vanilla Decaffeinato.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 10,
+            "priceText": "38,00 RON",
+            "priceRon": 38,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Naturel",
+              "Vanille",
+              "Biscuits",
+              "Sucrés"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Espressos",
+        "dimmer": "25 ml - 40 ml",
+        "description": "Avec des intensités et des goûts différents, profitez d'instants café avec les assortiments Ristretto et Espresso Vertuo adaptés à toutes les occasions, qui sauront conquérir tous vos sens.",
+        "products": [
+          {
+            "id": "altissio",
+            "name": "Altissio",
+            "description": "Corsé et crémeux.",
+            "image": "images/Capsules/Vertuo/Espressos/Altissio.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto vl.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Corsé",
+              "Crémeux"
+            ]
+          },
+          {
+            "id": "diavolitto",
+            "name": "Diavolitto",
+            "description": "Très intense et puissant.",
+            "image": "images/Capsules/Vertuo/Espressos/Diavolitto.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto vl.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Très",
+              "Intense",
+              "Puissant"
+            ]
+          },
+          {
+            "id": "il-caff-",
+            "name": "Il caffè",
+            "description": "Particulièrement intense et velouté.",
+            "image": "images/Capsules/Vertuo/Espressos/Il caffe.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto vl.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Particulièrement",
+              "Intense",
+              "Velouté"
+            ]
+          },
+          {
+            "id": "orafio",
+            "name": "Orafio",
+            "description": "Caramel et frit.",
+            "image": "images/Capsules/Vertuo/Espressos/Orafio.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto vl.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "27,50 RON",
+            "priceRon": 27.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Caramel",
+              "Frit"
+            ]
+          },
+          {
+            "id": "ristretto-classico",
+            "name": "Ristretto Classico",
+            "description": "Notes de torréfaction intense et de baies.",
+            "image": "images/Capsules/Vertuo/Espressos/Ristretto Classico.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto vl.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Torréfaction",
+              "Intense",
+              "Baies"
+            ]
+          },
+          {
+            "id": "ristretto-intenso",
+            "name": "Ristretto Intenso",
+            "description": "Notes épicées et boisées.",
+            "image": "images/Capsules/Vertuo/Espressos/Ristretto Intenso.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto vl.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 11,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Épicées",
+              "Boisées"
+            ]
+          },
+          {
+            "id": "toccanto",
+            "name": "Toccanto",
+            "description": "Fruites de forêt et vin.",
+            "image": "images/Capsules/Vertuo/Espressos/Toccanto.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto vl.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Fruites",
+              "Forêt",
+              "Vin"
+            ]
+          },
+          {
+            "id": "voltesso",
+            "name": "Voltesso",
+            "description": "Léger et doux.",
+            "image": "images/Capsules/Vertuo/Espressos/Voltesso.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/ristretto vl.svg",
+                "title": "Ristretto",
+                "volume": "25 ml"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "25,50 RON",
+            "priceRon": 25.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Léger",
+              "Doux"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Double Espresso",
+        "dimmer": "80 ml",
+        "description": "Choisissez un Double Espresso parmi des mélanges intenses et audacieux, adaptés à votre moment café.",
+        "products": [
+          {
+            "id": "double-espresso-scuro",
+            "name": "Double Espresso Scuro",
+            "description": "Café à l'arôme intense et audacieux.",
+            "image": "images/Capsules/Vertuo/Double Espresso/Double Espresso Scuro.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 5,
+            "priceText": "35,00 RON",
+            "priceRon": 35,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Intense",
+              "Audacieux"
+            ]
+          },
+          {
+            "id": "double-espresso-dolce",
+            "name": "Double Espresso Dolce",
+            "description": "Café aux arômes de céréales et de malt.",
+            "image": "images/Capsules/Vertuo/Double Espresso/Double Espresso Dolce.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "35,00 RON",
+            "priceRon": 35,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Céréales",
+              "Malt"
+            ]
+          },
+          {
+            "id": "double-espresso-chiaro",
+            "name": "Double Espresso Chiaro",
+            "description": "Café à la texture dense et sauvage.",
+            "image": "images/Capsules/Vertuo/Double Espresso/Double Espresso Chiaro.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "35,00 RON",
+            "priceRon": 35,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Texture",
+              "Dense",
+              "Sauvage"
+            ]
+          },
+          {
+            "id": "double-espresso-chiaro-decaffeinato",
+            "name": "Double Espresso Chiaro Decaffeinato",
+            "description": "Accents boisés et notes de céréales grillées.",
+            "image": "images/Capsules/Vertuo/Double Espresso/Double Espresso Chiaro Decaffeinato.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "37,00 RON",
+            "priceRon": 37,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Accents",
+              "Boisés",
+              "Céréales",
+              "Grillées"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Gran Lungo",
+        "dimmer": "150 ml",
+        "description": "Prolongez le plaisir d'un expresso avec un Gran Lungo. Profitez encore un peu plus de votre expérience avec nos capsules de café grâce à ces mélanges audacieux.",
+        "products": [
+          {
+            "id": "inizio",
+            "name": "Inizio",
+            "description": "Floral et céréales.",
+            "image": "images/Capsules/Vertuo/Gran Lungo/Inizio.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/gran lungo.svg",
+                "title": "Gran Lungo",
+                "volume": "150 ml"
+              }
+            ],
+            "intensity": 5,
+            "priceText": "37,50 RON",
+            "priceRon": 37.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Floral",
+              "Céréales"
+            ]
+          },
+          {
+            "id": "arondio",
+            "name": "Arondio",
+            "description": "Céréales et doux.",
+            "image": "images/Capsules/Vertuo/Gran Lungo/Arondio.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/gran lungo.svg",
+                "title": "Gran Lungo",
+                "volume": "150 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "37,50 RON",
+            "priceRon": 37.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Céréales",
+              "Doux"
+            ]
+          },
+          {
+            "id": "fortado",
+            "name": "Fortado",
+            "description": "Intense et corsé.",
+            "image": "images/Capsules/Vertuo/Gran Lungo/Fortado.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/gran lungo.svg",
+                "title": "Gran Lungo",
+                "volume": "150 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "37,50 RON",
+            "priceRon": 37.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Intense",
+              "Corsé"
+            ]
+          },
+          {
+            "id": "fortado-decaffeinato",
+            "name": "Fortado Decaffeinato",
+            "description": "Intense et corsé, décaféiné.",
+            "image": "images/Capsules/Vertuo/Gran Lungo/Fortado Decaffeinato.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/gran lungo.svg",
+                "title": "Gran Lungo",
+                "volume": "150 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "39,00 RON",
+            "priceRon": 39,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Intense",
+              "Corsé",
+              "Décaféiné"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Tasse",
+        "dimmer": "230 ml",
+        "description": "Découvrez la variété des cafés signature dans une gamme de sensations intenses, équilibrées ou décaféinées conçues pour une expérience café prolongée.",
+        "products": [
+          {
+            "id": "half-caffeinato",
+            "name": "Half Caffeinato",
+            "description": "Doux et velouté.",
+            "image": "images/Capsules/Vertuo/Mug/Half Caffeinato.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 5,
+            "priceText": "33,00 RON",
+            "priceRon": 33,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Doux",
+              "Velouté"
+            ]
+          },
+          {
+            "id": "intenso",
+            "name": "Intenso",
+            "description": "Profond et dense.",
+            "image": "images/Capsules/Vertuo/Mug/Intenso.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "36,50 RON",
+            "priceRon": 36.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Profond",
+              "Dense"
+            ]
+          },
+          {
+            "id": "melozio",
+            "name": "Melozio",
+            "description": "Délicat et équilibré.",
+            "image": "images/Capsules/Vertuo/Mug/Melozio.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "33,00 RON",
+            "priceRon": 33,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Délicat",
+              "Équilibré"
+            ]
+          },
+          {
+            "id": "odacio",
+            "name": "Odacio",
+            "description": "Audacieux et vivant.",
+            "image": "images/Capsules/Vertuo/Mug/Odacio.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "33,00 RON",
+            "priceRon": 33,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Audacieux",
+              "Vivant"
+            ]
+          },
+          {
+            "id": "solelio",
+            "name": "Solelio",
+            "description": "Arôme fruité et corps léger.",
+            "image": "images/Capsules/Vertuo/Mug/Solelio.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 2,
+            "priceText": "36,50 RON",
+            "priceRon": 36.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Fruité",
+              "Corps",
+              "Léger"
+            ]
+          },
+          {
+            "id": "stormio",
+            "name": "Stormio",
+            "description": "Riche et puissant.",
+            "image": "images/Capsules/Vertuo/Mug/Stormio.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 8,
+            "priceText": "33,00 RON",
+            "priceRon": 33,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Riche",
+              "Puissant"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Origines Principales",
+        "dimmer": "40 ml - 230 ml",
+        "description": "Les caractéristiques de ces variétés de café sont spécifiques à la région d’où elles sont issues, mais aussi aux méthodes de transformation des agriculteurs. Créés par des producteurs locaux, perfectionnés par des artisans et inspirés de terroirs d'origine extraordinaires.",
+        "products": [
+          {
+            "id": "colombia",
+            "name": "Colombia",
+            "description": "Notes de pomme confite et de fruits de forêt.",
+            "image": "images/Capsules/Vertuo/Master Origins/Colombia.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 5,
+            "priceText": "36,50 RON",
+            "priceRon": 36.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Pomme",
+              "Confite",
+              "Fruits",
+              "Forêt"
+            ]
+          },
+          {
+            "id": "costa-rica",
+            "name": "Costa Rica",
+            "description": "Notes sucrées de céréales.",
+            "image": "images/Capsules/Vertuo/Master Origins/Costa Rica.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "34,50 RON",
+            "priceRon": 34.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Sucrées",
+              "Céréales"
+            ]
+          },
+          {
+            "id": "el-salvador",
+            "name": "El Salvador",
+            "description": "Notes de noix et de confiture de fruits.",
+            "image": "images/Capsules/Vertuo/Master Origins/El Salvador.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 5,
+            "priceText": "36,50 RON",
+            "priceRon": 36.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Noix",
+              "Confiture",
+              "Fruits"
+            ]
+          },
+          {
+            "id": "ethiopia",
+            "name": "Ethiopia",
+            "description": "Notes de myrtilles mûres et de musc.",
+            "image": "images/Capsules/Vertuo/Master Origins/Ethiopia.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 4,
+            "priceText": "34,50 RON",
+            "priceRon": 34.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Myrtilles",
+              "Mûres",
+              "Musc"
+            ]
+          },
+          {
+            "id": "mexico",
+            "name": "Mexico",
+            "description": "Notes épicées et boisées.",
+            "image": "images/Capsules/Vertuo/Master Origins/Mexico.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 7,
+            "priceText": "36,50 RON",
+            "priceRon": 36.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_5",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Épicées",
+              "Boisées"
+            ]
+          },
+          {
+            "id": "peru-organic",
+            "name": "Peru Organic",
+            "description": "Notes de fruits et de céréales grillées sucrées.",
+            "image": "images/Capsules/Vertuo/Master Origins/Peru Organic.webp",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/espresso vl.svg",
+                "title": "Espresso",
+                "volume": "40 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "39,50 RON",
+            "priceRon": 39.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Fruits",
+              "Céréales",
+              "Grillées",
+              "Sucrées"
+            ]
+          },
+          {
+            "id": "kahawa-ya-congo-organic",
+            "name": "Kahawa ya Congo Organic",
+            "description": "Un café bio de l'est du Congo aux notes de fruits et de céréales.",
+            "image": "images/Capsules/Vertuo/Master Origins/Kahawa ya Congo Organic.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/reverso.svg",
+                "title": "Reverso",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/mug.svg",
+                "title": "Mug",
+                "volume": "230 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "52,50 RON",
+            "priceRon": 52.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_3",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Bio",
+              "Est",
+              "Congo",
+              "Fruits"
+            ]
+          },
+          {
+            "id": "zambia",
+            "name": "Zambia",
+            "description": "Un café inspiré par la gastronomie aux notes de fruits mûrs et de céréales.",
+            "image": "images/Capsules/Vertuo/Master Origins/Zambia.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/milk recipies.svg",
+                "title": "Cappuccino",
+                "volume": "Latte"
+              },
+              {
+                "icon": "images/svg/lungo vl.svg",
+                "title": "Double Espresso",
+                "volume": "80 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "47,50 RON",
+            "priceRon": 47.5,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_2",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Inspiré",
+              "Gastronomie",
+              "Fruits",
+              "Mûrs"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Craft Brew",
+        "dimmer": "355 ml - 535 ml",
+        "description": "Des assortiments de cafés alliant la maîtrise des techniques artisanales au plaisir de déguster une grande tasse de café Nespresso. Découvrez des arômes variés : du café inspiré de la méthode filtre, facile à déguster, au mélange complexe aux origines multiples.",
+        "products": [
+          {
+            "id": "alto-onice",
+            "name": "Alto Onice",
+            "description": "Trésor caché, torréfié et boisé.",
+            "image": "images/Capsules/Vertuo/Craft Brew/Alto Onice.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/alto.svg",
+                "title": "Alto",
+                "volume": "355 ml"
+              }
+            ],
+            "intensity": 5,
+            "priceText": "54,70 RON",
+            "priceRon": 54.7,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Trésor",
+              "Caché",
+              "Torréfié",
+              "Boisé"
+            ]
+          },
+          {
+            "id": "cold-brew-style-intense",
+            "name": "Cold-Brew Style Intense",
+            "description": "Pour les recettes de café glacé « Cold-Brew ».",
+            "image": "images/Capsules/Vertuo/Craft Brew/Cold Brew Style Intense.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/alto.svg",
+                "title": "Alto",
+                "volume": "355 ml"
+              }
+            ],
+            "intensity": 9,
+            "priceText": "71,90 RON",
+            "priceRon": 71.9,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_6",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Recettes",
+              "Glacé",
+              "Cold",
+              "Brew"
+            ]
+          },
+          {
+            "id": "carafe-pour-over-style-intense",
+            "name": "Carafe Pour-Over Style Intense",
+            "description": "Roasted and smoky - Exclusively for use with Vertuo Next Machine.",
+            "image": "images/Capsules/Vertuo/Craft Brew/Carafe Pour-Over Style Intense.avif",
+            "imageStyle": "",
+            "servings": [
+              {
+                "icon": "images/svg/iced vl.svg",
+                "title": "Cold-Brew",
+                "volume": "Iced"
+              },
+              {
+                "icon": "images/svg/carafe.svg",
+                "title": "Carafe",
+                "volume": "535 ml"
+              }
+            ],
+            "intensity": 6,
+            "priceText": "63,70 RON",
+            "priceRon": 63.7,
+            "unitLabel": "1 sleeve (10 capsules)",
+            "unitCount": 10,
+            "priceClass": "bag_group_3",
+            "extraClass": [],
+            "additionalDescriptions": [
+              "Roasted",
+              "Smoky",
+              "Exclusively",
+              "For"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

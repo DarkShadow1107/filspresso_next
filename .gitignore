@@ -18,6 +18,8 @@
 /out/
 
 # production
+.deprecated/
+deprecated/
 /build
 
 # misc

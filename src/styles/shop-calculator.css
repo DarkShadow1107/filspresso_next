@@ -1,0 +1,235 @@
+.shop-calculator-page {
+	position: relative;
+	min-height: 100vh;
+	min-height: 100dvh;
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	padding: clamp(7.6rem, 13vh, 10.5rem) 1.5rem clamp(2.2rem, 5.5vh, 4.1rem);
+	text-align: center;
+	color: #6cacc5;
+	overflow: hidden;
+	background: transparent;
+}
+
+.shop-calculator-page::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: -1;
+	background: #100a1c;
+	background-image: radial-gradient(50% 30% ellipse at center top, #201e40 0%, rgba(0, 0, 0, 0) 100%),
+		radial-gradient(60% 50% ellipse at center bottom, #261226 0%, #100a1c 100%);
+	background-repeat: no-repeat;
+	background-size: cover;
+	background-position: center;
+}
+
+.shop-calculator-page h1 {
+	font-weight: 300;
+	margin: 0;
+	color: #6cacc5;
+}
+
+.shop-calculator-page .warning {
+	background: -webkit-linear-gradient(45deg, #c97874 10%, #463042 90%);
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	color: #8c5059;
+	font-weight: 400;
+	margin: 0 auto 6em;
+	max-width: none;
+	white-space: nowrap;
+}
+
+.shop-calculator-page .calculator {
+	font-size: clamp(24px, 4vw, 28px);
+	margin: clamp(0.15rem, 1.7vh, 1.3rem) auto 0;
+	width: 10em;
+}
+
+.shop-calculator-page .calculator::before,
+.shop-calculator-page .calculator::after {
+	content: " ";
+	display: table;
+}
+
+.shop-calculator-page .calculator::after {
+	clear: both;
+}
+
+.shop-calculator-page .calculator.broken {
+	animation: shop-calculator-broken 2s forwards;
+	pointer-events: none;
+}
+
+.shop-calculator-page .calculator.broken button {
+	pointer-events: none;
+}
+
+.shop-calculator-page .viewer {
+	color: #c97874;
+	float: left;
+	line-height: 3em;
+	text-align: right;
+	text-overflow: ellipsis;
+	overflow: hidden;
+	width: 7.5em;
+	height: 3em;
+}
+
+.shop-calculator-page button {
+	border: 0;
+	background: rgba(42, 50, 113, 0.28);
+	color: #6cacc5;
+	cursor: pointer;
+	float: left;
+	font: inherit;
+	margin: 0.25em;
+	width: 2em;
+	height: 2em;
+	transition: all 0.5s;
+	border-radius: 15px;
+}
+
+.shop-calculator-page button:hover {
+	background: #201e40;
+}
+
+.shop-calculator-page button:focus {
+	outline: none;
+}
+
+.shop-calculator-page button:disabled {
+	opacity: 0.35;
+	cursor: not-allowed;
+}
+
+.shop-calculator-page button:focus::after {
+	animation: shop-calculator-zoom 1s forwards;
+	content: attr(data-num);
+	cursor: default;
+	font-size: 100px;
+	position: absolute;
+	top: 1.5em;
+	left: 50%;
+	text-align: center;
+	margin-left: -24px;
+	opacity: 0;
+	width: 48px;
+}
+
+.shop-calculator-page .ops:focus::after {
+	content: attr(data-ops);
+	margin-left: -210px;
+	width: 420px;
+}
+
+.shop-calculator-page .equals:focus::after {
+	content: attr(data-result);
+	margin-left: -300px;
+	width: 600px;
+}
+
+.shop-calculator-page .reset {
+	background: rgba(201, 120, 116, 0.28);
+	color: #c97874;
+	font-weight: 400;
+	padding: 0.5em 1em;
+	position: absolute;
+	top: -20em;
+	left: 50%;
+	margin-left: -77px;
+	border-radius: 20px;
+	text-decoration: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	cursor: pointer;
+	font: inherit;
+}
+
+.shop-calculator-page .reset:hover {
+	background: #c97874;
+	color: #100a1c;
+}
+
+.shop-calculator-page .reset.show {
+	top: 20em;
+	animation: shop-calculator-fadein 4s;
+}
+
+@keyframes shop-calculator-zoom {
+	0% {
+		transform: scale(0.2);
+		opacity: 1;
+	}
+	70% {
+		transform: scale(1);
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+@keyframes shop-calculator-broken {
+	0% {
+		transform: translate3d(0, 0, 0);
+		opacity: 1;
+	}
+	5% {
+		transform: rotate(5deg);
+	}
+	15% {
+		transform: rotate(-5deg);
+	}
+	20% {
+		transform: rotate(5deg);
+	}
+	25% {
+		transform: rotate(-5deg);
+	}
+	50% {
+		transform: rotate(45deg);
+	}
+	70% {
+		transform: translate3d(0, 2000px, 0);
+		opacity: 1;
+	}
+	75% {
+		opacity: 0;
+	}
+	100% {
+		transform: translate3d(0, -2000px, 0);
+		opacity: 0;
+	}
+}
+
+@keyframes shop-calculator-fadein {
+	0% {
+		top: 20em;
+		opacity: 0;
+	}
+	50% {
+		opacity: 0;
+	}
+	100% {
+		opacity: 1;
+	}
+}
+
+@media (min-width: 420px) {
+	.shop-calculator-page .calculator {
+		width: 12em;
+	}
+	.shop-calculator-page .viewer {
+		width: 8.5em;
+	}
+	.shop-calculator-page button {
+		margin: 0.5em;
+	}
+}
