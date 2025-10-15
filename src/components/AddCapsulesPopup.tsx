@@ -118,7 +118,7 @@ export default function AddCapsulesPopup({ open, productName, defaultValue = 10,
 						<span aria-hidden="true">×</span>
 					</button>
 				</header>
-				<p className="capsules-popup__subtitle">Select how many capsules of {productName} you'd like to add.</p>
+				<p className="capsules-popup__subtitle">Select how many capsules of {productName} you&apos;d like to add.</p>
 				<ul className="capsules-popup__options" role="listbox" aria-label="Capsule quantity">
 					{CAPSULE_OPTIONS.map((option) => {
 						const isSelected = option === capsules;

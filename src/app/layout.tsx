@@ -1,3 +1,5 @@
+/* eslint-disable @next/next/no-page-custom-font */
+import React, { Suspense } from "react";
 import "./globals.css";
 import "../styles/notifications.css";
 import LayoutChrome from "@/components/LayoutChrome";
@@ -28,9 +30,11 @@ export default function RootLayout({ children }: PropsWithChildren) {
 				/>
 			</head>
 			<body>
-				<NotificationsProvider>
-					<LayoutChrome>{children}</LayoutChrome>
-				</NotificationsProvider>
+				<Suspense fallback={null}>
+					<NotificationsProvider>
+						<LayoutChrome>{children}</LayoutChrome>
+					</NotificationsProvider>
+				</Suspense>
 			</body>
 		</html>
 	);
