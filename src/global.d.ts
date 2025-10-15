@@ -1,6 +1,12 @@
 // Global ambient declarations for imported assets
-declare module "*.css";
-declare module "*.module.css";
+declare module "*.css" {
+	const content: Record<string, string>;
+	export default content;
+}
+declare module "*.module.css" {
+	const content: Record<string, string>;
+	export default content;
+}
 declare module "*.scss";
 declare module "*.module.scss";
 declare module "*.png";

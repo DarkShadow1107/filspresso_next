@@ -3,6 +3,7 @@
 import type { PropsWithChildren } from "react";
 import { usePathname } from "next/navigation";
 import Navbar from "@/components/Navbar";
+import ScrollToTopButton from "@/components/ScrollToTopButton";
 
 export default function LayoutChrome({ children }: PropsWithChildren) {
 	const pathname = usePathname();
@@ -14,7 +15,7 @@ export default function LayoutChrome({ children }: PropsWithChildren) {
 			{children}
 			{/* Scroll to top button */}
 			<div id="scroll-to-top-portal">
-				{typeof window !== "undefined" && require("@/components/ScrollToTopButton").default()}
+				<ScrollToTopButton />
 			</div>
 		</>
 	);

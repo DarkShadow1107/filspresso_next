@@ -107,7 +107,7 @@ export default function NotificationsProvider({ children }: { children: React.Re
 			]);
 			return id;
 		},
-		[pathname]
+		[routeKey]
 	);
 
 	useEffect(() => {
@@ -229,9 +229,7 @@ export default function NotificationsProvider({ children }: { children: React.Re
 	const compact = true;
 	const maxStack = 5; // visually separate up to this many layers
 	const translateStep = compact ? 18 : 8; // px per layer (vertical offset)
-	const scaleStep = compact ? 0.035 : 0.01; // scale reduction per older layer
 	const opacityStep = compact ? 0.12 : 0.04; // opacity reduction per older layer
-	const rotateStep = compact ? 2.2 : 0.6; // degrees of X-rotation per older layer
 	const baseZ = 3000; // base z-index for the notification stack
 	const renderIcon = useCallback((notification: Notification) => {
 		const category = notification.category;

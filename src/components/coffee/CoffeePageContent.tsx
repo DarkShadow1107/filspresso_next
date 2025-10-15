@@ -216,7 +216,7 @@ function NotePills({ notes, productId }: { notes: string[]; productId: string })
 					style={popoverStyle}
 				>
 					{hiddenNotes.map((n, i) => (
-						<div key={`p-${i}`} className="note-plus-item" role="option">
+						<div key={`p-${i}`} className="note-plus-item" role="option" aria-selected="false">
 							{n}
 						</div>
 					))}

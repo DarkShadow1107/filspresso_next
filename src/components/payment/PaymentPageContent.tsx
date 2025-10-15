@@ -239,17 +239,16 @@ export default function PaymentPageContent() {
 	useEffect(() => {
 		if (typeof document !== "undefined") {
 			document.body.classList.add("payment-page-body");
-		}
-
-		setExpiry((prev) => formatExpirySpacing(prev));
-		formatCreditCard(ccNum);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		return () => {
-			if (typeof document !== "undefined") {
+			return () => {
 				document.body.classList.remove("payment-page-body");
-			}
-		};
+			};
+		}
+		return undefined;
 	}, []);
+
+	useEffect(() => {
+		setExpiry((prev) => formatExpirySpacing(prev));
+	}, [formatExpirySpacing]);
 
 	useEffect(() => {
 		return () => {

@@ -109,7 +109,7 @@ export default function MachineNotificationsProvider({ children }: { children: R
 			);
 			if (shouldDismiss) dismiss(id);
 		},
-		[dismiss]
+		[dismiss, clearTimer]
 	);
 
 	const resume = useCallback(
@@ -137,7 +137,6 @@ export default function MachineNotificationsProvider({ children }: { children: R
 	const compact = true;
 	const maxStack = 5;
 	const translateStep = compact ? 18 : 8;
-	const scaleStep = compact ? 0.035 : 0.01;
 	const opacityStep = compact ? 0.12 : 0.04;
 	const baseZ = 3000;
 

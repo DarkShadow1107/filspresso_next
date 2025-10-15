@@ -107,8 +107,8 @@ function generateNotesFromDescription(description?: string) {
 		.filter(Boolean)
 		.map((p) => {
 			// sentence-case and remove trailing periods
-			let s = p.replace(/\.$/, "").trim();
-			return s.charAt(0).toUpperCase() + s.slice(1);
+			const normalized = p.replace(/\.$/, "").trim();
+			return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 		});
 	// collapse to unique short notes and limit to 6
 	const uniq = Array.from(new Set(parts)).slice(0, 6);
