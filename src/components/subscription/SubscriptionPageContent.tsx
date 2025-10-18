@@ -9,19 +9,51 @@ const plans = [
 		id: "basic",
 		title: "Basic",
 		priceRon: 46.05,
-		benefits: ["10 capsules par mois", "Espressor Essenza Mini Piano Noir C30"],
+		kafelotModel: "flash" as const,
+		benefits: [
+			"10 capsules par mois",
+			"Espressor Essenza Mini Piano Noir C30",
+			"🤖 Kafelot Flash AI (100M) - Quick responses",
+		],
 	},
 	{
 		id: "pro",
 		title: "Pro",
 		priceRon: 92.15,
-		benefits: ["30 capsules par mois", "Espressor Vertuo Next C Rouge Cerise", "1x Suport des bonbons"],
+		kafelotModel: "flash" as const,
+		benefits: [
+			"30 capsules par mois",
+			"Espressor Vertuo Next C Rouge Cerise",
+			"1x Suport des bonbons",
+			"🤖 Kafelot Flash AI (100M) - Quick responses",
+		],
+	},
+	{
+		id: "max",
+		title: "Max",
+		priceRon: 138.15,
+		kafelotModel: "pro" as const,
+		benefits: [
+			"60 capsules par mois",
+			"Espressor Vertuo Next C Rouge Cerise",
+			"1x Suport des bonbons",
+			"⚡ Kafelot Pro AI (200M) - Advanced reasoning",
+			"💾 30-conversation memory",
+		],
 	},
 	{
 		id: "ultimate",
 		title: "Ultimate",
-		priceRon: 138.25,
-		benefits: ["60 capsules par mois", "Espressor Gran Lattissima Noir Élégant", "1x Suport capsules Mia Lume"],
+		priceRon: 230.375, // 150% more expensive than Max: 138.15 * 1.67 ≈ 230.38
+		kafelotModel: "ultra" as const,
+		benefits: [
+			"120 capsules par mois",
+			"Espressor Gran Lattissima Noir Élégant",
+			"1x Suport capsules Mia Lume",
+			"🚀 Kafelot Ultra AI (400M) - Maximum intelligence",
+			"💾 50-conversation memory",
+			"🧠 Expert-level deep analysis",
+		],
 	},
 ] as const;
 
@@ -149,6 +181,8 @@ export default function SubscriptionPageContent() {
 										? "Get Started"
 										: plan.id === "pro"
 										? "Upgrade to Pro"
+										: plan.id === "max"
+										? "Upgrade to Max"
 										: "Upgrade to Ultimate"}
 								</button>
 							</article>

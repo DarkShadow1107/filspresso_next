@@ -25,7 +25,7 @@ const CARD_TYPES: Record<string, CardType> = {
 		security: 4,
 		pattern: /^3[47]/,
 		format: "xxxx xxxxxx xxxxx",
-		image: "/deprecated/Payment/images/American_Express.png",
+		image: "/images/Payment/American_Express.png",
 	},
 	Visa: {
 		name: "Visa",
@@ -33,7 +33,7 @@ const CARD_TYPES: Record<string, CardType> = {
 		security: 3,
 		pattern: /^4/,
 		format: "xxxx xxxx xxxx xxxx",
-		image: "/deprecated/Payment/images/Visa.png",
+		image: "/images/Payment/Visa.png",
 	},
 	Discover: {
 		name: "Discover",
@@ -41,7 +41,7 @@ const CARD_TYPES: Record<string, CardType> = {
 		security: 3,
 		pattern: /^6(?:011|5)/,
 		format: "xxxx xxxx xxxx xxxx",
-		image: "/deprecated/Payment/images/Discover.png",
+		image: "/images/Payment/Discover.png",
 	},
 	Mastercard: {
 		name: "Mastercard",
@@ -49,7 +49,7 @@ const CARD_TYPES: Record<string, CardType> = {
 		security: 3,
 		pattern: /^5[1-5]/,
 		format: "xxxx xxxx xxxx xxxx",
-		image: "/deprecated/Payment/images/Mastercard.png",
+		image: "/images/Payment/Mastercard.png",
 	},
 	Unknown: {
 		name: "Unknown",

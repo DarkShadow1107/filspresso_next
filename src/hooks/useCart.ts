@@ -229,12 +229,35 @@ export default function useCart() {
 		window.dispatchEvent(new StorageEvent("storage", { key: MY_ITEMS, newValue: JSON.stringify(nextItems) }));
 	}, []);
 
+	const removeItem = useCallback((id: string) => {
+		if (typeof window === "undefined") return;
+		const { items: existingItems } = readCart();
+		const nextItems = existingItems.filter((item) => item.id !== id);
+		const total = writeCart(nextItems);
+		setItems(nextItems);
+		setCurrentSum(total);
+		window.dispatchEvent(new StorageEvent("storage", { key: MY_ITEMS, newValue: JSON.stringify(nextItems) }));
+	}, []);
+
+	const updateQuantity = useCallback((id: string, newQty: number) => {
+		if (typeof window === "undefined") return;
+		if (newQty < 1) return; // Don't allow quantity less than 1
+		const { items: existingItems } = readCart();
+		const nextItems = existingItems.map((item) => (item.id === id ? { ...item, qty: newQty } : item));
+		const total = writeCart(nextItems);
+		setItems(nextItems);
+		setCurrentSum(total);
+		window.dispatchEvent(new StorageEvent("storage", { key: MY_ITEMS, newValue: JSON.stringify(nextItems) }));
+	}, []);
+
 	return {
 		items,
 		currentSum,
 		reset,
 		placeOrder,
 		addItem,
+		removeItem,
+		updateQuantity,
 		refresh: refreshFromStorage,
 	};
 }

@@ -5,6 +5,7 @@ import Image from "next/image";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
+import CoffeeRecommender from "@/components/CoffeeRecommender";
 import { coffeeCollections, type CoffeeCollection, type CoffeeGroup, type CoffeeProduct } from "@/data/coffee";
 
 function formatRon(value: number) {
@@ -291,6 +292,10 @@ function CoffeeProductCard({ product }: { product: CoffeeProduct }) {
 		<>
 			<div className={cardClasses}>
 				<div className="capsule_box">
+					{/* Edition limitée badge: detect either by image path or extraClass */}
+					{(product.image?.includes("Limited Edition") || (product.extraClass ?? []).includes("limited")) && (
+						<span className="badge-limited">Édition limitée</span>
+					)}
 					<Image src={product.image} alt={product.name} width={243} height={165} style={imageStyle} />
 				</div>
 				<h3 className="h3_capsule">{product.name}</h3>
@@ -376,6 +381,7 @@ export default function CoffeePageContent() {
 			{coffeeCollections.map((collection) => (
 				<CoffeeCollectionSection key={collection.id} collection={collection} />
 			))}
+			<CoffeeRecommender />
 		</main>
 	);
 }

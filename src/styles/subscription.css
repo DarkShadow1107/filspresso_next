@@ -6,7 +6,6 @@
 	flex-direction: column;
 	justify-content: center;
 	align-items: center;
-	padding: clamp(5.5rem, 12vh, 7.5rem) clamp(1.5rem, 4vw, 3rem) clamp(5.5rem, 13vh, 7.5rem);
 	background-image: url("/images/nespresso-banner.jpg");
 	background-size: cover;
 	background-position: center;
@@ -27,7 +26,7 @@
 	position: relative;
 	z-index: 1;
 	width: 100%;
-	max-width: 80rem;
+	max-width: 100rem;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -85,15 +84,21 @@
 }
 
 .subscription-page .cards_inner > .card:nth-child(2) {
-	--hue: 291.34;
-	--saturation: 95.9%;
-	--lightness: 61.76%;
+	--hue: 270;
+	--saturation: 80%;
+	--lightness: 60%;
 }
 
 .subscription-page .cards_inner > .card:nth-child(3) {
-	--hue: 338.69;
+	--hue: 225;
+	--saturation: 73%;
+	--lightness: 35%;
+}
+
+.subscription-page .cards_inner > .card:nth-child(4) {
+	--hue: 0;
 	--saturation: 100%;
-	--lightness: 48.04%;
+	--lightness: 45%;
 }
 
 .subscription-page .cards_inner > .card:hover {
@@ -199,11 +204,15 @@
 }
 
 .subscription-page .overlay .card:nth-child(2) {
-	--hsl: 291.34, 95.9%, 61.76%;
+	--hsl: 270, 80%, 60%;
 }
 
 .subscription-page .overlay .card:nth-child(3) {
-	--hsl: 338.69, 100%, 48.04%;
+	--hsl: 225, 73%, 35%;
+}
+
+.subscription-page .overlay .card:nth-child(4) {
+	--hsl: 0, 100%, 45%;
 }
 
 @media (max-width: 640px) {

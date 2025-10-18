@@ -20,14 +20,14 @@
 
 .notifications-root.compact {
 	/* allow overlap by removing explicit gap; position slightly inset */
-	gap: 0px;
+	gap: 0;
 	right: 16px;
 	bottom: 16px;
 }
 
 /* Machine-only notifications: slightly more inset and narrower for the machines page layout */
 .notifications-root.machine-only {
-	right: 80px;
+	right: 16px;
 	bottom: 24px;
 }
 
