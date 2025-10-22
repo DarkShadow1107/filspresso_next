@@ -73,10 +73,10 @@ Complete User Journey: Browse → AI Recommendation → Purchase → Automated B
                                  v
                   ┌──────────────────────────────┐
                   │ AI Model Selection           │
-                  │ ┌──────────┬─────────┬─────┐ │
-                  │ │ Tanka    │Villanelle│ Ode │ │
-                  │ │ (Quick)  │(Balanced)│(Deep)│ │
-                  │ └──────────┴─────────┴─────┘ │
+                  │ ┌─────────┬──────────┬──────┐│
+                  │ │ Tanka   │Villanelle│ Ode  ││
+                  │ │ (Quick) │(Balanced)│(Deep)││
+                  │ └─────────┴──────────┴──────┘│
                   └──────────────┬───────────────┘
                                  │
                                  v
