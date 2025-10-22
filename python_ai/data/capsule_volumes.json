@@ -1,0 +1,15 @@
+{
+	"original": {
+		"ristretto": 25,
+		"espresso": 40,
+		"lungo": 110
+	},
+	"vertuo": {
+		"espresso": 40,
+		"double_espresso": 80,
+		"gran_lungo": 150,
+		"mug": 230,
+		"alto": 414
+	},
+	"notes": "Use Original volumes for machines that support them. Vertuo recipes can be suggested as guidance but won't be executed on Original-only machines. Values in ml."
+}

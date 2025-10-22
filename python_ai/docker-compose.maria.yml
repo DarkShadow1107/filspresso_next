@@ -1,0 +1,19 @@
+version: "3.8"
+services:
+    mariadb:
+        image: mariadb:10.11
+        container_name: filspresso_mariadb
+        restart: unless-stopped
+        environment:
+            MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-changeme}"
+            MYSQL_DATABASE: "${MYSQL_DATABASE:-kafelot_iot}"
+            MYSQL_USER: "${MYSQL_USER:-kafelot}"
+            MYSQL_PASSWORD: "${MYSQL_PASSWORD:-changeme}"
+        volumes:
+            - ./migrations:/migrations:ro
+            - mariadb_data:/var/lib/mysql
+        ports:
+            - "3306:3306"
+
+volumes:
+    mariadb_data:

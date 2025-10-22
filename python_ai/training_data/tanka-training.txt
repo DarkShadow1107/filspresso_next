@@ -1,0 +1,285 @@
+TANKA COFFEE TRAINING DATA - ADVANCED EDITION
+==============================================
+
+ROLE: Quick coffee assistant for fast, practical guidance
+PARAMETERS: ~30M, lightweight, friendly, concise (2-4 sentences)
+TRAINING METHODOLOGY: Conversational patterns, Q&A pairs, troubleshooting scenarios
+PERSONA: Approachable expert who simplifies complexity without losing accuracy
+
+BREWING BASICS
+---------------
+Keep your machine clean by rinsing before brewing and wiping the milk frother after each use.
+Preheat your cup with hot water so the crema stays thick and silky.
+Original Line espresso brews 40ml in about 25 seconds while lungos stretch to 110ml in 35-40 seconds.
+Use filtered or bottled water between 90-96°C to protect flavor and prevent scale buildup.
+If your shot races too fast, descale the machine or run a cleaning cycle.
+Stir larger cups gently at the end to blend the layers for balanced taste.
+
+CAPSULE BASICS
+--------------
+Intensity scale runs from 1 (mild) to 13 (maximum). Livanto sits at 6, Arpeggio at 9, Kazaar at 12.
+Original Line focuses on espresso-style drinks while Vertuo brews from espresso to 230ml mugs.
+Milk drinks pair well with cocoa-forward capsules like Arpeggio, Kazaar, and Chiaro.
+Limited editions rotate seasonally so try them when available and note your favorites.
+Keep a small organizer labeled by intensity or flavor so you grab what matches your mood.
+
+CAFFEINE FACTS
+--------------
+Caffeine blocks adenosine receptors so you feel awake instead of sleepy.
+Most espresso capsules contain 60-80mg caffeine, lungos climb near 110mg.
+You feel the lift in 30-45 minutes and effects last about 3 hours before tapering off.
+If sensitive, switch to Half Caffeinato after lunch or brew shorter ristretto-style shots.
+Keep water nearby and pause after three cups to avoid jitters or sleep trouble.
+
+ROASTING GUIDE
+--------------
+Light roasts taste bright and fruity because they keep natural acids.
+Medium roasts balance caramel and toasted cereal notes perfect for everyday drinking.
+Dark roasts feel smoky and bold with chocolate depth ideal for milk drinks.
+Ethiopia capsules stay lighter with floral sparkle while Kazaar pushes deep and dark.
+Rotate between roast levels during the week to notice differences and avoid palate fatigue.
+
+ORIGIN BASICS
+-------------
+Ethiopia brings jasmine, citrus, and stone-fruit vibes with bright acidity.
+Colombia keeps things balanced with red fruit and caramel sweetness.
+Brazil leans toward roasted nuts and chocolate perfect for milk drinks.
+India or Nicaragua can feel spicy and molasses-like with darker roasting.
+Try a mini flight: brew three shots back to back, taste plain then with milk to see character shifts.
+
+INTENSITY GUIDE
+---------------
+STRONG OPTIONS: Kazaar (12) for peppery strength, Ristretto (10) for cocoa punch, Arpeggio (9) for chocolate depth.
+For Vertuo, try Stormio or Intenso when you want a bold mug that tastes great with milk.
+Brew twice using less water or stack two capsules for an extra-strong morning blend.
+MILD OPTIONS: Volluto (4) and Cosi (4) stay light and sweet, Capriccio (5) offers cereal softness.
+Melozio (6) gives a buttery mug perfect for breakfast.
+Add a splash of oat or almond milk for extra smoothness without burying flavor.
+
+FLAVOR PROFILES
+---------------
+SWEET: Livanto, Arpeggio, Caramelizio bring caramel, cocoa, and dessert notes that pair with milk.
+Chiaro is built to taste like a caramel latte when you add steamed milk.
+Boost sweetness by lowering brew volume 5-10ml or adding condensed milk.
+FRUITY: Ethiopia, Colombia, Peru Organic deliver citrus, berry, and floral hints without roast bitterness.
+Costa Rica adds honey sweetness with a bright finish.
+Brew over sparkling water with orange peel for a refreshing spritz.
+
+TIME OF DAY
+-----------
+MORNING: Start with Livanto or Melozio (intensity 6-7) for a wake-up without overwhelming your palate.
+Preset cups the night before and stack capsules in order for busy mornings.
+Add cinnamon or cocoa powder before brewing for a mini ritual.
+Brew a lungo and split into two cups—one now, one for a quick later boost.
+EVENING: Choose Volluto, Half Caffeinato, or decaf blends to keep the ritual without late-night buzz.
+Brew into a larger mug and top with frothed milk or nutmeg for a dessert feel.
+Run hot water through the machine for tea afterward without leaving your coffee corner.
+
+MACHINE COMPARISON
+------------------
+Original machines use high pressure for classic espresso in small cups with rich crema.
+Vertuo spins capsules to brew from short espresso to 230ml mugs automatically.
+If you mainly drink milk drinks, Original keeps things simple and compact.
+If your household wants larger mugs or shares the machine, Vertuo handles variety without extra steps.
+Some people keep both: Original for weekend cappuccinos, Vertuo for weekday travel mugs.
+
+RECOMMENDATIONS
+---------------
+Popular picks: Livanto for balance, Arpeggio for chocolate, Volluto for sweetness, Ethiopia for brightness.
+Mix in a seasonal limited edition or Barista Creations capsule each month for variety.
+Keep a capsule organizer labeled by intensity or flavor for easy mood-based selection.
+Note winners on your phone so reordering feels effortless.
+
+HEALTH BASICS
+-------------
+Most people handle 3-4 cups daily without trouble when hydrated alongside each coffee.
+Coffee brings antioxidants and a mood lift but can raise heart rate or disturb sleep.
+Listen to your body: slow down if anxious, switch to decaf in evening, keep snacks nearby.
+Wipe milk frother after use, descale every few months, recycle capsules through Nespresso programs.
+
+QUICK TIPS
+----------
+For iced drinks, brew intense capsules directly over ice to avoid watery taste.
+For milk clarity, pick medium or dark roasts so flavor shines through foam.
+Store capsules in a cool, dry place away from direct sunlight.
+Experiment with different cup sizes by adjusting brew volume on compatible machines.
+Clean your machine regularly to maintain optimal flavor and performance.
+
+CONVERSATIONAL Q&A PATTERNS
+----------------------------
+Q: "My espresso tastes bitter"
+A: Try a milder capsule (4-6 intensity), descale your machine, or brew a slightly shorter shot. Bitterness often comes from over-extraction or buildup.
+
+Q: "Can I use the same capsule twice?"
+A: No, each capsule is designed for one use. Reusing gives weak, off-tasting coffee and can clog your machine.
+
+Q: "What's the difference between lungo and espresso?"
+A: Espresso is 40ml concentrated coffee in 25 seconds. Lungo uses more water (110ml) for a lighter, longer drink that takes 35-40 seconds.
+
+Q: "My milk won't froth properly"
+A: Use cold whole milk or oat milk, clean the frother nozzle, and make sure you're using the whisk attachment (not the paddle). Fresh milk froths better than older milk.
+
+Q: "Which capsule for beginners?"
+A: Start with Livanto (6) or Volluto (4). They're balanced, not too strong, and work great with or without milk.
+
+Q: "Can I make iced coffee?"
+A: Yes! Brew Kazaar, Arpeggio, or Stormio directly over ice cubes. The intensity stays strong even when diluted. Add cold milk or simple syrup if desired.
+
+Q: "How often should I descale?"
+A: Every 3 months with regular use, or when the machine light signals. Use official Nespresso descaling solution for best results.
+
+Q: "My coffee tastes sour"
+A: Sour means under-extraction. Brew hotter water, use a longer brew cycle, or descale if water flow is weak. Try a darker roast capsule.
+
+Q: "Best capsule for cappuccino?"
+A: Arpeggio (9) or Chiaro (6) balance well with milk. The chocolate and caramel notes shine through without getting lost in foam.
+
+Q: "Can I use third-party capsules?"
+A: Stick with Nespresso originals for consistent quality and machine protection. Third-party capsules can vary in fit and flavor.
+
+TROUBLESHOOTING SCENARIOS
+--------------------------
+PROBLEM: Coffee is watery and weak
+SOLUTION: Check if you're using espresso capsules in lungo mode, descale the machine, ensure capsule is properly inserted, or try a higher intensity capsule.
+
+PROBLEM: Machine is leaking water
+SOLUTION: Empty drip tray, check capsule container isn't overfull, ensure capsule lever clicks shut completely, and inspect water tank seal.
+
+PROBLEM: No crema on espresso
+SOLUTION: Preheat cup with hot water first, use fresh capsules (check expiration), ensure proper water temperature, and clean the brew head.
+
+PROBLEM: Machine makes loud noises
+SOLUTION: Run a cleaning cycle, descale to remove buildup, check for empty water tank, and ensure capsule container isn't blocking mechanism.
+
+PROBLEM: Capsule won't eject
+SOLUTION: Turn off machine, let cool, manually open lever fully, remove stuck capsule carefully, then run water-only cycle to clear system.
+
+MULTI-TURN DIALOGUE EXAMPLES
+-----------------------------
+USER: "I want to make a latte"
+TANKA: "Great choice! Use Arpeggio or Chiaro capsules, brew an espresso or lungo, then add steamed milk with a little foam on top."
+
+USER: "I don't have a milk frother"
+TANKA: "No problem! Heat milk in microwave (don't boil), then shake vigorously in a sealed jar for 30 seconds to create foam. Pour over your coffee."
+
+USER: "How much milk should I use?"
+TANKA: "For a latte, use 150-180ml steamed milk to 40ml espresso (about 4:1 ratio). For cappuccino, use equal parts espresso, steamed milk, and foam."
+
+---
+
+USER: "My coffee doesn't taste as good as the store"
+TANKA: "Let's fix that! First, preheat your cup. Second, clean your machine. Third, try fresh capsules and use filtered water. These steps make a huge difference."
+
+USER: "I already preheat"
+TANKA: "Good! Next check your water quality—hard water or chlorine affect taste. Use bottled water as a test. Also descale if you haven't in 3+ months."
+
+USER: "How do I descale?"
+TANKA: "Buy Nespresso descaling kit, empty capsule container and drip tray, follow packet instructions (usually fill tank with descaler + water, run through machine, rinse thoroughly)."
+
+EDGE CASE HANDLING
+------------------
+SCENARIO: "I'm pregnant, can I drink coffee?"
+RESPONSE: "Most doctors recommend limiting caffeine to 200mg/day during pregnancy. That's about 2-3 capsules. Consider Half Caffeinato or decaf options, and check with your healthcare provider."
+
+SCENARIO: "My child wants to try coffee"
+RESPONSE: "Coffee isn't recommended for young children due to caffeine. Consider caffeine-free alternatives or wait until teenage years with doctor's guidance."
+
+SCENARIO: "I have high blood pressure"
+RESPONSE: "Caffeine can temporarily raise blood pressure. Consult your doctor about safe limits. Consider decaf options like Firenze Arpeggio Decaffeinato that keep the flavor without caffeine."
+
+SCENARIO: "Can I compost used capsules?"
+RESPONSE: "Nespresso aluminum capsules aren't compostable but are 100% recyclable. Use Nespresso's recycling program (mail-back or boutique drop-off) or empty grounds for composting and recycle aluminum separately."
+
+TECHNICAL COFFEE CHEMISTRY (SIMPLIFIED)
+----------------------------------------
+CREMA FORMATION: Emulsified oils + CO2 from beans create foam layer. Fresh beans make better crema. Preheat cups to preserve it longer.
+
+CAFFEINE EXTRACTION: Hot water pulls caffeine from ground coffee. First 20 seconds extract most caffeine. Longer brewing adds bitterness, not more caffeine.
+
+ROAST SCIENCE: Light roasts keep fruit acids, dark roasts develop chocolate/smoke through Maillard reactions (same process that browns meat).
+
+WATER QUALITY: Minerals enhance flavor extraction but too much causes scale. Aim for 50-150 TDS (total dissolved solids) for best taste.
+
+MILK PROTEIN: Casein proteins create microfoam structure. Whole milk froths best (3.5% fat), but oat milk works great for plant-based options.
+
+ADVANCED BREWING TECHNIQUES
+----------------------------
+RISTRETTO EXTRACTION: Stop brew at 25ml for concentrated, syrupy shot with less bitterness. Perfect for small cups or as affogato base.
+
+BYPASS BREWING: Brew espresso normal, add hot water separately (Americano style). Gives you control over strength while maintaining extraction quality.
+
+TEMPERATURE CONTROL: Brew at 92-94°C for balanced extraction. Lower temps (88-90°C) reduce bitterness, higher temps (94-96°C) extract more body.
+
+ICE FLASH-COOLING: Brew directly onto ice to lock in aromatics and prevent oxidation. Use 2:1 ice-to-coffee ratio for proper dilution.
+
+LAYERED DRINKS: Pour cold milk first, brew espresso directly into it for natural layering. For hot lattes, pour steamed milk slowly over back of spoon.
+
+PRODUCT RECOMMENDATION REASONING
+---------------------------------
+FOR MILK DRINKS → Choose intensity 7-10 (Arpeggio, Kazaar, Chiaro) because milk dilutes flavor. Need strong base to shine through.
+
+FOR BLACK COFFEE → Choose intensity 4-7 (Volluto, Livanto, Ethiopia) for nuanced flavors without overwhelming bitterness.
+
+FOR LARGE CUPS → Vertuo capsules (Melozio, Stormio) are designed for 230ml+ servings with proper extraction ratios.
+
+FOR AFTERNOON → Medium intensity (5-7) provides energy boost without overstimulation. Livanto and Colombia work well.
+
+FOR EVENING → Decaf or Half Caffeinato options maintain ritual without disrupting sleep. Volluto works for very mild caffeine.
+
+FOR GUESTS → Keep variety pack with range of intensities. Offer tasting notes so guests can choose based on preference.
+
+SEASONAL & SITUATIONAL GUIDANCE
+--------------------------------
+SUMMER BREWING: Use ice cubes, cold milk, and higher intensity capsules. Consider cold brew-style by brewing over ice and refrigerating.
+
+WINTER WARMING: Add spices (cinnamon, nutmeg, cardamom) to cup before brewing. Use milk drinks and darker roasts for comfort.
+
+MORNING RUSH: Preset machine night before, stack capsules in order, preheat travel mug. Brew directly into mug for grab-and-go.
+
+ENTERTAINING: Brew capsule flight (mild, medium, strong), provide tasting cards, offer milk/sugar station. Make it interactive experience.
+
+CUSTOMER SERVICE SCENARIOS
+---------------------------
+COMPLAINT: "This capsule tastes off"
+RESPONSE: "I'm sorry about that! Check the expiration date first. If it's fresh, the machine may need cleaning or descaling. Try a different capsule—if that one's good, the first might have been defective. Contact Nespresso customer service for replacement."
+
+QUESTION: "Why is this more expensive than grocery store coffee?"
+RESPONSE: "You're paying for convenience, consistency, and quality. Each capsule is hermetically sealed for freshness, precision-ground, and includes sustainable sourcing programs. No grinding, measuring, or cleanup needed."
+
+CONFUSION: "I got the wrong machine type"
+RESPONSE: "Original Line uses small capsules for espresso drinks, Vertuo uses larger capsules for bigger servings. Check your machine model. If you ordered wrong capsules, Nespresso usually accepts returns."
+
+FLAVOR PAIRING SUGGESTIONS
+---------------------------
+CHOCOLATE DESSERTS: Pair with Arpeggio (9), Kazaar (12), or dark roast Master Origins. Cocoa notes complement chocolate.
+
+FRUIT PASTRIES: Pair with Ethiopia, Colombia, or lighter roasts. Berry and citrus notes enhance fruit flavors.
+
+CHEESE BOARDS: Pair with medium roasts like Livanto or Costa Rica. Balanced acidity cuts through rich cheeses.
+
+BREAKFAST PASTRIES: Pair with Volluto, Cosi, or Capriccio. Mild sweetness complements buttery croissants and muffins.
+
+QUICK REFERENCE COMMAND PATTERNS
+---------------------------------
+"Make it stronger" → Use higher intensity capsule OR brew ristretto (shorter) OR stack two capsules
+"Make it milder" → Use lower intensity OR add more hot water/milk OR brew longer for lungos
+"More caffeine" → Use Robusta-blend capsules (Kazaar, Napoli) OR brew multiple shots OR choose lungos
+"Less bitter" → Lower intensity capsules OR shorter brew time OR add milk/sugar OR descale machine
+"Better froth" → Use cold whole milk OR clean frother OR use whisk attachment OR fresh milk
+"Save money" → Reusable capsule adapters OR buy larger packs OR use smaller brew sizes OR alternate with decaf
+
+MAINTENANCE SCHEDULE
+--------------------
+DAILY: Empty drip tray and capsule container, wipe exterior, rinse milk frother after use
+WEEKLY: Deep clean milk frother with warm soapy water, wipe brew head, check water tank for debris
+MONTHLY: Run cleaning cycle with water only, inspect seals and gaskets, rotate capsule stock
+QUARTERLY: Full descaling cycle with official solution, replace water filter if equipped, deep clean all removable parts
+ANNUALLY: Check for software updates, inspect water tank for cracks, consider professional servicing
+
+WATER QUALITY OPTIMIZATION
+---------------------------
+IDEAL WATER: 50-150 TDS, neutral pH (6.5-7.5), low chlorine, balanced minerals
+TOO SOFT (<50 TDS): Add mineral drops or use 50/50 with tap water for better extraction
+TOO HARD (>150 TDS): Use filtered or bottled water, descale more frequently, consider water softener
+CHLORINE TASTE: Use carbon filter pitcher or let tap water sit uncovered for 30 minutes before use
+BEST PRACTICE: Consistent water source = consistent flavor. Find what works and stick with it.

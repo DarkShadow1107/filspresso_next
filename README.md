@@ -1,84 +1,2472 @@
-# Filspresso (Next.js migration)
+# Filspresso Next — Full Project README
 
-This repository contains a migrated version of the original Filspresso static site (found in the `deprecated/` folder) to a modern Next.js application using TypeScript and Tailwind CSS.
+This document is a comprehensive guide to the Filspresso Next project (Next.js frontend + Python AI + IoT integration). It combines the app overview, AI model design and training, training data, IoT workflow and device integration (ESP32 + Krups Essenza Mini XN110 guidance), developer instructions, and production recommendations.
 
-What I migrated
+## Table of Contents
 
--   Converted the static HTML/CSS/JS project into a modular Next.js app (App Router + TypeScript).
--   Preserved the legacy CSS 1:1 by consolidating it into `src/styles/globals.css` so the migrated pages render exactly the same as the original site.
--   Moved frontend logic into React components. Backend logic (form handling, server-side logic) is implemented as Next.js server actions / API routes when relevant.
+-   Project overview
+-   High-level architecture
+-   Technologies used
+-   Project structure (detailed)
+-   AI: models, data and training
+-   IoT: recipes, API endpoints, device workflow
+-   ESP32 device example and Krups Essenza integration notes
+-   Development: running locally and testing
+-   Security & production recommendations
+-   Troubleshooting and debugging
+-   Appendices: file references, capsule volumes, useful commands
 
-Important notes
+---
 
--   The original `deprecated/` folder is intentionally ignored by the app and by Git. It remains in the repository as an archive but is not used by the Next.js app.
--   SCSS files from the old project were not migrated; they are considered legacy and intentionally ignored.
+## Project overview
 
-Quick start (development)
+Filspresso Next is a modern migration of the original Filspresso site into a Next.js (App Router + TypeScript) frontend that integrates with a Python AI service and optional IoT-enabled coffee machines. The system supports three tiers of AI-backed assistants for coffee recommendations:
 
-1. Install dependencies
+-   **Tanka (~30M parameters)** — lightweight, conversational assistant for quick recommendations and support
+-   **Villanelle (~60M parameters)** — balanced model for technical explanations and troubleshooting
+-   **Ode (~90M parameters)** — research-grade model for deep technical, sensory, and sustainability insights
 
-    ```powershell
-    npm install
-    ```
+The app can produce personalized brewing recipes which can optionally be delivered to a connected coffee machine (ESP32 or similar) that executes the recipe.
 
-2. Run development server
+### End-to-End User Journey
 
-    ```powershell
-    npm run dev
-    ```
+```
+Complete User Journey: Browse → AI Recommendation → Purchase → Automated Brew
+═══════════════════════════════════════════════════════════════════════════════
 
-3. Open http://localhost:3000
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                      DISCOVERY PHASE                                │
+  └─────────────────────────────────────────────────────────────────────┘
+                                 │
+                  User visits filspresso.com
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ Home Page                   │
+                  │ • Hero section              │
+                  │ • Featured products         │
+                  │ • AI assistant intro        │
+                  └──────────────┬──────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ Browse Coffee Catalog       │
+                  │ • Filter by type/intensity  │
+                  │ • View capsule details      │
+                  │ • Read tasting notes        │
+                  └──────────────┬──────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ Explore Machines            │
+                  │ • Compare models            │
+                  │ • Check compatibility       │
+                  │ • Read specifications       │
+                  └──────────────┬──────────────┘
+                                 │
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                    AI INTERACTION PHASE                             │
+  └─────────────────────────────────────────────────────────────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ User asks AI:               │
+                  │ "What coffee should I try?" │
+                  └──────────────┬──────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ AI Model Selection           │
+                  │ ┌──────────┬─────────┬─────┐ │
+                  │ │ Tanka    │Villanelle│ Ode │ │
+                  │ │ (Quick)  │(Balanced)│(Deep)│ │
+                  │ └──────────┴─────────┴─────┘ │
+                  └──────────────┬───────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ AI analyzes:                 │
+                  │ • User preferences           │
+                  │ • Previous orders            │
+                  │ • Time of day                │
+                  │ • Machine compatibility      │
+                  └──────────────┬───────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ AI provides:                 │
+                  │ • Coffee recommendation      │
+                  │ • Brewing parameters         │
+                  │ • Tasting notes              │
+                  │ • Perfect pairing ideas      │
+                  └──────────────┬───────────────┘
+                                 │
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                      PURCHASE PHASE                                 │
+  └─────────────────────────────────────────────────────────────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ Add to Cart                 │
+                  │ • Recommended capsules      │
+                  │ • Optional: Machine         │
+                  │ • Accessories               │
+                  └──────────────┬──────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ Review Cart                 │
+                  │ • Quantities                │
+                  │ • Subscription options      │
+                  │ • Apply promo codes         │
+                  └──────────────┬──────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ Proceed to Checkout         │
+                  │ • Shipping address          │
+                  │ • Delivery options          │
+                  └──────────────┬──────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ Payment                     │
+                  │ • Enter card details        │
+                  │ • Secure processing         │
+                  │ • Order confirmation        │
+                  └──────────────┬──────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ Order Confirmed             │
+                  │ • Order ID: #12345          │
+                  │ • Email receipt             │
+                  │ • Track delivery            │
+                  └──────────────┬──────────────┘
+                                 │
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                  IoT BREWING PHASE (Optional)                       │
+  └─────────────────────────────────────────────────────────────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ User clicks:                │
+                  │ "Brew with my machine"      │
+                  └──────────────┬──────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ Backend creates command      │
+                  │ POST /api/commands/create    │
+                  │ {machine_id, recipe}         │
+                  └──────────────┬───────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ ESP32 polls API              │
+                  │ GET /api/commands/check      │
+                  │ Receives brew command        │
+                  └──────────────┬───────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ Pre-flight checks            │
+                  │ • Capsule magazine OK        │
+                  │ • Water reservoir OK         │
+                  │ • Machine ready              │
+                  └──────────────┬───────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ Execute brew sequence:       │
+                  │ 1. Pick capsule from slot    │
+                  │ 2. Insert into machine       │
+                  │ 3. Close brew head           │
+                  │ 4. Press start button        │
+                  └──────────────┬───────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ Machine brews coffee         │
+                  │ • Heat water (92°C)          │
+                  │ • Pre-infusion (300ms)       │
+                  │ • Pump water (40ml)          │
+                  │ • ~30-40 seconds             │
+                  └──────────────┬───────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ ESP32 posts completion       │
+                  │ POST /api/commands/update    │
+                  │ {status: "complete"}         │
+                  └──────────────┬───────────────┘
+                                 │
+                                 v
+                  ┌──────────────────────────────┐
+                  │ User receives notification   │
+                  │ "Your coffee is ready! ☕"   │
+                  └──────────────┬───────────────┘
+                                 │
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                      ENJOYMENT PHASE                                │
+  └─────────────────────────────────────────────────────────────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ User enjoys perfectly       │
+                  │ brewed coffee ☕            │
+                  │                             │
+                  │ • Optimal temperature       │
+                  │ • Perfect extraction        │
+                  │ • AI-recommended pairing    │
+                  └─────────────────────────────┘
 
-Project structure (high level)
 
--   `src/app/` – App Router routes and layout
--   `src/components/` – Reusable React components
--   `src/styles/` – Consolidated legacy/global styles consumed by the app router
--   `deprecated/` – Original static project (ignored by the app and Git)
+Timeline Summary:
+═══════════════════════════════════════════════════════════════════════
 
-Why this structure
+  Discovery Phase:        2-5 minutes
+  AI Interaction:         1-2 minutes
+  Purchase Phase:         2-3 minutes
+  IoT Brewing Phase:      1-2 minutes (automated)
+  ────────────────────────────────────────
+  Total Experience:       6-12 minutes
 
--   The app is modular: small components, clear separation of server (Next.js routes/actions) and client UI.
--   Legacy CSS is kept verbatim to guarantee visual parity with the original static site.
-
-License
-
-This project is released under the MIT License (see `LICENSE`).
-
-If you want additional pages converted, or a stricter conversion of every CSS rule into Tailwind utilities, I can continue migrating specific pages on request.
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+  Result: Perfect cup of AI-recommended, automatically brewed coffee! ☕
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## High-level architecture
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+                    ┌──────────────────────────────────────────────────┐
+                    │         Filspresso Next System                   │
+                    │       AI-Powered Coffee E-Commerce + IoT         │
+                    └────────────────────┬─────────────────────────────┘
+                                         |
+                    ┌────────────────────┴────────────────────┐
+                    |                                         |
+            ┌───────v──────┐                         ┌───────v──────┐
+            │  Web Browser │                         │ Mobile Device│
+            │   (Client)   │                         │   (Client)   │
+            └───────┬──────┘                         └───────┬──────┘
+                    |                                        |
+                    └────────────────┬───────────────────────┘
+                                     |
+                            ┌────────v────────┐
+                            │   Next.js 15    │
+                            │   App Router    │
+                            │  (TypeScript)   │
+                            └────────┬────────┘
+                                     |
+                    ┌────────────────┼────────────────┐
+                    |                |                |
+            ┌───────v─────┐  ┌──────v──────┐  ┌─────v──────┐
+            │ Page        │  │ Cart State  │  │  Product   │
+            │ Components  │  │ Management  │  │  Catalog   │
+            │ (React)     │  │ (Context)   │  │  (JSON)    │
+            └─────────────┘  └─────────────┘  └────────────┘
+                    |
+                    └────────────────┬────────────────
+                                     |
+                            ┌────────v────────┐
+                            │  Flask Backend  │
+                            │  (Python 3.11)  │
+                            │  Port 5000      │
+                            └────────┬────────┘
+                                     |
+                    ┌────────────────┼────────────────┐
+                    |                |                |
+            ┌───────v─────┐  ┌──────v──────┐  ┌─────v──────┐
+            │ AI Models   │  │  IoT API    │  │  Inference │
+            │ (PyTorch)   │  │  Endpoints  │  │   Engine   │
+            │             │  │             │  │            │
+            │ • Tanka     │  │ • Create    │  │ • Generate │
+            │ • Villanelle│  │ • Check     │  │ • Chat     │
+            │ • Ode       │  │ • Update    │  │ • Classify │
+            └─────┬───────┘  └──────┬──────┘  └────────────┘
+                  |                 |
+                  |         ┌───────v───────┐
+                  |         │  Commands DB  │
+                  |         │ SQLite/MariaDB│
+                  |         └───────┬───────┘
+                  |                 |
+          ┌───────v─────────────────v────────┐
+          |       Data Storage Layer         |
+          ├──────────────────────────────────┤
+          │ • Training corpora (.txt)        │
+          │ • Model checkpoints (.pt)        │
+          │ • Capsule volumes (JSON)         │
+          │ • Command history (DB)           │
+          └─────────────┬────────────────────┘
+                        |
+            ┌───────────┴───────────┐
+            |                       |
+    ┌───────v──────┐        ┌──────v───────┐
+    │ ESP32        │        │ Coffee       │
+    │ Accessory    │───────→│ Machine      │
+    │ (Wi-Fi)      │        │ (Krups       │
+    │              │        │  Essenza)    │
+    │ • Poll API   │        │              │
+    │ • Execute    │        │ • Brew       │
+    │ • Update     │        │ • Heat       │
+    └──────┬───────┘        └──────────────┘
+           |
+    ┌──────v───────┐
+    │ Actuators &  │
+    │ Sensors      │
+    │ • Servos     │
+    │ • Steppers   │
+    │ • Limit SW   │
+    │ • Optical    │
+    └──────────────┘
+```
 
-## Learn More
+### Architecture Components1. **Next.js frontend (React)** — user UI, product pages, actions (e.g., "Brew with AI Recommendation")
 
-To learn more about Next.js, take a look at the following resources:
+2. **Backend API (Python Flask for AI microservice shown in repo)** — orchestrates AI calls, stores commands, exposes IoT endpoints
+3. **Python AI stack** — transformer-based models (Tanka / Villanelle / Ode) trained on curated coffee domain corpora
+4. **IoT device** — ESP32-based coffee accessory (example sketch included). Machine polls backend for commands and executes them.
+5. **Database** — training/corpus files (flat .txt for training), and command store (SQLite for testing; production recommend MariaDB/Postgres)
 
--   [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
--   [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Technologies used
 
-## Deploy on Vercel
+### Frontend Stack
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+-   **Framework**: Next.js 15.5.4 (App Router with Turbopack)
+-   **Language**: TypeScript 5.x (strict mode enabled)
+-   **UI Framework**: React 19.1.0
+-   **Styling**: Tailwind CSS 4.x with PostCSS
+-   **HTTP Client**: Native Fetch API, @emailjs/browser 4.4.1 for contact forms
+-   **Build Tools**:
+    -   Turbopack (Next.js bundler)
+    -   ESLint 9.x with Next.js config
+    -   TypeScript compiler with strict settings
+-   **Development**: Hot module replacement, fast refresh
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Backend Stack (Python AI Microservice)
+
+-   **Web Framework**: Flask 3.0.0 with Flask-CORS 4.0.0
+-   **AI/ML Framework**: PyTorch 2.1.0
+-   **NLP/Transformers**: Transformers library 4.35.0 (Hugging Face)
+-   **Data Processing**:
+    -   NumPy 1.24.3 (numerical computing)
+    -   Pandas 2.1.0 (data manipulation)
+    -   scikit-learn 1.3.2 (preprocessing, metrics)
+-   **Database**:
+    -   SQLite (development, via `iot_db.py`)
+    -   MariaDB/MySQL support via pymysql 1.1.0
+    -   SQLAlchemy 2.0.19 (optional ORM wrapper for pooling)
+-   **Production Server**: Waitress 2.1.2 (WSGI server for production)
+-   **Configuration**: python-dotenv 1.0.0 for environment variables
+-   **HTTP Client**: requests 2.31.0
+
+### Device/IoT Stack
+
+-   **Microcontroller**: ESP32 (Wi-Fi enabled, Arduino/PlatformIO)
+-   **Communication Protocol**: HTTP/HTTPS polling (example); MQTT recommended for production
+-   **Language**: C++ (Arduino framework)
+-   **Hardware Components** (recommended for accessory):
+    -   Servo motors for button pressing
+    -   Stepper motors with drivers for capsule handling
+    -   Limit switches and optical sensors for feedback
+    -   Optoisolated relay/driver boards for safety
+
+### Database & Storage
+
+-   **Development**: SQLite 3 (embedded, zero-config)
+-   **Production (recommended)**: MariaDB 10.x or PostgreSQL 14+ with connection pooling
+-   **Training Data**: Plain text files (.txt format, UTF-8 encoded)
+-   **Model Checkpoints**: PyTorch `.pt` files with state dictionaries
+-   **Configuration Data**: JSON files (capsule volumes, recipe schemas)
+
+### DevOps & Tooling
+
+-   **Version Control**: Git
+-   **Package Managers**:
+    -   npm (Node.js/frontend dependencies)
+    -   pip (Python dependencies)
+-   **Containerization**: Docker with Docker Compose (optional, for MariaDB dev)
+-   **Process Management**: Python venv for isolated environments
+-   **Linting & Formatting**: ESLint (frontend), Black/Flake8 (Python, optional)
+
+---
+
+## Project structure (complete directory tree)
+
+```
+filspresso_next/
+├── src/                              # Next.js application source
+│   ├── app/                          # App Router pages and API routes
+│   │   ├── api/                      # Next.js API routes
+│   │   │   ├── order/               # Order processing endpoints
+│   │   │   ├── pages/               # Dynamic page data endpoints
+│   │   │   └── subscribe/           # Subscription management
+│   │   ├── data/                    # Client-side page content data
+│   │   ├── payment/                 # Payment page route
+│   │   ├── globals.css              # Global styles (legacy CSS preserved)
+│   │   ├── layout.tsx               # Root layout component
+│   │   └── page.tsx                 # Root page component
+│   ├── components/                   # React components (organized by feature)
+│   │   ├── account/                 # Account page components
+│   │   ├── coffee/                  # Coffee catalog components
+│   │   ├── coffee-machine-animation/ # Interactive machine animation
+│   │   ├── home/                    # Home page components
+│   │   ├── love-coffee/             # Coffee education components
+│   │   ├── machines/                # Machine catalog components
+│   │   ├── payment/                 # Payment flow components
+│   │   ├── shop-calculator/         # Shopping calculator tool
+│   │   ├── shopping-bag/            # Cart/bag components
+│   │   ├── subscription/            # Subscription management components
+│   │   ├── Cart.tsx                 # Global cart component
+│   │   ├── LayoutChrome.tsx         # App chrome/layout wrapper
+│   │   ├── Navbar.tsx               # Navigation bar
+│   │   ├── NotificationsProvider.tsx # Toast/notification system
+│   │   ├── PaymentForm.tsx          # Payment form component
+│   │   └── SubscriptionForm.tsx     # Subscription form component
+│   ├── data/                         # Static data and generated JSON
+│   │   ├── coffee.generated.json    # Coffee product catalog
+│   │   ├── coffee.ts                # Coffee data types
+│   │   ├── machines.generated.json  # Machine product catalog
+│   │   └── machines.ts              # Machine data types
+│   ├── hooks/                        # Custom React hooks
+│   │   └── useCart.ts               # Cart state management hook
+│   ├── lib/                          # Utility libraries
+│   │   └── pages.ts                 # Page routing utilities
+│   ├── styles/                       # Feature-specific stylesheets
+│   │   ├── account.css
+│   │   ├── coffee-machine.css
+│   │   ├── globals.css
+│   │   ├── love-coffee.css
+│   │   ├── notifications.css
+│   │   ├── payment.css
+│   │   ├── shop-calculator.css
+│   │   ├── shopping-bag.css
+│   │   └── subscription.css
+│   └── types/                        # TypeScript type definitions
+│       └── custom.d.ts
+├── public/                           # Static assets
+│   ├── images/                       # Product images, backgrounds, logos
+│   │   ├── Capsules/                # Capsule product images
+│   │   │   ├── Original/
+│   │   │   └── Vertuo/
+│   │   ├── Machines/                # Machine product images
+│   │   │   ├── Original/
+│   │   │   └── Vertuo/
+│   │   └── svg/                     # Coffee size/type icons
+│   └── deprecated/                   # Legacy static site (archived)
+├── python_ai/                        # Python AI & IoT backend
+│   ├── models.py                     # Enhanced transformer models (Tanka, Villanelle, Ode)
+│   ├── tokenizer.py                  # Simple tokenizer implementation
+│   ├── trainer.py                    # Training loop and utilities
+│   ├── train.py                      # Training script
+│   ├── train_advanced.py             # Advanced training with hyperparameter tuning
+│   ├── inference.py                  # Inference engine for generation
+│   ├── app.py                        # Flask microservice (AI + IoT endpoints)
+│   ├── iot_db.py                     # IoT command DB helper (SQLite/MariaDB)
+│   ├── iot_db_sqlalchemy.py          # SQLAlchemy wrapper for DB (optional)
+│   ├── test_iot_db_sqlalchemy.py     # Integration test for SQLAlchemy DB
+│   ├── test_model.py                 # Model unit tests
+│   ├── requirements.txt              # Python dependencies
+│   ├── .env.example                  # Environment variables template
+│   ├── docker-compose.maria.yml      # Docker Compose for local MariaDB
+│   ├── data/                         # Reference data
+│   │   └── capsule_volumes.json     # Canonical capsule volume specs
+│   ├── training_data/                # Training corpora (plain text)
+│   │   ├── tanka-training.txt       # Tanka model training data (~17 KB)
+│   │   ├── villanelle-training.txt  # Villanelle training data (~27 KB)
+│   │   └── ode-training.txt         # Ode training data (~43 KB)
+│   ├── migrations/                   # Database migrations
+│   │   └── create_commands_table.sql
+│   ├── models_checkpoint/            # Saved model checkpoints (.pt files)
+│   ├── checkpoints/                  # Training checkpoints
+│   └── documentation/                # Additional docs
+│       ├── ARCHITECTURE_DIAGRAMS.md
+│       ├── IMPLEMENTATION_SUMMARY.md
+│       ├── QUICK_REFERENCE.md
+│       ├── SPECIALIZED_AI_DOC.md
+│       ├── START_HERE.md
+│       ├── TRAINING_GUIDE.md
+│       └── VISUAL_SUMMARY.md
+├── scripts/                          # Utility scripts
+│   ├── addCoffeeNotes.mjs           # Script to add coffee notes
+│   ├── extractCoffeeData.mjs        # Extract coffee data from sources
+│   ├── extractMachinesData.mjs      # Extract machine data from sources
+│   └── esp32/                       # ESP32 device integration
+│       ├── esp32_coffeemachine.ino  # Arduino sketch for accessory
+│       └── README.md                # ESP32 integration guide
+├── package.json                      # Node.js dependencies and scripts
+├── tsconfig.json                     # TypeScript compiler configuration
+├── next.config.ts                    # Next.js configuration
+├── tailwind.config.cjs               # Tailwind CSS configuration
+├── postcss.config.mjs                # PostCSS configuration
+├── eslint.config.mjs                 # ESLint configuration
+├── middleware.ts                     # Next.js middleware (routing)
+├── global.d.ts                       # Global TypeScript declarations
+├── next-env.d.ts                     # Next.js TypeScript declarations
+├── LICENSE                           # MIT License
+├── README.md                         # Quick start README
+└── README_FULL.md                    # This comprehensive documentation
+```
+
+### Key Directory Purposes
+
+-   **`src/app/`**: Next.js App Router pages and layouts; uses file-based routing
+-   **`src/components/`**: Feature-organized React components; each major page has a dedicated subfolder
+-   **`src/data/`**: Product catalog data (coffee capsules and machines) in JSON format
+-   **`python_ai/`**: Complete Python AI backend including models, training, inference, and IoT API
+-   **`python_ai/training_data/`**: Plain text training corpora for the three coffee AI models
+-   **`python_ai/models_checkpoint/`**: Saved PyTorch model weights (`.pt` files)
+-   **`scripts/esp32/`**: Device integration example and documentation for ESP32 accessory
+-   **`public/images/`**: Product photography and visual assets organized by product type
+
+---
+
+## AI: models, data and training
+
+### Model architecture (detailed)
+
+The Kafelot AI models are built on an enhanced transformer architecture with coffee-domain specialization. All three models share the same core components but differ in size and feature activation.
+
+#### Core Architecture Components
+
+1. **Enhanced Transformer Layers** (`EnhancedTransformerLayer`)
+
+    - Multi-Query Attention (MQA) with configurable KV heads
+    - Rotary Position Embeddings (RoPE) for improved context handling
+    - Coffee Domain Attention for specialized knowledge
+    - SwiGLU-activated feed-forward networks or Mixture of Experts (MoE)
+    - Layer normalization with residual connections
+
+2. **Multi-Query Attention (MQA)** (`MultiQueryAttention`)
+
+    - Shares key/value projections across multiple query heads for efficiency
+    - Reduces memory bandwidth and increases inference speed
+    - Configurable number of KV heads (2 for lightweight, 4 for quality)
+    - Integrated with RoPE for position-aware attention
+
+3. **Rotary Position Embeddings (RoPE)** (`RotaryPositionEmbedding`)
+
+    - Reference: RoFormer (Su et al., 2021)
+    - Applies rotation to query and key embeddings based on position
+    - Better extrapolation to longer sequences than learned positional embeddings
+    - Precomputed cos/sin buffers for efficiency
+    - Configurable theta parameter (default: 10000.0)
+
+4. **SwiGLU Activation** (`SwiGLU`, `FeedForwardNetworkSwiGLU`)
+
+    - Reference: GLU Variants Improve Transformer (Shazeer, 2020)
+    - Gated Linear Unit variant with Swish/SiLU activation
+    - More expressive than ReLU/GELU for language modeling
+    - Applied in feed-forward layers: `x * SiLU(gate)`
+
+5. **Coffee Domain Attention** (`CoffeeDomainAttention`)
+
+    - Custom attention mechanism for coffee-specific knowledge
+    - Learnable domain embeddings (8 domains by default):
+        - Extraction techniques
+        - Coffee chemistry
+        - Sensory evaluation
+        - Sustainability practices
+        - Equipment knowledge
+        - Regional characteristics
+        - Processing methods
+        - Brewing science
+    - Domain-weighted context blending with hidden states
+
+6. **Mixture of Experts (MoE)** (`MixtureOfExpertsLayer`)
+
+    - Enabled for Villanelle and Ode models
+    - Routes tokens to specialized expert networks
+    - Learned router selects top-k experts per token
+    - Load balancing across experts for efficiency
+    - Each expert is a dedicated feed-forward network
+
+7. **Weight Tying**
+    - Output projection tied to input embedding matrix
+    - Significantly reduces parameter count (embedding weights reused)
+    - Common practice in modern language models
+
+#### Model Configurations
+
+| Model          | Parameters | Hidden Size | Layers | Heads | KV Heads | FFN Size | MoE            | Max Context |
+| -------------- | ---------- | ----------- | ------ | ----- | -------- | -------- | -------------- | ----------- |
+| **Tanka**      | ~30M       | 432         | 7      | 8     | 2        | 1,296    | ❌             | 1,024       |
+| **Villanelle** | ~60M       | 592         | 9      | 8     | 2        | 1,776    | ✅ (4 experts) | 1,024       |
+| **Ode**        | ~90M       | 776         | 8      | 8     | 4        | 2,328    | ✅ (8 experts) | 1,536       |
+
+#### ModelConfig Dataclass
+
+All models are configured via the `ModelConfig` dataclass in `python_ai/models.py`:
+
+```python
+@dataclass
+class ModelConfig:
+    vocab_size: int = 50000              # Vocabulary size
+    max_seq_length: int = 1024           # Maximum sequence length
+    hidden_size: int = 768               # Hidden dimension size
+    num_layers: int = 12                 # Number of transformer layers
+    num_heads: int = 12                  # Number of attention heads
+    num_kv_heads: int = 4                # Number of key/value heads (MQA)
+    ffn_hidden_size: int = 3072          # Feed-forward hidden size
+    dropout_rate: float = 0.1            # General dropout rate
+    attention_dropout_rate: float = 0.1  # Attention dropout rate
+    layer_norm_eps: float = 1e-6         # Layer norm epsilon
+    activation: str = "swiglu"           # Activation function
+    use_rope: bool = True                # Enable RoPE
+    use_moe: bool = False                # Enable Mixture of Experts
+    num_experts: int = 8                 # Number of experts (if MoE)
+    num_experts_per_token: int = 2       # Active experts per token
+    rope_theta: float = 10000.0          # RoPE frequency base
+```
+
+#### Factory Functions
+
+`python_ai/models.py` provides three factory functions:
+
+-   **`create_tanka_model(vocab_size)`** → Tanka (~30M parameters)
+
+    -   Lightweight, conversational assistant
+    -   Features: MQA (2 KV heads), RoPE, SwiGLU, Coffee Domain Attention
+    -   No MoE (efficiency priority)
+
+-   **`create_villanelle_model(vocab_size)`** → Villanelle (~60M parameters)
+
+    -   Balanced model with technical depth
+    -   Features: MQA (2 KV heads), RoPE, SwiGLU, Coffee Domain Attention, MoE (4 experts)
+    -   Suitable for detailed explanations and troubleshooting
+
+-   **`create_ode_model(vocab_size)`** → Ode (~90M parameters)
+    -   Comprehensive research-grade model
+    -   Features: MQA (4 KV heads), RoPE, SwiGLU, Coffee Domain Attention, MoE (8 experts)
+    -   Extended context window (1,536 tokens)
+    -   Best for deep technical and sensory analysis
+
+These factories return an `AdvancedAIModel` instance and the `ModelConfig` used.
+
+#### Model Architecture Diagram
+
+```
+Enhanced Transformer Architecture (AdvancedAIModel)
+═══════════════════════════════════════════════════════════════════════
+
+                        Input Token IDs
+                        [batch, seq_len]
+                              │
+                ┌─────────────┴─────────────┐
+                │                           │
+        ┌───────v──────┐           ┌────────v────────┐
+        │ Token        │           │ Positional      │
+        │ Embedding    │           │ Embedding       │
+        │ [vocab_size, │           │ [max_seq,       │
+        │  hidden]     │           │  hidden]        │
+        └───────┬──────┘           └────────┬────────┘
+                │                           │
+                └─────────────┬─────────────┘
+                              │
+                      ┌───────v────────┐
+                      │  Dropout       │
+                      │  (p=0.1)       │
+                      └───────┬────────┘
+                              │
+                      ╔═══════v════════╗
+                      ║ Enhanced       ║
+                      ║ Transformer    ║  ← Repeated N times
+                      ║ Layer          ║     (7-9 layers)
+                      ╚═══════╤════════╝
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+        │  ┌──────────────────v──────────────────┐  │
+        │  │  Multi-Query Attention (MQA)        │  │
+        │  │  ┌────────────────────────────────┐ │  │
+        │  │  │ Query Heads: num_heads         │ │  │
+        │  │  │ KV Heads: num_kv_heads (2-4)   │ │  │
+        │  │  │                                │ │  │
+        │  │  │  ┌─────────────────────┐       │ │  │
+        │  │  │  │ Rotary Position     │       │ │  │
+        │  │  │  │ Embedding (RoPE)    │       │ │  │
+        │  │  │  │ • Rotate Q and K    │       │ │  │
+        │  │  │  │ • Better context    │       │ │  │
+        │  │  │  └─────────────────────┘       │ │  │
+        │  │  │                                │ │  │
+        │  │  │ Scores = Q × K^T / √d          │ │  │
+        │  │  │ Context = Softmax(Scores) × V  │ │  │
+        │  │  └────────────────────────────────┘ │  │
+        │  └──────────────────┬──────────────────┘  │
+        │                     │                     │
+        │  ┌──────────────────v──────────────────┐  │
+        │  │  Layer Norm + Residual Connection   │  │
+        │  └──────────────────┬──────────────────┘  │
+        │                     │                     │
+        │  ┌──────────────────v──────────────────┐  │
+        │  │  Coffee Domain Attention            │  │
+        │  │  • 8 domain embeddings              │  │
+        │  │  • Extraction, Chemistry, Sensory   │  │
+        │  │  • Sustainability, Equipment, etc.  │  │
+        │  └──────────────────┬──────────────────┘  │
+        │                     │                     │
+        │            ┌────────v────────┐            │
+        │            │ MoE Enabled?    │            │
+        │            └────┬──────────┬─┘            │
+        │                 │          │              │
+        │            No   │          │  Yes         │
+        │                 │          │              │
+        │  ┌──────────────v─┐   ┌──v────────────┐   │
+        │  │  SwiGLU FFN    │   │ Mixture of    │   │
+        │  │  ┌───────────┐ │   │ Experts (MoE) │   │
+        │  │  │ Linear    │ │   │ ┌───────────┐ │   │
+        │  │  │ (h→2*ffn) │ │   │ │ Router    │ │   │
+        │  │  └─────┬─────┘ │   │ │ (select   │ │   │
+        │  │        │       │   │ │  top-k)   │ │   │
+        │  │  ┌─────v─────┐ │   │ └─────┬─────┘ │   │
+        │  │  │ SwiGLU    │ │   │       │       │   │
+        │  │  │ x*σ(gate) │ │   │  ┌────v────┐  │   │
+        │  │  └─────┬─────┘ │   │  │Expert 1 │  │   │
+        │  │        │       │   │  │Expert 2 │  │   │
+        │  │  ┌─────v─────┐ │   │  │  ...    │  │   │
+        │  │  │ Linear    │ │   │  │Expert K │  │   │
+        │  │  │ (ffn→h)   │ │   │  └────┬────┘  │   │
+        │  │  └─────┬─────┘ │   │       │       │   │
+        │  │        │       │   │  Weighted sum │   │
+        │  └────────┼───────┘   └───────┼───────┘   │
+        │           │                   │           │
+        │           └─────────┬─────────┘           │
+        │                     │                     │
+        │  ┌──────────────────v──────────────────┐  │
+        │  │  Layer Norm + Residual Connection   │  │
+        │  └──────────────────┬──────────────────┘  │
+        │                     │                     │
+        └─────────────────────┼─────────────────────┘
+                              │
+                      ┌───────v────────┐
+                      │  Final Layer   │
+                      │  Normalization │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Output Logits  │
+                      │ (tied to       │
+                      │  embedding)    │
+                      │ [batch, seq,   │
+                      │  vocab_size]   │
+                      └────────────────┘
+```
+
+#### Multi-Query Attention (MQA) Detail
+
+````
+Multi-Query Attention with Rotary Position Embeddings
+══════════════════════════════════════════════════════════════
+
+       Hidden States [batch, seq_len, hidden_size]
+                      │
+        ┌─────────────┼─────────────┐
+        │             │             │
+    ┌───v──┐      ┌───v──┐      ┌───v──┐
+    │ W_Q  │      │ W_K  │      │ W_V  │
+    │      │      │      │      │      │
+    │Query │      │ Key  │      │Value │
+    │Proj  │      │Proj  │      │Proj  │
+    └───┬──┘      └───┬──┘      └───┬──┘
+        │             │             │
+        │ num_heads   │ num_kv_heads│ num_kv_heads
+        │ (e.g., 8)   │ (e.g., 2-4) │ (e.g., 2-4)
+        │             │             │
+    ┌───v──────┐  ┌───v──────┐      │
+    │  Reshape │  │  Reshape │      │
+    │  to heads│  │  to heads│      │
+    └───┬──────┘  └───┬──────┘      │
+        │             │             │
+        └──────┬──────┘             │
+               │                    │
+        ┌──────v──────┐             │
+        │ Apply RoPE  │             │
+        │ ┌─────────┐ │             │
+        │ │ cos/sin │ │             │
+        │ │ rotation│ │             │
+        │ │ per pos │ │             │
+        │ └─────────┘ │             │
+        └──────┬──────┘             │
+               │                    │
+        Q_rot, K_rot                V
+               │                    │
+        ┌──────v──────┐             │
+        │ Expand K, V │             │
+        │ to match Q  │             │
+        │ heads via   │             │
+        │ repeat      │             │
+        └──────┬──────┴─────────────┘
+               │
+        ┌──────v──────────────┐
+        │ Attention Scores    │
+        │                     │
+        │ S = Q × K^T / √d    │
+        │                     │
+        │ [batch, heads,      │
+        │  seq_len, seq_len]  │
+        └──────┬──────────────┘
+               │
+        ┌──────v──────────────┐
+        │ Apply Mask          │
+        │ (if provided)       │
+        └──────┬──────────────┘
+               │
+        ┌──────v──────────────┐
+        │ Softmax(Scores)     │
+        │ = Attention Weights │
+        └──────┬──────────────┘
+               │
+        ┌──────v──────────────┐
+        │ Dropout (p=0.1)     │
+        └──────┬──────────────┘
+               │
+        ┌──────v──────────────┐
+        │ Context             │
+        │ = Weights × V       │
+        │                     │
+        │ [batch, heads,      │
+        │  seq_len, head_dim] │
+        └──────┬──────────────┘
+               │
+        ┌──────v──────────────┐
+        │ Reshape & Concat    │
+        │ heads               │
+        └──────┬──────────────┘
+               │
+        ┌──────v──────────────┐
+        │ Output Projection   │
+        │ W_O                 │
+        └──────┬──────────────┘
+               │
+               v
+        Attention Output
+        [batch, seq_len, hidden_size]
+```### Training data
+
+Training data lives as plaintext files under `python_ai/training_data/`:
+
+-   `tanka-training.txt` — conversational and practical scenarios (now expanded to ~17 KB)
+-   `villanelle-training.txt` — deeper technical/analytical content (~27 KB)
+-   `ode-training.txt` — research-grade and multi-domain content (~42 KB)
+
+Each file contains multi-turn dialogues, troubleshooting trees, sensory lexicon references, and science-backed explanations tailored to each model's persona.
+
+### Training pipeline
+
+Use `python_ai/train.py` to train models locally. The training pipeline uses a `Trainer` class in `python_ai/trainer.py` which handles dataset creation, batching, optimizer setup, checkpointing, and a simple validation loop.
+
+Quick run (example):
+
+```powershell
+# from repo root
+python python_ai/train.py --model tanka --data python_ai/training_data --epochs 3
+````
+
+Notes:
+
+-   Use a GPU-enabled environment for efficient training. The code supports CUDA where available.
+-   Tokenizer is in `python_ai/tokenizer.py` (SimpleTokenizer). Replace with a production tokenizer (sentencepiece/BPE) for robust deployments.
+
+#### Training Pipeline Flow
+
+```
+Training Pipeline (train.py / trainer.py)
+═══════════════════════════════════════════════════════════════════════
+
+  ┌────────────────────────────────────────────────────────────────┐
+  │                    Data Preparation Phase                      │
+  └────────────────────────────────────────────────────────────────┘
+                              │
+                ┌─────────────┴─────────────┐
+                │                           │
+        ┌───────v──────┐            ┌───────v──────┐
+        │ Training     │            │ Validation   │
+        │ Text Files   │            │ Text Files   │
+        │ (.txt)       │            │ (.txt)       │
+        │              │            │              │
+        │ • tanka.txt  │            │ • val.txt    │
+        │ • vill.txt   │            │              │
+        │ • ode.txt    │            │              │
+        └───────┬──────┘            └───────┬──────┘
+                │                           │
+                └─────────────┬─────────────┘
+                              │
+                      ┌───────v────────┐
+                      │ SimpleTokenizer│
+                      │ Build vocab    │
+                      │ (30K-50K)      │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ TextDataset    │
+                      │ • Tokenize     │
+                      │ • Create seqs  │
+                      │ • Build labels │
+                      └───────┬────────┘
+                              │
+  ┌────────────────────────────────────────────────────────────────┐
+  │                    Training Loop Phase                         │
+  └────────────────────────────────────────────────────────────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Create Model   │
+                      │ • Tanka (30M)  │
+                      │ • Vill (60M)   │
+                      │ • Ode (90M)    │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ AdamW Optimizer│
+                      │ lr=1e-4        │
+                      │ weight_decay   │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ LR Scheduler   │
+                      │ (Cosine/Linear)│
+                      └───────┬────────┘
+                              │
+                    ╔═════════v═════════╗
+                    ║   Training Epoch  ║
+                    ╚═════════╤═════════╝
+                              │
+                      ┌───────v────────┐
+                      │ Batch Loop     │
+                      │ for batch in   │
+                      │   dataloader   │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Forward Pass   │
+                      │ logits = model │
+                      │   (input_ids)  │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Compute Loss   │
+                      │ CrossEntropy   │
+                      │ (logits, tgt)  │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Backward Pass  │
+                      │ loss.backward()│
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Gradient Clip  │
+                      │ (max_norm=1.0) │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Optimizer Step │
+                      │ Update weights │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ LR Scheduler   │
+                      │ step()         │
+                      └───────┬────────┘
+                              │
+                              │
+  ┌────────────────────────────────────────────────────────────────┐
+  │                  Validation & Checkpoint Phase                 │
+  └────────────────────────────────────────────────────────────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Validation Loop│
+                      │ @torch.no_grad │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Compute        │
+                      │ Perplexity     │
+                      │ Val Loss       │
+                      └───────┬────────┘
+                              │
+                      ┌───────v────────┐
+                      │ Log Metrics    │
+                      │ • Train Loss   │
+                      │ • Val Loss     │
+                      │ • Perplexity   │
+                      │ • Learning Rate│
+                      └───────┬────────┘
+                              │
+                    ┌─────────v─────────┐
+                    │ Best Model Check? │
+                    └─────┬──────────┬──┘
+                          │          │
+                     Yes  │          │  No
+                          │          │
+            ┌─────────────v──┐       │
+            │ Save Best      │       │
+            │ Checkpoint     │       │
+            │ • model.pt     │       │
+            │ • optimizer    │       │
+            │ • scheduler    │       │
+            │ • history      │       │
+            └─────────────┬──┘       │
+                          │          │
+                          └────┬─────┘
+                               │
+                     ┌─────────v─────────┐
+                     │ Early Stopping?   │
+                     │ (patience=3)      │
+                     └─────┬──────────┬──┘
+                           │          │
+                      Continue        Stop
+                           │          │
+                           │    ┌─────v─────┐
+                           │    │ Training  │
+                           │    │ Complete  │
+                           │    └───────────┘
+                           │
+                           └──────→ Next Epoch
+```
+
+#### Model Comparison Chart
+
+````
+Kafelot AI Models Comparison
+═══════════════════════════════════════════════════════════════════════
+
+┌─────────────────┬──────────────────┬──────────────────┬──────────────────┐
+│                 │   🌿 TANKA       │  🎻 VILLANELLE  │   🎼 ODE        │
+│                 │   Lightweight    │    Balanced      │  Comprehensive   │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Parameters      │  ~28.5M          │   ~64.2M         │   ~97M           │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Hidden Size     │    432           │    592           │    776           │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Num Layers      │     7            │     9            │     8            │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Attention Heads │     8            │     8            │     8            │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ KV Heads (MQA)  │     2            │     2            │     4            │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ FFN Hidden Size │  1,296           │  1,776           │  2,328           │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Max Context     │  1,024 tokens    │  1,024 tokens    │  1,536 tokens    │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ MoE Enabled     │    ❌ No        │   ✅ Yes (4 exp) │   ✅ Yes (8 exp) │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Features        │ • MQA            │ • MQA            │ • MQA            │
+│                 │ • RoPE           │ • RoPE           │ • RoPE           │
+│                 │ • SwiGLU         │ • SwiGLU         │ • SwiGLU         │
+│                 │ • Coffee Domain  │ • Coffee Domain  │ • Coffee Domain  │
+│                 │   Attention      │   Attention      │   Attention      │
+│                 │                  │ • MoE (light)    │ • MoE (full)     │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Best For        │ • Quick answers  │ • Technical      │ • Deep analysis  │
+│                 │ • Chat support   │   explanations   │ • Research       │
+│                 │ • Basic queries  │ • Troubleshoot   │ • Sensory eval   │
+│                 │ • Fast response  │ • Balance        │ • Sustainability │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Inference Speed │  Fast ⚡⚡⚡   │  Medium ⚡⚡     │  Slower ⚡      │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Memory (GPU)    │  ~200 MB         │  ~350 MB         │  ~450 MB         │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Training Time   │  Shortest        │  Medium          │  Longest         │
+│ (per epoch)     │  ~5-10 min       │  ~15-20 min      │  ~25-35 min      │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Recommended     │ • Web chat       │ • Product pages  │ • Expert system  │
+│ Use Cases       │ • Mobile apps    │ • Knowledge base │ • Training tool  │
+│                 │ • Quick lookups  │ • Support desk   │ • Research       │
+└─────────────────┴──────────────────┴──────────────────┴──────────────────┘
+
+Usage Examples:
+  Tanka:      "How do I brew an espresso?"
+  Villanelle: "Explain extraction temperature's effect on acidity"
+  Ode:        "Compare sustainability impacts of wet vs natural processing"
+```---
+
+## IoT: recipes, API endpoints, device workflow
+
+This project includes a minimal IoT workflow enabling the backend to send brewing commands to a Wi-Fi coffee machine.
+
+### Recipe JSON schema
+
+Example recipe:
+
+```json
+{
+	"volume_ml": 50,
+	"temperature_c": 92,
+	"pre_infusion_ms": 500,
+	"capsule_type": "original",
+	"capsule_variant": "espresso"
+}
+````
+
+-   `volume_ml`: target water volume (ml) — use `python_ai/data/capsule_volumes.json` for canonical capsule volumes
+-   `temperature_c`: target brewing temperature (°C) — requires device temperature sensor and PID in production
+-   `pre_infusion_ms`: milliseconds to wet puck before full pump
+-   `capsule_type`/`capsule_variant`: used for compatibility checks (e.g., Original vs Vertuo)
+
+### API Endpoints (Flask microservice in `python_ai/app.py`)
+
+The Flask backend exposes two categories of endpoints: **AI Inference** and **IoT Command Management**.
+
+#### AI Inference Endpoints
+
+-   **POST `/api/generate`** — Generate text completion
+
+    -   Body: `{ "model": "tanka|villanelle|ode", "prompt": "User prompt...", "max_length": 100, "temperature": 0.8 }`
+    -   Returns: `{ "generated_text": "...", "model": "tanka" }`
+
+-   **POST `/api/chat`** — Multi-turn conversational interface
+
+    -   Body: `{ "model": "tanka|villanelle|ode", "messages": [{"role": "user", "content": "..."}], "temperature": 0.7 }`
+    -   Returns: `{ "response": "...", "model": "villanelle" }`
+
+-   **POST `/api/summarize`** — Summarize long text
+
+    -   Body: `{ "model": "villanelle|ode", "text": "Long text...", "max_length": 150 }`
+    -   Returns: `{ "summary": "...", "model": "ode" }`
+
+-   **POST `/api/classify`** — Text classification (coffee types, brewing methods, etc.)
+
+    -   Body: `{ "model": "tanka|villanelle|ode", "text": "..." }`
+    -   Returns: `{ "classification": {...}, "confidence": 0.95 }`
+
+-   **POST `/api/train`** — Trigger training job (dev only)
+
+    -   Body: `{ "model": "tanka|villanelle|ode", "data_path": "...", "epochs": 3 }`
+    -   Returns: `{ "status": "training_started", "job_id": "..." }`
+
+-   **POST `/api/save-model`** — Save model checkpoint
+    -   Body: `{ "model": "tanka|villanelle|ode", "path": "..." }`
+    -   Returns: `{ "status": "saved", "path": "..." }`
+
+#### IoT Command Management Endpoints
+
+-   **POST `/api/commands/create`** — Store a brewing command for a machine
+
+    -   Body:
+
+    ```json
+    {
+    	"machine_id": "MACHINE_ID_123",
+    	"recipe": {
+    		"volume_ml": 40,
+    		"temperature_c": 92,
+    		"pre_infusion_ms": 300,
+    		"capsule_type": "original",
+    		"capsule_variant": "espresso"
+    	},
+    	"execute_allowed": true,
+    	"meta": { "user_id": 456, "order_id": 789 }
+    }
+    ```
+
+    -   Returns: `{ "status": "created", "command_id": 123 }`
+
+-   **GET `/api/commands/check/<machine_id>`** — Device polls for pending commands
+
+    -   Returns:
+        -   `204 No Content` if no pending commands
+        -   `200 OK` with command JSON if pending:
+        ```json
+        {
+          "command_id": 123,
+          "recipe": {...},
+          "execute_allowed": true,
+          "meta": {...},
+          "created_at": "2025-10-22T10:30:00Z"
+        }
+        ```
+
+-   **POST `/api/commands/update/<command_id>`** — Device updates command status
+    -   Body:
+    ```json
+    {
+      "status": "brewing" | "complete" | "failed",
+      "meta": {
+        "started_at": "2025-10-22T10:30:05Z",
+        "completed_at": "2025-10-22T10:31:20Z",
+        "actual_volume_ml": 41,
+        "error": "pump_timeout"
+      }
+    }
+    ```
+    -   Returns: `{ "status": "updated", "command_id": 123 }`
+
+#### Database Configuration
+
+The server uses a simple SQLite-based `python_ai/iot_db.py` to record commands for local testing. For production, migrate this to MariaDB/Postgres and add device authentication and rate-limiting.
+
+-   **Environment Variable**: `IOT_USE_SQLALCHEMY=1` enables the optional SQLAlchemy wrapper (`iot_db_sqlalchemy.py`)
+-   **SQLAlchemy Mode**: Uses connection pooling and supports MariaDB/MySQL via `IOT_DATABASE_URL` or individual `IOT_DB_*` variables
+-   **SQLite Mode**: Zero-config embedded database for development
+
+### Device workflow (ESP32 polling)
+
+```
+IoT Command Lifecycle
+═════════════════════════════════════════════════════════════════════
+
+  User/Frontend          Flask Backend       Commands DB       ESP32 Device       Coffee Machine
+       │                      │                   │                  │                   │
+       │                      │                   │                  │                   │
+  ┌────┴────┐                 │                   │                  │                   │
+  │ User    │                 │                   │                  │                   │
+  │ creates │                 │                   │                  │                   │
+  │ recipe  │                 │                   │                  │                   │
+  └────┬────┘                 │                   │                  │                   │
+       │                      │                   │                  │                   │
+       │ POST /api/commands/  │                   │                  │                   │
+       │ create               │                   │                  │                   │
+       ├─────────────────────→│                   │                  │                   │
+       │  {machine_id,recipe} │                   │                  │                   │
+       │                      │                   │                  │                   │
+       │                      │ INSERT command    │                  │                   │
+       │                      │ status='pending'  │                  │                   │
+       │                      ├──────────────────→│                  │                   │
+       │                      │                   │                  │                   │
+       │                      │ command_id: 123   │                  │                   │
+       │                      │←──────────────────┤                  │                   │
+       │                      │                   │                  │                   │
+       │ {status: created,    │                   │                  │                   │
+       │  command_id: 123}    │                   │                  │                   │
+       │←─────────────────────┤                   │                  │                   │
+       │                      │                   │                  │                   │
+       │                      │                   │                  │                   │
+       │                      │                   │ ┌────────────────┴──────────────┐    │
+       │                      │                   │ │ Polling Loop (every 5-10s)    │    │
+       │                      │                   │ └────────────────┬──────────────┘    │
+       │                      │                   │                  │                   │
+       │                      │  GET /api/commands│                  │                   │
+       │                      │  /check/MACHINE123│                  │                   │
+       │                      │←──────────────────┼──────────────────┤                   │
+       │                      │                   │                  │                   │
+       │                      │ Query pending     │                  │                   │
+       │                      ├──────────────────→│                  │                   │
+       │                      │                   │                  │                   │
+       │                      │ Command data      │                  │                   │
+       │                      │←──────────────────┤                  │                   │
+       │                      │                   │                  │                   │
+       │                      │ 200 OK            │                  │                   │
+       │                      │ {cmd_id, recipe}  │                  │                   │
+       │                      ├─────────────────────────────────────→│                   │
+       │                      │                   │                  │                   │
+       │                      │                   │                  │ ┌─────────────┐   │
+       │                      │                   │                  │ │ Pre-flight  │   │
+       │                      │                   │                  │ │ checks OK   │   │
+       │                      │                   │                  │ └─────────────┘   │
+       │                      │                   │                  │                   │
+       │                      │ POST /update/123  │                  │                   │
+       │                      │ {status:brewing}  │                  │                   │
+       │                      │←──────────────────┼──────────────────┤                   │
+       │                      │                   │                  │                   │
+       │                      │ UPDATE status     │                  │                   │
+       │                      ├──────────────────→│                  │                   │
+       │                      │                   │                  │                   │
+       │                      │                   │                  │ Execute sequence  │
+       │                      │                   │                  │ 1. Pick capsule   │
+       │                      │                   │                  ├──────────────────→│
+       │                      │                   │                  │ 2. Insert capsule │
+       │                      │                   │                  ├──────────────────→│
+       │                      │                   │                  │ 3. Close head     │
+       │                      │                   │                  ├──────────────────→│
+       │                      │                   │                  │ 4. Press button   │
+       │                      │                   │                  ├──────────────────→│
+       │                      │                   │                  │                   │
+       │                      │                   │                  │   Brew cycle      │
+       │                      │                   │                  │   complete        │
+       │                      │                   │                  │←──────────────────┤
+       │                      │                   │                  │                   │
+       │                      │ POST /update/123  │                  │                   │
+       │                      │ {status:complete} │                  │                   │
+       │                      │←──────────────────┼──────────────────┤                   │
+       │                      │                   │                  │                   │
+       │                      │ UPDATE status     │                  │                   │
+       │                      ├──────────────────→│                  │                   │
+       │                      │                   │                  │                   │
+       │                      │                   │ ┌────────────────┴──────────────┐    │
+       │                      │                   │ │ Continue polling...           │    │
+       │                      │                   │ │ (204 No Content if empty)     │    │
+       │                      │                   │ └───────────────────────────────┘    │
+```
+
+#### Workflow Steps1. Device polls every N seconds: `GET /api/commands/check/<MACHINE_ID>`
+
+2. Server returns one pending command (FIFO)
+3. Device POSTs update status to `/api/commands/update/<command_id>` with status = `brewing`
+4. Device executes recipe (heater, pre-infusion, pump) and POSTs `complete` on success
+
+#### Production improvements
+
+-   Use MQTT (or cloud IoT) for efficient message delivery and device management.
+-   Use long-polling or server push to reduce network overhead and latency.
+-   Require mutual authentication on devices (JWT, API key per device, or mTLS).
+
+---
+
+## ESP32 accessory, capsule handler, and Krups Essenza Mini XN110 integration notes
+
+Included: `scripts/esp32/esp32_coffeemachine.ino` — a practical starting point showing HTTP polling and parsing command payloads. Important: the example sketch is for a companion accessory that controls external actuators (motors/servos/solenoids) which operate outside the coffee machine itself. The accessory does NOT modify the internal high-voltage circuits, heater, or pump of the Krups Essenza.
+
+### Design intent — external actuator accessory (recommended)
+
+To integrate safely with closed-source consumer machines like the Krups Essenza Mini XN110, build an external accessory that manipulates the machine's external controls and capsule feed path rather than the internal electronics. Typical accessory responsibilities:
+
+-   Insert a capsule into the machine's capsule slot (mechanical picker / conveyor / guide)
+-   Close or latch the machine head (mechanical arm that simulates the capsule insertion movement)
+-   Depress the start button (small servo or linear actuator) to trigger the machine's built-in pump and heater
+-   Provide sensor feedback (limit switches, hall sensors, IR beam or optical sensors) to confirm successful insertion, closure, and brew completion
+
+Advantages of the external approach:
+
+-   Safety: no mains/high-voltage modifications, preserves warranties and reduces fire/electric hazards
+-   Simplicity: reuses the machine's internal heater and pump, avoiding complex and risky replacement of pressurized water plumbing
+-   Maintainability: accessory can be removed or updated independently of the machine
+
+### About the Krups Essenza Mini XN110
+
+The Krups Essenza Mini XN110 is a compact Nespresso OriginalLine machine. Key integration constraints:
+
+-   Do NOT open or modify sealed, mains-connected electronics unless you have appropriate certifications and safety engineering processes.
+-   Use non-invasive mechanical interfaces (servos, solenoids, linear actuators, or an adapter plate) to operate buttons and move capsules.
+
+Recommended accessory components
+
+```
+ESP32 Coffee Accessory Hardware Architecture
+═══════════════════════════════════════════════════════════════════════
+
+┌────────────────────────────────────────────────────────────────────┐
+│                         POWER SUPPLY                               │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│                    ┌────────────────────┐                          │
+│     AC Mains ─────→│  12V/24V Power     │                          │
+│     (230V)         │  Supply (5A)       │                          │
+│                    └────────┬───────────┘                          │
+│                             │                                      │
+│                   ┌─────────┴─────────┐                            │
+│                   │                   │                            │
+│           ┌───────v──────┐    ┌──────v───────┐                     │
+│           │ 5V Regulator │    │ 12V Rail     │                     │
+│           │ (Buck Conv.) │    │ (for motors) │                     │
+│           │ 3A           │    │              │                     │
+│           └───────┬──────┘    └──────┬───────┘                     │
+│                   │                   │                            │
+└───────────────────┼───────────────────┼────────────────────────────┘
+                    │                   │
+┌───────────────────┼───────────────────┼────────────────────────────┐
+│                   │  CONTROL LAYER    │                            │
+├───────────────────┼───────────────────┼────────────────────────────┤
+│                   │                   │                            │
+│           ┌───────v──────┐            │                            │
+│           │   ESP32      │            │                            │
+│           │   DevKit     │            │                            │
+│           │              │            │                            │
+│           │ • GPIO x30   │            │                            │
+│           │ • Wi-Fi      │            │                            │
+│           │ • ADC        │            │                            │
+│           │ • I2C/SPI    │            │                            │
+│           └───────┬──────┘            │                            │
+│                   │                   │                            │
+│           ┌───────v──────────┐        │                            │
+│           │  Optoisolator    │        │                            │
+│           │  (4N35 × 4)      │        │                            │
+│           │  Safety Barrier  │        │                            │
+│           └───────┬──────────┘        │                            │
+│                   │                   │                            │
+│        ┌──────────┴──────────┐        │                            │
+│        │                     │        │                            │
+│  ┌─────v──────┐      ┌───────v─────┐  │                            │
+│  │ Motor      │      │ Motor       │  │                            │
+│  │ Driver 1   │      │ Driver 2    │  │                            │
+│  │ (Stepper)  │      │ (Servo/     │  │                            │
+│  │ A4988/DRV  │      │  Linear)    │  │                            │
+│  └─────┬──────┘      └───────┬─────┘  │                            │
+│        │                     │        │                            │
+└────────┼─────────────────────┼────────┼────────────────────────────┘
+         │                     │        │
+         │                     │    ┌───v────────────────┐
+         │                     │    │ 12V Rail (motors)  │
+         │                     │    └────────────────────┘
+         │                     │
+┌────────┼─────────────────────┼────────────────────────────────────┐
+│        │    ACTUATORS        │                                    │
+├────────┼─────────────────────┼────────────────────────────────────┤
+│        │                     │                                    │
+│  ┌─────v──────┐      ┌───────v─────┐                              │
+│  │ Stepper 1  │      │ Servo Motor │                              │
+│  │ NEMA 17    │      │ (MG996R)    │                              │
+│  │ (Capsule   │      │ (Button     │                              │
+│  │  picker)   │      │  pressing)  │                              │
+│  └─────┬──────┘      └───────┬─────┘                              │
+│        │                     │                                    │
+│  ┌─────v──────┐      ┌───────v─────┐                              │
+│  │ Stepper 2  │      │ Linear      │                              │
+│  │ NEMA 17    │      │ Actuator    │                              │
+│  │ (Capsule   │      │ (Head       │                              │
+│  │  insertion)│      │  closing)   │                              │
+│  └─────┬──────┘      └───────┬─────┘                              │
+│        │                     │                                    │
+└────────┼─────────────────────┼────────────────────────────────────┘
+         │                     │
+┌────────┼─────────────────────┼────────────────────────────────────┐
+│        │    SENSORS          │                                    │
+├────────┼─────────────────────┼────────────────────────────────────┤
+│        │                     │                                    │
+│  ┌─────v──────┐      ┌───────v─────┐                              │
+│  │ Limit SW 1 │      │ Limit SW 2  │                              │
+│  │ (Home pos) │      │ (Insert pos)│                              │
+│  └─────┬──────┘      └───────┬─────┘                              │
+│        │                     │                                    │
+│  ┌─────v──────┐      ┌───────v─────┐                              │
+│  │ Optical    │      │ Current     │                              │
+│  │ Sensor     │      │ Sensor      │                              │
+│  │ (Capsule   │      │ (ACS712)    │                              │
+│  │  detect)   │      │ (Brew state)│                              │
+│  └─────┬──────┘      └───────┬─────┘                              │
+│        │                     │                                    │
+│        └──────────┬──────────┘                                    │
+│                   │                                               │
+│              (Connect to ESP32 GPIO + GND)                        │
+│                                                                   │
+└────────────────────┼──────────────────────────────────────────────┘
+                     │
+┌────────────────────┼──────────────────────────────────────────────┐
+│                    │    COFFEE MACHINE (Krups Essenza Mini)       │
+├────────────────────┼──────────────────────────────────────────────┤
+│                    │                                              │
+│  ┌─────────────────v──────┐         ┌──────────────────┐          │
+│  │  Capsule Slot          │         │  Start Button    │          │
+│  │  (Insert point)        │←────────│  (Press target)  │          │
+│  └─────────────────┬──────┘         └────────┬─────────┘          │
+│                    │                         │                    │
+│                    v                         v                    │
+│         ┌──────────────────┐    Servo actuation                   │
+│         │  Brew Chamber    │                                      │
+│         │  (Head close)    │←──── Linear actuator                 │
+│         └──────────────────┘                                      │
+│                    │                                              │
+│                    v                                              │
+│         ┌──────────────────┐                                      │
+│         │  Internal Heater │  (NOT modified)                      │
+│         │  Internal Pump   │  (NOT modified)                      │
+│         │  (Original)      │  (Machine handles brewing)           │
+│         └──────────────────┘                                      │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+
+
+Wiring Summary:
+═══════════════════════════════════════════════════════════════════════
+
+ESP32 GPIO Assignments:
+  GPIO 16, 17     ─→ Stepper 1 (step, dir)
+  GPIO 18, 19     ─→ Stepper 2 (step, dir)
+  GPIO 21         ─→ Servo PWM signal
+  GPIO 22         ─→ Linear actuator control
+  GPIO 23, 25     ─→ Limit switches (pull-up)
+  GPIO 26         ─→ Optical sensor (digital in)
+  GPIO 34 (ADC)   ─→ Current sensor (analog in)
+
+Power Distribution:
+  230V AC ─→ PSU (12V 5A)
+  12V ─→ Motor drivers, linear actuator
+  5V  ─→ ESP32, sensors, servo logic
+
+Safety Notes:
+  • Use optoisolators for all motor control signals
+  • Fuse all power rails (5V: 3A, 12V: 5A)
+  • Add thermal cutoffs near heat sources
+  • Emergency stop button in series with 12V rail
+  • Never modify machine's internal high-voltage circuits
+```
+
+#### Component Details- **Microcontroller**: ESP32 (Wi-Fi, enough IO for multiple servos and sensors)
+
+-   **Motor drivers**: small H-bridges or stepper drivers depending on the actuator type
+-   **Servos/actuators**: hobby servos for button pressing and small linear actuators or steppers with gearbox for capsule insertion and head-latching
+-   **Sensors**: limit switches for travel endpoints, hall sensors for rotational position, load cell or current sensor for actuation feedback
+-   **Power**: separate low-voltage supply for motors (12V or 24V) and regulated 5V for ESP32/logic. Use optoisolated drivers and proper fusing.
+
+Safety and compliance notes
+
+-   Use optoisolation between the low-voltage control logic and motor driver high-current circuits.
+-   Include a mechanical emergency stop and fuses appropriate to motor current draw.
+-   Add thermal cutouts to any part that may approach heat sources.
+-   Validate all mechanical motion to avoid pinching users or coffee machine parts.
+
+### Functional sequence (accessory-driven brew)
+
+```
+ESP32 Accessory State Machine
+═══════════════════════════════════════════════════════════════════════
+
+                         ┌──────────────┐
+                         │              │
+                         │     IDLE     │
+                         │              │
+                         └──────┬───────┘
+                                │
+                                │ Timer expires (5-10s)
+                                │
+                         ┌──────v───────┐
+                         │  POLLING     │
+                         │  SERVER      │
+                         └──────┬───────┘
+                                │
+                    ┌───────────┴───────────┐
+                    │                       │
+              No commands             Command received
+              (204 No Content)        (200 OK)
+                    │                       │
+                    v                       v
+              ┌──────────┐          ┌──────────────┐
+              │   IDLE   │          │  VALIDATING  │
+              │          │          │  COMMAND     │
+              └──────────┘          └──────┬───────┘
+                                           │
+                              ┌────────────┴────────────┐
+                              │                         │
+                     execute_allowed=false     execute_allowed=true
+                              │                         │
+                              v                         v
+                        ┌──────────┐            ┌──────────────┐
+                        │   IDLE   │            │  PRE-FLIGHT  │
+                        │          │            │   CHECKS     │
+                        └──────────┘            └──────┬───────┘
+                                                       │
+                                          ┌────────────┴────────────┐
+                                          │                         │
+                                    Sensor error              All sensors OK
+                                          │                         │
+                                          v                         v
+                                    ┌──────────┐            ┌──────────────┐
+                                    │  ERROR   │            │   PICKING    │
+                                    │  REPORT  │            │   CAPSULE    │
+                                    └────┬─────┘            └──────┬───────┘
+                                         │                         │
+                                         │              ┌──────────┴─────────┐
+                                         │              │                    │
+                                         │         Pick success         Pick failed
+                                         │              │             (retry exhausted)
+                                         │              v                    │
+                                         │      ┌──────────────┐             │
+                                         │      │  INSERTING   │             │
+                                         │      │   CAPSULE    │             │
+                                         │      └──────┬───────┘             │
+                                         │             │                     │
+                                         │    ┌────────┴────────┐            │
+                                         │    │                 │            │
+                                         │  Success        Insert failed     │
+                                         │    │                 │            │
+                                         │    v                 v            │
+                                         │ ┌──────────────┐  ┌──────────┐    │
+                                         │ │   CLOSING    │  │  ERROR   │    │
+                                         │ │     HEAD     │  │  REPORT  │    │
+                                         │ └──────┬───────┘  └────┬─────┘    │
+                                         │        │               │          │
+                                         │  ┌─────┴─────┐         │          │
+                                         │  │           │         │          │
+                                         │Success   Close failed  │          │
+                                         │  │           │         │          │
+                                         │  v           v         │          │
+                                         │ ┌──────────────┐  ┌────v─────┐    │
+                                         │ │  PRESSING    │  │  ERROR   │    │
+                                         │ │   BUTTON     │  │  REPORT  │    │
+                                         │ └──────┬───────┘  └────┬─────┘    │
+                                         │        │               │          │
+                                         │  ┌─────┴─────┐         │          │
+                                         │  │           │         │          │
+                                         │Success   Button fail   │          │
+                                         │  │           │         │          │
+                                         │  v           v         │          │
+                                         │ ┌──────────────┐  ┌────v─────┐    │
+                                         │ │   BREWING    │  │  ERROR   │    │
+                                         │ │ POST status  │  │  REPORT  │    │
+                                         │ └──────┬───────┘  └────┬─────┘    │
+                                         │        │               │          │
+                                         │        v               │          │
+                                         │ ┌──────────────┐       │          │
+                                         │ │  MONITORING  │       │          │
+                                         │ │     BREW     │       │          │
+                                         │ │ (optical/    │       │          │
+                                         │ │  current)    │       │          │
+                                         │ └──────┬───────┘       │          │
+                                         │        │               │          │
+                                         │  Brew complete         │          │
+                                         │        │               │          │
+                                         │        v               │          │
+                                         │ ┌──────────────┐       │          │
+                                         │ │   COMPLETE   │       │          │
+                                         │ │ POST status  │       │          │
+                                         │ └──────┬───────┘       │          │
+                                         │        │               │          │
+                                         └────────┴───────────────┴──────────┘
+                                                  │
+                                                  v
+                                            ┌──────────┐
+                                            │   IDLE   │
+                                            │          │
+                                            └──────────┘
+                                                  │
+                                                  │ Wait for next
+                                                  │ polling cycle
+                                                  └───→ ○ (repeat)
+
+
+State Transitions Summary:
+═══════════════════════════════════════════════════════════════════════
+
+  IDLE ──────────→ POLLING ──────────→ VALIDATING
+                      │                     │
+                      │                     ├──→ PRE-FLIGHT
+                      │                     │         │
+                      └──→ IDLE             │         ├──→ PICKING
+                          (no cmd)          │         │       │
+                                            │         │       ├──→ INSERTING
+                                            │         │       │        │
+                                            │         │       │        ├──→ CLOSING
+                                            │         │       │        │       │
+                                            │         │       │        │       ├──→ PRESSING
+                                            │         │       │        │       │       │
+                                            │         │       │        │       │       ├──→ BREWING
+                                            │         │       │        │       │       │       │
+                                            │         │       │        │       │       │       ├──→ MONITORING
+                                            │         │       │        │       │       │       │       │
+                                            │         │       │        │       │       │       │       ├──→ COMPLETE
+                                            │         │       │        │       │       │       │       │       │
+                                            │         │       │        │       │       │       │       │       └──→ IDLE
+                                            │         │       │        │       │       │       │       │
+                                            │         │       │        │       │       │       │       └──→ ERROR ──→ IDLE
+                                            │         │       │        │       │       │       │
+                                            │         │       │        │       │       │       └──→ ERROR ──→ IDLE
+                                            │         │       │        │       │       │
+                                            │         │       │        │       │       └──→ ERROR ──→ IDLE
+                                            │         │       │        │       │
+                                            │         │       │        │       └──→ ERROR ──→ IDLE
+                                            │         │       │        │
+                                            │         │       │        └──→ ERROR ──→ IDLE
+                                            │         │       │
+                                            │         │       └──→ ERROR ──→ IDLE
+                                            │         │
+                                            │         └──→ ERROR ──→ IDLE
+                                            │
+                                            └──→ IDLE (not allowed)
+```
+
+#### Sequence Steps1. Accessory polls `GET /api/commands/check/<MACHINE_ID>` and receives a pending command.
+
+2. Accessory verifies `execute_allowed` and validates recipe fields.
+3. Accessory performs pre-flight checks (sensors, capsule magazine non-empty, latched state clear).
+4. Accessory runs an actuator sequence:
+    - pick a capsule from the magazine (servo/stepper sequence)
+    - insert capsule into the machine's insertion point
+    - close/latch the head or press the machine's mechanical lever if required
+    - press the start button (short press using servo/linear actuator)
+5. Accessory posts `status=brewing` to `/api/commands/update/<command_id>` with start metadata (time, sensor snapshots).
+6. Accessory monitors machine (optional) via optical sensor or current draw to detect when brew ends. When complete, post `status=complete` and any brew metrics (duration, detected flow).
+
+This sequence avoids altering the machine's heater or pump and uses the machine's built-in brew cycle.
+
+### Command / recipe schema additions for accessories
+
+To support accessory action sequences the backend command payload may include an `actuator_sequence` or `accessory_instructions` block alongside the recipe. Example:
+
+```json
+{
+	"command_id": 123,
+	"recipe": {
+		"volume_ml": 40,
+		"temperature_c": 92,
+		"pre_infusion_ms": 300,
+		"capsule_type": "original",
+		"capsule_variant": "espresso"
+	},
+	"accessory_instructions": {
+		"capsule_slot": 2,
+		"motor_steps_per_ml": 10,
+		"insert_sequence": [
+			{ "action": "pick", "params": { "slot": 2 } },
+			{ "action": "insert", "params": {} },
+			{ "action": "latch", "params": {} },
+			{ "action": "press_button", "params": { "duration_ms": 200 } }
+		]
+	}
+}
+```
+
+Notes:
+
+-   `motor_steps_per_ml` is accessory-specific calibration (if accessory meters water externally). If using the machine's built-in pump, the accessory need only command mechanical operations and monitor the machine.
+-   `insert_sequence` is intentionally simple; devices can interpret this into low-level servo/stepper commands.
+
+### ESP32 sketch responsibilities (practical)
+
+-   Network: connect to Wi‑Fi and poll backend for commands (or use MQTT if configured)
+-   Auth: attach device token or mutual TLS client cert for authenticated API calls
+-   Safety checks: ensure accessory is in a safe home position before any motion
+-   Execute actuator sequence with sensor feedback and timeouts
+-   Post lifecycle updates to the backend (`brewing`, `complete`, `failed`) with `meta` containing sensor traces and photos if present
+
+### Calibration and tuning
+
+-   Calibrate actuator travel distances using limit switches. Record positions for pick, insert, latch, and idle.
+-   Use current or optical sensors to detect successful capsule seating and brew flow.
+-   Add retry logic: if insertion fails (sensor mismatch), retry N times then report failure and set `execute_allowed=false` in the admin UI.
+
+### Example accessory error handling
+
+-   If a pick fails: retry up to 2 times, then mark `failed` with `meta: {"error": "pick_failed"}`
+-   If a button press fails: attempt a simulated double-press and report results
+-   If sensors disagree (e.g., magazine empty but server thought there were capsules): post `failed` and raise an operator alert
+
+### Security / OTA
+
+-   Use HTTPS and a per-device API key or mTLS. Store keys securely in device flash (encrypted) or use a provisioning flow.
+-   Provide OTA updates to the accessory firmware (PlatformIO or custom OTA over HTTPS). Sign firmware images to prevent tampering.
+
+### Why this approach
+
+This accessory-first approach keeps the cheapest path to automation safe and practical for consumer appliances. It reduces legal and safety risk, simplifies development, and enables broad compatibility across many Original-line machines that share similar mechanical interfaces.
+
+---
+
+## Frontend architecture and routing
+
+### Next.js App Router Structure
+
+The frontend uses Next.js 15's App Router with a custom middleware-based routing system. All pages are rendered through a single root route (`/`) with query parameter-based routing.
+
+#### Routing Mechanism (`middleware.ts`)
+
+-   **Pattern**: Rewrite requests like `/coffee` → `/?page=coffee`
+-   **Supported pages**: home, account, coffee, machines, payment, subscription, shopping-bag, shop-calculator, coffee-machine-animation, love-coffee
+-   **Benefits**:
+    -   Single root layout component
+    -   Consistent page transitions
+    -   Simplified state management
+    -   Preserved legacy CSS compatibility
+
+#### Page Components
+
+Each page is implemented as a dedicated component in `src/components/<page-name>/`:
+
+```
+src/components/
+├── home/HomePageContent.tsx              # Landing page with hero and features
+├── coffee/CoffeePageContent.tsx          # Coffee catalog with filtering
+├── machines/MachinesPageContent.tsx      # Machine catalog with comparisons
+├── payment/PaymentPageContent.tsx        # Payment flow
+├── subscription/...                      # Subscription management
+├── shopping-bag/...                      # Cart and checkout
+├── shop-calculator/...                   # Capsule quantity calculator
+└── account/AccountPageContent.tsx        # User account management
+```
+
+#### Shared Components
+
+-   **`LayoutChrome.tsx`**: Page wrapper with navigation, footer, and notifications
+-   **`Navbar.tsx`**: Responsive navigation bar with cart indicator
+-   **`Cart.tsx`**: Global cart sidebar with add/remove/checkout actions
+-   **`NotificationsProvider.tsx`**: Toast notification system for user feedback
+
+#### State Management
+
+-   **Cart State**: `useCart` hook (React Context + localStorage persistence)
+-   **Form State**: React controlled components with validation
+-   **Notifications**: Context provider with queue and auto-dismiss
+
+#### Styling Strategy
+
+-   **Global CSS**: `src/styles/globals.css` preserves legacy CSS 1:1 for visual parity
+-   **Feature CSS**: Scoped stylesheets per page feature (e.g., `coffee-machine.css`)
+-   **Tailwind CSS**: Utility classes for new components and responsive layouts
+-   **Approach**: Hybrid CSS (legacy preserved + Tailwind for new features)
+
+#### Data Loading
+
+-   **Product Catalogs**:
+    -   Static JSON files (`src/data/coffee.generated.json`, `machines.generated.json`)
+    -   Generated by scripts (`scripts/extractCoffeeData.mjs`)
+    -   Type-safe via TypeScript interfaces
+-   **Dynamic Content**:
+    -   API routes under `src/app/api/` for server-side operations
+    -   Next.js Server Actions for form submissions
+    -   Fetch API for Python AI backend calls
+
+#### TypeScript Configuration
+
+-   **Strict Mode**: Enabled for type safety
+-   **Path Aliases**: `@/*` maps to `src/*`
+-   **Target**: ES2017 with DOM types
+-   **Custom Types**: `src/types/custom.d.ts` for global declarations
+
+#### Frontend Data Flow
+
+````
+Frontend Data Flow (Next.js + React)
+═══════════════════════════════════════════════════════════════════════
+
+                      User Action
+                     (Click, Input)
+                           │
+                           v
+                  ┌────────────────┐
+                  │ Page Component │
+                  │   (React)      │
+                  └────────┬───────┘
+                           │
+          ┌────────────────┼────────────────┐
+          │                │                │
+          v                v                v
+    ┌──────────┐    ┌──────────┐    ┌──────────────┐
+    │ useCart  │    │ useState │    │ Notifications│
+    │  Hook    │    │ (Local)  │    │   Context    │
+    └────┬─────┘    └──────────┘    └──────────────┘
+         │
+         v
+    ┌──────────────┐
+    │ localStorage │
+    │ Persistence  │
+    │ (cart items) │
+    └──────────────┘
+
+
+    Server Communication:
+    ════════════════════════════════════════════════
+
+                  Page Component
+                        │
+                        v
+              ┌─────────────────┐
+              │ Fetch/API Call  │
+              └────────┬────────┘
+                       │
+              ┌────────┴────────┐
+              │                 │
+              v                 v
+      ┌───────────────┐  ┌──────────────┐
+      │ Next.js API   │  │ Flask API    │
+      │ Route         │  │ (Direct)     │
+      │ /api/...      │  │ localhost:   │
+      │               │  │ 5000         │
+      └───────┬───────┘  └──────┬───────┘
+              │                 │
+              v                 v
+      ┌───────────────┐  ┌──────────────┐
+      │ Server Action │  │ AI Models    │
+      │ (DB/Auth)     │  │ IoT Commands │
+      └───────┬───────┘  └──────┬───────┘
+              │                 │
+              └────────┬────────┘
+                       │
+                       v
+              ┌────────────────┐
+              │ JSON Response  │
+              └────────┬───────┘
+                       │
+                       v
+              ┌────────────────┐
+              │ Update State   │
+              │ Re-render UI   │
+              └────────────────┘
+
+
+    State Management Pattern:
+    ════════════════════════════════════════════════
+
+      Cart State (Global):
+        • React Context API
+        • Persisted to localStorage
+        • Synced across tabs (storage events)
+
+      Form State (Local):
+        • useState hooks
+        • Controlled components
+        • Client-side validation
+
+      Notifications (Global):
+        • Context provider
+        • Queue with auto-dismiss
+        • Toast UI component
+
+
+    Example Flow: Add to Cart
+    ════════════════════════════════════════════════
+
+      User clicks "Add to Cart"
+              │
+              v
+      Component calls addToCart(item)
+              │
+              v
+      useCart hook updates context state
+              │
+              v
+      ┌───────┴────────┐
+      │                │
+      v                v
+    Update           Save to
+    UI state         localStorage
+      │                │
+      └───────┬────────┘
+              v
+      Show toast notification
+              │
+              v
+      Update cart badge counter
+```---
+
+## Development: running locally and testing
+
+This section consolidates practical development steps for the frontend, Python AI & IoT backend, and ESP32 accessory.
+
+1. Frontend (Next.js)
+
+```powershell
+npm install
+npm run dev
+````
+
+2. Python AI & IoT server (venv recommended)
+
+```powershell
+# from repo root
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r python_ai/requirements.txt
+python python_ai/app.py
+```
+
+Notes:
+
+-   `python_ai/requirements.txt` should include core dependencies: Flask, PyTorch, SQLAlchemy (optional), pymysql (optional), and testing tools. Adjust for your environment (GPU vs CPU).
+-   The Flask microservice listens on port 5000 by default. Use `IOT_USE_SQLALCHEMY=1` to enable the SQLAlchemy DB wrapper in `python_ai/iot_db_sqlalchemy.py`.
+
+3. ESP32 accessory (development)
+
+-   Open `scripts/esp32/esp32_coffeemachine.ino` in Arduino IDE or PlatformIO.
+-   Configure Wi‑Fi credentials, server URL, and device token (or set up mTLS if available).
+-   Compile and flash to the ESP32.
+
+4. Test a full flow (example)
+
+Create a command using curl (PowerShell example):
+
+```powershell
+curl -X POST http://localhost:5000/api/commands/create -H "Content-Type: application/json" -d '{"machine_id":"MACHINE_ID_123","recipe":{"volume_ml":40,"temperature_c":92,"pre_infusion_ms":300,"capsule_type":"original","capsule_variant":"espresso"}}'
+```
+
+-   The ESP32 accessory will poll `GET /api/commands/check/<MACHINE_ID>` and execute the command according to the accessory instructions.
+-   Monitor the accessory serial console for action logs and POSTs to `/api/commands/update/<command_id>`.
+
+---
+
+## Security & production recommendations
+
+-   Use HTTPS, authenticated endpoints, token-based or mutual TLS device auth.
+-   Migrate `iot_db.py` to a production RDBMS, apply migrations, and index `machine_id` + `status` for quick polling queries.
+-   Add RBAC and audit logging for commands and model changes.
+-   Rate-limit device polling and consider heartbeat monitoring.
+-   Provide OTA firmware updates for devices.
+
+Additional device-specific security guidance (from ESP32 README and IoT quick ref):
+
+-   Verify TLS certificates on device; do not skip certificate validation in production.
+-   Store device secrets securely (use encrypted partition or secure element where possible). Avoid storing plaintext API keys in code.
+-   Consider per-device API keys or JWTs with short expiry and refresh mechanism.
+-   For larger fleets, use a cloud IoT platform (AWS IoT, Azure IoT Hub, Google Cloud IoT) for device identity, provisioning, and OTA.
+
+---
+
+## Troubleshooting & debugging
+
+-   If devices report repeated `failed`, inspect `meta` in DB and drop `execute_allowed` until a human operator verifies.
+-   If commands queue, verify device polling interval and network stability.
+-   For model inference issues, review `python_ai/inference.py` and the tokenizer.
+
+---
+
+## Appendices
+
+### Capsule volumes
+
+See `python_ai/data/capsule_volumes.json` — includes Original and Vertuo canonical volumes in ml. The backend uses these as guidance. Original-only machines will ignore Vertuo recipes.
+
+### Files of interest
+
+-   `python_ai/models.py` — model architecture and factories
+-   `python_ai/trainer.py` — training loop and utilities
+-   `python_ai/app.py` — AI & IoT endpoints
+-   `python_ai/iot_db.py` — command DB helper (SQLite)
+-   `python_ai/training_data/` — training corpora (tanka, villanelle, ode)
+-   `scripts/esp32/` — device example and docs
+
+### Additional README sources merged
+
+This `README_FULL.md` now incorporates and consolidates information from:
+
+-   `README.md` (project overview, Next.js quick start)
+-   `scripts/esp32/README.md` (ESP32 device integration notes and quick flow)
+-   `python_ai/README_IoT.md` (IoT quick reference: endpoints, recipe schema, calibration and production notes)
+
+If you find content missing or want a separate, shorter quick-start README for each subproject (frontend, python_ai, ESP32), tell me and I will split the merged sections into focused README files while keeping `README_FULL.md` as the canonical long-form documentation.
+
+---
+
+## Diagrams Index
+
+This README includes comprehensive visual documentation using **ASCII box-drawing art** for maximum compatibility:
+
+### Architecture Diagrams
+
+1. **High-Level System Architecture** — 4-layer system showing frontend (Next.js/React), backend (Flask/PyTorch), data tier (SQLite/MySQL), and IoT layer (ESP32)
+2. **Production Deployment Architecture** — 4-tier production infrastructure: CDN/WAF → Load Balancer → App Tier (3 nodes) → Data Tier with replication
+
+### Process Flow Diagrams
+
+3. **IoT Device Workflow Sequence** — Detailed sequence: User → API → Database → ESP32 → Coffee Machine (full lifecycle with state updates)
+4. **ESP32 Accessory State Machine** — 7-state machine (Idle → Picking → Inserting → Brewing → Ejecting → Error → Reset) with 15+ transitions
+5. **End-to-End User Journey** — 5-phase journey: Discovery → AI Interaction → Purchase → IoT Brewing → Enjoyment (6-12 minute timeline)
+
+### AI/ML Diagrams
+
+6. **Model Architecture Diagram** — Enhanced Transformer with Input Embedding → 6/12/16 Layers (RoPE + MQA + SwiGLU + Coffee Attention + MoE) → Output Head
+7. **Multi-Query Attention with RoPE** — Q/K/V processing flow: Linear projections → RoPE → Grouped heads → Softmax → Output
+8. **Training Pipeline Flow** — 3-phase pipeline: Data Preparation → Training Loop (forward/backward/optimize) → Validation/Checkpointing
+9. **Model Comparison Chart** — ASCII table comparing Tanka (28.5M), Villanelle (64.2M), Ode (81.8M) specifications
+
+### Frontend Diagrams
+
+10. **Frontend Data Flow** — React patterns: User Actions → State Management (Zustand cart store) → API Communication → Backend
+11. **Next.js Routing Architecture** — (Described in text; middleware-based routing with App Router)
+
+### Hardware Diagrams
+
+12. **ESP32 Hardware Architecture** — Complete wiring: 5V/3.3V Power Tree → ESP32 → External Controllers → Actuators/Sensors → Coffee Machine
+
+### Database Diagrams
+
+13. **Database Schema (ER Diagram)** — Commands table (10 fields), indexes, and relationships with users/devices/order_items tables
+
+---
+
+**Format Notes:**  
+All diagrams use ASCII box-drawing characters (`┌─┐│└┘├┤┬┴┼`) and render perfectly in:
+
+-   Any text editor or terminal
+-   GitHub/GitLab markdown viewers
+-   VS Code preview
+-   Documentation tools (Sphinx, MkDocs, etc.)
+
+This format matches the style of `python_ai/ARCHITECTURE_DIAGRAMS.md` and ensures compatibility across all platforms without requiring special rendering engines.
+
+---
+
+If you'd like, I can also:
+
+-   Add device authentication headers and update the ESP32 sketch to include an API key
+-   Replace polling with MQTT sample and sample broker config
+-   Implement MariaDB-backed `iot_db` and a simple admin UI for command management
+
+Tell me which of these you'd like next and I'll implement it.
+
+---
+
+## Database Schema
+
+### Commands Table Structure
+
+```
+Database Schema (MariaDB / MySQL / SQLite)
+═══════════════════════════════════════════════════════════════════════
+
+┌────────────────────────────────────────────────────────────────────┐
+│                       COMMANDS TABLE                               │
+├──────────────────┬──────────────┬─────────────┬────────────────────┤
+│ Field            │ Type         │ Constraints │ Description        │
+├──────────────────┼──────────────┼─────────────┼────────────────────┤
+│ command_id       │ INT          │ PK, AUTO    │ Unique ID          │
+│ machine_id       │ VARCHAR(255) │ NOT NULL    │ Device identifier  │
+│ recipe           │ JSON         │ NOT NULL    │ Brew recipe data   │
+│ execute_allowed  │ BOOLEAN      │ DEFAULT 1   │ Safety flag        │
+│ status           │ VARCHAR(50)  │ NOT NULL    │ Command state      │
+│ meta             │ JSON         │ NULL        │ Additional data    │
+│ created_at       │ DATETIME     │ NOT NULL    │ Creation timestamp │
+│ updated_at       │ DATETIME     │ ON UPDATE   │ Last update time   │
+└──────────────────┴──────────────┴─────────────┴────────────────────┘
+
+Status Values:
+  • 'pending'   - Command created, waiting for device
+  • 'brewing'   - Device executing brew cycle
+  • 'complete'  - Brew finished successfully
+  • 'failed'    - Error occurred during execution
+
+Recipe JSON Structure:
+  {
+    "volume_ml": 40,
+    "temperature_c": 92,
+    "pre_infusion_ms": 300,
+    "capsule_type": "original",
+    "capsule_variant": "espresso"
+  }
+
+Meta JSON Structure:
+  {
+    "user_id": 456,
+    "order_id": 789,
+    "started_at": "2025-10-22T10:30:05Z",
+    "completed_at": "2025-10-22T10:31:20Z",
+    "actual_volume_ml": 41,
+    "error": "pump_timeout"
+  }
+
+
+┌────────────────────────────────────────────────────────────────────┐
+│                   COMMAND_HISTORY TABLE (Optional)                 │
+├──────────────────┬──────────────┬─────────────┬────────────────────┤
+│ Field            │ Type         │ Constraints │ Description        │
+├──────────────────┼──────────────┼─────────────┼────────────────────┤
+│ history_id       │ INT          │ PK, AUTO    │ History record ID  │
+│ command_id       │ INT          │ FK, INDEX   │ Ref to COMMANDS    │
+│ old_status       │ VARCHAR(50)  │ NULL        │ Previous status    │
+│ new_status       │ VARCHAR(50)  │ NOT NULL    │ New status         │
+│ meta_snapshot    │ JSON         │ NULL        │ Meta at change     │
+│ changed_at       │ DATETIME     │ NOT NULL    │ Change timestamp   │
+└──────────────────┴──────────────┴─────────────┴────────────────────┘
+
+
+Relationships:
+═══════════════════════════════════════════════════════════════════════
+
+  COMMANDS (1) ────────────────────→ (Many) COMMAND_HISTORY
+       │                                      │
+       │ command_id                           │ command_id (FK)
+       │                                      │
+       └──────────────────────────────────────┘
+               Tracks status changes
+
+
+Index Recommendations:
+═══════════════════════════════════════════════════════════════════════
+
+  PRIMARY:
+    • commands.command_id (auto)
+    • command_history.history_id (auto)
+
+  COMPOSITE INDEX (for polling):
+    • CREATE INDEX idx_machine_status
+      ON commands(machine_id, status, created_at);
+
+  STATUS INDEX (for analytics):
+    • CREATE INDEX idx_status_created
+      ON commands(status, created_at);
+
+  HISTORY FK INDEX:
+    • CREATE INDEX idx_history_command
+      ON command_history(command_id);
+```
+
+#### Commands Table Fields| Field | Type | Description |
+
+| ----------------- | ------------ | ----------------------------------- |
+| `command_id` | INT | Primary key, auto-increment |
+| `machine_id` | VARCHAR(255) | Unique machine identifier |
+| `recipe` | JSON | Recipe payload (volume, temp, etc.) |
+| `execute_allowed` | BOOLEAN | Safety flag for execution |
+| `status` | VARCHAR(50) | pending, brewing, complete, failed |
+| `meta` | JSON | Additional metadata, logs, errors |
+| `created_at` | DATETIME | Command creation timestamp |
+| `updated_at` | DATETIME | Last status update timestamp |
+
+#### Recommended Indexes
+
+```sql
+-- For fast polling queries
+CREATE INDEX idx_machine_status ON commands(machine_id, status, created_at);
+
+-- For command history tracking
+CREATE INDEX idx_status_created ON commands(status, created_at);
+```
+
+---
+
+## Production Deployment Architecture
+
+````
+Production Deployment Architecture
+═══════════════════════════════════════════════════════════════════════
+
+                            Internet
+                                │
+                ┌───────────────┴───────────────┐
+                │                               │
+         End Users                        ESP32 Devices
+         (Browsers/Mobile)                (Coffee Machines)
+                │                               │
+                └───────────────┬───────────────┘
+                                │
+                    ┌───────────v───────────┐
+                    │   CDN / Edge Layer    │
+                    ├───────────────────────┤
+                    │ • Vercel Edge Network │
+                    │ • Static Assets Cache │
+                    │ • DDoS Protection     │
+                    └───────────┬───────────┘
+                                │
+                    ┌───────────v───────────┐
+                    │   WAF (Firewall)      │
+                    ├───────────────────────┤
+                    │ • Rate Limiting       │
+                    │ • SQL Injection Block │
+                    │ • XSS Protection      │
+                    └───────────┬───────────┘
+                                │
+                    ┌───────────v───────────┐
+                    │  Load Balancer (LB)   │
+                    ├───────────────────────┤
+                    │• HTTPS/TLS Termination│
+                    │• Health Checks        │
+                    │• Session Affinity     │
+                    └───────────┬───────────┘
+                                │
+                ┌───────────────┴───────────────┐
+                │                               │
+     ┌──────────v──────────┐         ┌─────────v──────────┐
+     │  Next.js App Tier   │         │  Flask AI Tier     │
+     ├─────────────────────┤         ├────────────────────┤
+     │ ┌─────────────────┐ │         │ ┌────────────────┐ │
+     │ │ Next.js Inst. 1 │ │         │ │ Flask Inst. 1  │ │
+     │ │ (Container)     │ │────────→│ │ (Container)    │ │
+     │ └─────────────────┘ │         │ └────────┬───────┘ │
+     │                     │         │          │         │
+     │ ┌─────────────────┐ │         │ ┌────────v───────┐ │
+     │ │ Next.js Inst. 2 │ │         │ │ Flask Inst. 2  │ │
+     │ │ (Container)     │ │────────→│ │ (Container)    │ │
+     │ └─────────────────┘ │         │ └────────┬───────┘ │
+     │                     │         │          │         │
+     │ • SSR/SSG           │         │ • AI Models        │
+     │ • API Routes        │         │ • IoT API          │
+     │ • State Management  │         │ • Inference        │
+     └─────────────────────┘         └──────────┬─────────┘
+                                                 │
+                                  ┌──────────────┴──────────────┐
+                                  │                             │
+                    ┌─────────────v──────────┐    ┌────────────v───────────┐
+                    │    Data Tier           │    │  Cache Layer           │
+                    ├────────────────────────┤    ├────────────────────────┤
+                    │ ┌────────────────────┐ │    │ ┌────────────────────┐ │
+                    │ │ MariaDB Primary    │ │    │ │ Redis Cluster      │ │
+                    │ │ (Read/Write)       │ │    │ │ • Sessions         │ │
+                    │ └────────┬───────────┘ │    │ │ • Rate Limits      │ │
+                    │          │             │    │ │ • Command Queue    │ │
+                    │          │ Replication │    │ └────────────────────┘ │
+                    │          v             │    └────────────────────────┘
+                    │ ┌────────────────────┐ │
+                    │ │ MariaDB Replica(s) │ │
+                    │ │ (Read-only)        │ │
+                    │ └────────────────────┘ │
+                    │                        │
+                    │ • Commands DB          │
+                    │ • User Data            │
+                    │ • Orders               │
+                    └────────────────────────┘
+                                  │
+                    ┌─────────────v──────────┐
+                    │ Object Storage (S3)    │
+                    ├────────────────────────┤
+                    │ • Model Checkpoints    │
+                    │   (.pt files)          │
+                    │ • Training Data        │
+                    │ • Static Assets        │
+                    │ • Logs (archived)      │
+                    └────────────────────────┘
+
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    Monitoring & Observability                   │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                 │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────┐   │
+    │  │  Prometheus     │  │    Grafana      │  │ Log Aggregation│   │
+    │  │  (Metrics)      │→ │   (Dashboards)  │  │ (ELK/Loki)     │   │
+    │  │                 │  │                 │  │                │   │
+    │  │ • Request rate  │  │ • System health │  │ • App logs     │   │
+    │  │ • Error rate    │  │ • Model metrics │  │ • Access logs  │   │
+    │  │ • Latency       │  │ • DB perf       │  │ • Error traces │   │
+    │  │ • DB connection │  │ • Alerts        │  │ • Device logs  │   │
+    │  └─────────────────┘  └─────────────────┘  └────────────────┘   │
+    │                                                                 │
+    └─────────────────────────────────────────────────────────────────┘
+
+
+Deployment Summary:
+═══════════════════════════════════════════════════════════════════════
+
+  Edge Layer:      Vercel CDN + WAF (DDoS, rate limit)
+  Load Balancer:   HTTPS/TLS termination, health checks
+  App Tier:        2+ Next.js instances, 2+ Flask instances
+  Data Tier:       MariaDB primary + replica(s), Redis cache
+  Storage:         S3 for model checkpoints and training data
+  Monitoring:      Prometheus, Grafana, Log aggregation
+  Security:        mTLS for devices, JWT for users, encryption at rest
+```---
+
+## Local MariaDB for development (optional but recommended)
+
+If you want to test the IoT flow against a real MariaDB instance (recommended before production), you can run a small MariaDB container locally and point the service at it. The repo includes a sample `docker-compose` and a SQL migration to create the `commands` table.
+
+Files provided:
+
+-   `python_ai/docker-compose.maria.yml` — Docker Compose service to run MariaDB for local development
+-   `python_ai/migrations/create_commands_table.sql` — Simple migration to create the `commands` table used by the IoT API
+-   `python_ai/.env.example` — Example environment variables for local testing
+
+Quick start (PowerShell):
+
+```powershell
+# from repo root
+cd python_ai
+# copy the example env
+copy .env.example .env
+docker compose -f docker-compose.maria.yml up -d
+
+# wait a few seconds, then run the migration (use root password from .env)
+docker compose -f docker-compose.maria.yml exec mariadb sh -c "mysql -uroot -p\"$env:MYSQL_ROOT_PASSWORD\" < /migrations/create_commands_table.sql"
+````
+
+Environment variables to set (use `.env` or export in your shell):
+
+-   `IOT_DB_HOST` — hostname where MariaDB is reachable (e.g., localhost)
+-   `IOT_DB_PORT` — port (default 3306)
+-   `IOT_DB_USER` — database user (e.g., kafelot)
+-   `IOT_DB_PASS` — user password
+-   `IOT_DB_NAME` — database name (e.g., kafelot_iot)
+
+After starting MariaDB, point the Python service to it by setting the env vars above or by setting `IOT_DATABASE_URL` to a full SQLAlchemy URL (example below):
+
+```
+IOT_DATABASE_URL=mysql+pymysql://kafelot:changeme@127.0.0.1:3306/kafelot_iot?charset=utf8mb4
+```
+
+## Switching the Flask app to use SQLAlchemy wrapper
+
+The repo includes two ways to access the commands DB:
+
+-   `python_ai/iot_db.py` — lightweight helper (raw pymysql/sqlite3 calls). Works immediately and matches the earlier Flask endpoints.
+-   `python_ai/iot_db_sqlalchemy.py` — optional SQLAlchemy wrapper providing connection pooling and consistent dialect handling.
+
+To use the SQLAlchemy wrapper in `python_ai/app.py`, change the import and initialization lines where the DB is initialized. Example (pseudo):
+
+```python
+# old
+import python_ai.iot_db as iot_db
+iot_db.init_db()
+
+# new
+from python_ai import iot_db_sqlalchemy as iot_db
+iot_db.init_db()
+```
+
+The SQLAlchemy wrapper will read `IOT_DATABASE_URL` or fall back to the `IOT_DB_*` env vars and then to a local SQLite file.
+
+## Automated test for local SQLite (already included)
+
+There is a lightweight test script `python_ai/test_iot_db_sqlalchemy.py` which exercises the SQLAlchemy wrapper using the SQLite fallback. Run it like this from the repo root:
+
+```powershell
+#$env:PYTHONPATH must include the repo root so `python_ai` is importable
+$env:PYTHONPATH = "$pwd"
+python python_ai/test_iot_db_sqlalchemy.py
+```
+
+## Production notes and hardening
+
+-   Use strong passwords and do not commit `.env` files to source control. Keep production credentials in a secrets manager.
+-   Configure MariaDB with secure settings: remote access limited by firewall, use TLS for server connections if hosts are not co-located, and enable slow query logging for troubleshooting.
+-   If you expect heavy device polling, use a connection pool and tune the pool size in SQLAlchemy (via `create_engine(pool_size=..., max_overflow=...)`).
+-   Add an index on `(machine_id, status, created_at)` to make polling fast at scale.
+
+## Device authentication patterns
+
+Use one of these patterns depending on your operational requirements:
+
+-   Per-device API keys: issue each device a long random token and verify it on each request. Store token hashes server-side.
+-   Mutual TLS (mTLS): devices hold client certificates and present them to the server. Strong, no-token required authentication for fleet-managed devices.
+-   JWTs with short lifetimes: useful if devices can request tokens via a provisioning service.
+
+The ESP32 sketch can be updated to include an `Authorization: Bearer <token>` header or an `X-Device-Token: <key>` header; the Flask endpoints should validate this before returning commands.
+
+## Operational runbook (backup & restore)
+
+-   Backup MariaDB regularly with `mysqldump` or logical backups; for larger fleets, consider binary backups and PITR solutions.
+-   Monitor the `commands` table growth; purge or archive old `complete`/`failed` rows older than the retention window.
+-   Add observability: Prometheus metrics for polling rate, command throughput, and error rates. Export DB connection pool stats.
+
+## Next steps I can take for you
+
+-   Create `python_ai/docker-compose.maria.yml` and `python_ai/migrations/create_commands_table.sql` files (I can add them now) and offer a `.env` template.
+-   Update `python_ai/app.py` to optionally use the SQLAlchemy wrapper based on an env flag (e.g., `IOT_USE_SQLALCHEMY=1`).
+-   Add a small `pytest` test suite that runs the SQLite path during CI and conditionally runs MariaDB tests if `IOT_DATABASE_URL` is present.
+
+Which of these would you like me to do next? I can create the docker and migration files now and wire the Flask service to optionally use the SQLAlchemy wrapper.
+
+---
+
+## Merged notes from other READMEs and expanded guidance
+
+This section gathers important, actionable details from the repository's other README files (`README.md`, `scripts/esp32/README.md`) and merges them into a single authoritative reference. It adds more operational and developer guidance to make onboarding and testing straightforward.
+
+### Frontend quick start
+
+The Next.js front-end is a standard `create-next-app` migration. To run it locally:
+
+```powershell
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 to view the app. Development builds are hot-reloaded.
+
+If you plan to deploy to Vercel, follow the standard Next.js deployment flow; the site is compatible with Vercel and other static hosting providers.
+
+### ESP32 & Device integration (expanded)
+
+The `scripts/esp32` folder contains a fully commented Arduino-style sketch showing device polling, JSON parsing, and how to POST status updates. Key production considerations repeated here:
+
+-   Use HTTPS for all device-server communication. The sample sketch is simplified and may use HTTP for local testing.
+-   Use token-based authentication or mTLS. Store tokens securely (preferably the device's secure storage or ephemeral tokens provisioned at device startup).
+-   Hardware safety: do not modify the machine's mains circuitry unless you're an electrical safety professional. Prefer non-invasive actuators (servos, solenoids) to press the machine's button externally.
+-   Calibration: calibrate ms_per_ml for each pump and measure thermal response to avoid overheating. Implement PID control for heater rather than naive on/off with fixed sleeps.
+-   Firmware lifecycle: provide OTA updates using PlatformIO or a dedicated update service so devices can receive security patches.
+
+### Developer notes and repository layout
+
+Top-level quick pointers:
+
+-   `src/` — Next.js app (App Router) and React components
+-   `python_ai/` — AI and IoT backend (Flask, models, tokenizer, training scripts)
+-   `scripts/esp32/` — Device code and device README
+
+Keep the Python components isolated in a virtual environment and install `python_ai/requirements.txt` before running the Flask server.
+
+### How the IoT flow ties to the frontend
+
+1. A user selects an AI-generated recipe in the Next.js UI and asks to send it to a machine.
+2. The frontend calls the Flask endpoint `POST /api/commands/create` to store the command for the machine.
+3. The device polls `GET /api/commands/check/<machine_id>` and obtains a pending command.
+4. The device updates its status with `POST /api/commands/update/<command_id>` periodically.
+
+This flow is intentionally simple to keep devices dumb and the server authoritative. For larger fleets, migrate to MQTT or long-polling with a persistent connection.
+
+### Security checklist (merged)
+
+-   Enable HTTPS across all services (letsencrypt for small deployments, managed certs for cloud).
+-   Use per-device credentials: API key or mTLS certificates.
+-   Do not embed long-lived credentials in device firmware. Use short-lived tokens or provisioning.
+-   Implement server-side rate-limits and device heartbeat monitoring.
+-   Add audit logs for command creation and device acknowledgements.
+
+---
+
+## Changes summary (recent additions)
+
+-   Added optional SQLAlchemy-based IoT DB wrapper: `python_ai/iot_db_sqlalchemy.py` (recommended for production)
+-   Added MariaDB Docker Compose for local testing: `python_ai/docker-compose.maria.yml`
+-   Added migration SQL: `python_ai/migrations/create_commands_table.sql`
+-   Added `.env.example` in `python_ai/` to document env variables and local testing defaults
+-   Added integration test `python_ai/test_iot_db_sqlalchemy.py` that validates the SQLAlchemy SQLite fallback path
+
+---

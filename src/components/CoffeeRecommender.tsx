@@ -55,7 +55,8 @@ export default function CoffeeRecommender() {
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 	const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
 	const [chatMode, setChatMode] = useState<"coffee" | "general">("coffee");
-	const [selectedModel, setSelectedModel] = useState<"flash" | "pro" | "ultra">("flash");
+	const [selectedModel, setSelectedModel] = useState<"tanka" | "villanelle" | "ode">("tanka");
+	const [smarterAIAvailable, setSmarterAIAvailable] = useState(false);
 	const [isLoggedIn, setIsLoggedIn] = useState(false); // User login state
 	const [userSubscription, setUserSubscription] = useState<"none" | "basic" | "pro" | "max" | "ultimate">("none");
 	const [isTyping, setIsTyping] = useState(false);
@@ -87,11 +88,11 @@ export default function CoffeeRecommender() {
 
 				// Auto-select model based on subscription
 				if (storedSubscription === "ultimate") {
-					setSelectedModel("ultra");
+					setSelectedModel("ode");
 				} else if (storedSubscription === "max") {
-					setSelectedModel("pro");
+					setSelectedModel("villanelle");
 				} else {
-					setSelectedModel("flash");
+					setSelectedModel("tanka");
 				}
 			} catch {
 				// ignore errors
@@ -110,6 +111,68 @@ export default function CoffeeRecommender() {
 		}
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
+	}, []);
+
+	// Check Python AI health up to three times per page load
+	useEffect(() => {
+		let cancelled = false;
+		let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+		const checkHealth = async (): Promise<boolean> => {
+			try {
+				const res = await fetch("/api/python-health");
+				if (!res.ok) {
+					if (!cancelled) {
+						setSmarterAIAvailable(false);
+					}
+					return false;
+				}
+				const data = (await res.json()) as {
+					status?: string;
+					smarterAI?: boolean;
+					healthy?: boolean;
+				};
+				const isHealthy = data.status === "ok" || data.smarterAI === true || data.healthy === true;
+				if (!cancelled) {
+					setSmarterAIAvailable(isHealthy);
+				}
+				return isHealthy;
+			} catch (error) {
+				if (!cancelled) {
+					setSmarterAIAvailable(false);
+				}
+				return false;
+			}
+		};
+
+		const wait = (ms: number) =>
+			new Promise<void>((resolve) => {
+				timeoutId = setTimeout(() => {
+					timeoutId = null;
+					resolve();
+				}, ms);
+			});
+
+		const runChecks = async () => {
+			for (let attempt = 0; attempt < 3 && !cancelled; attempt += 1) {
+				const healthy = await checkHealth();
+				if (cancelled || healthy) {
+					break;
+				}
+				if (attempt < 2) {
+					await wait(4000);
+				}
+			}
+		};
+
+		void runChecks();
+
+		return () => {
+			cancelled = true;
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+			}
+		};
 	}, []);
 
 	// when the recommender opens, disable page scroll by toggling a body class
@@ -377,8 +440,10 @@ export default function CoffeeRecommender() {
 		setIsTyping(true);
 
 		try {
+			// Decide where to send the request: Python AI (smarter) or JS fallback
+			const endpoint = smarterAIAvailable ? "/api/python-chat" : "/api/chat";
 			// Call the AI API
-			const response = await fetch("/api/chat", {
+			const response = await fetch(endpoint, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -413,7 +478,7 @@ export default function CoffeeRecommender() {
 		} finally {
 			setIsTyping(false);
 		}
-	}, [chatInput, chatMessages, chatMode, selectedModel, userSubscription, generateFallbackResponse]);
+	}, [chatInput, chatMessages, chatMode, selectedModel, userSubscription, generateFallbackResponse, smarterAIAvailable]);
 
 	const handleChatKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -428,7 +493,21 @@ export default function CoffeeRecommender() {
 	const dock = (
 		<div className={`recommender-window ${open ? "open" : "closed"}`} role="dialog" aria-hidden={!open}>
 			<div className="recommender-header">
-				<strong>Kafelot</strong>
+				<div className="recommender-header-meta">
+					<strong>Kafelot</strong>
+					<div
+						className="smarter-ai-badge"
+						data-status={smarterAIAvailable ? "online" : "offline"}
+						title="Smarter AI (Python service) status"
+						aria-live="polite"
+					>
+						<span className="badge-icon">AI</span>
+						<span className="badge-text">
+							<span className="badge-label">Smarter AI</span>
+							<span className="badge-status">{smarterAIAvailable ? "Online" : "Offline"}</span>
+						</span>
+					</div>
+				</div>
 				<div className="recommender-actions">
 					<button className="recommender-close" aria-label="Close" onClick={() => setOpen(false)}>
 						×
@@ -445,8 +524,8 @@ export default function CoffeeRecommender() {
 						{!isLoggedIn && (
 							<div className="login-notice">
 								<p style={{ fontSize: "0.9rem", color: "rgba(250, 204, 144, 0.7)", margin: "0.5rem 0" }}>
-									💡 <strong>Tip:</strong> Log in to unlock chat history and access Pro/Ultra AI models with
-									your subscription!
+									💡 <strong>Tip:</strong> Log in to unlock chat history and access Kafelot Villanelle and
+									Kafelot Ode models with your subscription!
 								</p>
 							</div>
 						)}
@@ -486,7 +565,7 @@ export default function CoffeeRecommender() {
 											localStorage.setItem("user_subscription", "max");
 											setIsLoggedIn(true);
 											setUserSubscription("max");
-											setSelectedModel("pro");
+											setSelectedModel("villanelle");
 											setChatHistory(loadChatHistory());
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
@@ -499,7 +578,7 @@ export default function CoffeeRecommender() {
 											localStorage.setItem("user_subscription", "ultimate");
 											setIsLoggedIn(true);
 											setUserSubscription("ultimate");
-											setSelectedModel("ultra");
+											setSelectedModel("ode");
 											setChatHistory(loadChatHistory());
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
@@ -512,7 +591,7 @@ export default function CoffeeRecommender() {
 											localStorage.setItem("user_subscription", "basic");
 											setIsLoggedIn(true);
 											setUserSubscription("basic");
-											setSelectedModel("flash");
+											setSelectedModel("tanka");
 											setChatHistory(loadChatHistory());
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
@@ -527,7 +606,7 @@ export default function CoffeeRecommender() {
 										localStorage.removeItem("user_subscription");
 										setIsLoggedIn(false);
 										setUserSubscription("none");
-										setSelectedModel("flash");
+										setSelectedModel("tanka");
 										setChatHistory([]);
 										setChatMessages([]);
 									}}
@@ -700,16 +779,16 @@ export default function CoffeeRecommender() {
 							<button
 								className={chatMode === "coffee" ? "active" : ""}
 								onClick={() => setChatMode("coffee")}
-								title="Coffee Expert Mode - Focused on Nespresso recommendations"
+								title="Coffee Helper Mode - Focused on Nespresso recommendations"
 							>
-								☕ Coffee Expert
+								☕ Coffee Helper
 							</button>
 							<button
 								className={chatMode === "general" ? "active" : ""}
 								onClick={() => setChatMode("general")}
-								title="General AI Mode - Chat about anything like Claude or Gemini"
+								title="Specialized AI Mode - Chat about anything, JS fallback available"
 							>
-								🤖 General AI
+								🤖 Specialized AI
 							</button>
 						</div>
 
@@ -719,7 +798,7 @@ export default function CoffeeRecommender() {
 									{!isLoggedIn ? (
 										<div className="subscription-notice">
 											<p style={{ margin: 0, fontSize: "0.95rem", color: "rgba(250, 204, 144, 0.8)" }}>
-												🔓 <strong>Not logged in</strong> - Using Flash model (free)
+												🔓 <strong>Not logged in</strong> - Using Tanka (free)
 											</p>
 											<p
 												style={{
@@ -728,7 +807,7 @@ export default function CoffeeRecommender() {
 													color: "rgba(250, 204, 144, 0.6)",
 												}}
 											>
-												Log in with a Max or Ultimate subscription to access Pro and Ultra AI models
+												Log in to access Villanelle and Ode models
 											</p>
 										</div>
 									) : (
@@ -736,7 +815,7 @@ export default function CoffeeRecommender() {
 											<p style={{ margin: 0, fontSize: "0.95rem", color: "rgba(250, 204, 144, 0.8)" }}>
 												🎫 <strong>Subscription:</strong>{" "}
 												{userSubscription === "none"
-													? "None (Flash only)"
+													? "None (Tanka only)"
 													: userSubscription.charAt(0).toUpperCase() + userSubscription.slice(1)}
 											</p>
 											{userSubscription === "none" ||
@@ -749,7 +828,7 @@ export default function CoffeeRecommender() {
 														color: "rgba(250, 204, 144, 0.6)",
 													}}
 												>
-													Upgrade to Max for Pro AI or Ultimate for Ultra AI
+													Upgrade to Max for Villanelle or Ultimate for Ode
 												</p>
 											) : null}
 										</div>
@@ -759,36 +838,36 @@ export default function CoffeeRecommender() {
 								<div className="model-selector">
 									<label>🧠 AI Model:</label>
 									<button
-										className={selectedModel === "flash" ? "active" : ""}
-										onClick={() => setSelectedModel("flash")}
-										title="Flash - 100M params, lightning fast, available for everyone"
+										className={selectedModel === "tanka" ? "active" : ""}
+										onClick={() => setSelectedModel("tanka")}
+										title="Tanka - ~30M params, lightweight and fast"
 									>
-										⚡ Flash
+										🌿 Tanka
 									</button>
 									<button
-										className={selectedModel === "pro" ? "active" : ""}
-										onClick={() => setSelectedModel("pro")}
+										className={selectedModel === "villanelle" ? "active" : ""}
+										onClick={() => setSelectedModel("villanelle")}
 										title={
 											isLoggedIn && (userSubscription === "max" || userSubscription === "ultimate")
-												? "Pro - 200M params, sophisticated reasoning"
-												: "Pro AI - Requires Max subscription (locked)"
+												? "Villanelle - ~60M params, balanced"
+												: "Villanelle - Requires higher subscription (locked)"
 										}
 										disabled={!isLoggedIn || (userSubscription !== "max" && userSubscription !== "ultimate")}
 									>
-										🌟 Pro{" "}
+										⚡ Villanelle{" "}
 										{(!isLoggedIn || (userSubscription !== "max" && userSubscription !== "ultimate")) && "🔒"}
 									</button>
 									<button
-										className={selectedModel === "ultra" ? "active" : ""}
-										onClick={() => setSelectedModel("ultra")}
+										className={selectedModel === "ode" ? "active" : ""}
+										onClick={() => setSelectedModel("ode")}
 										title={
 											isLoggedIn && userSubscription === "ultimate"
-												? "Ultra - 400M params, maximum intelligence"
-												: "Ultra AI - Requires Ultimate subscription (locked)"
+												? "Ode - ~90M params, deeper reasoning"
+												: "Ode - Requires Ultimate subscription (locked)"
 										}
 										disabled={!isLoggedIn || userSubscription !== "ultimate"}
 									>
-										🚀 Ultra {(!isLoggedIn || userSubscription !== "ultimate") && "🔒"}
+										🎼 Ode {(!isLoggedIn || userSubscription !== "ultimate") && "🔒"}
 									</button>
 								</div>
 							</>
@@ -800,7 +879,7 @@ export default function CoffeeRecommender() {
 									{chatMode === "coffee" ? (
 										<>
 											<p>
-												☕ <strong>Coffee Expert Mode</strong>
+												☕ <strong>Coffee Helper Mode</strong>
 											</p>
 											<p>Ask me anything about Nespresso capsules! For example:</p>
 											<ul>
@@ -814,15 +893,17 @@ export default function CoffeeRecommender() {
 									) : (
 										<>
 											<p>
-												🤖 <strong>General AI Mode</strong>
+												🤖 <strong>Specialized AI Mode</strong>
 											</p>
-											<p>I can chat about virtually anything! Try asking:</p>
+											<p>
+												I can chat about coffee topics, brewing techniques, origins, and more. Try asking:
+											</p>
 											<ul>
-												<li>&quot;Explain how AI works&quot;</li>
-												<li>&quot;Tell me about coffee brewing methods&quot;</li>
-												<li>&quot;Help me with a coding question&quot;</li>
-												<li>&quot;What&apos;s interesting about coffee history?&quot;</li>
-												<li>&quot;Give me travel recommendations for coffee lovers&quot;</li>
+												<li>&quot;How do different brewing methods affect flavor?&quot;</li>
+												<li>&quot;Tell me about single-origin vs blends&quot;</li>
+												<li>&quot;What are the health benefits of coffee?&quot;</li>
+												<li>&quot;Explain coffee roasting levels&quot;</li>
+												<li>&quot;What&apos;s the best way to store coffee?&quot;</li>
 											</ul>
 										</>
 									)}
