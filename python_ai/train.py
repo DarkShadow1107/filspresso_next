@@ -6,6 +6,7 @@ GPU-optimized for NVIDIA GPUs with fallback to CPU
 
 import torch
 import argparse
+from typing import Optional
 from pathlib import Path
 from models import (
     create_tanka_model,
@@ -105,6 +106,7 @@ def train_model(
     batch_size: int = 8,
     learning_rate: float = 5e-5,
     save_path: str = './checkpoints',
+    device_override: Optional[str] = None,
 ):
     """Train a model with GPU support
     
@@ -116,17 +118,23 @@ def train_model(
     5. You can reload saved .pt file anytime to resume training or use for inference
     """
     
-    # Setup device - GPU first, fallback to CPU
-    if torch.cuda.is_available():
-        device = 'cuda'
-        logger.info(f"🚀 GPU Available: {torch.cuda.get_device_name(0)}")
+    # Setup device - use override if provided; otherwise GPU if available
+    if device_override is not None:
+        device = device_override.lower()
+        if device == 'cuda' and not torch.cuda.is_available():
+            logger.warning("⚠️ --device=cuda requested but CUDA not available. Falling back to CPU.")
+            device = 'cpu'
+    else:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    if device == 'cuda':
+        logger.info(f"🚀 GPU Selected: {torch.cuda.get_device_name(0)}")
         logger.info(f"💾 GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
         # Enable memory efficient attention
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
     else:
-        device = 'cpu'
-        logger.warning("⚠️ GPU not available, using CPU (training will be slow)")
+        logger.warning("⚠️ Using CPU for training (this will be slow)")
     
     logger.info(f"📌 Using device: {device.upper()}")
     logger.info("")
@@ -272,6 +280,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=None, help='Batch size (auto-selected by model if not specified)')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate (default: 5e-5)')
     parser.add_argument('--save-path', default='./checkpoints', help='Path to save checkpoints')
+    parser.add_argument('--device', choices=['cuda', 'cpu'], default=None, help='Force device: cuda or cpu (default: auto-detect)')
     
     args = parser.parse_args()
     
@@ -307,4 +316,5 @@ if __name__ == '__main__':
         batch_size=batch_size,
         learning_rate=args.lr,
         save_path=args.save_path,
+        device_override=args.device,
     )

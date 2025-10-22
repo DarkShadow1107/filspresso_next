@@ -68,20 +68,44 @@ class RotaryPositionEmbedding(nn.Module):
         self.theta = theta
         
         # Precompute frequency tensor
-        inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2).float() / dim))
+        # Build inv_freq using half-dimension to avoid issues when dim is odd
+        half_dim = dim // 2
+        if half_dim < 1:
+            half_dim = 1
+
+        inv_freq = 1.0 / (theta ** (torch.arange(0, half_dim).float() / max(1, half_dim)))
         self.register_buffer("inv_freq", inv_freq)
-        
+
         # Precompute cos and sin for max sequence length
-        t = torch.arange(max_seq_length).type_as(self.inv_freq)
+        t = torch.arange(max_seq_length).to(self.inv_freq.device).type_as(self.inv_freq)
         freqs = torch.outer(t, self.inv_freq)
-        emb = torch.cat((freqs, freqs), dim=-1)
+        emb = torch.cat((freqs, freqs), dim=-1)  # shape: [max_seq_length, 2*half_dim]
+
+        # Ensure emb last-dim matches requested dim: trim or pad as necessary
+        if emb.shape[-1] < dim:
+            pad_size = dim - emb.shape[-1]
+            pad = torch.zeros((emb.shape[0], pad_size), dtype=emb.dtype, device=emb.device)
+            emb = torch.cat((emb, pad), dim=-1)
+        elif emb.shape[-1] > dim:
+            emb = emb[:, :dim]
+
         self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
         self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
     
     def rotate_half(self, x: torch.Tensor) -> torch.Tensor:
         """Helper function to rotate half the hidden dims"""
-        x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
-        return torch.cat((-x2, x1), dim=-1)
+        # Split into two equal halves for rotation; if odd, leave the last element(s) unrotated
+        dim = x.shape[-1]
+        split = dim // 2
+        x1 = x[..., :split]
+        x2 = x[..., split: split * 2]
+        rest = x[..., split * 2:]
+
+        rotated = torch.cat((-x2, x1), dim=-1)
+        # Append any leftover dims (if dim is odd) unchanged to preserve input size
+        if rest.numel() != 0:
+            rotated = torch.cat((rotated, rest), dim=-1)
+        return rotated
     
     def forward(self, q: torch.Tensor, k: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -497,14 +521,15 @@ def create_tanka_model(vocab_size: int = 50000) -> Tuple[AdvancedAIModel, ModelC
     Lightweight, conversational model with essential coffee knowledge
     Features: MQA, RoPE, SwiGLU, Coffee Domain Attention
     """
+    # Tuned for ~30M parameters
     config = ModelConfig(
         vocab_size=vocab_size,
         max_seq_length=1024,
-        hidden_size=432,       # tuned for ~30M params
-        num_layers=7,
+        hidden_size=512,       # 512 / 8 heads = 64 head_dim (even)
+        num_layers=8,
         num_heads=8,
         num_kv_heads=2,        # MQA with 2 KV heads for efficiency
-        ffn_hidden_size=1296,  # 3x hidden_size
+        ffn_hidden_size=512 * 3,  # 3x hidden_size
         dropout_rate=0.1,
         attention_dropout_rate=0.1,
         use_rope=True,
@@ -528,11 +553,11 @@ def create_villanelle_model(vocab_size: int = 50000) -> Tuple[AdvancedAIModel, M
     config = ModelConfig(
         vocab_size=vocab_size,
         max_seq_length=1024,
-        hidden_size=592,
+        hidden_size=704,       # 704 / 8 heads = 88 head_dim (even); ~60M with MoE
         num_layers=9,
         num_heads=8,
         num_kv_heads=2,        # MQA with 2 KV heads
-        ffn_hidden_size=1776,  # 3x hidden_size
+        ffn_hidden_size=704 * 3,  # 3x hidden_size
         dropout_rate=0.1,
         attention_dropout_rate=0.1,
         use_rope=True,
@@ -555,15 +580,15 @@ def create_ode_model(vocab_size: int = 50000) -> Tuple[AdvancedAIModel, ModelCon
     Comprehensive research-grade model with full capabilities
     Features: MQA, RoPE, SwiGLU, Coffee Domain Attention, Full MoE
     """
-    # increase Ode by ~10% from prior hidden_size=704 -> new 776 (divisible by 8)
+    # increase Ode capacity and ensure per-head dimension is even (hidden_size divisible by num_heads)
     config = ModelConfig(
         vocab_size=vocab_size,
         max_seq_length=1536,   # balanced context for research content
-        hidden_size=776,
-        num_layers=8,
+        hidden_size=784,       # 784 / 8 = 98 head_dim (even)
+        num_layers=10,
         num_heads=8,
         num_kv_heads=4,        # MQA with 4 KV heads for quality
-        ffn_hidden_size=776 * 3,  # 3x hidden_size
+        ffn_hidden_size=784 * 3,  # 3x hidden_size
         dropout_rate=0.1,
         attention_dropout_rate=0.1,
         use_rope=True,

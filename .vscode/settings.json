@@ -1,4 +1,14 @@
 {
-	"python-envs.defaultEnvManager": "ms-python.python:system",
-	"python-envs.pythonProjects": []
+	"python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+	"python.linting.enabled": true,
+	"python.linting.pylintEnabled": false,
+	"[python]": {
+		"editor.defaultFormatter": "ms-python.python",
+		"editor.formatOnSave": false
+	},
+	"python.analysis.extraPaths": ["${workspaceFolder}/python_ai", "${workspaceFolder}/src"],
+	"files.exclude": {
+		"**/__pycache__": true,
+		"**/*.pyc": true
+	}
 }
