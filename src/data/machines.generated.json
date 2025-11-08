@@ -10,14 +10,14 @@
 				"products": [
 					{
 						"id": "pack-essenza-mini-c30-blanc-caf-porte-capsule",
-						"name": "Pack Essenza Mini C30 Blanc, café & porte capsule",
+						"name": "Forfait Essenza Mini C30 Blanc, café & porte capsule",
 						"description": "Le paquet contient:",
 						"notes": [
-							"-1x Espressor Essenza Mini C30;",
+							"-1x Machine à espresso Essenza Mini C30;",
 							"-50x capsules de café Original;",
 							"-1x Suport des bonbons."
 						],
-						"image": "images/Machines/Original/Pachete_speciale/Essenza-Mini-C30-White.avif",
+						"image": "images/Machines/Original/Special Packs/Essenza-Mini-C30-White.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models",
 						"priceText": "841,40 RON",
@@ -28,14 +28,14 @@
 					},
 					{
 						"id": "pack-essenza-mini-d30-rouge-caf-porte-capsule",
-						"name": "Pack Essenza Mini D30 Rouge, café & porte capsule",
+						"name": "Forfait Essenza Mini D30 Rouge, café & porte capsule",
 						"description": "Le paquet contient:",
 						"notes": [
-							"-1x Espressor Essenza Mini D30;",
+							"-1x Machine à espresso Essenza Mini D30;",
 							"-50x capsules de café Original;",
 							"-1x Suport des bonbons."
 						],
-						"image": "images/Machines/Original/Pachete_speciale/Essenza-Mini-D30-Red.avif",
+						"image": "images/Machines/Original/Special Packs/Essenza-Mini-D30-Red.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models",
 						"priceText": "631,05 RON",
@@ -49,12 +49,12 @@
 						"name": "Forfait Inissia Black, café & Aeroccino 3 & porte capsule",
 						"description": "Le paquet contient:",
 						"notes": [
-							"-1x Espressor Innisia Noir;",
+							"-1x Machine à espresso Innisia Noir;",
 							"-70x capsules de café Original;",
 							"-1x Aeroccino 3;",
 							"-1x Suport des bonbons."
 						],
-						"image": "images/Machines/Original/Pachete_speciale/Inissia-Black.avif",
+						"image": "images/Machines/Original/Special Packs/Inissia-Black.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models",
 						"priceText": "877,80 RON",
@@ -72,10 +72,10 @@
 				"products": [
 					{
 						"id": "espressor-citiz-d113-noir",
-						"name": "Espressor CitiZ D113 Noir",
+						"name": "Machine à espresso CitiZ D113 Noir",
 						"description": "Design rétro moderne avec des finitions exceptionnelles.",
 						"notes": [],
-						"image": "images/Machines/Original/Espressoare/CitiZ D113 Noir.avif",
+						"image": "images/Machines/Original/Espresso Machines/CitiZ D113 Noir.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "990,00 RON",
@@ -86,10 +86,10 @@
 					},
 					{
 						"id": "espressor-essenza-mini-piano-noir-c30",
-						"name": "Espressor Essenza Mini Piano Noir C30",
-						"description": "Le plus petite espressor FILSPRESSO.",
+						"name": "Machine à espresso Essenza Mini Piano Noir C30",
+						"description": "Le plus petite Machine à espresso FILSPRESSO.",
 						"notes": [],
-						"image": "images/Machines/Original/Espressoare/Essenza Mini Piano noir.avif",
+						"image": "images/Machines/Original/Espresso Machines/Essenza Mini Piano noir.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "590,00 RON",
@@ -99,11 +99,11 @@
 						"extraClass": []
 					},
 					{
-						"id": "espressor-pixie-carmine",
-						"name": "Espressor Pixie Carmine",
+						"id": "espresso machine-pixie-carmine",
+						"name": "Machine à espresso Pixie Carmine",
 						"description": "Le Design est industriel et ergonomique.",
 						"notes": [],
-						"image": "images/Machines/Original/Espressoare/Pixie Carmina.avif",
+						"image": "images/Machines/Original/Espresso Machines/Pixie Carmina.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "632,00 RON",
@@ -115,16 +115,16 @@
 				]
 			},
 			{
-				"title": "Espressors avec du lait",
+				"title": "Machines à espresso avec du lait",
 				"description": "Découvrez la gamme de machines espresso avec fonction lait intégrée et mousseurs à lait individuels. Préparez rapidement du latte macchiato, du cappuccino ou d'autres recettes de café au lait.",
 				"headerClass": "machine_groups_head_2",
 				"products": [
 					{
 						"id": "espressor-citiz-lait-c123-cerise-rouge",
-						"name": "Espressor CitiZ&Lait C123 Cerise Rouge",
+						"name": "Machine à espresso CitiZ&Lait C123 Cerise Rouge",
 						"description": "Aeroccino intégré, pour des recettes spectaculaires avec du lait",
 						"notes": [],
-						"image": "images/Machines/Original/Espressoare cu lapte/CitiZ&Milk C123 Visiniu.avif",
+						"image": "images/Machines/Original/Espresso Machines Latte/CitiZ&Milk C123 Visiniu.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "1032,00 RON",
@@ -138,7 +138,7 @@
 						"name": "Machine à espresso Gran Lattissima noir élégant",
 						"description": "Des recettes de café au lait sur simple pression d'un bouton.",
 						"notes": [],
-						"image": "images/Machines/Original/Espressoare cu lapte/Gran Lattissima Negru Elegant.avif",
+						"image": "images/Machines/Original/Espresso Machines Latte/Gran Lattissima Negru Elegant.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "1512,00 RON",
@@ -152,7 +152,7 @@
 						"name": "Machine à espresso Lattissima One Evolution Noir",
 						"description": "Des recettes spectaculaires de café au lait sur simple pression d'un bouton.",
 						"notes": [],
-						"image": "images/Machines/Original/Espressoare cu lapte/Lattissima One Evolution Negru.avif",
+						"image": "images/Machines/Original/Espresso Machines Latte/Lattissima One Evolution Negru.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "1390,00 RON",
@@ -176,10 +176,10 @@
 				"products": [
 					{
 						"id": "pack-vertuo-pop-aqua-mint-caf-et-porte-capsules",
-						"name": "Pack Vertuo Pop Aqua Mint, café et porte-capsules",
+						"name": "Forfait Vertuo Pop Aqua Mint, café et porte-capsules",
 						"description": "Le paquet contient:",
-						"notes": ["-1x Espressor Vertuo POP;", "-50x capsules de café Vertuo;", "-1x Suport capsules Mia Lume."],
-						"image": "images/Machines/Vertuo/Pachete Speciale/Vertuo-POP-AquaMint-50caps.avif",
+						"notes": ["-1x Machine à espresso Vertuo POP;", "-50x capsules de café Vertuo;", "-1x Suport capsules Mia Lume."],
+						"image": "images/Machines/Vertuo/Special Packs/Vertuo-POP-AquaMint-50caps.avif",
 						"boxClass": "machine_box_2",
 						"wrapperClass": "machine_groups_models",
 						"priceText": "958,00 RON",
@@ -190,15 +190,15 @@
 					},
 					{
 						"id": "pack-vertuo-pop-spicy-red-caf-porte-capsule-et-aeroccino",
-						"name": "Pack Vertuo Pop Spicy Red, café, porte-capsule et Aeroccino",
+						"name": "Forfait Vertuo Pop Spicy Red, café, porte-capsule et Aeroccino",
 						"description": "Le paquet contient:",
 						"notes": [
-							"-1x Espressor Vertuo POP;",
+							"-1x Machine à espresso Vertuo POP;",
 							"-50x capsules de café Vertuo;",
 							"-1x Aeroccino 3;",
 							"-1x Suport capsules Mia Lume."
 						],
-						"image": "images/Machines/Vertuo/Pachete Speciale/Vertuo-POP-SpicyRed-50caps.avif",
+						"image": "images/Machines/Vertuo/Special Packs/Vertuo-POP-SpicyRed-50caps.avif",
 						"boxClass": "machine_box_2",
 						"wrapperClass": "machine_groups_models",
 						"priceText": "1041,75 RON",
@@ -212,12 +212,12 @@
 						"name": "Forfait Vertuo Pop Mango Yellow, café, porte-capsule et Aeroccino",
 						"description": "Le paquet contient:",
 						"notes": [
-							"-1x Espressor Vertuo POP;",
+							"-1x Machine à espresso Vertuo POP;",
 							"-70x capsules de café Vertuo;",
 							"-1x Aeroccino 3;",
 							"-1x Suport capsules Mia Lume."
 						],
-						"image": "images/Machines/Vertuo/Pachete Speciale/Vertuo-POP-YellowMango-70caps.avif",
+						"image": "images/Machines/Vertuo/Special Packs/Vertuo-POP-YellowMango-70caps.avif",
 						"boxClass": "machine_box_2",
 						"wrapperClass": "machine_groups_models",
 						"priceText": "1389,00 RON",
@@ -229,7 +229,7 @@
 				]
 			},
 			{
-				"title": "Espressors",
+				"title": "Machines à espresso",
 				"description": "Découvrez la gamme de machines à espresso Vertuo, qui propose 5 tailles de tasses à café, de l'espresso au Gran Lungo, avec la même généreuse couche de crème.",
 				"headerClass": "machine_groups_head_2",
 				"products": [
@@ -238,7 +238,7 @@
 						"name": "Machine à espresso Vertuo Next C Rouge Cerise",
 						"description": "Une machine à espresso, 5 tailles de café différentes.",
 						"notes": [],
-						"image": "images/Machines/Vertuo/Espressoare/Next C Cherry Rosu.webp",
+						"image": "images/Machines/Vertuo/Espresso Machines/Next C Cherry Rosu.webp",
 						"boxClass": "machine_box_2",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "592,50 RON",
@@ -252,7 +252,7 @@
 						"name": "Machine à espresso Vertuo Pop+ Deluxe Titan",
 						"description": "Transformez chaque jour en une expérience élégante.",
 						"notes": [],
-						"image": "images/Machines/Vertuo/Espressoare/vertuo pop+ Deluxe Titan.avif",
+						"image": "images/Machines/Vertuo/Espresso Machines/vertuo pop+ Deluxe Titan.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "790,00 RON",
@@ -266,7 +266,7 @@
 						"name": "Machine à espresso Vertuo Plus D rouge",
 						"description": "Design avec accents chromés et réservoir d'eau mobile.",
 						"notes": [],
-						"image": "images/Machines/Vertuo/Espressoare/vertuo-plus-d-rosu.avif",
+						"image": "images/Machines/Vertuo/Espresso Machines/vertuo-plus-d-rosu.avif",
 						"boxClass": "machine_box_2",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "1090,00 RON",
@@ -278,7 +278,7 @@
 				]
 			},
 			{
-				"title": "Espressors avec du lait",
+				"title": "Machines à espresso avec du lait",
 				"description": "Découvrez la gamme Vertuo de machines à espresso avec fonction lait intégrée et mousseurs à lait individuels. Préparez une grande variété de recettes de café au lait grâce à une technologie innovante en appuyant simplement sur un bouton.",
 				"headerClass": "machine_groups_head_2",
 				"products": [
@@ -287,7 +287,7 @@
 						"name": "Espresso Vertuo Next C Rouge & Aeroccino 3 Rouge",
 						"description": "Cinq tailles de café et recettes de café différentes",
 						"notes": [],
-						"image": "images/Machines/Vertuo/Espressoare cu lapte/Next-Red-Aeroccino-Red.avif",
+						"image": "images/Machines/Vertuo/Espresso Machines Latte/Next-Red-Aeroccino-Red.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "892,50 RON",
@@ -301,7 +301,7 @@
 						"name": "Vertuo Pop Aqua Mint & Aeroccino 3 Noir Espresso",
 						"description": "Couche généreuse de crème épaisse et recettes de lait parfaites.",
 						"notes": [],
-						"image": "images/Machines/Vertuo/Espressoare cu lapte/Vertuo Pop Aqua mini & Aeroccino 3 Noir.avif",
+						"image": "images/Machines/Vertuo/Espresso Machines Latte/Vertuo Pop Aqua mini & Aeroccino 3 Noir.avif",
 						"boxClass": "machine_box",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "1029,00 RON",
@@ -315,7 +315,7 @@
 						"name": "Machine à espresso Vertuo Lattissima Blanc",
 						"description": "Recettes préférées de café au lait, préparées facilement.",
 						"notes": [],
-						"image": "images/Machines/Vertuo/Espressoare cu lapte/VertuoLattissima alb.avif",
+						"image": "images/Machines/Vertuo/Espresso Machines Latte/VertuoLattissima alb.avif",
 						"boxClass": "machine_box_2",
 						"wrapperClass": "machine_groups_models_2",
 						"priceText": "1990,00 RON",

@@ -6,7 +6,6 @@ export const PAGE_SLUGS = [
 	"love-coffee",
 	"machines",
 	"payment",
-	"shop-calculator",
 	"shopping-bag",
 	"subscription",
 ] as const;

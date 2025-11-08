@@ -1,14 +1,82 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import useCart from "@/hooks/useCart";
+import { useNotifications } from "@/components/NotificationsProvider";
+import { useRouter } from "next/navigation";
+import { buildPageHref } from "@/lib/pages";
+import { coffeeCollections } from "@/data/coffee";
+import { machineCollections } from "@/data/machines";
 
 function formatRon(value: number) {
 	return `${value.toFixed(2).replace(".", ",")} RON`;
 }
 
+// Helper function to get product image from data
+function getProductImage(productId: string): string | undefined {
+	// Search in coffee collections
+	for (const collection of coffeeCollections) {
+		for (const group of collection.groups) {
+			for (const product of group.products) {
+				if (product.id === productId) {
+					return product.image;
+				}
+			}
+		}
+	}
+
+	// Search in machine collections
+	for (const collection of machineCollections) {
+		for (const group of collection.groups) {
+			for (const product of group.products) {
+				if (product.id === productId) {
+					return product.image;
+				}
+			}
+		}
+	}
+
+	return undefined;
+}
+
 export default function Cart() {
 	const { items, currentSum, reset, placeOrder, removeItem, updateQuantity } = useCart();
+	const { notify } = useNotifications();
+	const router = useRouter();
+	const [isLoggedIn, setIsLoggedIn] = useState(false);
+	const [isHydrated, setIsHydrated] = useState(false);
 	const hasItems = items.length > 0;
+
+	useEffect(() => {
+		setIsHydrated(true);
+		if (typeof window === "undefined") return;
+		const accountLog = localStorage.getItem("account_log") === "true";
+		setIsLoggedIn(accountLog);
+	}, []);
+
+	const handlePlaceOrder = () => {
+		if (!isLoggedIn) {
+			notify("You need to be logged in to place an order. Please log in to your account.", 8000, "error", "bag", {
+				actions: [
+					{
+						id: "go-account",
+						label: "Go to Account",
+						variant: "primary",
+						onClick: () => router.push(buildPageHref("account")),
+					},
+					{
+						id: "stay",
+						label: "Stay",
+						variant: "ghost",
+					},
+				],
+				persist: true,
+			});
+			return;
+		}
+		placeOrder();
+	};
+
 	const displayedTotal = formatRon(currentSum);
 	const totalItems = items.reduce((sum, item) => sum + item.qty, 0);
 	const shippingFee = currentSum >= 200 ? 0 : 24.99;
@@ -20,10 +88,10 @@ export default function Cart() {
 				<div className="cart-summary-box">
 					<h2 className="cart-title">🛍️ Shopping Bag Summary</h2>
 					<div className="cart-stats">
-						<div className="stat-item">
+						<div className="stat-item" suppressHydrationWarning>
 							<span className="stat-label">Items:</span>
 							<span className="stat-value">
-								{totalItems} {totalItems === 1 ? "item" : "items"}
+								{isHydrated ? totalItems : 0} {isHydrated ? (totalItems === 1 ? "item" : "items") : "items"}
 							</span>
 						</div>
 						<div className="stat-item">
@@ -55,7 +123,7 @@ export default function Cart() {
 							id="placeOrderButton"
 							type="button"
 							className="bag-place-order"
-							onClick={placeOrder}
+							onClick={handlePlaceOrder}
 							disabled={!hasItems}
 						>
 							{hasItems ? "🚀 Place Order" : "🛒 Bag is Empty"}
@@ -82,14 +150,17 @@ export default function Cart() {
 								const lowerId = item.id.toLowerCase();
 
 								// Check if it's a pack (coffee bundles or machine accessory packs)
+								// Forfaits are bundles/packs that contain multiple items
 								const isPack =
 									lowerName.includes("pack") ||
 									lowerName.includes("bundle") ||
 									lowerName.includes("set") ||
+									lowerName.includes("forfait") ||
 									(lowerName.includes("capsule") && lowerName.includes("variety")) ||
 									lowerId.includes("pack") ||
 									lowerId.includes("bundle") ||
-									lowerId.includes("set");
+									lowerId.includes("set") ||
+									lowerId.includes("forfait");
 
 								// Machines typically have "machine" in name or are single expensive items (>300 RON typically)
 								// But exclude packs even if they contain "machine" in the name
@@ -118,8 +189,24 @@ export default function Cart() {
 									unitLabel = "pack";
 								}
 
+								// Get image from item or look up from product data
+								const itemImage = item.image || getProductImage(item.id);
+
 								return (
 									<div key={item.id} className="cart-item-card">
+										{itemImage && (
+											<div className="cart-item-image">
+												<img
+													src={itemImage}
+													alt={productName}
+													style={{
+														width: "100%",
+														height: "100%",
+														objectFit: "contain",
+													}}
+												/>
+											</div>
+										)}
 										<div className="cart-item-number">{index + 1}</div>
 										<div className="cart-item-details">
 											<div className="cart-item-name">{productName}</div>

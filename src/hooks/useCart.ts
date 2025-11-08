@@ -15,6 +15,7 @@ export type CartItem = {
 	name: string;
 	price: number;
 	qty: number;
+	image?: string;
 };
 
 function extractAndConvertFloat(data: string): number {
@@ -207,7 +208,7 @@ export default function useCart() {
 		});
 	}, [items, notify, router]);
 
-	const addItem = useCallback((item: { id: string; name: string; price: number; qty?: number }) => {
+	const addItem = useCallback((item: { id: string; name: string; price: number; qty?: number; image?: string }) => {
 		if (typeof window === "undefined") return;
 		const qty = item.qty ?? 1;
 		const { items: existingItems } = readCart();
@@ -219,7 +220,7 @@ export default function useCart() {
 				qty: nextItems[idx].qty + qty,
 			};
 		} else {
-			nextItems.push({ id: item.id, name: item.name, price: item.price, qty });
+			nextItems.push({ id: item.id, name: item.name, price: item.price, qty, ...(item.image && { image: item.image }) });
 		}
 		const total = writeCart(nextItems);
 		localStorage.setItem(IS_CLICKED, "1");

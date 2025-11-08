@@ -18,7 +18,6 @@ const links: NavLink[] = [
 	{ slug: "coffee", label: "Coffee" },
 	{ slug: "machines", label: "Machines" },
 	{ slug: "subscription", label: "Subscription" },
-	{ slug: "shop-calculator", label: "Shop Calculator" },
 ];
 
 const iconLinks: IconLink[] = [

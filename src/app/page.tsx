@@ -19,7 +19,6 @@ const pageTitles: Record<PageSlug, string> = {
 	coffee: "Filspresso - Coffee",
 	machines: "Filspresso - Machines",
 	subscription: "Filspresso - Subscription",
-	"shop-calculator": "Filspresso - Shop Calculator",
 	"shopping-bag": "Filspresso - Bag",
 	account: "Filspresso - Account",
 	payment: "Filspresso - Card Payment",
@@ -51,7 +50,6 @@ const pageLoaders: Record<PageSlug, () => Promise<{ default: ComponentType }>> =
 	"love-coffee": () => import("@/app/api/pages/love-coffee/page"),
 	machines: () => import("@/app/api/pages/machines/page"),
 	payment: () => import("@/app/api/pages/payment/page"),
-	"shop-calculator": () => import("@/app/api/pages/shop-calculator/page"),
 	"shopping-bag": () => import("@/app/api/pages/shopping-bag/page"),
 	subscription: () => import("@/app/api/pages/subscription/page"),
 };

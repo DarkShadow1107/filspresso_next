@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import useCart from "@/hooks/useCart";
@@ -10,6 +10,7 @@ import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 
 // Memoize product flattening for performance
 const allProducts = coffeeCollections.flatMap((c) => c.groups.flatMap((g) => g.products));
+const GEMMA_MAX_TOKENS = 768;
 
 type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[] };
 type ChatHistory = { id: string; timestamp: number; messages: Message[]; preview: string };
@@ -58,8 +59,13 @@ export default function CoffeeRecommender() {
 	const [selectedModel, setSelectedModel] = useState<"tanka" | "villanelle" | "ode">("tanka");
 	const [smarterAIAvailable, setSmarterAIAvailable] = useState(false);
 	const [isLoggedIn, setIsLoggedIn] = useState(false); // User login state
-	const [userSubscription, setUserSubscription] = useState<"none" | "basic" | "pro" | "max" | "ultimate">("none");
+	const [userSubscription, setUserSubscription] = useState<"none" | "basic" | "plus" | "pro" | "max" | "ultimate">("none");
 	const [isTyping, setIsTyping] = useState(false);
+	const gemmaInstanceRef = useRef<any>(null);
+	const gemmaInitPromiseRef = useRef<Promise<void> | null>(null);
+	const [gemmaReady, setGemmaReady] = useState(false);
+	const [gemmaLoading, setGemmaLoading] = useState(false);
+	const [gemmaError, setGemmaError] = useState<string | null>(null);
 	const { addItem } = useCart();
 	const { notify } = useNotifications();
 
@@ -68,6 +74,51 @@ export default function CoffeeRecommender() {
 		allProducts.forEach((p) => p.notes?.forEach((n) => set.add(n)));
 		return Array.from(set).sort();
 	}, []);
+
+	const initializeGemma = useCallback(async () => {
+		if (gemmaInstanceRef.current) {
+			return gemmaInstanceRef.current;
+		}
+
+		if (!gemmaInitPromiseRef.current) {
+			setGemmaLoading(true);
+			setGemmaError(null);
+			gemmaInitPromiseRef.current = (async () => {
+				try {
+					const { FilesetResolver, LlmInference } = await import("@mediapipe/tasks-genai");
+					const fileset = await FilesetResolver.forGenAiTasks(
+						"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@0.10.25/wasm"
+					);
+
+					const instance = await LlmInference.createFromOptions(fileset, {
+						baseOptions: {
+							// Use the public folder (served as static assets by Next.js)
+							modelAssetPath: "/models/gemma3-1b-it-int4-web.task",
+						},
+						maxTokens: GEMMA_MAX_TOKENS,
+						topK: 40,
+						temperature: 0.8,
+					});
+					gemmaInstanceRef.current = instance;
+					setGemmaReady(true);
+				} catch (error) {
+					setGemmaError(error instanceof Error ? error.message : "Failed to load Gemma model");
+					throw error;
+				} finally {
+					setGemmaLoading(false);
+					gemmaInitPromiseRef.current = null;
+				}
+			})();
+		}
+
+		try {
+			await gemmaInitPromiseRef.current;
+		} catch (error) {
+			throw error;
+		}
+
+		return gemmaInstanceRef.current;
+	}, [gemmaInstanceRef, gemmaInitPromiseRef]);
 
 	// Fix hydration: only render portal after mount
 	useEffect(() => {
@@ -79,6 +130,7 @@ export default function CoffeeRecommender() {
 				const storedSubscription = localStorage.getItem("user_subscription") as
 					| "none"
 					| "basic"
+					| "plus"
 					| "pro"
 					| "max"
 					| "ultimate"
@@ -105,12 +157,27 @@ export default function CoffeeRecommender() {
 	}, []);
 
 	useEffect(() => {
+		if (selectedModel === "villanelle" || selectedModel === "ode") {
+			void initializeGemma().catch(() => undefined);
+		}
+	}, [selectedModel, initializeGemma]);
+
+	useEffect(() => {
 		// close on Escape
 		function onKey(e: KeyboardEvent) {
 			if (e.key === "Escape") setOpen(false);
 		}
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			if (gemmaInstanceRef.current?.close) {
+				gemmaInstanceRef.current.close();
+			}
+			gemmaInstanceRef.current = null;
+		};
 	}, []);
 
 	// Check Python AI health up to three times per page load
@@ -357,7 +424,13 @@ export default function CoffeeRecommender() {
 			if (capsules >= 10) {
 				const sleeves = Math.floor(capsules / 10);
 				const itemName = `${selectedProduct.name} - ${selectedProduct.priceRon.toFixed(2).replace(".", ",")} RON`;
-				addItem({ id: selectedProduct.id, name: itemName, price: selectedProduct.priceRon, qty: sleeves });
+				addItem({
+					id: selectedProduct.id,
+					name: itemName,
+					price: selectedProduct.priceRon,
+					qty: sleeves,
+					image: selectedProduct.image,
+				});
 				notify(
 					`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${selectedProduct.name} to bag!`,
 					6000,
@@ -433,24 +506,90 @@ export default function CoffeeRecommender() {
 
 	// Smart AI-like chat handler
 	const handleChatSubmit = useCallback(async () => {
-		if (!chatInput.trim()) return;
-		const userMsg: Message = { role: "user", content: chatInput };
+		const prompt = chatInput.trim();
+		if (!prompt) return;
+		const userMsg: Message = { role: "user", content: prompt };
 		setChatMessages((m) => [...m, userMsg]);
 		setChatInput("");
 		setIsTyping(true);
 
+		const lowerPrompt = prompt.toLowerCase();
+		const useGemma = selectedModel === "villanelle" || selectedModel === "ode";
+
+		if (useGemma) {
+			try {
+				const llm = await initializeGemma();
+				if (!llm) {
+					throw new Error("Gemma model is not ready");
+				}
+				let aggregated = "";
+				setChatMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+				await llm.generateResponse(prompt, (partial: string, done: boolean) => {
+					aggregated += partial;
+					setChatMessages((prev) => {
+						const updated = [...prev];
+						const lastIndex = updated.length - 1;
+						if (lastIndex >= 0 && updated[lastIndex]?.role === "assistant") {
+							updated[lastIndex] = { ...updated[lastIndex], content: aggregated };
+						}
+						return updated;
+					});
+					if (done) {
+						setIsTyping(false);
+					}
+				});
+				setChatMessages((prev) => {
+					const updated = [...prev];
+					const lastIndex = updated.length - 1;
+					if (lastIndex >= 0 && updated[lastIndex]?.role === "assistant") {
+						updated[lastIndex] = {
+							...updated[lastIndex],
+							content: updated[lastIndex].content.trim(),
+						};
+					}
+					return updated;
+				});
+				setIsTyping(false);
+			} catch (error) {
+				console.error("Gemma inference error:", error);
+				setGemmaError(error instanceof Error ? error.message : "Gemma model unavailable");
+				setChatMessages((prev) => {
+					if (prev.length === 0) return prev;
+					const updated = [...prev];
+					const lastIndex = updated.length - 1;
+					if (lastIndex >= 0 && updated[lastIndex]?.role === "assistant" && updated[lastIndex].content === "") {
+						updated.pop();
+					}
+					return updated;
+				});
+				if (gemmaInstanceRef.current?.close) {
+					gemmaInstanceRef.current.close();
+				}
+				gemmaInstanceRef.current = null;
+				setGemmaReady(false);
+				// No Python fallback for Gemma-only models; use local heuristic
+				const fallbackResponse = generateFallbackResponse(lowerPrompt, chatMode);
+				const assistantMsg: Message = {
+					role: "assistant",
+					content: fallbackResponse.response,
+					products: fallbackResponse.products,
+				};
+				setChatMessages((m) => [...m, assistantMsg]);
+				setIsTyping(false);
+			}
+			return;
+		}
+
 		try {
-			// Decide where to send the request: Python AI (smarter) or JS fallback
 			const endpoint = smarterAIAvailable ? "/api/python-chat" : "/api/chat";
-			// Call the AI API
 			const response = await fetch(endpoint, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					messages: [...chatMessages, userMsg],
 					mode: chatMode,
-					model: selectedModel, // Include selected model
-					subscription: userSubscription, // Include user subscription level
+					model: selectedModel,
+					subscription: userSubscription,
 					context: { products: allProducts },
 				}),
 			});
@@ -467,8 +606,7 @@ export default function CoffeeRecommender() {
 			setChatMessages((m) => [...m, assistantMsg]);
 		} catch (error) {
 			console.error("Chat error:", error);
-			// Fallback to local processing if API fails
-			const fallbackResponse = generateFallbackResponse(chatInput.toLowerCase(), chatMode);
+			const fallbackResponse = generateFallbackResponse(lowerPrompt, chatMode);
 			const assistantMsg: Message = {
 				role: "assistant",
 				content: fallbackResponse.response,
@@ -478,7 +616,16 @@ export default function CoffeeRecommender() {
 		} finally {
 			setIsTyping(false);
 		}
-	}, [chatInput, chatMessages, chatMode, selectedModel, userSubscription, generateFallbackResponse, smarterAIAvailable]);
+	}, [
+		chatInput,
+		chatMessages,
+		chatMode,
+		selectedModel,
+		userSubscription,
+		generateFallbackResponse,
+		smarterAIAvailable,
+		initializeGemma,
+	]);
 
 	const handleChatKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -870,6 +1017,26 @@ export default function CoffeeRecommender() {
 										🎼 Ode {(!isLoggedIn || userSubscription !== "ultimate") && "🔒"}
 									</button>
 								</div>
+
+								{(selectedModel === "villanelle" || selectedModel === "ode") && (
+									<p
+										className="gemma-status"
+										style={{
+											marginTop: "0.75rem",
+											fontSize: "0.85rem",
+											color: "rgba(250, 204, 144, 0.7)",
+										}}
+										aria-live="polite"
+									>
+										{gemmaLoading
+											? "Loading Gemma on-device model..."
+											: gemmaError
+											? `Gemma unavailable (${gemmaError}).`
+											: gemmaReady
+											? "Gemma on-device model is ready."
+											: "Preparing Gemma on-device model..."}
+									</p>
+								)}
 							</>
 						)}
 

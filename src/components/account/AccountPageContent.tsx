@@ -3,15 +3,8 @@
 import { useCallback, useState, type FormEvent, type MouseEvent } from "react";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
-import { Poppins } from "next/font/google";
 
 const ALLOWED_EMAIL_SUFFIXES = ["@gmail.com", "@outlook.com", "@yahoo.com"];
-
-const poppins = Poppins({
-	subsets: ["latin"],
-	weight: ["400", "500", "600", "700", "800", "900"],
-	variable: "--font-poppins",
-});
 
 function hasSingleAt(value: string) {
 	return value.split("@").length === 2;
@@ -190,7 +183,7 @@ export default function AccountPageContent() {
 	);
 
 	return (
-		<main className={`account-page ${poppins.variable}`}>
+		<main className="account-page">
 			<div className="section">
 				<div className="container">
 					<div className="row full-height justify-content-center">

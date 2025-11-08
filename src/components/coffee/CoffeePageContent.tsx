@@ -260,7 +260,7 @@ function CoffeeProductCard({ product }: { product: CoffeeProduct }) {
 		if (capsules >= 10) {
 			const sleeves = Math.floor(capsules / 10);
 			const itemName = `${product.name} - ${formatRon(product.priceRon)}`;
-			addItem({ id: product.id, name: itemName, price: product.priceRon, qty: sleeves });
+			addItem({ id: product.id, name: itemName, price: product.priceRon, qty: sleeves, image: product.image });
 			notify(
 				`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${product.name} to bag!`,
 				6000,

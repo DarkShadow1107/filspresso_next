@@ -107,6 +107,8 @@ def train_model(
     learning_rate: float = 5e-5,
     save_path: str = './checkpoints',
     device_override: Optional[str] = None,
+    resume_checkpoint: Optional[str] = None,
+    vocab_size: Optional[int] = None,
 ):
     """Train a model with GPU support
     
@@ -155,40 +157,62 @@ def train_model(
     
     # Initialize tokenizer
     logger.info("🔤 Building tokenizer vocabulary...")
-    tokenizer = SimpleTokenizer(vocab_size=50000)
+    # If a vocab_size is forced via CLI, pass it to the tokenizer so both tokenizer and
+    # model embedding size remain consistent. Otherwise tokenizer uses its default.
+    tokenizer_init_vocab = vocab_size if vocab_size is not None else 50000
+    tokenizer = SimpleTokenizer(vocab_size=tokenizer_init_vocab)
     tokenizer.build_vocab(texts)
-    logger.info(f"✅ Tokenizer vocab size: {len(tokenizer.word2idx)}")
+    # Determine the actual vocab size that will be used for the embedding matrix
+    used_vocab_size = vocab_size if vocab_size is not None else len(tokenizer.word2idx)
+    logger.info(f"✅ Tokenizer vocab size (used for model embedding): {used_vocab_size}")
     logger.info("")
     
     # Create model with memory-efficient settings
     logger.info("🏗️  Building model architecture...")
     if model_name == 'tanka':
-        model, config = create_tanka_model(vocab_size=len(tokenizer.word2idx))
+        model, config = create_tanka_model(vocab_size=used_vocab_size)
         config.max_seq_length = 256
         logger.info("✨ Kafelot Tanka Model initialized in RAM")
     elif model_name == 'villanelle':
-        model, config = create_villanelle_model(vocab_size=len(tokenizer.word2idx))
+        model, config = create_villanelle_model(vocab_size=used_vocab_size)
         config.max_seq_length = 256
         logger.info("✨ Kafelot Villanelle Model initialized in RAM")
     elif model_name == 'ode':
-        model, config = create_ode_model(vocab_size=len(tokenizer.word2idx))
+        model, config = create_ode_model(vocab_size=used_vocab_size)
         config.max_seq_length = 512
         logger.info("✨ Kafelot Ode Model initialized in RAM")
     else:
         logger.error(f"❌ Unknown model: {model_name}")
         return
-    
+
+    # Resume from checkpoint if provided
+    if resume_checkpoint is not None and Path(resume_checkpoint).is_file():
+        try:
+            logger.info(f"🔄 Loading checkpoint from {resume_checkpoint} ...")
+            checkpoint = torch.load(resume_checkpoint, map_location=device)
+            if 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+            else:
+                model.load_state_dict(checkpoint)
+            logger.info("✅ Model weights loaded from checkpoint.")
+        except Exception as e:
+            logger.error(f"❌ Failed to load checkpoint: {e}")
+            return
+    else:
+        if resume_checkpoint:
+            logger.warning(f"⚠️ Checkpoint file not found: {resume_checkpoint}. Starting from scratch.")
+
     logger.info("")
     logger.info("📍 What just happened:")
-    logger.info("  - Model architecture created in RAM with random weights")
+    logger.info("  - Model architecture created in RAM (random weights or loaded from checkpoint)")
     logger.info("  - NOT saved to disk yet - only exists in memory")
     logger.info("  - During training, best weights will be saved to checkpoints/")
     logger.info("")
-    
+
     # Move model to device
     model.to(device)
     logger.info(f"� Model loaded to {device.upper()}")
-    
+
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -278,21 +302,23 @@ if __name__ == '__main__':
                         help='Path to training data (file or directory). Default: ./training_data')
     parser.add_argument('--epochs', type=int, default=3, help='Number of epochs (default: 3)')
     parser.add_argument('--batch-size', type=int, default=None, help='Batch size (auto-selected by model if not specified)')
-    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate (default: 5e-5)')
+    parser.add_argument('--lr', type=float, default=5e-6, help='Learning rate (default: 5e-6)')
     parser.add_argument('--save-path', default='./checkpoints', help='Path to save checkpoints')
     parser.add_argument('--device', choices=['cuda', 'cpu'], default=None, help='Force device: cuda or cpu (default: auto-detect)')
-    
+    parser.add_argument('--resume', default=None, help='Path to checkpoint to resume training from')
+    parser.add_argument('--vocab-size', type=int, default=None, help='Force vocabulary size for tokenizer and embedding (e.g., 30000)')
+
     args = parser.parse_args()
-    
+
     # Set default data path to training_data folder
     data_path = args.data if args.data else './training_data'
-    
+
     # Interactive model selection if not specified
     if args.model is None:
         model_name = select_model_interactive()
     else:
         model_name = args.model
-    
+
     # Set model-specific batch size if not provided
     if args.batch_size is None:
         if model_name in ('tanka', 'villanelle'):
@@ -303,12 +329,12 @@ if __name__ == '__main__':
             batch_size = 8   # Fallback
     else:
         batch_size = args.batch_size
-    
+
     # Display GPU info
     print("")
     display_gpu_info()
     print("")
-    
+
     train_model(
         model_name=model_name,
         data_path=data_path,
@@ -317,4 +343,6 @@ if __name__ == '__main__':
         learning_rate=args.lr,
         save_path=args.save_path,
         device_override=args.device,
+        resume_checkpoint=args.resume,
+        vocab_size=args.vocab_size,
     )

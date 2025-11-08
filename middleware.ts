@@ -8,7 +8,6 @@ const supportedSlugs = new Set([
 	"love-coffee",
 	"machines",
 	"payment",
-	"shop-calculator",
 	"shopping-bag",
 	"subscription",
 ]);

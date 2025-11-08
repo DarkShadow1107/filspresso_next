@@ -44,3 +44,7 @@ next-env.d.ts
 
 # python virtual environment
 .venv/
+
+# AI models
+python_ai/checkpoints/
+public/models/

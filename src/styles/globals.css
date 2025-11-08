@@ -1,3 +1,184 @@
+/* poppins-100 - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 100;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-100.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */ url("/fonts/poppins-v24-devanagari_latin_latin-ext-100.ttf")
+			format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-100italic - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: italic;
+	font-weight: 100;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-100italic.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-100italic.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-200 - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 200;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-200.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */ url("/fonts/poppins-v24-devanagari_latin_latin-ext-200.ttf")
+			format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-200italic - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: italic;
+	font-weight: 200;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-200italic.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-200italic.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-300 - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 300;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-300.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */ url("/fonts/poppins-v24-devanagari_latin_latin-ext-300.ttf")
+			format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-300italic - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: italic;
+	font-weight: 300;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-300italic.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-300italic.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-regular - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 400;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-regular.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-regular.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-italic - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: italic;
+	font-weight: 400;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-italic.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-italic.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-500 - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 500;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-500.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */ url("/fonts/poppins-v24-devanagari_latin_latin-ext-500.ttf")
+			format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-500italic - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: italic;
+	font-weight: 500;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-500italic.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-500italic.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-600 - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 600;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-600.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */ url("/fonts/poppins-v24-devanagari_latin_latin-ext-600.ttf")
+			format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-600italic - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: italic;
+	font-weight: 600;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-600italic.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-600italic.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-700 - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 700;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-700.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */ url("/fonts/poppins-v24-devanagari_latin_latin-ext-700.ttf")
+			format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-700italic - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: italic;
+	font-weight: 700;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-700italic.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-700italic.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-800 - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 800;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-800.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */ url("/fonts/poppins-v24-devanagari_latin_latin-ext-800.ttf")
+			format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-800italic - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: italic;
+	font-weight: 800;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-800italic.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-800italic.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-900 - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: normal;
+	font-weight: 900;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-900.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */ url("/fonts/poppins-v24-devanagari_latin_latin-ext-900.ttf")
+			format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+/* poppins-900italic - devanagari_latin_latin-ext */
+@font-face {
+	font-display: swap; /* Check https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/font-display for other options. */
+	font-family: "Poppins";
+	font-style: italic;
+	font-weight: 900;
+	src: url("/fonts/poppins-v24-devanagari_latin_latin-ext-900italic.woff2") format("woff2"),
+		/* Chrome 36+, Opera 23+, Firefox 39+, Safari 12+, iOS 10+ */
+			url("/fonts/poppins-v24-devanagari_latin_latin-ext-900italic.ttf") format("truetype"); /* Chrome 4+, Firefox 3.5+, IE 9+, Safari 3.1+, iOS 4.2+, Android Browser 2.2+ */
+}
+
 /* Scroll to top button styles */
 .scroll-to-top-btn {
 	position: fixed;
@@ -25,7 +206,6 @@
 @import "./subscription.css";
 @import "./payment.css";
 @import "./love-coffee.css";
-@import "./shop-calculator.css";
 @import "./account.css";
 @import "./shopping-bag.css";
 
@@ -107,7 +287,7 @@ header {
 nav {
 	background-color: transparent;
 	font-size: 14px;
-	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 	color: rgba(200, 198, 198, 0.773);
 	transform: none;
 	letter-spacing: 1.4px;
@@ -265,13 +445,13 @@ nav ul li a i {
 }
 h2 {
 	color: rgb(190, 172, 154);
-	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 	letter-spacing: 1.2px;
 }
 h3,
 h4 {
 	color: rgb(246, 198, 173);
-	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 	letter-spacing: 1px;
 }
 .h3_home {
@@ -363,12 +543,12 @@ h4 {
 }
 .machine_groups_head,
 .machine_groups_models {
-	width: 320px;
-	height: 650px;
+	width: 340px;
+	height: 680px;
 }
 .machine_groups_head_2,
 .machine_groups_models_2 {
-	width: 320px;
+	width: 340px;
 	height: 540px;
 }
 .machine_groups_models,
@@ -408,7 +588,7 @@ h4 {
 	border-radius: 15px;
 	font-style: italic;
 	font-weight: 200;
-	font-family: "Abadi MT Std Extra Light It", "SF Pro Text", "Helvetica Neue", Arial, sans-serif; /* match notes font */
+	font-family: "Abadi MT Std Extra Light It", "Poppins", Arial, sans-serif; /* match notes font */
 	letter-spacing: 1.5px; /* match note spacing */
 	box-shadow: 0 6px 12px rgba(195, 58, 47, 0.12);
 	z-index: 3;
@@ -1333,6 +1513,7 @@ body.recommender-open {
 	width: 60%;
 	margin-left: 20%;
 	margin-top: 4%;
+	margin-bottom: 4%;
 	margin-right: 20%;
 }
 .content_coffee_head {
@@ -1385,7 +1566,7 @@ body.recommender-open {
 	font-size: 12px;
 	color: rgba(254, 203, 137, 0.95);
 	margin-bottom: 6px;
-	font-family: "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+	font-family: "Poppins", Arial, sans-serif;
 }
 .notes_list {
 	display: flex;
@@ -1535,7 +1716,7 @@ body.recommender-open {
 	font-size: clamp(1.1rem, 2.3vw, 1.35rem);
 	color: rgb(254, 203, 137);
 	letter-spacing: 0.8px;
-	font-family: "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+	font-family: "Poppins", sans-serif;
 }
 .capsules-popup__close {
 	background: rgba(254, 203, 137, 0.12);
@@ -1620,7 +1801,7 @@ body.recommender-open {
 	height: 42px;
 	border-radius: 24px;
 	font-size: 1rem;
-	font-family: "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+	font-family: "Poppins", sans-serif;
 	cursor: pointer;
 	border: none;
 	transition: background-color 0.3s ease, color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
@@ -1695,7 +1876,7 @@ svg {
 .text_intensity {
 	font-size: 13px;
 	color: rgb(254, 203, 137);
-	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 	letter-spacing: 1px;
 	margin-right: 2%;
 	margin-left: 2%;
@@ -1749,7 +1930,7 @@ svg {
 .price {
 	font-size: 24px;
 	font-weight: 700;
-	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 	color: rgb(251, 185, 92);
 	align-items: center;
 	text-align: center;
@@ -1757,7 +1938,7 @@ svg {
 .price_per_capsule,
 .price_per_capsule_1 {
 	font-size: 14px;
-	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 	color: rgba(254, 197, 116, 0.868);
 	align-items: center;
 	text-align: center;
@@ -1890,7 +2071,7 @@ svg {
 	margin-right: auto;
 	margin-top: 4%;
 	background-color: rgba(200, 151, 123, 0.233);
-	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 	border: none;
 	cursor: pointer;
 	transition: background-color 0.6s ease, color 0.6s ease, box-shadow 0.6s ease;
@@ -1909,7 +2090,7 @@ svg {
 	margin-right: auto;
 	margin-top: 4%;
 	background-color: rgba(200, 151, 123, 0.233);
-	font-family: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 	border: none;
 	cursor: pointer;
 	transition: background-color 0.6s ease, color 0.6s ease, box-shadow 0.6s ease;

@@ -407,7 +407,8 @@ filspresso_next/
 │   │   ├── love-coffee/             # Coffee education components
 │   │   ├── machines/                # Machine catalog components
 │   │   ├── payment/                 # Payment flow components
-│   │   ├── shop-calculator/         # Shopping calculator tool
+│   │   ├── shopping-bag/            # Cart/bag components
+│   │   ├── subscription/            # Subscription management components
 │   │   ├── shopping-bag/            # Cart/bag components
 │   │   ├── subscription/            # Subscription management components
 │   │   ├── Cart.tsx                 # Global cart component
@@ -432,7 +433,6 @@ filspresso_next/
 │   │   ├── love-coffee.css
 │   │   ├── notifications.css
 │   │   ├── payment.css
-│   │   ├── shop-calculator.css
 │   │   ├── shopping-bag.css
 │   │   └── subscription.css
 │   └── types/                        # TypeScript type definitions
@@ -1732,7 +1732,7 @@ The frontend uses Next.js 15's App Router with a custom middleware-based routing
 #### Routing Mechanism (`middleware.ts`)
 
 -   **Pattern**: Rewrite requests like `/coffee` → `/?page=coffee`
--   **Supported pages**: home, account, coffee, machines, payment, subscription, shopping-bag, shop-calculator, coffee-machine-animation, love-coffee
+-   **Supported pages**: home, account, coffee, machines, payment, subscription, shopping-bag, coffee-machine-animation, love-coffee
 -   **Benefits**:
     -   Single root layout component
     -   Consistent page transitions
@@ -1751,7 +1751,6 @@ src/components/
 ├── payment/PaymentPageContent.tsx        # Payment flow
 ├── subscription/...                      # Subscription management
 ├── shopping-bag/...                      # Cart and checkout
-├── shop-calculator/...                   # Capsule quantity calculator
 └── account/AccountPageContent.tsx        # User account management
 ```
 

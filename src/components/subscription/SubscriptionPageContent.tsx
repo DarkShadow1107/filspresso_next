@@ -1,58 +1,87 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
+import { useRouter } from "next/navigation";
+import { buildPageHref } from "@/lib/pages";
 
 const plans = [
 	{
-		id: "basic",
-		title: "Basic",
-		priceRon: 46.05,
-		kafelotModel: "tanka" as const,
+		id: "ultimate",
+		title: "Ultimate",
+		priceRon: 599.99,
+		kafelotModel: "ode" as const,
+		color: "red",
+		recommended: false,
 		benefits: [
-			"10 capsules par mois",
-			"Espressor Essenza Mini Piano Noir C30",
-			"🤖 Kafelot Tanka (30M) - Quick, lightweight AI",
-		],
-	},
-	{
-		id: "pro",
-		title: "Pro",
-		priceRon: 92.15,
-		kafelotModel: "villanelle" as const,
-		benefits: [
-			"30 capsules par mois",
-			"Espressor Vertuo Next C Rouge Cerise",
-			"1x Suport des bonbons",
-			"🎻 Kafelot Villanelle (60M) - Balanced AI",
+			"200 capsules par mois",
+			"Espressor Gran Lattissima Noir Élégant",
+			"1x Suport capsules Mia Lume",
+			"🎼 Kafelot Ode - 50 prompts/month",
+			"⚡ Kafelot Villanelle - 100 prompts/month",
+			"🤖 Kafelot Tanka - 1000 prompts/month",
+			"💾 200-conversation memory",
+			"🧠 Expert-level deep analysis",
 		],
 	},
 	{
 		id: "max",
 		title: "Max",
-		priceRon: 138.15,
+		priceRon: 279.99,
 		kafelotModel: "villanelle" as const,
+		color: "purple",
+		recommended: true,
+		benefits: [
+			"120 capsules par mois",
+			"Espressor Vertuo Next C Rouge Cerise",
+			"1x Suport des bonbons",
+			"⚡ Kafelot Villanelle - 20 prompts/month",
+			"🤖 Kafelot Tanka - 300 prompts/month",
+			"💾 100-conversation memory",
+		],
+	},
+	{
+		id: "pro",
+		title: "Pro",
+		priceRon: 169.99,
+		kafelotModel: "tanka" as const,
+		color: "blue",
+		recommended: false,
 		benefits: [
 			"60 capsules par mois",
 			"Espressor Vertuo Next C Rouge Cerise",
 			"1x Suport des bonbons",
-			"⚡ Kafelot Villanelle (60M) - Advanced reasoning",
-			"💾 30-conversation memory",
+			"🤖 Kafelot Tanka - 150 prompts/month",
+			"💾 50-conversation memory",
 		],
 	},
 	{
-		id: "ultimate",
-		title: "Ultimate",
-		priceRon: 230.375, // 150% more expensive than Max: 138.15 * 1.67 ≈ 230.38
-		kafelotModel: "ultra" as const,
+		id: "plus",
+		title: "Plus",
+		priceRon: 109.99,
+		kafelotModel: "tanka" as const,
+		color: "yellow",
+		recommended: false,
 		benefits: [
-			"120 capsules par mois",
-			"Espressor Gran Lattissima Noir Élégant",
-			"1x Suport capsules Mia Lume",
-			"🚀 Kafelot Ode (90M) - Maximum intelligence",
-			"💾 50-conversation memory",
-			"🧠 Expert-level deep analysis",
+			"30 capsules par mois",
+			"Espressor Essenza Mini Piano Noir C30",
+			"🤖 Kafelot Tanka - 100 prompts/month",
+			"💾 20-conversation memory",
+		],
+	},
+	{
+		id: "basic",
+		title: "Basic",
+		priceRon: 55.99,
+		kafelotModel: "tanka" as const,
+		color: "green",
+		recommended: false,
+		benefits: [
+			"10 capsules par mois",
+			"Espressor Essenza Mini Piano Noir C30",
+			"🤖 Kafelot Tanka - 50 prompts/month",
+			"💾 5-conversation memory",
 		],
 	},
 ] as const;
@@ -65,12 +94,54 @@ export default function SubscriptionPageContent() {
 	const { addItem } = useCart();
 	const cardsInnerRef = useRef<HTMLDivElement | null>(null);
 	const overlayRef = useRef<HTMLDivElement | null>(null);
+	const router = useRouter();
+	const [isLoggedIn, setIsLoggedIn] = useState(false);
 
 	const { notify } = useNotifications();
 
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const accountLog = localStorage.getItem("account_log") === "true";
+		setIsLoggedIn(accountLog);
+	}, []);
+
 	const handleAdd = (planId: string, planTitle: string, price: number) => {
+		if (!isLoggedIn) {
+			notify("You need to be logged in to subscribe. Please log in to your account.", 8000, "error", "subscription", {
+				actions: [
+					{
+						id: "go-account",
+						label: "Go to Account",
+						variant: "primary",
+						onClick: () => router.push(buildPageHref("account")),
+					},
+					{
+						id: "stay",
+						label: "Stay",
+						variant: "ghost",
+					},
+				],
+				persist: true,
+			});
+			return;
+		}
+
+		// Add subscription to cart and go directly to payment
 		addItem({ id: `sub-${planId}`, name: `${planTitle} Subscription - ${formatRon(price)}`, price });
-		notify(`Added ${planTitle} to bag!`, 6000, "success", "subscription");
+		notify(`${planTitle} subscription selected! Proceeding to payment...`, 3000, "success", "subscription");
+
+		// Store the timestamp token and redirect to payment
+		if (typeof window !== "undefined") {
+			try {
+				window.sessionStorage.setItem("allow_payment_ts", String(Date.now()));
+			} catch {
+				// ignore storage errors
+			}
+		}
+
+		setTimeout(() => {
+			router.push(buildPageHref("payment"));
+		}, 500);
 	};
 
 	useEffect(() => {
@@ -164,7 +235,8 @@ export default function SubscriptionPageContent() {
 				<div className="cards">
 					<div className="cards_inner" ref={cardsInnerRef}>
 						{plans.map((plan) => (
-							<article key={plan.id} className="cards_card card">
+							<article key={plan.id} className={`cards_card card card-${plan.color}`}>
+								{plan.recommended && <span className="card_badge">Recommended</span>}
 								<h2 className="card_heading">{plan.title}</h2>
 								<p className="card_price">{formatRon(plan.priceRon)}</p>
 								<ul className="card_bullets">
@@ -179,6 +251,8 @@ export default function SubscriptionPageContent() {
 								>
 									{plan.id === "basic"
 										? "Get Started"
+										: plan.id === "plus"
+										? "Upgrade to Plus"
 										: plan.id === "pro"
 										? "Upgrade to Pro"
 										: plan.id === "max"
