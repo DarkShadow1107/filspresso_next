@@ -814,24 +814,41 @@ export default function CoffeeRecommender() {
 								</div>
 							</div>
 							<div className="prefs-col prefs-col-narrow">
-								<label className="label-small">
-									<input
-										type="checkbox"
-										checked={intensityEnabled}
-										onChange={(e) => setIntensityEnabled(e.target.checked)}
-									/>{" "}
-									Filter by intensity
-								</label>
-								<div className="intensity-slider-group">
-									<input
-										type="range"
-										min={1}
-										max={13}
-										value={intensity}
-										onChange={(e) => setIntensity(Number(e.target.value))}
-										disabled={!intensityEnabled}
-									/>
-									<span className="intensity-value">{intensity}</span>
+								<div className="intensity-filter-wrapper">
+									<label className="intensity-filter-label">
+										<input
+											type="checkbox"
+											checked={intensityEnabled}
+											onChange={(e) => setIntensityEnabled(e.target.checked)}
+										/>
+										Filter by intensity
+									</label>
+									<div className="intensity-slider-group">
+										<input
+											type="range"
+											min={1}
+											max={13}
+											value={intensity}
+											onChange={(e) => {
+												const newIntensity = Number(e.target.value);
+												setIntensity(newIntensity);
+												// Update CSS variable for gradient fill
+												const percentage = ((newIntensity - 1) / (13 - 1)) * 100;
+												(e.target as HTMLInputElement).style.setProperty("--value", `${percentage}%`);
+											}}
+											onInput={(e) => {
+												// Update gradient on input event too for smooth feedback
+												const newIntensity = Number(e.currentTarget.value);
+												const percentage = ((newIntensity - 1) / (13 - 1)) * 100;
+												(e.currentTarget as HTMLInputElement).style.setProperty(
+													"--value",
+													`${percentage}%`
+												);
+											}}
+											disabled={!intensityEnabled}
+										/>
+										<span className="intensity-value">{intensity}</span>
+									</div>
 								</div>
 
 								<label className="label-small" style={{ marginTop: "12px" }}>
@@ -899,7 +916,7 @@ export default function CoffeeRecommender() {
 								))}
 							</div>
 						)}
-						<div className="recommender-cta">
+						<div className="recommender-cta results-cta">
 							<button
 								onClick={() => {
 									setStep("prefs");
@@ -910,11 +927,11 @@ export default function CoffeeRecommender() {
 							</button>
 							<button
 								onClick={() => {
-									setOpen(false);
 									setStep("greeting");
+									setResults([]);
 								}}
 							>
-								Close
+								← Back
 							</button>
 						</div>
 					</div>
@@ -987,7 +1004,7 @@ export default function CoffeeRecommender() {
 									<button
 										className={selectedModel === "tanka" ? "active" : ""}
 										onClick={() => setSelectedModel("tanka")}
-										title="Tanka - ~30M params, lightweight and fast"
+										title="Tanka - 🌿 Lightweight & Fast (~30M params) - Coffee-focused recommendations, quick responses, perfect for quick searches"
 									>
 										🌿 Tanka
 									</button>
@@ -996,8 +1013,8 @@ export default function CoffeeRecommender() {
 										onClick={() => setSelectedModel("villanelle")}
 										title={
 											isLoggedIn && (userSubscription === "max" || userSubscription === "ultimate")
-												? "Villanelle - ~60M params, balanced"
-												: "Villanelle - Requires higher subscription (locked)"
+												? "Villanelle - ⚡ Balanced & Smart (~60M params) - Deep flavor analysis, personalized insights, nuanced recommendations"
+												: "Villanelle - Requires Max or Ultimate subscription (locked)"
 										}
 										disabled={!isLoggedIn || (userSubscription !== "max" && userSubscription !== "ultimate")}
 									>
@@ -1009,7 +1026,7 @@ export default function CoffeeRecommender() {
 										onClick={() => setSelectedModel("ode")}
 										title={
 											isLoggedIn && userSubscription === "ultimate"
-												? "Ode - ~90M params, deeper reasoning"
+												? "Ode - 🎼 Expert & Deep (~90M params) - Advanced flavor profiling, comprehensive analysis, literary flair"
 												: "Ode - Requires Ultimate subscription (locked)"
 										}
 										disabled={!isLoggedIn || userSubscription !== "ultimate"}
@@ -1037,6 +1054,37 @@ export default function CoffeeRecommender() {
 											: "Preparing Gemma on-device model..."}
 									</p>
 								)}
+
+								{/* Model descriptions below buttons */}
+								<div className="model-description">
+									{selectedModel === "tanka" && (
+										<div className="description-content">
+											<strong>🌿 Kafelot Tanka</strong>
+											<p>
+												Lightweight &amp; Fast. Perfect for quick coffee searches. Focuses on Nespresso
+												capsule recommendations with instant responses.
+											</p>
+										</div>
+									)}
+									{selectedModel === "villanelle" && (
+										<div className="description-content">
+											<strong>⚡ Kafelot Villanelle</strong>
+											<p>
+												Balanced &amp; Smart. Provides deeper flavor analysis and personalized insights
+												based on your preferences. Great for discovering new favorites.
+											</p>
+										</div>
+									)}
+									{selectedModel === "ode" && (
+										<div className="description-content">
+											<strong>🎼 Kafelot Ode</strong>
+											<p>
+												Expert &amp; Deep. Advanced flavor profiling with comprehensive analysis. Crafts
+												poetic and detailed recommendations for the true coffee connoisseur.
+											</p>
+										</div>
+									)}
+								</div>
 							</>
 						)}
 

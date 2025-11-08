@@ -11,6 +11,7 @@ const plans = [
 		id: "ultimate",
 		title: "Ultimate",
 		priceRon: 599.99,
+		priceRonYearly: 6299.99,
 		kafelotModel: "ode" as const,
 		color: "red",
 		recommended: false,
@@ -29,6 +30,7 @@ const plans = [
 		id: "max",
 		title: "Max",
 		priceRon: 279.99,
+		priceRonYearly: 2699.99,
 		kafelotModel: "villanelle" as const,
 		color: "purple",
 		recommended: true,
@@ -45,6 +47,7 @@ const plans = [
 		id: "pro",
 		title: "Pro",
 		priceRon: 169.99,
+		priceRonYearly: 1699.99,
 		kafelotModel: "tanka" as const,
 		color: "blue",
 		recommended: false,
@@ -60,6 +63,7 @@ const plans = [
 		id: "plus",
 		title: "Plus",
 		priceRon: 109.99,
+		priceRonYearly: 1099.99,
 		kafelotModel: "tanka" as const,
 		color: "yellow",
 		recommended: false,
@@ -74,6 +78,7 @@ const plans = [
 		id: "basic",
 		title: "Basic",
 		priceRon: 55.99,
+		priceRonYearly: 399.99,
 		kafelotModel: "tanka" as const,
 		color: "green",
 		recommended: false,
@@ -96,6 +101,7 @@ export default function SubscriptionPageContent() {
 	const overlayRef = useRef<HTMLDivElement | null>(null);
 	const router = useRouter();
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
+	const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
 
 	const { notify } = useNotifications();
 
@@ -105,7 +111,17 @@ export default function SubscriptionPageContent() {
 		setIsLoggedIn(accountLog);
 	}, []);
 
-	const handleAdd = (planId: string, planTitle: string, price: number) => {
+	// Calculate savings percentage for yearly vs monthly
+	const calculateSavings = (monthlyPrice: number, yearlyPrice: number): number => {
+		const totalMonthly = monthlyPrice * 12;
+		const savings = ((totalMonthly - yearlyPrice) / totalMonthly) * 100;
+		return Math.round(savings); // Round to nearest integer
+	};
+
+	const handleAdd = (planId: string, planTitle: string, monthlyPrice: number, yearlyPrice: number) => {
+		const price = billingPeriod === "yearly" ? yearlyPrice : monthlyPrice;
+		const period = billingPeriod === "yearly" ? "yearly" : "monthly";
+
 		if (!isLoggedIn) {
 			notify("You need to be logged in to subscribe. Please log in to your account.", 8000, "error", "subscription", {
 				actions: [
@@ -127,7 +143,7 @@ export default function SubscriptionPageContent() {
 		}
 
 		// Add subscription to cart and go directly to payment
-		addItem({ id: `sub-${planId}`, name: `${planTitle} Subscription - ${formatRon(price)}`, price });
+		addItem({ id: `sub-${planId}`, name: `${planTitle} Subscription (${period}) - ${formatRon(price)}`, price });
 		notify(`${planTitle} subscription selected! Proceeding to payment...`, 3000, "success", "subscription");
 
 		// Store the timestamp token and redirect to payment
@@ -232,35 +248,65 @@ export default function SubscriptionPageContent() {
 		<section className="subscription-page">
 			<div className="content">
 				<h1 className="main_heading">Pricing</h1>
+
+				{/* Billing Period Toggle */}
+				<div className="billing-toggle-container">
+					<div className="billing-toggle">
+						<button
+							className={`toggle-btn ${billingPeriod === "monthly" ? "active" : ""}`}
+							onClick={() => setBillingPeriod("monthly")}
+						>
+							📅 Monthly
+						</button>
+						<button
+							className={`toggle-btn ${billingPeriod === "yearly" ? "active" : ""}`}
+							onClick={() => setBillingPeriod("yearly")}
+						>
+							📆 Yearly
+						</button>
+					</div>
+					{billingPeriod === "yearly" && <div className="savings-notice">💰 Save up to 40% with yearly billing!</div>}
+				</div>
+
 				<div className="cards">
 					<div className="cards_inner" ref={cardsInnerRef}>
-						{plans.map((plan) => (
-							<article key={plan.id} className={`cards_card card card-${plan.color}`}>
-								{plan.recommended && <span className="card_badge">Recommended</span>}
-								<h2 className="card_heading">{plan.title}</h2>
-								<p className="card_price">{formatRon(plan.priceRon)}</p>
-								<ul className="card_bullets">
-									{plan.benefits.map((benefit) => (
-										<li key={benefit}>{benefit}</li>
-									))}
-								</ul>
-								<button
-									type="button"
-									className="card_cta cta"
-									onClick={() => handleAdd(plan.id, plan.title, plan.priceRon)}
-								>
-									{plan.id === "basic"
-										? "Get Started"
-										: plan.id === "plus"
-										? "Upgrade to Plus"
-										: plan.id === "pro"
-										? "Upgrade to Pro"
-										: plan.id === "max"
-										? "Upgrade to Max"
-										: "Upgrade to Ultimate"}
-								</button>
-							</article>
-						))}
+						{plans.map((plan) => {
+							const currentPrice = billingPeriod === "yearly" ? plan.priceRonYearly : plan.priceRon;
+							const savings = billingPeriod === "yearly" ? calculateSavings(plan.priceRon, plan.priceRonYearly) : 0;
+							return (
+								<article key={plan.id} className={`cards_card card card-${plan.color}`}>
+									{plan.recommended && <span className="card_badge">Recommended</span>}
+									{billingPeriod === "yearly" && savings > 0 && (
+										<span className="card_savings-badge">Save {savings}%</span>
+									)}
+									<h2 className="card_heading">{plan.title}</h2>
+									<p className="card_price">{formatRon(currentPrice)}</p>
+									{billingPeriod === "yearly" && (
+										<p className="card_price-breakdown">{formatRon(currentPrice / 12)}/month</p>
+									)}
+									<ul className="card_bullets">
+										{plan.benefits.map((benefit) => (
+											<li key={benefit}>{benefit}</li>
+										))}
+									</ul>
+									<button
+										type="button"
+										className="card_cta cta"
+										onClick={() => handleAdd(plan.id, plan.title, plan.priceRon, plan.priceRonYearly)}
+									>
+										{plan.id === "basic"
+											? "Get Started"
+											: plan.id === "plus"
+											? "Upgrade to Plus"
+											: plan.id === "pro"
+											? "Upgrade to Pro"
+											: plan.id === "max"
+											? "Upgrade to Max"
+											: "Upgrade to Ultimate"}
+									</button>
+								</article>
+							);
+						})}
 					</div>
 					<div className="overlay cards_inner" ref={overlayRef} aria-hidden="true" />
 				</div>

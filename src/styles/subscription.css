@@ -43,6 +43,92 @@
 	letter-spacing: 0.06em;
 }
 
+/* Billing Toggle Container */
+.billing-toggle-container {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 1rem;
+	margin-bottom: 1rem;
+}
+
+.billing-toggle {
+	display: flex;
+	gap: 1rem;
+	background: rgba(0, 0, 0, 0.5);
+	padding: 0.5rem;
+	border-radius: 10px;
+	border: 1px solid rgba(253, 202, 136, 0.2);
+	backdrop-filter: blur(8px);
+}
+
+.toggle-btn {
+	padding: 0.75rem 1.5rem;
+	border: 2px solid transparent;
+	border-radius: 8px;
+	background: transparent;
+	color: rgba(248, 220, 204, 0.7);
+	font-size: 1rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.3s ease;
+}
+
+.toggle-btn:hover {
+	color: rgb(253, 202, 136);
+	border-color: rgba(253, 202, 136, 0.3);
+}
+
+.toggle-btn.active {
+	background: linear-gradient(135deg, rgb(174, 137, 102) 0%, rgb(140, 110, 85) 100%);
+	color: #fff;
+	border-color: rgb(250, 204, 144);
+	box-shadow: 0 4px 12px rgba(174, 137, 102, 0.4);
+}
+
+.savings-notice {
+	font-size: 0.95rem;
+	color: rgb(251, 185, 92);
+	font-weight: 600;
+	animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+	0%,
+	100% {
+		opacity: 1;
+		text-shadow: 0 0 10px rgba(251, 185, 92, 0.3);
+	}
+	50% {
+		opacity: 0.9;
+		text-shadow: 0 0 20px rgba(251, 185, 92, 0.6);
+	}
+}
+
+/* Savings badge on cards */
+.subscription-page .card_savings-badge {
+	position: absolute;
+	top: -0.75em;
+	left: 1em;
+	background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+	color: #fff;
+	padding: 0.4em 0.85em;
+	border-radius: 20px;
+	font-size: 0.8rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+	z-index: 99;
+}
+
+.subscription-page .card_price-breakdown {
+	font-size: 0.95rem;
+	margin: -0.75em 0 0 0;
+	color: rgba(251, 185, 92, 0.8);
+	font-weight: 500;
+}
+
 .subscription-page .cards {
 	position: relative;
 	width: 100%;
