@@ -7,6 +7,13 @@ import useCart from "@/hooks/useCart";
 import { coffeeCollections, type CoffeeProduct } from "@/data/coffee";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
+import {
+	smartSearchMolecule,
+	getMoleculeVisualization,
+	isMoleculeQuery,
+	extractMoleculeQuery,
+	getMoleculeCard,
+} from "@/lib/moleculeSearch";
 
 // Memoize product flattening for performance
 const allProducts = coffeeCollections.flatMap((c) => c.groups.flatMap((g) => g.products));
@@ -57,6 +64,16 @@ export default function CoffeeRecommender() {
 	const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
 	const [chatMode, setChatMode] = useState<"coffee" | "general">("coffee");
 	const [selectedModel, setSelectedModel] = useState<"tanka" | "villanelle" | "ode">("tanka");
+	const [chemistryMode, setChemistryMode] = useState(false);
+	const [useTankaModel, setUseTankaModel] = useState(false); // Toggle Tanka model ON/OFF in chemistry mode
+	const [visualizationMode, setVisualizationMode] = useState<"text" | "2d" | "3d" | "both">("both");
+	const [currentMolecule, setCurrentMolecule] = useState<{
+		chembl_id: string;
+		name: string;
+		svg?: string;
+		sdf?: string;
+		[key: string]: any;
+	} | null>(null);
 	const [smarterAIAvailable, setSmarterAIAvailable] = useState(false);
 	const [isLoggedIn, setIsLoggedIn] = useState(false); // User login state
 	const [userSubscription, setUserSubscription] = useState<"none" | "basic" | "plus" | "pro" | "max" | "ultimate">("none");
@@ -161,6 +178,14 @@ export default function CoffeeRecommender() {
 			void initializeGemma().catch(() => undefined);
 		}
 	}, [selectedModel, initializeGemma]);
+
+	// Disable chemistry mode if user switches away from Tanka
+	useEffect(() => {
+		if (chemistryMode && selectedModel !== "tanka") {
+			setChemistryMode(false);
+			setCurrentMolecule(null);
+		}
+	}, [selectedModel, chemistryMode]);
 
 	useEffect(() => {
 		// close on Escape
@@ -504,6 +529,61 @@ export default function CoffeeRecommender() {
 		return { response, products: recommendedProducts };
 	}, []);
 
+	// Fetch molecule data from backend
+	const fetchMoleculeData = useCallback(
+		async (chemblId: string) => {
+			try {
+				// Fetch molecule details
+				const detailsRes = await fetch(`http://localhost:5000/api/molecule/${chemblId}`);
+				if (!detailsRes.ok) {
+					throw new Error(`Failed to fetch molecule details: ${detailsRes.statusText}`);
+				}
+				const detailsData = await detailsRes.json();
+
+				const molecule = detailsData.molecule;
+
+				// Fetch SVG if needed
+				let svgData: string | undefined;
+				if (visualizationMode === "2d" || visualizationMode === "both") {
+					try {
+						const svgRes = await fetch(`http://localhost:5000/api/molecule/svg/${chemblId}`);
+						if (svgRes.ok) {
+							svgData = await svgRes.text();
+						}
+					} catch (error) {
+						console.warn("Failed to fetch SVG:", error);
+					}
+				}
+
+				// Fetch SDF if needed
+				let sdfData: string | undefined;
+				if (visualizationMode === "3d" || visualizationMode === "both") {
+					try {
+						const sdfRes = await fetch(`http://localhost:5000/api/molecule/sdf/${chemblId}`);
+						if (sdfRes.ok) {
+							sdfData = await sdfRes.text();
+						}
+					} catch (error) {
+						console.warn("Failed to fetch SDF:", error);
+					}
+				}
+
+				setCurrentMolecule({
+					...molecule,
+					svg: svgData,
+					sdf: sdfData,
+				});
+
+				return molecule;
+			} catch (error) {
+				console.error("Error fetching molecule data:", error);
+				notify("Failed to load molecule visualization", 3000, "error", "coffee");
+				return null;
+			}
+		},
+		[visualizationMode, notify]
+	);
+
 	// Smart AI-like chat handler
 	const handleChatSubmit = useCallback(async () => {
 		const prompt = chatInput.trim();
@@ -514,6 +594,97 @@ export default function CoffeeRecommender() {
 		setIsTyping(true);
 
 		const lowerPrompt = prompt.toLowerCase();
+
+		// Chemistry mode: Molecule Viewer (when Tanka is OFF)
+		// Skip chat entirely, just show molecules from local JSON + API visualizations
+		if (
+			chemistryMode &&
+			!useTankaModel &&
+			(lowerPrompt.includes("show") ||
+				lowerPrompt.includes("display") ||
+				lowerPrompt.includes("structure") ||
+				lowerPrompt.includes("molecule") ||
+				lowerPrompt.includes("chembl"))
+		) {
+			try {
+				setIsTyping(true);
+
+				// Extract ChEMBL ID or molecule name
+				const chemblIdMatch = prompt.match(/CHEMBL\d+/i);
+				if (chemblIdMatch) {
+					const chemblId = chemblIdMatch[0].toUpperCase();
+					const fallbackMol = await smartSearchMolecule(chemblId);
+					if (fallbackMol && fallbackMol.chembl_id === chemblId.toUpperCase()) {
+						// Get visualizations from Python API (RDKit + Py3Dmol + Pillow)
+						const viz = await getMoleculeVisualization(chemblId, visualizationMode, true);
+						setCurrentMolecule({
+							...fallbackMol,
+							svg: viz.svg,
+							sdf: viz.sdf,
+						});
+
+						const molCard = getMoleculeCard(fallbackMol);
+						const responseMsg: Message = {
+							role: "assistant",
+							content: `🔍 **Found molecule:**\n\n${molCard}\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow.`,
+						};
+						setChatMessages((m) => [...m, responseMsg]);
+					} else {
+						const errorMsg: Message = {
+							role: "assistant",
+							content: `❌ Could not find molecule ${chemblId}. Try another ChEMBL ID or molecule name.`,
+						};
+						setChatMessages((m) => [...m, errorMsg]);
+					}
+				} else {
+					// Search by name
+					const nameMatch = prompt.match(
+						/(?:show|display|find|search)\s+(?:me\s+)?(?:the\s+)?(?:molecule\s+)?(.+?)(?:\s+molecule|\s+structure)?$/i
+					);
+					if (nameMatch) {
+						const moleculeName = nameMatch[1].trim();
+						const fallbackMol = await smartSearchMolecule(moleculeName);
+						if (fallbackMol) {
+							// Get visualizations from Python API
+							const viz = await getMoleculeVisualization(fallbackMol.chembl_id, visualizationMode, true);
+							setCurrentMolecule({
+								...fallbackMol,
+								svg: viz.svg,
+								sdf: viz.sdf,
+							});
+
+							const molCard = getMoleculeCard(fallbackMol);
+							const responseMsg: Message = {
+								role: "assistant",
+								content: `🔍 **Found molecule:**\n\n${molCard}\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow.`,
+							};
+							setChatMessages((m) => [...m, responseMsg]);
+						} else {
+							const errorMsg: Message = {
+								role: "assistant",
+								content: `❌ Could not find molecule "${moleculeName}". Try a common compound like "caffeine" or use a ChEMBL ID.`,
+							};
+							setChatMessages((m) => [...m, errorMsg]);
+						}
+					}
+				}
+				setIsTyping(false);
+				return;
+			} catch (error) {
+				console.error("Molecule viewer error:", error);
+				setIsTyping(false);
+				const errorMsg: Message = {
+					role: "assistant",
+					content: "⚠️ Error searching for molecule. Please try again.",
+				};
+				setChatMessages((m) => [...m, errorMsg]);
+				return;
+			}
+		}
+
+		// When Tanka Model is ON: Let all queries go to the chat API
+		// Tanka will handle chemistry questions naturally through the Python endpoint
+
 		const useGemma = selectedModel === "villanelle" || selectedModel === "ode";
 
 		if (useGemma) {
@@ -581,7 +752,9 @@ export default function CoffeeRecommender() {
 		}
 
 		try {
-			const endpoint = smarterAIAvailable ? "/api/python-chat" : "/api/chat";
+			// If chemistry mode with Tanka enabled, use Python chat
+			const shouldUsePython = smarterAIAvailable && (chemistryMode ? useTankaModel : true);
+			const endpoint = shouldUsePython ? "/api/python-chat" : "/api/chat";
 			const response = await fetch(endpoint, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -590,6 +763,7 @@ export default function CoffeeRecommender() {
 					mode: chatMode,
 					model: selectedModel,
 					subscription: userSubscription,
+					chemistry_mode: chemistryMode && useTankaModel,
 					context: { products: allProducts },
 				}),
 			});
@@ -625,6 +799,9 @@ export default function CoffeeRecommender() {
 		generateFallbackResponse,
 		smarterAIAvailable,
 		initializeGemma,
+		chemistryMode,
+		visualizationMode,
+		fetchMoleculeData,
 	]);
 
 	const handleChatKeyDown = useCallback(
@@ -942,17 +1119,50 @@ export default function CoffeeRecommender() {
 						<div className="chat-mode-toggle">
 							<button
 								className={chatMode === "coffee" ? "active" : ""}
-								onClick={() => setChatMode("coffee")}
+								onClick={() => {
+									setChatMode("coffee");
+									setChemistryMode(false);
+								}}
 								title="Coffee Helper Mode - Focused on Nespresso recommendations"
 							>
 								☕ Coffee Helper
 							</button>
 							<button
 								className={chatMode === "general" ? "active" : ""}
-								onClick={() => setChatMode("general")}
+								onClick={() => {
+									setChatMode("general");
+									setChemistryMode(false);
+								}}
 								title="Specialized AI Mode - Chat about anything, JS fallback available"
 							>
 								🤖 Specialized AI
+							</button>
+							<button
+								className={chemistryMode ? "active chemistry-mode" : "chemistry-mode"}
+								onClick={() => {
+									// Only allow toggle if Tanka + Ultimate
+									if (selectedModel === "tanka" && isLoggedIn && userSubscription === "ultimate") {
+										setChatMode("general");
+										setChemistryMode(!chemistryMode);
+										// Automatically switch to Tanka when enabling chemistry mode
+										if (!chemistryMode) {
+											setSelectedModel("tanka");
+										}
+									}
+								}}
+								disabled={selectedModel !== "tanka" || !isLoggedIn || userSubscription !== "ultimate"}
+								title={
+									!isLoggedIn
+										? "Chemistry Mode - Login required"
+										: userSubscription !== "ultimate"
+										? "Chemistry Mode - Ultimate subscription required 🔒"
+										: selectedModel !== "tanka"
+										? "Chemistry Mode - Switch to Tanka model first 🔒"
+										: "Chemistry Mode - Molecule visualization (Tanka + Ultimate)"
+								}
+							>
+								🧪 Chemistry Mode{" "}
+								{(selectedModel !== "tanka" || !isLoggedIn || userSubscription !== "ultimate") && "🔒"}
 							</button>
 						</div>
 
@@ -1012,28 +1222,126 @@ export default function CoffeeRecommender() {
 										className={selectedModel === "villanelle" ? "active" : ""}
 										onClick={() => setSelectedModel("villanelle")}
 										title={
-											isLoggedIn && (userSubscription === "max" || userSubscription === "ultimate")
+											chemistryMode
+												? "Villanelle - Not available in Chemistry Mode (Tanka only)"
+												: isLoggedIn && (userSubscription === "max" || userSubscription === "ultimate")
 												? "Villanelle - ⚡ Balanced & Smart (~60M params) - Deep flavor analysis, personalized insights, nuanced recommendations"
 												: "Villanelle - Requires Max or Ultimate subscription (locked)"
 										}
-										disabled={!isLoggedIn || (userSubscription !== "max" && userSubscription !== "ultimate")}
+										disabled={
+											chemistryMode ||
+											!isLoggedIn ||
+											(userSubscription !== "max" && userSubscription !== "ultimate")
+										}
 									>
 										⚡ Villanelle{" "}
-										{(!isLoggedIn || (userSubscription !== "max" && userSubscription !== "ultimate")) && "🔒"}
+										{(chemistryMode ||
+											!isLoggedIn ||
+											(userSubscription !== "max" && userSubscription !== "ultimate")) &&
+											"🔒"}
 									</button>
 									<button
 										className={selectedModel === "ode" ? "active" : ""}
 										onClick={() => setSelectedModel("ode")}
 										title={
-											isLoggedIn && userSubscription === "ultimate"
+											chemistryMode
+												? "Ode - Not available in Chemistry Mode (Tanka only)"
+												: isLoggedIn && userSubscription === "ultimate"
 												? "Ode - 🎼 Expert & Deep (~90M params) - Advanced flavor profiling, comprehensive analysis, literary flair"
 												: "Ode - Requires Ultimate subscription (locked)"
 										}
-										disabled={!isLoggedIn || userSubscription !== "ultimate"}
+										disabled={chemistryMode || !isLoggedIn || userSubscription !== "ultimate"}
 									>
-										🎼 Ode {(!isLoggedIn || userSubscription !== "ultimate") && "🔒"}
+										🎼 Ode {(chemistryMode || !isLoggedIn || userSubscription !== "ultimate") && "🔒"}
 									</button>
 								</div>
+
+								{chemistryMode && (
+									<div className="visualization-mode-selector" style={{ marginTop: "1rem" }}>
+										<label>🔬 Molecule Display:</label>
+										<div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+											<button
+												className={visualizationMode === "text" ? "active" : ""}
+												onClick={() => setVisualizationMode("text")}
+												title="Text only - Show molecular properties without visualization"
+											>
+												📝 Text Only
+											</button>
+											<button
+												className={visualizationMode === "2d" ? "active" : ""}
+												onClick={() => setVisualizationMode("2d")}
+												title="2D Structure - SVG molecular diagram"
+											>
+												🖼️ 2D Structure
+											</button>
+											<button
+												className={visualizationMode === "3d" ? "active" : ""}
+												onClick={() => setVisualizationMode("3d")}
+												title="3D Model - SDF format for PyMOL"
+											>
+												🧊 3D Model
+											</button>
+											<button
+												className={visualizationMode === "both" ? "active" : ""}
+												onClick={() => setVisualizationMode("both")}
+												title="Both 2D & 3D - Show all visualizations"
+											>
+												🔄 Both
+											</button>
+										</div>
+									</div>
+								)}
+
+								{chemistryMode && (
+									<div className="tanka-model-toggle-section" style={{ marginTop: "1rem" }}>
+										<label style={{ display: "block", marginBottom: "0.5rem" }}>🤖 Tanka AI Model:</label>
+										<button
+											className={useTankaModel ? "active tanka-model-toggle" : "tanka-model-toggle"}
+											onClick={() => {
+												if (isLoggedIn && userSubscription === "ultimate") {
+													setUseTankaModel(!useTankaModel);
+												}
+											}}
+											disabled={!isLoggedIn || userSubscription !== "ultimate"}
+											title={
+												!isLoggedIn
+													? "Use Tanka Model - Login required"
+													: userSubscription !== "ultimate"
+													? "Use Tanka Model - Ultimate subscription required 🔒"
+													: useTankaModel
+													? "Tanka Model ON - Chemistry chat with AI"
+													: "Tanka Model OFF - Pure molecule visualization only"
+											}
+											style={{
+												padding: "0.5rem 1rem",
+												borderRadius: "6px",
+												border: `2px solid ${useTankaModel ? "#4CAF50" : "#888"}`,
+												background: useTankaModel ? "rgba(76, 175, 80, 0.15)" : "transparent",
+												color: useTankaModel ? "#4CAF50" : "inherit",
+												cursor:
+													!isLoggedIn || userSubscription !== "ultimate" ? "not-allowed" : "pointer",
+												opacity: !isLoggedIn || userSubscription !== "ultimate" ? 0.5 : 1,
+												width: "100%",
+											}}
+										>
+											{useTankaModel
+												? "🤖 Tanka Model ON (Chemistry Chat)"
+												: "🔬 Visualization Only (No AI Chat)"}
+											{(!isLoggedIn || userSubscription !== "ultimate") && " 🔒"}
+										</button>
+										{!useTankaModel && (
+											<p
+												style={{
+													fontSize: "0.85rem",
+													color: "rgba(250, 204, 144, 0.7)",
+													marginTop: "0.5rem",
+												}}
+											>
+												💡 Uses RDKit, Py3Dmol, and Pillow for molecule visualization
+											</p>
+										)}
+									</div>
+								)}
 
 								{(selectedModel === "villanelle" || selectedModel === "ode") && (
 									<p
@@ -1105,6 +1413,21 @@ export default function CoffeeRecommender() {
 												<li>&quot;What&apos;s the difference between Original and Vertuo?&quot;</li>
 											</ul>
 										</>
+									) : chemistryMode ? (
+										<>
+											<p>
+												🧪 <strong>Chemistry Mode</strong>{" "}
+												<span style={{ color: "rgba(250, 204, 144, 0.6)" }}>(Tanka + Ultimate)</span>
+											</p>
+											<p>Explore molecular structures with 2D/3D visualizations! Try asking:</p>
+											<ul>
+												<li>&quot;Show me caffeine molecule&quot;</li>
+												<li>&quot;What is the structure of aspirin?&quot;</li>
+												<li>&quot;Display glucose in 3D&quot;</li>
+												<li>&quot;Find chlorogenic acid&quot;</li>
+												<li>&quot;Show me CHEMBL25&quot;</li>
+											</ul>
+										</>
 									) : (
 										<>
 											<p>
@@ -1161,6 +1484,122 @@ export default function CoffeeRecommender() {
 										<span></span>
 										<span></span>
 									</div>
+								</div>
+							)}
+
+							{chemistryMode && currentMolecule && (
+								<div className="molecule-display">
+									<div className="molecule-header">
+										<h3>🧪 {currentMolecule.name || currentMolecule.chembl_id}</h3>
+										<button
+											className="close-molecule"
+											onClick={() => setCurrentMolecule(null)}
+											title="Close molecule view"
+										>
+											✕
+										</button>
+									</div>
+
+									<div className="molecule-info">
+										<p>
+											<strong>ChEMBL ID:</strong> {currentMolecule.chembl_id}
+										</p>
+										{currentMolecule.molecular_formula && (
+											<p>
+												<strong>Formula:</strong> {currentMolecule.molecular_formula}
+											</p>
+										)}
+										{currentMolecule.molecular_weight && (
+											<p>
+												<strong>Weight:</strong> {currentMolecule.molecular_weight.toFixed(2)} g/mol
+											</p>
+										)}
+										{currentMolecule.smiles && (
+											<p style={{ wordBreak: "break-all", fontSize: "0.85rem" }}>
+												<strong>SMILES:</strong> {currentMolecule.smiles}
+											</p>
+										)}
+									</div>
+
+									{(visualizationMode === "2d" || visualizationMode === "both") && currentMolecule.svg && (
+										<div
+											className="molecule-2d"
+											style={{
+												padding: "1rem",
+												borderRadius: "8px",
+												background: "#1a1a1a",
+												border: "1px solid rgba(255, 255, 255, 0.1)",
+											}}
+										>
+											<h4>2D Structure</h4>
+											{currentMolecule.svg.startsWith("data:") ? (
+												// SVG as base64 data URL - display as image
+												<img
+													src={currentMolecule.svg}
+													alt="2D Structure"
+													style={{
+														maxWidth: "100%",
+														height: "auto",
+														borderRadius: "4px",
+													}}
+												/>
+											) : (
+												// SVG as HTML content
+												<div
+													className="svg-container"
+													dangerouslySetInnerHTML={{ __html: currentMolecule.svg }}
+												/>
+											)}
+										</div>
+									)}
+
+									{(visualizationMode === "3d" || visualizationMode === "both") && currentMolecule.sdf && (
+										<div className="molecule-3d">
+											<h4>3D Interactive Model</h4>
+											{currentMolecule.sdf.includes("<script") ||
+											currentMolecule.sdf.includes("<!DOCTYPE") ? (
+												// Py3Dmol HTML viewer - render in iframe for safety
+												<iframe
+													srcDoc={currentMolecule.sdf}
+													style={{
+														width: "100%",
+														height: "500px",
+														border: "1px solid rgba(255, 255, 255, 0.1)",
+														borderRadius: "8px",
+														background: "#1a1a1a",
+													}}
+													title="3D Molecule Viewer"
+													sandbox="allow-scripts"
+													loading="lazy"
+												/>
+											) : (
+												// Fallback: SDF data for download
+												<div className="sdf-info">
+													<p>
+														📥 <strong>SDF Data Available</strong> - Use PyMOL or similar tools to
+														visualize
+													</p>
+													<button
+														onClick={() => {
+															const blob = new Blob([currentMolecule.sdf || ""], {
+																type: "chemical/x-mdl-sdfile",
+															});
+															const url = URL.createObjectURL(blob);
+															const a = document.createElement("a");
+															a.href = url;
+															a.download = `${currentMolecule.chembl_id}.sdf`;
+															a.click();
+															URL.revokeObjectURL(url);
+														}}
+														className="download-sdf-btn"
+													>
+														⬇️ Download SDF
+													</button>
+													<pre className="sdf-preview">{currentMolecule.sdf?.substring(0, 500)}...</pre>
+												</div>
+											)}
+										</div>
+									)}
 								</div>
 							)}
 						</div>

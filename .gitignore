@@ -47,4 +47,5 @@ next-env.d.ts
 
 # AI models
 python_ai/checkpoints/
+python_ai/__pycache__/
 public/models/

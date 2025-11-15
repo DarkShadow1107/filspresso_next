@@ -1,12 +1,35 @@
 Flask==3.0.0
 Flask-CORS==4.0.0
-torch==2.1.0
-transformers==4.35.0
-numpy==1.24.3
+torch==2.7.1
+numpy>=1.25,<2.0
 pandas==2.1.0
-scikit-learn==1.3.2
+scikit-learn>=1.5.0
 requests==2.31.0
+requests-cache>=1.0.0
 python-dotenv==1.0.0
 waitress==2.1.2
 pymysql==1.1.0
 SQLAlchemy==2.0.19
+attrs>=25.4.0
+
+# Gemma Fine-tuning Dependencies
+transformers>=4.35.0
+peft>=0.7.0
+bitsandbytes>=0.41.0
+accelerate>=0.25.0
+datasets>=2.14.0
+trl>=0.7.4
+
+# RAG Dependencies
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+PyPDF2>=3.0.0
+
+# Chemistry Mode Dependencies
+chembl-webresource-client>=0.10.9
+rdkit>=2023.9.1
+py3Dmol>=2.0.4
+pillow>=10.0.0
+
+# Note: PyMOL is a desktop application for viewing SDF files
+# Install separately: https://pymol.org/ or via conda: conda install -c conda-forge pymol-open-source

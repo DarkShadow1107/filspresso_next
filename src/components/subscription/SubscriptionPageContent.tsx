@@ -24,6 +24,9 @@ const plans = [
 			"🤖 Kafelot Tanka - 1000 prompts/month",
 			"💾 200-conversation memory",
 			"🧠 Expert-level deep analysis",
+			"🧬 Chemistry Mode - 10,000+ molecules visualization (ChEMBL)",
+			"🔬 2D/3D molecular visualization with RDKit & Py3Dmol",
+			"📊 Advanced molecular property analysis",
 		],
 	},
 	{
