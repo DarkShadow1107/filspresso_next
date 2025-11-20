@@ -1,6 +1,6 @@
 """
-Gemma Model Management for Coffee AI
-Handles loading and inference with fine-tuned Gemma models
+TinyLlama Model Management for Coffee AI
+Handles loading and inference with fine-tuned TinyLlama models
 """
 
 import torch
@@ -13,13 +13,13 @@ logger = logging.getLogger(__name__)
 try:
     from transformers import AutoTokenizer, AutoModelForCausalLM
     from peft import PeftModel
-    GEMMA_AVAILABLE = True
+    TINYLLAMA_AVAILABLE = True
 except ImportError:
-    GEMMA_AVAILABLE = False
+    TINYLLAMA_AVAILABLE = False
     logger.warning("⚠️ Transformers/PEFT not installed. Run: pip install transformers peft bitsandbytes")
 
 class GemmaModelManager:
-    """Manages Gemma coffee and chemistry models"""
+    """Manages TinyLlama coffee and chemistry models"""
     
     def __init__(self, models_dir: Path):
         self.models_dir = models_dir
@@ -28,38 +28,38 @@ class GemmaModelManager:
         self.tokenizer = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        if GEMMA_AVAILABLE:
+        if TINYLLAMA_AVAILABLE:
             self.load_models()
     
     def load_models(self):
-        """Load both Gemma models"""
-        # Load Gemma Coffee Model (gemma_v2)
-        coffee_path = self.models_dir / "gemma_v2"
+        """Load both TinyLlama models"""
+        # Load TinyLlama Coffee Model (tinyllama_v2)
+        coffee_path = self.models_dir / "tinyllama_v2"
         if coffee_path.exists():
             try:
-                logger.info(f"Loading Gemma Coffee model from {coffee_path}...")
+                logger.info(f"Loading TinyLlama Coffee model from {coffee_path}...")
                 base_model = AutoModelForCausalLM.from_pretrained(
-                    "google/gemma-2b-it",
+                    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
                     device_map="auto",
                     torch_dtype=torch.float16,
                 )
                 self.coffee_model = PeftModel.from_pretrained(base_model, str(coffee_path))
                 self.tokenizer = AutoTokenizer.from_pretrained(str(coffee_path))
                 self.tokenizer.pad_token = self.tokenizer.eos_token
-                logger.info("✅ Gemma Coffee model loaded")
+                logger.info("✅ TinyLlama Coffee model loaded")
             except Exception as e:
-                logger.error(f"❌ Error loading Gemma Coffee model: {e}")
+                logger.error(f"❌ Error loading TinyLlama Coffee model: {e}")
         else:
-            logger.warning(f"⚠️ Gemma Coffee model not found at {coffee_path}")
+            logger.warning(f"⚠️ TinyLlama Coffee model not found at {coffee_path}")
             logger.info("   Run: python scripts/finetune_gemma_coffee.py")
         
-        # Load Gemma Chemistry Model (gemma_chem)
-        chem_path = self.models_dir / "gemma_chem"
+        # Load TinyLlama Chemistry Model (tinyllama_chem)
+        chem_path = self.models_dir / "tinyllama_chem"
         if chem_path.exists():
             try:
-                logger.info(f"Loading Gemma Chemistry model from {chem_path}...")
+                logger.info(f"Loading TinyLlama Chemistry model from {chem_path}...")
                 base_model = AutoModelForCausalLM.from_pretrained(
-                    "google/gemma-2b-it",
+                    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
                     device_map="auto",
                     torch_dtype=torch.float16,
                 )
@@ -67,16 +67,16 @@ class GemmaModelManager:
                 if not self.tokenizer:  # Use chemistry tokenizer if coffee not loaded
                     self.tokenizer = AutoTokenizer.from_pretrained(str(chem_path))
                     self.tokenizer.pad_token = self.tokenizer.eos_token
-                logger.info("✅ Gemma Chemistry model loaded")
+                logger.info("✅ TinyLlama Chemistry model loaded")
             except Exception as e:
-                logger.error(f"❌ Error loading Gemma Chemistry model: {e}")
+                logger.error(f"❌ Error loading TinyLlama Chemistry model: {e}")
         else:
-            logger.warning(f"⚠️ Gemma Chemistry model not found at {chem_path}")
+            logger.warning(f"⚠️ TinyLlama Chemistry model not found at {chem_path}")
             logger.info("   Run: python scripts/finetune_gemma_chemistry.py")
     
     def generate(self, prompt: str, chemistry_mode: bool = False, max_length: int = 512, temperature: float = 0.7):
         """
-        Generate response using appropriate Gemma model
+        Generate response using appropriate TinyLlama model
         
         Args:
             prompt: User prompt
@@ -87,7 +87,7 @@ class GemmaModelManager:
         Returns:
             Generated text string
         """
-        if not GEMMA_AVAILABLE:
+        if not TINYLLAMA_AVAILABLE:
             return "Error: Transformers/PEFT not installed"
         
         # Select model
@@ -95,14 +95,15 @@ class GemmaModelManager:
         
         if model is None:
             model_name = "chemistry" if chemistry_mode else "coffee"
-            return f"Error: Gemma {model_name} model not loaded"
+            return f"Error: TinyLlama {model_name} model not loaded"
         
         if self.tokenizer is None:
             return "Error: Tokenizer not loaded"
         
         try:
-            # Format prompt for Gemma instruction format
-            formatted_prompt = f"<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
+            # Format prompt for TinyLlama chat format
+            system_prompt = "You are a helpful chemistry assistant." if chemistry_mode else "You are a helpful coffee expert."
+            formatted_prompt = f"<|system|>\n{system_prompt}</s>\n<|user|>\n{prompt}</s>\n<|assistant|>\n"
             
             # Tokenize
             inputs = self.tokenizer(formatted_prompt, return_tensors="pt").to(self.device)
