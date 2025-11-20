@@ -1,5 +1,5 @@
 """
-Fine-tune Gemma 2B for chemistry/molecule tasks using LoRA
+Fine-tune Tiny Llama 1.1B for chemistry/molecule tasks using LoRA
 Uses PEFT, bitsandbytes for quantization, and TRL's SFTTrainer
 """
 

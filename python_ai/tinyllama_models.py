@@ -18,7 +18,7 @@ except ImportError:
     TINYLLAMA_AVAILABLE = False
     logger.warning("⚠️ Transformers/PEFT not installed. Run: pip install transformers peft bitsandbytes")
 
-class GemmaModelManager:
+class TinyLlamaModelManager:
     """Manages TinyLlama coffee and chemistry models"""
     
     def __init__(self, models_dir: Path):
@@ -51,7 +51,7 @@ class GemmaModelManager:
                 logger.error(f"❌ Error loading TinyLlama Coffee model: {e}")
         else:
             logger.warning(f"⚠️ TinyLlama Coffee model not found at {coffee_path}")
-            logger.info("   Run: python scripts/finetune_gemma_coffee.py")
+            logger.info("   Run: python scripts/finetune_tinyllama_coffee.py")
         
         # Load TinyLlama Chemistry Model (tinyllama_chem)
         chem_path = self.models_dir / "tinyllama_chem"
@@ -72,7 +72,7 @@ class GemmaModelManager:
                 logger.error(f"❌ Error loading TinyLlama Chemistry model: {e}")
         else:
             logger.warning(f"⚠️ TinyLlama Chemistry model not found at {chem_path}")
-            logger.info("   Run: python scripts/finetune_gemma_chemistry.py")
+            logger.info("   Run: python scripts/finetune_tinyllama_chemistry.py")
     
     def generate(self, prompt: str, chemistry_mode: bool = False, max_length: int = 512, temperature: float = 0.7):
         """
@@ -102,31 +102,34 @@ class GemmaModelManager:
         
         try:
             # Format prompt for TinyLlama chat format
-            system_prompt = "You are a helpful chemistry assistant." if chemistry_mode else "You are a helpful coffee expert."
+            system_prompt = "You are a helpful chemistry assistant that provides molecular information including SMILES, formulas, and properties." if chemistry_mode else "You are a helpful coffee expert."
             formatted_prompt = f"<|system|>\n{system_prompt}</s>\n<|user|>\n{prompt}</s>\n<|assistant|>\n"
             
             # Tokenize
             inputs = self.tokenizer(formatted_prompt, return_tensors="pt").to(self.device)
+            input_length = inputs['input_ids'].shape[1]
             
-            # Generate
+            # Generate (use max_new_tokens instead of max_length)
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_length=max_length,
+                    max_new_tokens=max_length,  # Changed from max_length to max_new_tokens
                     temperature=temperature,
                     do_sample=True,
                     top_p=0.9,
                     pad_token_id=self.tokenizer.eos_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id,
                 )
             
-            # Decode
-            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            # Decode only the new tokens (skip the input prompt)
+            generated_text = self.tokenizer.decode(outputs[0][input_length:], skip_special_tokens=True)
             
-            # Extract model response (remove prompt)
-            if "<start_of_turn>model" in generated_text:
-                response = generated_text.split("<start_of_turn>model")[-1].strip()
-            else:
-                response = generated_text[len(prompt):].strip()
+            # Clean up response
+            response = generated_text.strip()
+            
+            # Remove any remaining chat template artifacts
+            if "</s>" in response:
+                response = response.split("</s>")[0].strip()
             
             return response
             

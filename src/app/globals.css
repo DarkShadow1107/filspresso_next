@@ -21,3 +21,4 @@ body {
 
 /* load the consolidated legacy stylesheet */
 @import "../styles/globals.css";
+@import "../styles/account-management.css";

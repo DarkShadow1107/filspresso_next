@@ -50,8 +50,12 @@ export default function Cart() {
 	useEffect(() => {
 		setIsHydrated(true);
 		if (typeof window === "undefined") return;
-		const accountLog = localStorage.getItem("account_log") === "true";
-		setIsLoggedIn(accountLog);
+		// Check both keys for backward compatibility or inconsistency
+		const isLoggedInState =
+			localStorage.getItem("user_logged_in") === "true" ||
+			localStorage.getItem("account_log") === "true" ||
+			localStorage.getItem("login_status") === "1";
+		setIsLoggedIn(isLoggedInState);
 	}, []);
 
 	const handlePlaceOrder = () => {

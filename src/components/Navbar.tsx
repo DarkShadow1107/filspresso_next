@@ -116,6 +116,24 @@ export default function Navbar() {
 		setIsMenuOpen(false);
 	}, []);
 
+	// Account state: read from localStorage (set on signup)
+	const [accountName, setAccountName] = useState<string | null>(null);
+	const [accountIcon, setAccountIcon] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		try {
+			const a = localStorage.getItem("account");
+			if (a) {
+				const obj = JSON.parse(a);
+				setAccountName(obj.username || obj.full_name || null);
+				setAccountIcon(obj.icon || null);
+			}
+		} catch (e) {
+			// ignore
+		}
+	}, []);
+
 	const navDynamicStyle: CSSProperties | undefined = isSmallScreen
 		? {
 				position: "fixed",
@@ -215,10 +233,47 @@ export default function Navbar() {
 							))}
 							{iconLinks.map(({ slug, label, iconClass }) => (
 								<li key={slug}>
-									<Link href={buildPageHref(slug)} onClick={handleNavigate} style={navLinkStyle}>
-										<i className={iconClass} aria-hidden="true" style={iconStyle} />
-										{label}
-									</Link>
+									{slug === "account" ? (
+										<Link
+											href={buildPageHref(slug)}
+											onClick={handleNavigate}
+											style={{
+												...navLinkStyle,
+												display: "flex",
+												alignItems: "center",
+												justifyContent: "flex-start",
+											}}
+										>
+											{accountIcon ? (
+												<>
+													<img
+														src={accountIcon}
+														alt="account"
+														style={{
+															width: 24,
+															height: 24,
+															borderRadius: 6,
+															marginRight: 8,
+															display: "inline-block",
+														}}
+													/>
+													<span style={{ display: "inline" }}>{accountName || label}</span>
+												</>
+											) : (
+												<>
+													<i className={iconClass} aria-hidden="true" style={iconStyle} />
+													{label}
+												</>
+											)}
+										</Link>
+									) : (
+										<Link href={buildPageHref(slug)} onClick={handleNavigate} style={navLinkStyle}>
+											<>
+												<i className={iconClass} aria-hidden="true" style={iconStyle} />
+												{label}
+											</>
+										</Link>
+									)}
 								</li>
 							))}
 						</ul>

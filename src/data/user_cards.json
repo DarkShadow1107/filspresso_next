@@ -1,0 +1,11 @@
+[
+  {
+    "id": "c719e27a-5e4a-4706-8861-96e81cbeb61e",
+    "cardNumber": "4234252326426242",
+    "expiry": "12 / 30",
+    "cvv": "989",
+    "cardType": "Visa",
+    "cardHolder": "Valued Customer",
+    "createdAt": 1763594414690
+  }
+]

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState, type FormEvent, type MouseEvent } from "react";
+import AccountIconGenerator from "@/components/AccountIconGenerator";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 
@@ -30,6 +31,8 @@ export default function AccountPageContent() {
 	const [loginPassword, setLoginPassword] = useState("");
 	const [loginPasswordVisible, setLoginPasswordVisible] = useState(false);
 	const [signName, setSignName] = useState("");
+	const [signUsername, setSignUsername] = useState("");
+	const [signIconDataUrl, setSignIconDataUrl] = useState<string | null>(null);
 	const [signEmail, setSignEmail] = useState("");
 	const [signPassword, setSignPassword] = useState("");
 	const [signPasswordVisible, setSignPasswordVisible] = useState(false);
@@ -40,6 +43,7 @@ export default function AccountPageContent() {
 		(event: FormEvent<HTMLFormElement>) => {
 			event.preventDefault();
 			const nickname = signName.trim();
+			const username = signUsername.trim();
 			const email = signEmail.trim();
 			const password = signPassword;
 
@@ -54,9 +58,9 @@ export default function AccountPageContent() {
 			}
 
 			const hasAllowedDomain = ALLOWED_EMAIL_SUFFIXES.some((suffix) => email.endsWith(suffix));
-			if (!hasAllowedDomain || !nickname || !hasSingleAt(email)) {
+			if (!hasAllowedDomain || !nickname || !username || !hasSingleAt(email)) {
 				notify(
-					"Invalid e-mail address or empty username, please insert a valid e-mail address and a username!",
+					"Invalid e-mail address or empty full name/username, please insert a valid e-mail address and a username!",
 					6000,
 					"error",
 					"account"
@@ -79,81 +83,101 @@ export default function AccountPageContent() {
 				return;
 			}
 
+			// Try to persist account to backend
+			const payload = {
+				full_name: nickname,
+				username,
+				email,
+				password,
+				icon: signIconDataUrl,
+			};
 			if (typeof window !== "undefined") {
-				localStorage.setItem("passValue", password);
-				localStorage.setItem("nameValue", nickname);
-				localStorage.setItem("mailValue", email);
-				localStorage.setItem("forgotValue", "false");
-				localStorage.setItem("account_made", "true");
-				localStorage.setItem("account_log", "true");
+				fetch("http://localhost:5000/api/accounts/create", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload),
+				})
+					.then((res) => res.json())
+					.then((data) => {
+						if (data?.status === "success") {
+							// Use the static icon URL from backend
+							const iconUrl = data.icon_path || null;
+							localStorage.setItem(
+								"account",
+								JSON.stringify({ full_name: nickname, username, email, icon: iconUrl })
+							);
+							localStorage.setItem("login_status", "1");
+							notify(
+								`Welcome ${nickname}, your account was registered with the following address ${email}`,
+								6000,
+								"success",
+								"account"
+							);
+						} else {
+							notify(data?.message || "Failed to create account", 6000, "error", "account");
+							return;
+						}
+					})
+					.catch((error) => {
+						console.error("Signup error:", error);
+						notify("Failed to create account. Please check your connection.", 6000, "error", "account");
+						return;
+					});
 			}
 
-			notify(
-				`Welcome ${nickname}, your account was registered with the following address ${email}`,
-				6000,
-				"success",
-				"account"
-			);
 			setIsSignUp(false);
-			setLoginEmail(email);
+			setLoginEmail(username);
 			setLoginPassword("");
 			setSignPassword("");
 			setSignName("");
-			router.push("/");
+			setTimeout(() => router.push("/"), 1500);
 		},
-		[router, notify, signEmail, signName, signPassword]
+		[router, notify, signEmail, signName, signPassword, signUsername, signIconDataUrl]
 	);
 
 	const attemptLogin = useCallback(() => {
 		if (typeof window === "undefined") return false;
-		const email = loginEmail.trim();
+		const username = loginEmail.trim();
 		const password = loginPassword;
-		const storedPass = localStorage.getItem("passValue");
-		const storedMail = localStorage.getItem("mailValue");
-		const storedName = localStorage.getItem("nameValue");
-		const forgotValue = localStorage.getItem("forgotValue") ?? "false";
-		const accountMade = localStorage.getItem("account_made") === "true";
 
-		if (!accountMade) {
-			notify("You need to make an account first!", 6000, "error", "account");
+		if (!username || !password) {
+			notify("Username and password are required!", 6000, "error", "account");
 			return false;
 		}
 
-		if (forgotValue === "false") {
-			if (storedMail !== email || storedPass !== password) {
-				notify("Your e-mail address or password is incorrect!", 6000, "error", "account");
-				return false;
-			}
-			localStorage.setItem("account_log", "true");
-			localStorage.setItem("forgotValue", "false");
-			notify(`Welcome back ${formatNamePlaceholder(storedName)}, here at the Filspresso!`, 6000, "success", "account");
-			setLoginPassword("");
-			setLoginEmail(email);
-			router.push("/");
-			return true;
-		}
+		// Use backend login endpoint
+		fetch("http://localhost:5000/api/accounts/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ username, password }),
+		})
+			.then((res) => res.json())
+			.then((data) => {
+				if (data?.status === "success" && data?.account) {
+					const account = data.account;
+					localStorage.setItem(
+						"account",
+						JSON.stringify({
+							full_name: account.full_name,
+							username: account.username,
+							email: account.email,
+							icon: account.icon,
+						})
+					);
+					localStorage.setItem("login_status", "1");
+					notify(`Welcome back ${account.full_name || account.username}!`, 6000, "success", "account");
+					setLoginPassword("");
+					setLoginEmail("");
+					router.push("/");
+				} else {
+					notify(data?.message || "Invalid username or password!", 6000, "error", "account");
+				}
+			})
+			.catch((error) => {
+				console.error("Login error:", error);
+				notify("Login failed. Please check your connection.", 6000, "error", "account");
+			});
 
-		if (!password) {
-			notify("Please insert a strong password!", 6000, "error", "account");
-			return false;
-		}
-		if (password.length < 10) {
-			notify("Your password is too short, it must contain at least 10 characters!", 6000, "error", "account");
-			return false;
-		}
-		if (!containsSpecialCharsPassword(password)) {
-			notify("Your password is weak, it must contain special characters as well!", 6000, "error", "account");
-			return false;
-		}
-
-		localStorage.setItem("passValue", password);
-		notify("Your password has been changed!", 6000, "success", "account");
-		notify(`Welcome back ${formatNamePlaceholder(storedName)}, here at the Filspresso!`, 6000, "success", "account");
-		localStorage.setItem("account_log", "true");
-		localStorage.setItem("forgotValue", "false");
-		setLoginPassword("");
-		setLoginEmail(email);
-		router.push("/");
 		return true;
 	}, [loginEmail, loginPassword, router, notify]);
 
@@ -168,18 +192,14 @@ export default function AccountPageContent() {
 	const handleForgot = useCallback(
 		(event: MouseEvent<HTMLAnchorElement>) => {
 			event.preventDefault();
-			if (typeof window !== "undefined") {
-				localStorage.setItem("forgotValue", "true");
-			}
 			notify(
-				"We're sorry that you forgot your password, you'll need to enter your e-mail address and the new password in the Log In form.",
+				"Password reset is not yet implemented. Please create a new account or contact support.",
 				6000,
 				"info",
 				"account"
 			);
-			attemptLogin();
 		},
-		[attemptLogin, notify]
+		[notify]
 	);
 
 	return (
@@ -248,7 +268,7 @@ export default function AccountPageContent() {
 														<i className="input-icon uil uil-lock-alt" aria-hidden="true" />
 													</div>
 													<button type="submit" className="btn mt-4">
-														submit
+														Log In
 													</button>
 													<p className="mb-0 mt-4 text-center">
 														<a href="#forgot" className="link" onClick={handleForgot}>
@@ -274,6 +294,19 @@ export default function AccountPageContent() {
 															required
 														/>
 														<i className="input-icon uil uil-user" aria-hidden="true" />
+													</div>
+													<div className="form-group mt-2">
+														<input
+															type="text"
+															name="username"
+															className="form-style"
+															placeholder="Choose a username"
+															value={signUsername}
+															onChange={(event) => setSignUsername(event.target.value)}
+															autoComplete="username"
+															required
+														/>
+														<i className="input-icon uil uil-at" aria-hidden="true" />
 													</div>
 													<div className="form-group mt-2">
 														<input
@@ -314,8 +347,23 @@ export default function AccountPageContent() {
 														</button>
 														<i className="input-icon uil uil-lock-alt" aria-hidden="true" />
 													</div>
+													<div style={{ marginTop: 16, marginBottom: 8 }}>
+														<AccountIconGenerator
+															username={signUsername || signName}
+															onChange={(d) => setSignIconDataUrl(d)}
+														/>
+													</div>
+													<div
+														style={{
+															width: "80%",
+															height: "1px",
+															background:
+																"linear-gradient(90deg, transparent, rgba(255, 185, 115, 0.3), transparent)",
+															margin: "20px auto 0",
+														}}
+													/>
 													<button type="submit" className="btn mt-4">
-														submit
+														Create Account
 													</button>
 												</div>
 											</div>

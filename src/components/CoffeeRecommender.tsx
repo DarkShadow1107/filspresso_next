@@ -14,16 +14,25 @@ import {
 	extractMoleculeQuery,
 	getMoleculeCard,
 } from "@/lib/moleculeSearch";
+import KafelotStats from "./kafelot/KafelotStats";
+import KafelotUsage from "./kafelot/KafelotUsage";
 
 // Memoize product flattening for performance
 const allProducts = coffeeCollections.flatMap((c) => c.groups.flatMap((g) => g.products));
 const GEMMA_MAX_TOKENS = 768;
 
 type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[] };
-type ChatHistory = { id: string; timestamp: number; messages: Message[]; preview: string };
+type ChatHistory = {
+	id: string;
+	timestamp: number;
+	messages: Message[];
+	preview: string;
+	model: "tanka" | "villanelle" | "ode";
+	category: "coffee" | "chemistry" | "general";
+};
 
 const STORAGE_KEY = "coffee-recommender-history";
-const MAX_HISTORY = 10;
+const MAX_HISTORY = 50; // Increased history limit
 
 function loadChatHistory(): ChatHistory[] {
 	if (typeof window === "undefined") return [];
@@ -35,19 +44,25 @@ function loadChatHistory(): ChatHistory[] {
 	}
 }
 
-function saveChatHistory(history: ChatHistory[]) {
+async function saveChatHistory(history: ChatHistory[]) {
 	if (typeof window === "undefined") return;
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
-	} catch {
-		// ignore storage errors
+		// Save to server JSON file
+		await fetch("/api/chat/save", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ history }),
+		});
+	} catch (e) {
+		console.error("Failed to save chat history", e);
 	}
 }
 
 export default function CoffeeRecommender() {
 	const [mounted, setMounted] = useState(false);
 	const [open, setOpen] = useState(false);
-	const [step, setStep] = useState<"greeting" | "prefs" | "results" | "chat" | "history">("greeting");
+	const [step, setStep] = useState<"greeting" | "prefs" | "results" | "chat" | "history" | "stats">("greeting");
 	const [selected, setSelected] = useState<string[]>([]);
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<CoffeeProduct[]>([]);
@@ -91,6 +106,28 @@ export default function CoffeeRecommender() {
 		allProducts.forEach((p) => p.notes?.forEach((n) => set.add(n)));
 		return Array.from(set).sort();
 	}, []);
+
+	const stats = useMemo(() => {
+		const categoryCounts = { coffee: 0, chemistry: 0, general: 0 };
+		const modelCounts = { tanka: 0, villanelle: 0, ode: 0 };
+		const total = chatHistory.length;
+
+		chatHistory.forEach((chat) => {
+			if (chat.category) categoryCounts[chat.category]++;
+			else categoryCounts.general++;
+
+			if (chat.model) modelCounts[chat.model]++;
+			else modelCounts.tanka++;
+		});
+
+		const modelPercentages = {
+			tanka: total ? Math.round((modelCounts.tanka / total) * 100) : 0,
+			villanelle: total ? Math.round((modelCounts.villanelle / total) * 100) : 0,
+			ode: total ? Math.round((modelCounts.ode / total) * 100) : 0,
+		};
+
+		return { categoryCounts, modelCounts, modelPercentages, total };
+	}, [chatHistory]);
 
 	const initializeGemma = useCallback(async () => {
 		if (gemmaInstanceRef.current) {
@@ -168,7 +205,20 @@ export default function CoffeeRecommender() {
 			}
 			// Load chat history only if logged in
 			if (localStorage.getItem("user_logged_in") === "true") {
-				setChatHistory(loadChatHistory());
+				// Try to load from server first
+				fetch("/api/chat/save")
+					.then((res) => res.json())
+					.then((data) => {
+						if (data.history && Array.isArray(data.history)) {
+							setChatHistory(data.history);
+							localStorage.setItem(STORAGE_KEY, JSON.stringify(data.history));
+						} else {
+							setChatHistory(loadChatHistory());
+						}
+					})
+					.catch(() => {
+						setChatHistory(loadChatHistory());
+					});
 			}
 		}
 	}, []);
@@ -391,17 +441,24 @@ export default function CoffeeRecommender() {
 	const saveCurrentChat = useCallback(() => {
 		if (!isLoggedIn || chatMessages.length === 0) return;
 		const preview = chatMessages[0]?.content.slice(0, 50) || "New conversation";
+
+		let category: "coffee" | "chemistry" | "general" = "general";
+		if (chemistryMode) category = "chemistry";
+		else if (chatMode === "coffee") category = "coffee";
+
 		const chat: ChatHistory = {
 			id: currentChatId || `chat-${Date.now()}`,
 			timestamp: Date.now(),
 			messages: chatMessages,
 			preview,
+			model: selectedModel,
+			category: category,
 		};
 		const updated = [chat, ...chatHistory.filter((c) => c.id !== chat.id)];
 		setChatHistory(updated);
 		saveChatHistory(updated);
 		setCurrentChatId(chat.id);
-	}, [isLoggedIn, chatMessages, currentChatId, chatHistory]);
+	}, [isLoggedIn, chatMessages, currentChatId, chatHistory, selectedModel, chemistryMode, chatMode]);
 
 	// Auto-save chat when messages change (debounced, only if logged in)
 	useEffect(() => {
@@ -867,6 +924,7 @@ export default function CoffeeRecommender() {
 							{isLoggedIn && chatHistory.length > 0 && (
 								<button onClick={() => setStep("history")}>📜 Chat history</button>
 							)}
+							{isLoggedIn && <button onClick={() => setStep("stats")}>📊 Stats</button>}
 						</div>
 
 						{/* Demo login/logout for testing */}
@@ -1675,6 +1733,17 @@ export default function CoffeeRecommender() {
 								))}
 							</div>
 						)}
+						<div className="recommender-cta">
+							<button onClick={() => setStep("greeting")}>Back</button>
+						</div>
+					</div>
+				)}
+
+				{step === "stats" && (
+					<div className="recommender-stats">
+						<h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>Your Kafelot Stats 📊</h3>
+						<KafelotStats stats={stats} />
+						<KafelotUsage stats={stats} />
 						<div className="recommender-cta">
 							<button onClick={() => setStep("greeting")}>Back</button>
 						</div>

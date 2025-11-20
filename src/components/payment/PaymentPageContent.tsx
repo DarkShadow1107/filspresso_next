@@ -170,6 +170,19 @@ export default function PaymentPageContent() {
 	const [ccLength, setCcLength] = useState<number | undefined>(undefined);
 	const [expiry, setExpiry] = useState("");
 	const [cvv, setCvv] = useState("");
+	const [savedCards, setSavedCards] = useState<any[]>([]);
+	const [shouldSaveCard, setShouldSaveCard] = useState(false);
+
+	useEffect(() => {
+		fetch("/api/user/cards")
+			.then((res) => res.json())
+			.then((data) => {
+				if (Array.isArray(data)) {
+					setSavedCards(data);
+				}
+			})
+			.catch((err) => console.error("Failed to load cards", err));
+	}, []);
 
 	const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -203,6 +216,26 @@ export default function PaymentPageContent() {
 		setCcNum(formatted);
 		return formatted;
 	}, []);
+
+	const handleSelectCard = useCallback(
+		async (cardId: string) => {
+			if (!cardId) return;
+			try {
+				const res = await fetch(`/api/user/cards?id=${cardId}&showFull=true`);
+				const data = await res.json();
+				if (data.cardNumber) {
+					formatCreditCard(data.cardNumber);
+					setExpiry(data.expiry);
+					setCvv(data.cvv);
+					notify("Card details loaded!", 3000, "success", "payment");
+				}
+			} catch (e) {
+				console.error(e);
+				notify("Failed to load card details.", 3000, "error", "payment");
+			}
+		},
+		[formatCreditCard, notify]
+	);
 
 	const handleCardInput = useCallback(
 		(event: FormEvent<HTMLInputElement>) => {
@@ -324,7 +357,13 @@ export default function PaymentPageContent() {
 
 		const cvvFull = localStorage.getItem("cvv_full");
 
-		if (localStorage.getItem("account_log") === "true") {
+		// Check both keys for backward compatibility
+		const isLoggedIn =
+			localStorage.getItem("user_logged_in") === "true" ||
+			localStorage.getItem("account_log") === "true" ||
+			localStorage.getItem("login_status") === "1";
+
+		if (isLoggedIn) {
 			if (cType === "Unknown") {
 				notify("You need to enter a valid form of payment! For example a Visa card.", 5000, "error", "payment");
 			} else if (cardDigits.length !== 16 && cardDigits.length !== 15 && cType !== "American Express") {
@@ -343,12 +382,32 @@ export default function PaymentPageContent() {
 				);
 			} else {
 				localStorage.setItem("currentSum", "0");
-				localStorage.setItem("account_log", "false");
+				// Do NOT clear login state here, user wants to stay logged in
+				// localStorage.setItem("account_log", "false");
 
 				// successful payment: clear allow_payment, notify for 4s, reset bag and redirect
 				try {
 					window.sessionStorage.removeItem("allow_payment_ts");
 				} catch {}
+
+				if (shouldSaveCard) {
+					try {
+						await fetch("/api/user/cards", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								cardNumber: cardDigits,
+								expiry,
+								cvv,
+								cardType: cType,
+								cardHolder: localStorage.getItem("nameValue") || "Valued Customer",
+							}),
+						});
+						notify("Card saved securely!", 3000, "success", "payment");
+					} catch (e) {
+						console.error("Failed to save card", e);
+					}
+				}
 
 				notify(
 					`Your ${cType} card will be charged ${paymentTotal} RON, and the package will be delivered as soon as possible!`,
@@ -356,6 +415,31 @@ export default function PaymentPageContent() {
 					"success",
 					"payment"
 				);
+
+				// Save order to backend
+				try {
+					const accountJson = localStorage.getItem("account");
+					const account = accountJson ? JSON.parse(accountJson) : null;
+					const username = account?.username;
+
+					const itemsRaw = localStorage.getItem("myItems");
+					const items = itemsRaw ? JSON.parse(itemsRaw) : [];
+
+					if (username && items.length > 0) {
+						await fetch("/api/order", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								username,
+								items,
+								total: paymentTotal,
+								paymentMethod: cType || "Card",
+							}),
+						});
+					}
+				} catch (e) {
+					console.error("Failed to save order", e);
+				}
 
 				await sendPaymentConfirmationEmail();
 
@@ -410,6 +494,23 @@ export default function PaymentPageContent() {
 				</Link>
 			</div>
 			<div className="payment-card">
+				{savedCards.length > 0 && (
+					<div className="saved-cards-selector" style={{ marginBottom: "1.5rem" }}>
+						<label className="payment-field__title" style={{ display: "block", marginBottom: "0.5rem" }}>
+							Use a saved card
+						</label>
+						<select className="payment-input" onChange={(e) => handleSelectCard(e.target.value)} defaultValue="">
+							<option value="" disabled>
+								Select a card...
+							</option>
+							{savedCards.map((card) => (
+								<option key={card.id} value={card.id}>
+									{card.cardType} ending in {card.last4} (Exp: {card.expiry})
+								</option>
+							))}
+						</select>
+					</div>
+				)}
 				<form className="payment-form" autoComplete="off" onSubmit={handleSubmit}>
 					<div className="payment-grid">
 						<label htmlFor="cc" className="payment-field payment-span-3">
@@ -487,6 +588,21 @@ export default function PaymentPageContent() {
 								/>
 							</div>
 						</label>
+						<div
+							className="payment-span-3"
+							style={{ marginTop: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}
+						>
+							<input
+								type="checkbox"
+								id="saveCard"
+								checked={shouldSaveCard}
+								onChange={(e) => setShouldSaveCard(e.target.checked)}
+								style={{ width: "auto", margin: 0 }}
+							/>
+							<label htmlFor="saveCard" style={{ cursor: "pointer", fontSize: "0.9rem", color: "#555" }}>
+								Save this card for future purchases
+							</label>
+						</div>
 					</div>
 				</form>
 				<button type="button" onClick={handlePayment} id="pay" className="payment-pay-button">
@@ -517,7 +633,7 @@ export default function PaymentPageContent() {
 					</svg>
 					<svg width="148" height="24" viewBox="0 0 148 24" xmlns="http://www.w3.org/2000/svg">
 						<path fill="#77c1d2" d="M30.46.49l8.7,8.67-8.7,8.66-8.7-8.66Z" />
-						<path fill="#2d3441" d="M8.7.49l18,18H9.34L0,9.16Z" />
+						<path fill="#2d3441" d="M8.7.49l18 18H9.34L0 9.16Z" />
 						<text style={{ fontSize: "1.15rem", fontWeight: 800 }} x="48" y="16" textAnchor="start">
 							Alpine.js
 						</text>

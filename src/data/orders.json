@@ -1,0 +1,60 @@
+[
+  {
+    "id": "c58fd1b6-ba28-4759-8d0c-a9d25f1835f5",
+    "username": "shit",
+    "items": [
+      {
+        "id": "-pices-d-lices-de-saison",
+        "name": "Épices délices de saison - 47,50 RON",
+        "price": 47.5,
+        "qty": 9
+      },
+      {
+        "id": "forfait-inissia-black-caf-aeroccino3-porte-capsule",
+        "name": "Forfait Inissia Black, café & Aeroccino 3 & porte capsule - 877,80 RON",
+        "price": 877.8,
+        "qty": 1
+      },
+      {
+        "id": "pack-essenza-mini-d30-rouge-caf-porte-capsule",
+        "name": "Forfait Essenza Mini D30 Rouge, café & porte capsule - 631,05 RON",
+        "price": 631.05,
+        "qty": 1
+      },
+      {
+        "id": "pack-essenza-mini-c30-blanc-caf-porte-capsule",
+        "name": "Forfait Essenza Mini C30 Blanc, café & porte capsule - 841,40 RON",
+        "price": 841.4,
+        "qty": 1
+      },
+      {
+        "id": "pack-vertuo-pop-spicy-red-caf-porte-capsule-et-aeroccino",
+        "name": "Forfait Vertuo Pop Spicy Red, café, porte-capsule et Aeroccino - 1041,75 RON",
+        "price": 1041.75,
+        "qty": 1
+      },
+      {
+        "id": "machine-espresso-vertuo-lattissima-blanc",
+        "name": "Machine à espresso Vertuo Lattissima Blanc - 1990,00 RON",
+        "price": 1990,
+        "qty": 1
+      },
+      {
+        "id": "machine-espresso-lattissima-one-evolution-noir",
+        "name": "Machine à espresso Lattissima One Evolution Noir - 1390,00 RON",
+        "price": 1390,
+        "qty": 1
+      },
+      {
+        "id": "machine-espresso-gran-lattissima-noir-l-gant",
+        "name": "Machine à espresso Gran Lattissima noir élégant - 1512,00 RON",
+        "price": 1512,
+        "qty": 1
+      }
+    ],
+    "total": 8711.5,
+    "date": 1763594415054,
+    "status": "Paid",
+    "paymentMethod": "Visa"
+  }
+]

@@ -20,13 +20,55 @@ This document is a comprehensive guide to the Filspresso Next project (Next.js f
 
 ## Project overview
 
-Filspresso Next is a modern migration of the original Filspresso site into a Next.js (App Router + TypeScript) frontend that integrates with a Python AI service and optional IoT-enabled coffee machines. The system supports three tiers of AI-backed assistants for coffee recommendations:
+> **⚠️ SECURITY WARNING: EDUCATIONAL USE ONLY**
+> This project currently uses **plain text storage** for all user data (passwords, credit cards, orders) and has **no encryption**. It is designed for demonstration purposes only. DO NOT use real credentials or payment information.
+
+Filspresso Next is a modern migration of the original Filspresso site into a Next.js (App Router + TypeScript) frontend that integrates with a Python AI service and optional IoT-enabled coffee machines.
+
+**Recent Updates & Architecture Changes:**
+
+-   **JSON-based Storage**: Replaced database dependencies with local JSON files for user data.
+    -   `src/data/accounts.json`: User credentials (plain text).
+    -   `src/data/user_cards.json`: User payment methods (plain text).
+    -   `src/data/orders.json`: Complete order history.
+-   **Simplified Backend**: Removed `bcrypt` and complex auth flows in favor of direct file manipulation for transparency and ease of testing.
+-   **New API Endpoints**: Added Next.js Route Handlers for managing Cards (`/api/user/cards`) and Orders (`/api/order`).
+
+The system supports three tiers of AI-backed assistants for coffee recommendations:
 
 -   **Tanka (~30M parameters)** — lightweight, conversational assistant for quick recommendations and support
 -   **Villanelle (~60M parameters)** — balanced model for technical explanations and troubleshooting
 -   **Ode (~90M parameters)** — research-grade model for deep technical, sensory, and sustainability insights
 
 The app can produce personalized brewing recipes which can optionally be delivered to a connected coffee machine (ESP32 or similar) that executes the recipe.
+
+## Feature Breakdown
+
+### 🧠 Kafelot AI System
+
+The core intelligence of Filspresso, powered by the "Kafelot" engine.
+
+-   **Multi-Model Support**: Seamlessly switches between Tanka, Villanelle, and Ode based on query complexity.
+-   **Context-Aware Chat**: Remembers conversation history for natural dialogue.
+-   **RAG (Retrieval-Augmented Generation)**: Accesses a vector database of coffee knowledge to answer specific questions.
+-   **Chemistry Mode**: Visualizes coffee molecules and explains chemical processes (caffeine, lipids, sugars).
+-   **IoT Command Generation**: Translates natural language requests ("Make me a strong espresso") into machine-executable JSON commands.
+
+### 👤 Account & Order Management
+
+A fully functional (demonstration) e-commerce user system.
+
+-   **User Profiles**: Create and manage accounts with persistent data.
+-   **Wallet System**: Add, view, and remove credit cards (stored in `user_cards.json`).
+-   **Order History**: Track past purchases with detailed receipts (stored in `orders.json`).
+-   **Shopping Bag**: Persistent cart state with local storage synchronization.
+-   **Subscription Management**: Manage recurring coffee deliveries.
+
+### 🔌 IoT Integration
+
+-   **Device Polling**: ESP32 devices poll the server for new brewing tasks.
+-   **Real-time Status**: Updates brew status (Heating -> Brewing -> Done) in real-time.
+-   **Remote Control**: Trigger brews directly from the web interface.
 
 ### End-to-End User Journey
 
@@ -124,7 +166,7 @@ Complete User Journey: Browse → AI Recommendation → Purchase → Automated B
                   ┌──────────────v──────────────┐
                   │ Payment                     │
                   │ • Enter card details        │
-                  │ • Secure processing         │
+                  │ • Process Payment           │
                   │ • Order confirmation        │
                   └──────────────┬──────────────┘
                                  │
@@ -133,6 +175,12 @@ Complete User Journey: Browse → AI Recommendation → Purchase → Automated B
                   │ • Order ID: #12345          │
                   │ • Email receipt             │
                   │ • Track delivery            │
+                  └──────────────┬──────────────┘
+                                 │
+                  ┌──────────────v──────────────┐
+                  │ Brew Coffee (Optional)      │
+                  │ • Send recipe to machine    │
+                  │ • Trigger brew remotely     │
                   └──────────────┬──────────────┘
                                  │
   ┌─────────────────────────────────────────────────────────────────────┐
@@ -229,10 +277,10 @@ Timeline Summary:
 ## High-level architecture
 
 ```
-                    ┌──────────────────────────────────────────────────┐
-                    │         Filspresso Next System                   │
-                    │       AI-Powered Coffee E-Commerce + IoT         │
-                    └────────────────────┬─────────────────────────────┘
+              ┌──────────────────────────────────────────────────┐
+              │               Filspresso Next System             │
+              │         AI-Powered Coffee E-Commerce + IoT       │
+              └──────────────────────────┬───────────────────────┘
                                          |
                     ┌────────────────────┴───────────────────┐
                     |                                        |
@@ -251,13 +299,13 @@ Timeline Summary:
                                      |
                     ┌────────────────┼────────────────┐
                     |                |                |
-            ┌───────v─────┐  ┌──────v──────┐  ┌─────v──────┐
-            │ Page        │  │ Cart State  │  │  Product   │
-            │ Components  │  │ Management  │  │  Catalog   │
-            │ (React)     │  │ (Context)   │  │  (JSON)    │
-            └─────────────┘  └─────────────┘  └────────────┘
-                    |
-                    └────────────────┬────────────────
+            ┌───────v─────┐   ┌──────v──────┐   ┌─────v──────┐
+            │ Page        │   │ Cart State  │   │  Product   │
+            │ Components  │   │ Management  │   │  Catalog   │
+            │ (React)     │   │ (Context)   │   │  (JSON)    │
+            └───────┬─────┘   └─────────────┘   └──────┬─────┘
+                    |                                  |
+                    └────────────────┬─────────────────┘
                                      |
                             ┌────────v────────┐
                             │  Flask Backend  │
@@ -267,23 +315,24 @@ Timeline Summary:
                                      |
                     ┌────────────────┼────────────────┐
                     |                |                |
-            ┌───────v─────┐  ┌──────v──────┐  ┌─────v──────┐
-            │ AI Models   │  │  IoT API    │  │  Inference │
-            │ (PyTorch)   │  │  Endpoints  │  │   Engine   │
-            │             │  │             │  │            │
-            │ • Tanka     │  │ • Create    │  │ • Generate │
-            │ • Villanelle│  │ • Check     │  │ • Chat     │
-            │ • Ode       │  │ • Update    │  │ • Classify │
-            └─────┬───────┘  └──────┬──────┘  └────────────┘
-                  |                 |
-                  |         ┌───────v───────┐
-                  |         │  Commands DB  │
-                  |         │ SQLite/MariaDB│
-                  |         └───────┬───────┘
-                  |                 |
-          ┌───────v─────────────────v────────┐
+            ┌───────v─────┐   ┌──────v──────┐   ┌─────v──────┐
+            │ AI Models   │   │  IoT API    │   │  Inference │
+            │ (PyTorch)   │   │  Endpoints  │   │   Engine   │
+            │             │   │             │   │            │
+            │ • Tanka     │   │ • Create    │   │ • Generate │
+            │ • Villanelle│   │ • Check     │   │ • Chat     │
+            │ • Ode       │   │ • Update    │   │ • Classify │
+            └─────┬───────┘   └──────┬──────┘   └────────────┘
+                  |                  |
+                  |          ┌───────v───────┐
+                  |          │  Commands DB  │
+                  |          │ SQLite/MariaDB│
+                  |          └───────┬───────┘
+                  |                  |
+          ┌───────v──────────────────v───────┐
           |       Data Storage Layer         |
           ├──────────────────────────────────┤
+          │ • User Data (JSON)               │
           │ • Training corpora (.txt)        │
           │ • Model checkpoints (.pt)        │
           │ • Capsule volumes (JSON)         │
@@ -292,15 +341,15 @@ Timeline Summary:
                         |
             ┌───────────┴───────────┐
             |                       |
-    ┌───────v──────┐        ┌──────v───────┐
-    │ ESP32        │        │ Coffee       │
-    │ Accessory    │───────→│ Machine      │
-    │ (Wi-Fi)      │        │ (Krups       │
-    │              │        │  Essenza)    │
-    │ • Poll API   │        │              │
-    │ • Execute    │        │ • Brew       │
-    │ • Update     │        │ • Heat       │
-    └──────┬───────┘        └──────────────┘
+    ┌───────v──────┐         ┌──────v───────┐
+    │ ESP32        │         │ Coffee       │
+    │ Accessory    │────────→│ Machine      │
+    │ (Wi-Fi)      │         │ (Krups       │
+    │              │         │  Essenza)    │
+    │ • Poll API   │         │              │
+    │ • Execute    │         │ • Brew       │
+    │ • Update     │         │ • Heat       │
+    └──────┬───────┘         └──────────────┘
            |
     ┌──────v───────┐
     │ Actuators &  │
@@ -340,7 +389,13 @@ Timeline Summary:
 
 -   **Web Framework**: Flask 3.0.0 with Flask-CORS 4.0.0
 -   **AI/ML Framework**: PyTorch 2.1.0
--   **NLP/Transformers**: Transformers library 4.35.0 (Hugging Face)
+-   **LLM & Fine-Tuning**:
+    -   **Base Model**: TinyLlama-1.1B-Chat-v1.0
+    -   **Fine-Tuning**: PEFT (LoRA), bitsandbytes (4-bit quantization)
+    -   **Library**: Hugging Face Transformers 4.35+
+-   **RAG (Retrieval-Augmented Generation)**:
+    -   **Vector Store**: FAISS (Facebook AI Similarity Search)
+    -   **Embeddings**: Sentence-Transformers (`all-MiniLM-L6-v2`)
 -   **Data Processing**:
     -   NumPy 1.24.3 (numerical computing)
     -   Pandas 2.1.0 (data manipulation)
@@ -366,8 +421,10 @@ Timeline Summary:
 
 ### Database & Storage
 
--   **Development**: SQLite 3 (embedded, zero-config)
--   **Production (recommended)**: MariaDB 10.x or PostgreSQL 14+ with connection pooling
+-   **User Data Engine**: Custom JSON-based File Storage System (NoSQL/No-DB)
+    -   Direct file I/O for `accounts.json`, `user_cards.json`, `orders.json`
+    -   Zero-dependency, portable, and transparent (for educational visibility)
+-   **IoT Commands**: SQLite 3 (embedded) or MariaDB (optional)
 -   **Training Data**: Plain text files (.txt format, UTF-8 encoded)
 -   **Model Checkpoints**: PyTorch `.pt` files with state dictionaries
 -   **Configuration Data**: JSON files (capsule volumes, recipe schemas)
@@ -391,9 +448,16 @@ filspresso_next/
 ├── src/                              # Next.js application source
 │   ├── app/                          # App Router pages and API routes
 │   │   ├── api/                      # Next.js API routes
+│   │   │   ├── chat/                # AI Chat endpoints
+│   │   │   ├── chemistry/           # Chemistry molecule endpoints
+│   │   │   ├── model/               # AI Model management
 │   │   │   ├── order/               # Order processing endpoints
 │   │   │   ├── pages/               # Dynamic page data endpoints
-│   │   │   └── subscribe/           # Subscription management
+│   │   │   ├── python-chat/         # Python AI bridge
+│   │   │   ├── python-health/       # Python service health check
+│   │   │   ├── subscribe/           # Subscription management
+│   │   │   └── user/                # User data endpoints
+│   │   │       └── cards/           # Card management
 │   │   ├── data/                    # Client-side page content data
 │   │   ├── payment/                 # Payment page route
 │   │   ├── globals.css              # Global styles (legacy CSS preserved)
@@ -409,15 +473,16 @@ filspresso_next/
 │   │   ├── payment/                 # Payment flow components
 │   │   ├── shopping-bag/            # Cart/bag components
 │   │   ├── subscription/            # Subscription management components
-│   │   ├── shopping-bag/            # Cart/bag components
-│   │   ├── subscription/            # Subscription management components
 │   │   ├── Cart.tsx                 # Global cart component
 │   │   ├── LayoutChrome.tsx         # App chrome/layout wrapper
 │   │   ├── Navbar.tsx               # Navigation bar
 │   │   ├── NotificationsProvider.tsx # Toast/notification system
 │   │   ├── PaymentForm.tsx          # Payment form component
 │   │   └── SubscriptionForm.tsx     # Subscription form component
-│   ├── data/                         # Static data and generated JSON
+│   ├── data/                         # Data storage (JSON)
+│   │   ├── accounts.json            # User accounts (plain text)
+│   │   ├── user_cards.json          # User cards (plain text)
+│   │   ├── orders.json              # Order history
 │   │   ├── coffee.generated.json    # Coffee product catalog
 │   │   ├── coffee.ts                # Coffee data types
 │   │   ├── machines.generated.json  # Machine product catalog
@@ -440,53 +505,42 @@ filspresso_next/
 ├── public/                           # Static assets
 │   ├── images/                       # Product images, backgrounds, logos
 │   │   ├── Capsules/                # Capsule product images
-│   │   │   ├── Original/
-│   │   │   └── Vertuo/
 │   │   ├── Machines/                # Machine product images
-│   │   │   ├── Original/
-│   │   │   └── Vertuo/
 │   │   └── svg/                     # Coffee size/type icons
-│   └── deprecated/                   # Legacy static site (archived)
 ├── python_ai/                        # Python AI & IoT backend
-│   ├── models.py                     # Enhanced transformer models (Tanka, Villanelle, Ode)
-│   ├── tokenizer.py                  # Simple tokenizer implementation
-│   ├── trainer.py                    # Training loop and utilities
-│   ├── train.py                      # Training script
-│   ├── train_advanced.py             # Advanced training with hyperparameter tuning
-│   ├── inference.py                  # Inference engine for generation
-│   ├── app.py                        # Flask microservice (AI + IoT endpoints)
-│   ├── iot_db.py                     # IoT command DB helper (SQLite/MariaDB)
-│   ├── iot_db_sqlalchemy.py          # SQLAlchemy wrapper for DB (optional)
-│   ├── test_iot_db_sqlalchemy.py     # Integration test for SQLAlchemy DB
-│   ├── test_model.py                 # Model unit tests
-│   ├── requirements.txt              # Python dependencies
-│   ├── .env.example                  # Environment variables template
-│   ├── docker-compose.maria.yml      # Docker Compose for local MariaDB
-│   ├── data/                         # Reference data
-│   │   └── capsule_volumes.json     # Canonical capsule volume specs
-│   ├── training_data/                # Training corpora (plain text)
-│   │   ├── tanka-training.txt       # Tanka model training data (~17 KB)
-│   │   ├── villanelle-training.txt  # Villanelle training data (~27 KB)
-│   │   └── ode-training.txt         # Ode training data (~43 KB)
+│   ├── data/                         # Reference data (PDFs, JSONs)
+│   │   ├── capsule_volumes.json     # Canonical capsule volume specs
+│   │   ├── chembl-molecules.json    # Chemistry database
+│   │   └── coffee_*.pdf             # Multilingual coffee knowledge
 │   ├── migrations/                   # Database migrations
 │   │   └── create_commands_table.sql
-│   ├── models_checkpoint/            # Saved model checkpoints (.pt files)
-│   ├── checkpoints/                  # Training checkpoints
-│   └── documentation/                # Additional docs
-│       ├── ARCHITECTURE_DIAGRAMS.md
-│       ├── IMPLEMENTATION_SUMMARY.md
-│       ├── QUICK_REFERENCE.md
-│       ├── SPECIALIZED_AI_DOC.md
-│       ├── START_HERE.md
-│       ├── TRAINING_GUIDE.md
-│       └── VISUAL_SUMMARY.md
+│   ├── models/                       # TinyLlama Models
+│   │   ├── tinyllama_chem/          # Fine-tuned Chemistry Model
+│   │   └── tinyllama_v2/            # Fine-tuned Coffee Model
+│   ├── rag_data/                     # RAG Vector Database
+│   │   ├── coffee_chunks.json       # Knowledge chunks
+│   │   ├── coffee_embeddings.npy    # Vector embeddings
+│   │   └── coffee_faiss.index       # FAISS index
+│   ├── scripts/                      # Training & Data Scripts
+│   │   ├── build_coffee_rag.py      # RAG builder
+│   │   ├── finetune_tinyllama_*.py  # Fine-tuning scripts
+│   │   └── generate_molecule_*.py   # Data generation
+│   ├── training_data/                # Training corpora (JSONL)
+│   │   ├── coffee.jsonl             # Coffee instruction datasets
+│   │   └── molecules.jsonl          # Molecule datasets
+│   ├── app.py                        # Flask microservice (AI + IoT endpoints)
+│   ├── iot_db.py                     # IoT command DB helper
+│   ├── rag_retriever.py              # RAG Logic
+│   ├── tinyllama_models.py           # Model Manager
+│   ├── requirements.txt              # Python dependencies
+│   └── docker-compose.maria.yml      # Docker Compose for local MariaDB
 ├── scripts/                          # Utility scripts
+│   ├── esp32/                       # ESP32 device integration
+│   │   └── esp32_coffeemachine.ino  # Arduino sketch for accessory
 │   ├── addCoffeeNotes.mjs           # Script to add coffee notes
 │   ├── extractCoffeeData.mjs        # Extract coffee data from sources
 │   ├── extractMachinesData.mjs      # Extract machine data from sources
-│   └── esp32/                       # ESP32 device integration
-│       ├── esp32_coffeemachine.ino  # Arduino sketch for accessory
-│       └── README.md                # ESP32 integration guide
+│   └── start_all.bat                # Startup script
 ├── package.json                      # Node.js dependencies and scripts
 ├── tsconfig.json                     # TypeScript compiler configuration
 ├── next.config.ts                    # Next.js configuration
@@ -497,8 +551,7 @@ filspresso_next/
 ├── global.d.ts                       # Global TypeScript declarations
 ├── next-env.d.ts                     # Next.js TypeScript declarations
 ├── LICENSE                           # MIT License
-├── README.md                         # Quick start README
-└── README_FULL.md                    # This comprehensive documentation
+└── README.md                         # This comprehensive documentation
 ```
 
 ### Key Directory Purposes
@@ -513,6 +566,65 @@ filspresso_next/
 -   **`public/images/`**: Product photography and visual assets organized by product type
 
 ---
+
+## Data Storage (New Architecture)
+
+The project now uses a file-based storage system located in `src/data/` for all user-related data. This replaces the need for a SQL database for these features.
+
+| File                      | Description                                        | Format          |
+| ------------------------- | -------------------------------------------------- | --------------- |
+| `accounts.json`           | Stores user accounts and passwords.                | Plain Text JSON |
+| `user_cards.json`         | Stores user credit card details mapped by User ID. | Plain Text JSON |
+| `orders.json`             | Stores complete order history mapped by User ID.   | Plain Text JSON |
+| `coffee.generated.json`   | Coffee product catalog (Static).                   | JSON            |
+| `machines.generated.json` | Coffee machine catalog (Static).                   | JSON            |
+
+### Data Structure Examples
+
+**`accounts.json`**
+
+```json
+[
+	{
+		"id": "user_123",
+		"email": "user@example.com",
+		"password": "plain_text_password",
+		"name": "John Doe"
+	}
+]
+```
+
+**`user_cards.json`**
+
+```json
+{
+	"user_123": [
+		{
+			"id": "card_456",
+			"number": "1234567890123456",
+			"expiry": "12/25",
+			"cvv": "123",
+			"holder": "John Doe"
+		}
+	]
+}
+```
+
+**`orders.json`**
+
+```json
+{
+  "user_123": [
+    {
+      "id": "order_789",
+      "date": "2025-11-20T10:00:00.000Z",
+      "items": [...],
+      "total": 45.50,
+      "status": "confirmed"
+    }
+  ]
+}
+```
 
 ## AI: models, data and training
 
@@ -747,7 +859,7 @@ Enhanced Transformer Architecture (AdvancedAIModel)
 
 #### Multi-Query Attention (MQA) Detail
 
-````
+```
 Multi-Query Attention with Rotary Position Embeddings
 ══════════════════════════════════════════════════════════════
 
@@ -834,7 +946,9 @@ Multi-Query Attention with Rotary Position Embeddings
                v
         Attention Output
         [batch, seq_len, hidden_size]
-```### Training data
+```
+
+### Training data
 
 Training data lives as plaintext files under `python_ai/training_data/`:
 
@@ -853,7 +967,7 @@ Quick run (example):
 ```powershell
 # from repo root
 python python_ai/train.py --model tanka --data python_ai/training_data --epochs 3
-````
+```
 
 Notes:
 
@@ -872,7 +986,7 @@ Training Pipeline (train.py / trainer.py)
                               │
                 ┌─────────────┴─────────────┐
                 │                           │
-        ┌───────v──────┐            ┌───────v──────┐
+        ┌───────v──────┐            ┌───────v───────┐
         │ Training     │            │ Validation   │
         │ Text Files   │            │ Text Files   │
         │ (.txt)       │            │ (.txt)       │
@@ -1281,372 +1395,7 @@ IoT Command Lifecycle
        │                      │                   │ └───────────────────────────────┘    │
 ```
 
-#### Workflow Steps1. Device polls every N seconds: `GET /api/commands/check/<MACHINE_ID>`
-
-2. Server returns one pending command (FIFO)
-3. Device POSTs update status to `/api/commands/update/<command_id>` with status = `brewing`
-4. Device executes recipe (heater, pre-infusion, pump) and POSTs `complete` on success
-
-#### Production improvements
-
--   Use MQTT (or cloud IoT) for efficient message delivery and device management.
--   Use long-polling or server push to reduce network overhead and latency.
--   Require mutual authentication on devices (JWT, API key per device, or mTLS).
-
----
-
-## ESP32 accessory, capsule handler, and Krups Essenza Mini XN110 integration notes
-
-Included: `scripts/esp32/esp32_coffeemachine.ino` — a practical starting point showing HTTP polling and parsing command payloads. Important: the example sketch is for a companion accessory that controls external actuators (motors/servos/solenoids) which operate outside the coffee machine itself. The accessory does NOT modify the internal high-voltage circuits, heater, or pump of the Krups Essenza.
-
-### Design intent — external actuator accessory (recommended)
-
-To integrate safely with closed-source consumer machines like the Krups Essenza Mini XN110, build an external accessory that manipulates the machine's external controls and capsule feed path rather than the internal electronics. Typical accessory responsibilities:
-
--   Insert a capsule into the machine's capsule slot (mechanical picker / conveyor / guide)
--   Close or latch the machine head (mechanical arm that simulates the capsule insertion movement)
--   Depress the start button (small servo or linear actuator) to trigger the machine's built-in pump and heater
--   Provide sensor feedback (limit switches, hall sensors, IR beam or optical sensors) to confirm successful insertion, closure, and brew completion
-
-Advantages of the external approach:
-
--   Safety: no mains/high-voltage modifications, preserves warranties and reduces fire/electric hazards
--   Simplicity: reuses the machine's internal heater and pump, avoiding complex and risky replacement of pressurized water plumbing
--   Maintainability: accessory can be removed or updated independently of the machine
-
-### About the Krups Essenza Mini XN110
-
-The Krups Essenza Mini XN110 is a compact Nespresso OriginalLine machine. Key integration constraints:
-
--   Do NOT open or modify sealed, mains-connected electronics unless you have appropriate certifications and safety engineering processes.
--   Use non-invasive mechanical interfaces (servos, solenoids, linear actuators, or an adapter plate) to operate buttons and move capsules.
-
-Recommended accessory components
-
-```
-ESP32 Coffee Accessory Hardware Architecture
-═══════════════════════════════════════════════════════════════════════
-
-┌────────────────────────────────────────────────────────────────────┐
-│                         POWER SUPPLY                               │
-├────────────────────────────────────────────────────────────────────┤
-│                                                                    │
-│                    ┌────────────────────┐                          │
-│     AC Mains ─────→│  12V/24V Power     │                          │
-│     (230V)         │  Supply (5A)       │                          │
-│                    └────────┬───────────┘                          │
-│                             │                                      │
-│                   ┌─────────┴─────────┐                            │
-│                   │                   │                            │
-│           ┌───────v──────┐    ┌──────v───────┐                     │
-│           │ 5V Regulator │    │ 12V Rail     │                     │
-│           │ (Buck Conv.) │    │ (for motors) │                     │
-│           │ 3A           │    │              │                     │
-│           └───────┬──────┘    └──────┬───────┘                     │
-│                   │                   │                            │
-└───────────────────┼───────────────────┼────────────────────────────┘
-                    │                   │
-┌───────────────────┼───────────────────┼────────────────────────────┐
-│                   │  CONTROL LAYER    │                            │
-├───────────────────┼───────────────────┼────────────────────────────┤
-│                   │                   │                            │
-│           ┌───────v──────┐            │                            │
-│           │   ESP32      │            │                            │
-│           │   DevKit     │            │                            │
-│           │              │            │                            │
-│           │ • GPIO x30   │            │                            │
-│           │ • Wi-Fi      │            │                            │
-│           │ • ADC        │            │                            │
-│           │ • I2C/SPI    │            │                            │
-│           └───────┬──────┘            │                            │
-│                   │                   │                            │
-│           ┌───────v──────────┐        │                            │
-│           │  Optoisolator    │        │                            │
-│           │  (4N35 × 4)      │        │                            │
-│           │  Safety Barrier  │        │                            │
-│           └───────┬──────────┘        │                            │
-│                   │                   │                            │
-│        ┌──────────┴──────────┐        │                            │
-│        │                     │        │                            │
-│  ┌─────v──────┐      ┌───────v─────┐  │                            │
-│  │ Motor      │      │ Motor       │  │                            │
-│  │ Driver 1   │      │ Driver 2    │  │                            │
-│  │ (Stepper)  │      │ (Servo/     │  │                            │
-│  │ A4988/DRV  │      │  Linear)    │  │                            │
-│  └─────┬──────┘      └───────┬─────┘  │                            │
-│        │                     │        │                            │
-└────────┼─────────────────────┼────────┼────────────────────────────┘
-         │                     │        │
-         │                     │    ┌───v────────────────┐
-         │                     │    │ 12V Rail (motors)  │
-         │                     │    └────────────────────┘
-         │                     │
-┌────────┼─────────────────────┼────────────────────────────────────┐
-│        │    ACTUATORS        │                                    │
-├────────┼─────────────────────┼────────────────────────────────────┤
-│        │                     │                                    │
-│  ┌─────v──────┐      ┌───────v─────┐                              │
-│  │ Stepper 1  │      │ Servo Motor │                              │
-│  │ NEMA 17    │      │ (MG996R)    │                              │
-│  │ (Capsule   │      │ (Button     │                              │
-│  │  picker)   │      │  pressing)  │                              │
-│  └─────┬──────┘      └───────┬─────┘                              │
-│        │                     │                                    │
-│  ┌─────v──────┐      ┌───────v─────┐                              │
-│  │ Stepper 2  │      │ Linear      │                              │
-│  │ NEMA 17    │      │ Actuator    │                              │
-│  │ (Capsule   │      │ (Head       │                              │
-│  │  insertion)│      │  closing)   │                              │
-│  └─────┬──────┘      └───────┬─────┘                              │
-│        │                     │                                    │
-└────────┼─────────────────────┼────────────────────────────────────┘
-         │                     │
-┌────────┼─────────────────────┼────────────────────────────────────┐
-│        │    SENSORS          │                                    │
-├────────┼─────────────────────┼────────────────────────────────────┤
-│        │                     │                                    │
-│  ┌─────v──────┐      ┌───────v─────┐                              │
-│  │ Limit SW 1 │      │ Limit SW 2  │                              │
-│  │ (Home pos) │      │ (Insert pos)│                              │
-│  └─────┬──────┘      └───────┬─────┘                              │
-│        │                     │                                    │
-│  ┌─────v──────┐      ┌───────v─────┐                              │
-│  │ Optical    │      │ Current     │                              │
-│  │ Sensor     │      │ Sensor      │                              │
-│  │ (Capsule   │      │ (ACS712)    │                              │
-│  │  detect)   │      │ (Brew state)│                              │
-│  └─────┬──────┘      └───────┬─────┘                              │
-│        │                     │                                    │
-│        └──────────┬──────────┘                                    │
-│                   │                                               │
-│              (Connect to ESP32 GPIO + GND)                        │
-│                                                                   │
-└────────────────────┼──────────────────────────────────────────────┘
-                     │
-┌────────────────────┼──────────────────────────────────────────────┐
-│                    │    COFFEE MACHINE (Krups Essenza Mini)       │
-├────────────────────┼──────────────────────────────────────────────┤
-│                    │                                              │
-│  ┌─────────────────v──────┐         ┌──────────────────┐          │
-│  │  Capsule Slot          │         │  Start Button    │          │
-│  │  (Insert point)        │←────────│  (Press target)  │          │
-│  └─────────────────┬──────┘         └────────┬─────────┘          │
-│                    │                         │                    │
-│                    v                         v                    │
-│         ┌──────────────────┐    Servo actuation                   │
-│         │  Brew Chamber    │                                      │
-│         │  (Head close)    │←──── Linear actuator                 │
-│         └──────────────────┘                                      │
-│                    │                                              │
-│                    v                                              │
-│         ┌──────────────────┐                                      │
-│         │  Internal Heater │  (NOT modified)                      │
-│         │  Internal Pump   │  (NOT modified)                      │
-│         │  (Original)      │  (Machine handles brewing)           │
-│         └──────────────────┘                                      │
-│                                                                   │
-└───────────────────────────────────────────────────────────────────┘
-
-
-Wiring Summary:
-═══════════════════════════════════════════════════════════════════════
-
-ESP32 GPIO Assignments:
-  GPIO 16, 17     ─→ Stepper 1 (step, dir)
-  GPIO 18, 19     ─→ Stepper 2 (step, dir)
-  GPIO 21         ─→ Servo PWM signal
-  GPIO 22         ─→ Linear actuator control
-  GPIO 23, 25     ─→ Limit switches (pull-up)
-  GPIO 26         ─→ Optical sensor (digital in)
-  GPIO 34 (ADC)   ─→ Current sensor (analog in)
-
-Power Distribution:
-  230V AC ─→ PSU (12V 5A)
-  12V ─→ Motor drivers, linear actuator
-  5V  ─→ ESP32, sensors, servo logic
-
-Safety Notes:
-  • Use optoisolators for all motor control signals
-  • Fuse all power rails (5V: 3A, 12V: 5A)
-  • Add thermal cutoffs near heat sources
-  • Emergency stop button in series with 12V rail
-  • Never modify machine's internal high-voltage circuits
-```
-
-#### Component Details- **Microcontroller**: ESP32 (Wi-Fi, enough IO for multiple servos and sensors)
-
--   **Motor drivers**: small H-bridges or stepper drivers depending on the actuator type
--   **Servos/actuators**: hobby servos for button pressing and small linear actuators or steppers with gearbox for capsule insertion and head-latching
--   **Sensors**: limit switches for travel endpoints, hall sensors for rotational position, load cell or current sensor for actuation feedback
--   **Power**: separate low-voltage supply for motors (12V or 24V) and regulated 5V for ESP32/logic. Use optoisolated drivers and proper fusing.
-
-Safety and compliance notes
-
--   Use optoisolation between the low-voltage control logic and motor driver high-current circuits.
--   Include a mechanical emergency stop and fuses appropriate to motor current draw.
--   Add thermal cutouts to any part that may approach heat sources.
--   Validate all mechanical motion to avoid pinching users or coffee machine parts.
-
-### Functional sequence (accessory-driven brew)
-
-```
-ESP32 Accessory State Machine
-═══════════════════════════════════════════════════════════════════════
-
-                         ┌──────────────┐
-                         │              │
-                         │     IDLE     │
-                         │              │
-                         └──────┬───────┘
-                                │
-                                │ Timer expires (5-10s)
-                                │
-                         ┌──────v───────┐
-                         │  POLLING     │
-                         │  SERVER      │
-                         └──────┬───────┘
-                                │
-                    ┌───────────┴───────────┐
-                    │                       │
-              No commands             Command received
-              (204 No Content)        (200 OK)
-                    │                       │
-                    v                       v
-              ┌──────────┐          ┌──────────────┐
-              │   IDLE   │          │  VALIDATING  │
-              │          │          │  COMMAND     │
-              └──────────┘          └──────┬───────┘
-                                           │
-                              ┌────────────┴────────────┐
-                              │                         │
-                     execute_allowed=false     execute_allowed=true
-                              │                         │
-                              v                         v
-                        ┌──────────┐            ┌──────────────┐
-                        │   IDLE   │            │  PRE-FLIGHT  │
-                        │          │            │   CHECKS     │
-                        └──────────┘            └──────┬───────┘
-                                                       │
-                                          ┌────────────┴────────────┐
-                                          │                         │
-                                    Sensor error              All sensors OK
-                                          │                         │
-                                          v                         v
-                                    ┌──────────┐            ┌──────────────┐
-                                    │  ERROR   │            │   PICKING    │
-                                    │  REPORT  │            │   CAPSULE    │
-                                    └────┬─────┘            └──────┬───────┘
-                                         │                         │
-                                         │              ┌──────────┴─────────┐
-                                         │              │                    │
-                                         │         Pick success         Pick failed
-                                         │              │             (retry exhausted)
-                                         │              v                    │
-                                         │      ┌──────────────┐             │
-                                         │      │  INSERTING   │             │
-                                         │      │   CAPSULE    │             │
-                                         │      └──────┬───────┘             │
-                                         │             │                     │
-                                         │    ┌────────┴────────┐            │
-                                         │    │                 │            │
-                                         │  Success        Insert failed     │
-                                         │    │                 │            │
-                                         │    v                 v            │
-                                         │ ┌──────────────┐  ┌──────────┐    │
-                                         │ │   CLOSING    │  │  ERROR   │    │
-                                         │ │     HEAD     │  │  REPORT  │    │
-                                         │ └──────┬───────┘  └────┬─────┘    │
-                                         │        │               │          │
-                                         │  ┌─────┴─────┐         │          │
-                                         │  │           │         │          │
-                                         │Success   Close failed  │          │
-                                         │  │           │         │          │
-                                         │  v           v         │          │
-                                         │ ┌──────────────┐  ┌────v─────┐    │
-                                         │ │  PRESSING    │  │  ERROR   │    │
-                                         │ │   BUTTON     │  │  REPORT  │    │
-                                         │ └──────┬───────┘  └────┬─────┘    │
-                                         │        │               │          │
-                                         │  ┌─────┴─────┐         │          │
-                                         │  │           │         │          │
-                                         │Success   Button fail   │          │
-                                         │  │           │         │          │
-                                         │  v           v         │          │
-                                         │ ┌──────────────┐  ┌────v─────┐    │
-                                         │ │   BREWING    │  │  ERROR   │    │
-                                         │ │ POST status  │  │  REPORT  │    │
-                                         │ └──────┬───────┘  └────┬─────┘    │
-                                         │        │               │          │
-                                         │        v               │          │
-                                         │ ┌──────────────┐       │          │
-                                         │ │  MONITORING  │       │          │
-                                         │ │     BREW     │       │          │
-                                         │ │ (optical/    │       │          │
-                                         │ │  current)    │       │          │
-                                         │ └──────┬───────┘       │          │
-                                         │        │               │          │
-                                         │  Brew complete         │          │
-                                         │        │               │          │
-                                         │        v               │          │
-                                         │ ┌──────────────┐       │          │
-                                         │ │   COMPLETE   │       │          │
-                                         │ │ POST status  │       │          │
-                                         │ └──────┬───────┘       │          │
-                                         │        │               │          │
-                                         └────────┴───────────────┴──────────┘
-                                                  │
-                                                  v
-                                            ┌──────────┐
-                                            │   IDLE   │
-                                            │          │
-                                            └──────────┘
-                                                  │
-                                                  │ Wait for next
-                                                  │ polling cycle
-                                                  └───→ ○ (repeat)
-
-
-State Transitions Summary:
-═══════════════════════════════════════════════════════════════════════
-
-  IDLE ──────────→ POLLING ──────────→ VALIDATING
-                      │                     │
-                      │                     ├──→ PRE-FLIGHT
-                      │                     │         │
-                      └──→ IDLE             │         ├──→ PICKING
-                          (no cmd)          │         │       │
-                                            │         │       ├──→ INSERTING
-                                            │         │       │        │
-                                            │         │       │        ├──→ CLOSING
-                                            │         │       │        │       │
-                                            │         │       │        │       ├──→ PRESSING
-                                            │         │       │        │       │       │
-                                            │         │       │        │       │       ├──→ BREWING
-                                            │         │       │        │       │       │       │
-                                            │         │       │        │       │       │       ├──→ MONITORING
-                                            │         │       │        │       │       │       │       │
-                                            │         │       │        │       │       │       │       ├──→ COMPLETE
-                                            │         │       │        │       │       │       │       │       │
-                                            │         │       │        │       │       │       │       │       └──→ IDLE
-                                            │         │       │        │       │       │       │       │
-                                            │         │       │        │       │       │       │       └──→ ERROR ──→ IDLE
-                                            │         │       │        │       │       │       │
-                                            │         │       │        │       │       │       └──→ ERROR ──→ IDLE
-                                            │         │       │        │       │       │
-                                            │         │       │        │       │       └──→ ERROR ──→ IDLE
-                                            │         │       │        │       │
-                                            │         │       │        │       └──→ ERROR ──→ IDLE
-                                            │         │       │        │
-                                            │         │       │        └──→ ERROR ──→ IDLE
-                                            │         │       │
-                                            │         │       └──→ ERROR ──→ IDLE
-                                            │         │
-                                            │         └──→ ERROR ──→ IDLE
-                                            │
-                                            └──→ IDLE (not allowed)
-```
-
-#### Sequence Steps1. Accessory polls `GET /api/commands/check/<MACHINE_ID>` and receives a pending command.
+#### Sequence Steps1. Device polls `GET /api/commands/check/<MACHINE_ID>` and receives a pending command.
 
 2. Accessory verifies `execute_allowed` and validates recipe fields.
 3. Accessory performs pre-flight checks (sensors, capsule magazine non-empty, latched state clear).
@@ -1794,7 +1543,7 @@ src/components/
 
 #### Frontend Data Flow
 
-````
+```
 Frontend Data Flow (Next.js + React)
 ═══════════════════════════════════════════════════════════════════════
 
@@ -1906,7 +1655,7 @@ Frontend Data Flow (Next.js + React)
               │
               v
       Update cart badge counter
-```---
+```
 
 ## Development: running locally and testing
 
@@ -1917,7 +1666,7 @@ This section consolidates practical development steps for the frontend, Python A
 ```powershell
 npm install
 npm run dev
-````
+```
 
 2. Python AI & IoT server (venv recommended)
 
@@ -1953,20 +1702,22 @@ curl -X POST http://localhost:5000/api/commands/create -H "Content-Type: applica
 
 ---
 
-## Security & production recommendations
+## Security Status
 
--   Use HTTPS, authenticated endpoints, token-based or mutual TLS device auth.
--   Migrate `iot_db.py` to a production RDBMS, apply migrations, and index `machine_id` + `status` for quick polling queries.
--   Add RBAC and audit logging for commands and model changes.
--   Rate-limit device polling and consider heartbeat monitoring.
--   Provide OTA firmware updates for devices.
+**Current Implementation (Educational/Demo Mode):**
 
-Additional device-specific security guidance (from ESP32 README and IoT quick ref):
+-   **Passwords**: Stored in plain text in `src/data/accounts.json`.
+-   **Credit Cards**: Stored in plain text in `src/data/user_cards.json`.
+-   **Orders**: Stored in `src/data/orders.json`.
+-   **Encryption**: None. `bcrypt` has been removed.
+-   **Authentication**: Simple plain-text matching.
 
--   Verify TLS certificates on device; do not skip certificate validation in production.
--   Store device secrets securely (use encrypted partition or secure element where possible). Avoid storing plaintext API keys in code.
--   Consider per-device API keys or JWTs with short expiry and refresh mechanism.
--   For larger fleets, use a cloud IoT platform (AWS IoT, Azure IoT Hub, Google Cloud IoT) for device identity, provisioning, and OTA.
+**Production Recommendations (If deploying for real use):**
+
+-   Re-enable hashing (e.g., bcrypt) for passwords.
+-   Use a secure database (Postgres/MariaDB) instead of JSON files.
+-   Tokenize credit card information (PCI-DSS compliance) - never store raw card numbers.
+-   Implement proper JWT or Session-based auth.
 
 ---
 
@@ -1991,7 +1742,7 @@ See `python_ai/data/capsule_volumes.json` — includes Original and Vertuo canon
 -   `python_ai/app.py` — AI & IoT endpoints
 -   `python_ai/iot_db.py` — command DB helper (SQLite)
 -   `python_ai/training_data/` — training corpora (tanka, villanelle, ode)
--   `scripts/esp32/` — device example and docs
+-   `scripts/esp32/` — device code and device README
 
 ### Additional README sources merged
 
@@ -2223,7 +1974,7 @@ Production Deployment Architecture
                                 │
                 ┌───────────────┴───────────────┐
                 │                               │
-     ┌──────────v──────────┐         ┌─────────v──────────┐
+     ┌───────────v──────────┐         ┌─────────v──────────┐
      │  Next.js App Tier   │         │  Flask AI Tier     │
      ├─────────────────────┤         ├────────────────────┤
      │ ┌─────────────────┐ │         │ ┌────────────────┐ │
@@ -2324,7 +2075,7 @@ docker compose -f docker-compose.maria.yml up -d
 
 # wait a few seconds, then run the migration (use root password from .env)
 docker compose -f docker-compose.maria.yml exec mariadb sh -c "mysql -uroot -p\"$env:MYSQL_ROOT_PASSWORD\" < /migrations/create_commands_table.sql"
-````
+```
 
 Environment variables to set (use `.env` or export in your shell):
 
@@ -2394,14 +2145,6 @@ The ESP32 sketch can be updated to include an `Authorization: Bearer <token>` he
 -   Monitor the `commands` table growth; purge or archive old `complete`/`failed` rows older than the retention window.
 -   Add observability: Prometheus metrics for polling rate, command throughput, and error rates. Export DB connection pool stats.
 
-## Next steps I can take for you
-
--   Create `python_ai/docker-compose.maria.yml` and `python_ai/migrations/create_commands_table.sql` files (I can add them now) and offer a `.env` template.
--   Update `python_ai/app.py` to optionally use the SQLAlchemy wrapper based on an env flag (e.g., `IOT_USE_SQLALCHEMY=1`).
--   Add a small `pytest` test suite that runs the SQLite path during CI and conditionally runs MariaDB tests if `IOT_DATABASE_URL` is present.
-
-Which of these would you like me to do next? I can create the docker and migration files now and wire the Flask service to optionally use the SQLAlchemy wrapper.
-
 ---
 
 ## Merged notes from other READMEs and expanded guidance
@@ -2445,7 +2188,7 @@ Keep the Python components isolated in a virtual environment and install `python
 
 1. A user selects an AI-generated recipe in the Next.js UI and asks to send it to a machine.
 2. The frontend calls the Flask endpoint `POST /api/commands/create` to store the command for the machine.
-3. The device polls `GET /api/commands/check/<machine_id>` and obtains a pending command.
+3. The device polls `GET /api/commands/check/<MACHINE_ID>` and obtains a pending command.
 4. The device updates its status with `POST /api/commands/update/<command_id>` periodically.
 
 This flow is intentionally simple to keep devices dumb and the server authoritative. For larger fleets, migrate to MQTT or long-polling with a persistent connection.
@@ -2469,3 +2212,4 @@ This flow is intentionally simple to keep devices dumb and the server authoritat
 -   Added integration test `python_ai/test_iot_db_sqlalchemy.py` that validates the SQLAlchemy SQLite fallback path
 
 ---
+````

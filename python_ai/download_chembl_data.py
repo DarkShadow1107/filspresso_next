@@ -270,7 +270,7 @@ def search_roasting_compounds() -> List[Dict]:
         "2,4-Dimethyloxazole", "2,5-Dimethyloxazole", "4,5-Dimethyloxazole",
         "2-Ethyloxazole", "4-Ethyloxazole", "5-Ethyloxazole",
         "Thiazole", "2-Methylthiazole", "4-Methylthiazole", "5-Methylthiazole",
-        2,4-Dimethylthiazole", "2,5-Dimethylthiazole", "4,5-Dimethylthiazole",
+        "2,4-Dimethylthiazole", "2,5-Dimethylthiazole", "4,5-Dimethylthiazole",
         "2-Ethylthiazole", "4-Ethylthiazole", "5-Ethylthiazole",
         "2-Acetylthiazole", "2-Isobutylthiazole", "Benzothiazole",
         "2-Methylbenzothiazole", "2-Ethylbenzothiazole",

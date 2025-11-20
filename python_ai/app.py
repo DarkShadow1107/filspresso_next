@@ -11,13 +11,15 @@ from pathlib import Path
 import logging
 from typing import Dict, List
 import json
+import urllib.parse
+# bcrypt removed as requested
 
-# Gemma model manager
+# TinyLlama model manager
 try:
-    from gemma_models import GemmaModelManager
-    GEMMA_AVAILABLE = True
+    from tinyllama_models import TinyLlamaModelManager
+    TINYLLAMA_AVAILABLE = True
 except ImportError:
-    GEMMA_AVAILABLE = False
+    TINYLLAMA_AVAILABLE = False
 
 # RAG retriever
 try:
@@ -45,6 +47,13 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# Add static route for icons stored in public/images/icons/
+repo_root = Path(__file__).parent.parent
+public_path = repo_root / 'public'
+if public_path.exists():
+    app.static_folder = str(public_path)
+    app.static_url_path = ''
+
 # Import IoT DB helper (in-memory stub for coffee machine commands)
 try:
     from iot_db import init_db, create_command, get_pending_command, update_command_status
@@ -67,7 +76,7 @@ VOCAB_SIZE = int(os.getenv('PYTHON_AI_VOCAB_SIZE', '30000'))
 models = {}
 tokenizer = None
 inference_engines = {}
-gemma_manager = None  # New: Gemma model manager
+tinyllama_manager = None  # New: TinyLlama model manager
 rag_retriever = None  # New: RAG retriever for coffee knowledge
 device_info = {
     "device": DEVICE,
@@ -77,30 +86,30 @@ device_info = {
 
 logger.info(f"Using device: {DEVICE}")
 logger.info(f"Torch version: {torch.__version__}")
-if not GEMMA_AVAILABLE:
-    logger.warning("⚠️ Gemma models not available - install: pip install transformers peft bitsandbytes")
+if not TINYLLAMA_AVAILABLE:
+    logger.warning("⚠️ TinyLlama models not available - install: pip install transformers peft bitsandbytes")
 if not RAG_AVAILABLE:
     logger.info("RAG retriever module not found (expected initially)")
 
 
 def init_models():
-    """Initialize Gemma coffee models"""
-    global models, tokenizer, inference_engines, gemma_manager, rag_retriever
+    """Initialize TinyLlama coffee models"""
+    global models, tokenizer, inference_engines, tinyllama_manager, rag_retriever
     
     logger.info("Initializing coffee AI models...")
     
-    # Initialize Gemma models (preferred)
-    if GEMMA_AVAILABLE:
+    # Initialize TinyLlama models (preferred)
+    if TINYLLAMA_AVAILABLE:
         models_path = MODEL_DIR.parent / "models"
         models_path.mkdir(parents=True, exist_ok=True)
-        gemma_manager = GemmaModelManager(models_path)
+        tinyllama_manager = TinyLlamaModelManager(models_path)
         
-        if gemma_manager.is_ready():
-            logger.info("✅ Gemma models initialized")
+        if tinyllama_manager.is_ready():
+            logger.info("✅ TinyLlama models initialized")
         else:
-            logger.warning("⚠️ No Gemma models loaded - run training scripts")
+            logger.warning("⚠️ No TinyLlama models loaded - run training scripts")
     else:
-        logger.error("❌ Gemma not available. Install dependencies:")
+        logger.error("❌ TinyLlama not available. Install dependencies:")
         logger.error("   pip install transformers peft bitsandbytes accelerate")
     
     # Initialize RAG retriever
@@ -229,8 +238,8 @@ def api_update_command(command_id: int):
 def health():
     """Health check endpoint"""
     models_status = {
-        'gemma_coffee': gemma_manager.coffee_model is not None if gemma_manager else False,
-        'gemma_chemistry': gemma_manager.chemistry_model is not None if gemma_manager else False,
+        'tinyllama_coffee': tinyllama_manager.coffee_model is not None if tinyllama_manager else False,
+        'tinyllama_chemistry': tinyllama_manager.chemistry_model is not None if tinyllama_manager else False,
         'rag_retriever': rag_retriever is not None,
     }
     
@@ -242,7 +251,7 @@ def health():
         'status': 'ok',
         'device': device_info,
         'models_loaded': models_status,
-        'gemma_available': GEMMA_AVAILABLE,
+        'tinyllama_available': TINYLLAMA_AVAILABLE,
         'rag_available': RAG_AVAILABLE,
     })
 
@@ -252,23 +261,23 @@ def get_models_info():
     """Get information about available models"""
     models_info = {}
     
-    # Add Gemma models
-    if gemma_manager:
-        if gemma_manager.coffee_model:
-            models_info['gemma_coffee'] = {
-                'name': 'Gemma Coffee',
-                'type': 'fine-tuned-gemma-2b',
+    # Add TinyLlama models
+    if tinyllama_manager:
+        if tinyllama_manager.coffee_model:
+            models_info['tinyllama_coffee'] = {
+                'name': 'TinyLlama Coffee',
+                'type': 'fine-tuned-tinyllama-1b',
                 'description': 'Coffee expertise with RAG knowledge base',
-                'parameters': '2B (LoRA fine-tuned)',
-                'device': gemma_manager.device,
+                'parameters': '1B (LoRA fine-tuned)',
+                'device': tinyllama_manager.device,
             }
-        if gemma_manager.chemistry_model:
-            models_info['gemma_chemistry'] = {
-                'name': 'Gemma Chemistry',
-                'type': 'fine-tuned-gemma-2b',
+        if tinyllama_manager.chemistry_model:
+            models_info['tinyllama_chemistry'] = {
+                'name': 'TinyLlama Chemistry',
+                'type': 'fine-tuned-tinyllama-1b',
                 'description': 'Molecular and chemistry analysis',
-                'parameters': '2B (LoRA fine-tuned)',
-                'device': gemma_manager.device,
+                'parameters': '1B (LoRA fine-tuned)',
+                'device': tinyllama_manager.device,
             }
     
     # Add RAG info
@@ -296,10 +305,10 @@ def get_models_info():
 
 @app.route('/api/generate', methods=['POST'])
 def generate():
-    """Generate text using Gemma models"""
+    """Generate text using TinyLlama models"""
     try:
         data = request.json
-        model_name = data.get('model', 'gemma_coffee').lower()
+        model_name = data.get('model', 'tinyllama_coffee').lower()
         prompt = data.get('prompt', '')
         max_length = data.get('max_length', 512)
         temperature = data.get('temperature', 0.7)
@@ -317,9 +326,9 @@ def generate():
                     'message': 'Please upgrade to Ultimate subscription to access molecular analysis features'
                 }), 403
         
-        # Use Gemma models
-        if gemma_manager and gemma_manager.is_ready():
-            generated_text = gemma_manager.generate(
+        # Use TinyLlama models
+        if tinyllama_manager and tinyllama_manager.is_ready():
+            generated_text = tinyllama_manager.generate(
                 prompt=prompt,
                 chemistry_mode=chemistry_mode,
                 max_length=max_length,
@@ -327,14 +336,14 @@ def generate():
             )
             
             return jsonify({
-                'model': 'gemma_chemistry' if chemistry_mode else 'gemma_coffee',
+                'model': 'tinyllama_chemistry' if chemistry_mode else 'tinyllama_coffee',
                 'prompt': prompt,
                 'generated': generated_text,
                 'full_text': prompt + ' ' + generated_text,
                 'chemistry_mode': chemistry_mode,
             })
         else:
-            return jsonify({'error': 'No models available. Please train Gemma models.'}), 500
+            return jsonify({'error': 'No models available. Please train TinyLlama models.'}), 500
     
     except Exception as e:
         logger.error(f"Error in generate: {e}")
@@ -377,7 +386,7 @@ IMPORTANT RESTRICTIONS:
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Chat endpoint - uses Gemma models"""
+    """Chat endpoint - uses TinyLlama models"""
     try:
         data = request.json
         model_name = data.get('model', 'villanelle').lower()
@@ -399,8 +408,8 @@ def chat():
                     'message': 'Please upgrade to Ultimate subscription to access molecular analysis features'
                 }), 403
         
-        # Use Gemma models if available
-        if gemma_manager and gemma_manager.is_ready():
+        # Use TinyLlama models if available
+        if tinyllama_manager and tinyllama_manager.is_ready():
             # Optionally augment with RAG context for coffee questions
             augmented_message = message
             if rag_retriever and not chemistry_mode:
@@ -413,8 +422,8 @@ def chat():
                 except Exception as e:
                     logger.warning(f"RAG retrieval failed: {e}")
             
-            # Generate response with Gemma
-            response = gemma_manager.generate(
+            # Generate response with TinyLlama
+            response = tinyllama_manager.generate(
                 prompt=augmented_message,
                 chemistry_mode=chemistry_mode,
                 max_length=max_length,
@@ -422,14 +431,14 @@ def chat():
             )
             
             return jsonify({
-                'model': 'gemma_chemistry' if chemistry_mode else 'gemma_coffee',
+                'model': 'tinyllama_chemistry' if chemistry_mode else 'tinyllama_coffee',
                 'user_message': message,
                 'assistant_response': response,
                 'chemistry_mode': chemistry_mode,
                 'rag_enhanced': rag_retriever is not None and not chemistry_mode,
             })
         else:
-            return jsonify({'error': 'No models available. Please train Gemma models or install dependencies.'}), 500
+            return jsonify({'error': 'No models available. Please train TinyLlama models or install dependencies.'}), 500
     
     except Exception as e:
         logger.error(f"Error in chat: {e}")
@@ -438,7 +447,7 @@ def chat():
 
 @app.route('/api/summarize', methods=['POST'])
 def summarize():
-    """Summarize text using Gemma"""
+    """Summarize text using TinyLlama"""
     try:
         data = request.json
         text = data.get('text', '')
@@ -447,9 +456,9 @@ def summarize():
         if not text:
             return jsonify({'error': 'Text is required'}), 400
         
-        if gemma_manager and gemma_manager.is_ready():
+        if tinyllama_manager and tinyllama_manager.is_ready():
             prompt = f"Summarize the following text concisely:\n\n{text}\n\nSummary:"
-            summary = gemma_manager.generate(
+            summary = tinyllama_manager.generate(
                 prompt=prompt,
                 chemistry_mode=False,
                 max_length=max_length,
@@ -457,7 +466,7 @@ def summarize():
             )
             
             return jsonify({
-                'model': 'gemma_coffee',
+                'model': 'tinyllama_coffee',
                 'original_length': len(text.split()),
                 'original': text[:500],
                 'summary': summary,
@@ -472,7 +481,7 @@ def summarize():
 
 @app.route('/api/classify', methods=['POST'])
 def classify():
-    """Classify text using Gemma"""
+    """Classify text using TinyLlama"""
     try:
         data = request.json
         text = data.get('text', '')
@@ -484,10 +493,10 @@ def classify():
         if not labels:
             return jsonify({'error': 'Labels are required'}), 400
         
-        if gemma_manager and gemma_manager.is_ready():
+        if tinyllama_manager and tinyllama_manager.is_ready():
             labels_str = ", ".join(labels)
             prompt = f"Classify the following text into one of these categories: {labels_str}\n\nText: {text}\n\nCategory:"
-            prediction = gemma_manager.generate(
+            prediction = tinyllama_manager.generate(
                 prompt=prompt,
                 chemistry_mode=False,
                 max_length=50,
@@ -495,7 +504,7 @@ def classify():
             )
             
             return jsonify({
-                'model': 'gemma_coffee',
+                'model': 'tinyllama_coffee',
                 'text': text[:500],
                 'predicted': prediction.strip(),
                 'labels': labels,
@@ -512,16 +521,16 @@ def classify():
 def train():
     """
     Training endpoint - redirects to fine-tuning scripts
-    For Gemma models, use the scripts:
-    - python scripts/finetune_gemma_chemistry.py
-    - python scripts/finetune_gemma_coffee.py
+    For TinyLlama models, use the scripts:
+    - python scripts/finetune_tinyllama_chemistry.py
+    - python scripts/finetune_tinyllama_coffee.py
     """
     return jsonify({
         'error': 'Training moved to dedicated scripts',
-        'message': 'Please use fine-tuning scripts for Gemma models',
+        'message': 'Please use fine-tuning scripts for TinyLlama models',
         'scripts': {
-            'chemistry': 'python scripts/finetune_gemma_chemistry.py',
-            'coffee': 'python scripts/finetune_gemma_coffee.py',
+            'chemistry': 'python scripts/finetune_tinyllama_chemistry.py',
+            'coffee': 'python scripts/finetune_tinyllama_coffee.py',
             'data_generation': 'python scripts/generate_molecule_training_data.py',
             'rag_build': 'python scripts/build_coffee_rag.py'
         }
@@ -558,6 +567,212 @@ def save_model():
         logger.error(f"Error in save_model: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/accounts/create', methods=['POST'])
+def create_account():
+    """Create account and save into src/data/accounts.json and save icon into public/images/icons/"""
+    try:
+        data = request.get_json() or {}
+        full_name = data.get('full_name')
+        username = data.get('username')
+        email = data.get('email')
+        password = data.get('password')
+        icon_data = data.get('icon')  # may be data URL
+
+        if not username or not email or not password:
+            return jsonify({'status': 'error', 'message': 'username, email and password required'}), 400
+
+        repo_root = Path(__file__).parent.parent
+        accounts_path = repo_root / 'src' / 'data' / 'accounts.json'
+        icons_dir = repo_root / 'public' / 'images' / 'icons'
+        icons_dir.mkdir(parents=True, exist_ok=True)
+
+        accounts = []
+        if accounts_path.exists():
+            try:
+                with open(accounts_path, 'r', encoding='utf-8') as f:
+                    accounts = json.load(f)
+            except Exception:
+                accounts = []
+
+        # avoid duplicate username
+        for a in accounts:
+            if a.get('username') == username:
+                return jsonify({'status': 'error', 'message': 'username exists'}), 409
+
+        # Store password in plain text as requested
+
+        icon_path_rel = None
+        if icon_data and isinstance(icon_data, str) and icon_data.startswith('data:image/svg'):
+            # parse after comma
+            try:
+                parts = icon_data.split(',')
+                encoded = parts[1] if len(parts) > 1 else parts[0]
+                decoded = urllib.parse.unquote(encoded)
+                icon_filename = f"{username}.svg"
+                icon_path = icons_dir / icon_filename
+                with open(icon_path, 'w', encoding='utf-8') as f:
+                    f.write(decoded)
+                icon_path_rel = f"/images/icons/{username}.svg"
+            except Exception as e:
+                logger.error(f"Failed to save icon: {e}")
+
+        account_entry = {
+            'full_name': full_name,
+            'username': username,
+            'email': email,
+            'password': password,  # Store plaintext password as requested
+            'icon': icon_path_rel,
+        }
+        accounts.append(account_entry)
+
+        with open(accounts_path, 'w', encoding='utf-8') as f:
+            json.dump(accounts, f, indent=2, ensure_ascii=False)
+
+        icon_data_url = icon_path_rel if icon_path_rel else None
+
+        return jsonify({'status': 'success', 'icon_path': icon_path_rel, 'icon_data_url': icon_data_url}), 200
+    except Exception as e:
+        logger.error(f"Error in create_account: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/accounts/login', methods=['POST'])
+def login_account():
+    """Login endpoint - validates username/password against hashed passwords"""
+    try:
+        data = request.get_json() or {}
+        username = data.get('username')
+        password = data.get('password')
+
+        if not username or not password:
+            return jsonify({'status': 'error', 'message': 'username and password required'}), 400
+
+        repo_root = Path(__file__).parent.parent
+        accounts_path = repo_root / 'src' / 'data' / 'accounts.json'
+
+        accounts = []
+        if accounts_path.exists():
+            try:
+                with open(accounts_path, 'r', encoding='utf-8') as f:
+                    accounts = json.load(f)
+            except Exception:
+                pass
+
+        # Find account by username
+        account = None
+        for a in accounts:
+            if a.get('username') == username:
+                account = a
+                break
+
+        if not account:
+            return jsonify({'status': 'error', 'message': 'invalid username or password'}), 401
+
+        # Check password
+        # Check for plaintext password
+        if account.get('password') == password:
+            account_data = {
+                'full_name': account.get('full_name'),
+                'username': account.get('username'),
+                'email': account.get('email'),
+                'icon': account.get('icon'),
+            }
+            return jsonify({'status': 'success', 'account': account_data}), 200
+
+        return jsonify({'status': 'error', 'message': 'invalid username or password'}), 401
+    except Exception as e:
+        logger.error(f"Error in login_account: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# Static route for serving user icons
+@app.route('/api/icons/<username>.svg')
+def get_user_icon(username):
+    """Serve user profile icons from public/images/icons/"""
+    try:
+        repo_root = Path(__file__).parent.parent
+        icon_path = repo_root / 'public' / 'images' / 'icons' / f'{username}.svg'
+        
+        if not icon_path.exists():
+            return jsonify({'error': 'icon not found'}), 404
+
+        with open(icon_path, 'r', encoding='utf-8') as f:
+            svg_content = f.read()
+
+        return svg_content, 200, {'Content-Type': 'image/svg+xml; charset=utf-8'}
+    except Exception as e:
+        logger.error(f"Error serving icon: {e}")
+        return jsonify({'error': 'failed to load icon'}), 500
+
+
+@app.route('/api/accounts/update', methods=['POST'])
+def update_account():
+    """Update account information including icon"""
+    try:
+        data = request.get_json() or {}
+        username = data.get('username')
+        full_name = data.get('full_name')
+        email = data.get('email')
+        icon_data = data.get('icon')  # may be data URL
+
+        if not username:
+            return jsonify({'status': 'error', 'message': 'username required'}), 400
+
+        repo_root = Path(__file__).parent.parent
+        accounts_path = repo_root / 'src' / 'data' / 'accounts.json'
+        icons_dir = repo_root / 'public' / 'images' / 'icons'
+        icons_dir.mkdir(parents=True, exist_ok=True)
+
+        accounts = []
+        if accounts_path.exists():
+            try:
+                with open(accounts_path, 'r', encoding='utf-8') as f:
+                    accounts = json.load(f)
+            except Exception:
+                accounts = []
+
+        # Find account by username
+        account_index = None
+        for i, a in enumerate(accounts):
+            if a.get('username') == username:
+                account_index = i
+                break
+
+        if account_index is None:
+            return jsonify({'status': 'error', 'message': 'account not found'}), 404
+
+        # Update account fields
+        if full_name:
+            accounts[account_index]['full_name'] = full_name
+        if email:
+            accounts[account_index]['email'] = email
+
+        # Handle icon update
+        icon_path_rel = accounts[account_index].get('icon')
+        if icon_data and isinstance(icon_data, str) and icon_data.startswith('data:image/svg'):
+            # parse after comma
+            try:
+                parts = icon_data.split(',')
+                encoded = parts[1] if len(parts) > 1 else parts[0]
+                decoded = urllib.parse.unquote(encoded)
+                icon_filename = f"{username}.svg"
+                icon_path = icons_dir / icon_filename
+                with open(icon_path, 'w', encoding='utf-8') as f:
+                    f.write(decoded)
+                icon_path_rel = f"/images/icons/{username}.svg"
+                accounts[account_index]['icon'] = icon_path_rel
+            except Exception as e:
+                logger.error(f"Failed to save icon: {e}")
+
+        # Save updated accounts
+        with open(accounts_path, 'w', encoding='utf-8') as f:
+            json.dump(accounts, f, indent=2, ensure_ascii=False)
+
+        return jsonify({'status': 'success', 'icon_path': icon_path_rel}), 200
+    except Exception as e:
+        logger.error(f"Error in update_account: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # =============================================================================
 # Chemistry Mode - Molecule Visualization Endpoints
