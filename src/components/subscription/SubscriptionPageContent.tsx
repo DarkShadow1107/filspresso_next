@@ -110,12 +110,9 @@ export default function SubscriptionPageContent() {
 
 	useEffect(() => {
 		if (typeof window === "undefined") return;
-		// Check both keys for backward compatibility
-		const isLoggedInState =
-			localStorage.getItem("user_logged_in") === "true" ||
-			localStorage.getItem("account_log") === "true" ||
-			localStorage.getItem("login_status") === "1";
-		setIsLoggedIn(isLoggedInState);
+		// Check sessionStorage for login state
+		const session = sessionStorage.getItem("account_session");
+		setIsLoggedIn(!!session);
 	}, []);
 
 	// Calculate savings percentage for yearly vs monthly

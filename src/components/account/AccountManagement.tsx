@@ -25,6 +25,21 @@ type ChatHistory = {
 
 type SubscriptionTier = "none" | "basic" | "plus" | "pro" | "max" | "ultimate";
 
+// Helper to get icon URL from stored value
+const getIconUrl = (icon: string | null) => {
+	if (!icon) return null;
+	// If it's already a full path, use it
+	if (icon.startsWith("/") || icon.startsWith("http")) {
+		// Convert old /api/icons/ paths
+		if (icon.startsWith("/api/icons/")) {
+			return icon.replace("/api/icons/", "/images/icons/");
+		}
+		return icon;
+	}
+	// Otherwise it's just a filename, construct the path
+	return `/images/icons/${icon}`;
+};
+
 export default function AccountManagement() {
 	const router = useRouter();
 	const { notify } = useNotifications();
@@ -47,20 +62,40 @@ export default function AccountManagement() {
 	const [savedCards, setSavedCards] = useState<any[]>([]);
 	const [orders, setOrders] = useState<any[]>([]);
 
-	// Load account from localStorage on mount
+	// Load account from sessionStorage on mount
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 		try {
-			const accountJson = localStorage.getItem("account");
+			const accountJson = sessionStorage.getItem("account_session");
 			if (accountJson) {
-				const accountData = JSON.parse(accountJson) as AccountData;
-				setAccount(accountData);
+				const accountData = JSON.parse(accountJson) as AccountData & { token?: string };
+				setAccount({
+					full_name: accountData.full_name,
+					username: accountData.username,
+					email: accountData.email,
+					icon: accountData.icon,
+				});
 				setEditFullName(accountData.full_name || "");
 				setEditEmail(accountData.email);
 			}
 
-			const sub = localStorage.getItem("user_subscription") as SubscriptionTier | null;
-			setSubscription(sub || "none");
+			// Fetch subscription from API
+			const session = sessionStorage.getItem("account_session");
+			if (session) {
+				const { token } = JSON.parse(session);
+				if (token) {
+					fetch("http://localhost:4000/api/auth/me", {
+						headers: { Authorization: `Bearer ${token}` },
+					})
+						.then((res) => res.json())
+						.then((data) => {
+							if (data.user?.subscription_name) {
+								setSubscription(data.user.subscription_name.toLowerCase() as SubscriptionTier);
+							}
+						})
+						.catch((err) => console.error("Failed to load subscription", err));
+				}
+			}
 		} catch (e) {
 			console.error("Failed to load account", e);
 		}
@@ -105,9 +140,7 @@ export default function AccountManagement() {
 
 	const handleSignOut = useCallback(() => {
 		if (typeof window === "undefined") return;
-		localStorage.removeItem("account");
-		localStorage.removeItem("user_logged_in");
-		localStorage.setItem("login_status", "0");
+		sessionStorage.removeItem("account_session");
 		notify("You have been signed out.", 6000, "success", "account");
 		window.location.reload(); // Reload to reset state in parent
 	}, [notify]);
@@ -129,16 +162,42 @@ export default function AccountManagement() {
 		}
 
 		try {
-			const updatedAccount: AccountData = {
-				...account,
-				full_name: fullName,
-				email,
-				icon: editIconDataUrl || account.icon,
-			};
-			localStorage.setItem("account", JSON.stringify(updatedAccount));
-			setAccount(updatedAccount);
-			setIsEditing(false);
-			notify("Profile updated successfully!", 6000, "success", "account");
+			const session = sessionStorage.getItem("account_session");
+			if (!session) {
+				notify("Please log in again.", 6000, "error", "account");
+				return;
+			}
+
+			const { token } = JSON.parse(session);
+			const res = await fetch("http://localhost:4000/api/accounts/update", {
+				method: "PUT",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					full_name: fullName,
+					email,
+					icon: editIconDataUrl || account.icon,
+				}),
+			});
+
+			if (res.ok) {
+				const updatedAccount: AccountData = {
+					...account,
+					full_name: fullName,
+					email,
+					icon: editIconDataUrl || account.icon,
+				};
+				// Update sessionStorage with new data
+				const currentSession = JSON.parse(sessionStorage.getItem("account_session") || "{}");
+				sessionStorage.setItem("account_session", JSON.stringify({ ...currentSession, ...updatedAccount }));
+				setAccount(updatedAccount);
+				setIsEditing(false);
+				notify("Profile updated successfully!", 6000, "success", "account");
+			} else {
+				notify("Failed to update profile.", 6000, "error", "account");
+			}
 		} catch (e) {
 			notify("Failed to update profile.", 6000, "error", "account");
 		}
@@ -183,7 +242,7 @@ export default function AccountManagement() {
 			<div className="account-header">
 				<div className="account-avatar">
 					{account.icon ? (
-						<img src={account.icon} alt="Profile" />
+						<img src={getIconUrl(account.icon) || account.icon} alt="Profile" />
 					) : (
 						<div className="avatar-placeholder">{account.username[0].toUpperCase()}</div>
 					)}

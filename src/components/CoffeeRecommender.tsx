@@ -19,7 +19,6 @@ import KafelotUsage from "./kafelot/KafelotUsage";
 
 // Memoize product flattening for performance
 const allProducts = coffeeCollections.flatMap((c) => c.groups.flatMap((g) => g.products));
-const GEMMA_MAX_TOKENS = 768;
 
 type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[] };
 type ChatHistory = {
@@ -35,20 +34,14 @@ const STORAGE_KEY = "coffee-recommender-history";
 const MAX_HISTORY = 50; // Increased history limit
 
 function loadChatHistory(): ChatHistory[] {
-	if (typeof window === "undefined") return [];
-	try {
-		const stored = localStorage.getItem(STORAGE_KEY);
-		return stored ? JSON.parse(stored) : [];
-	} catch {
-		return [];
-	}
+	// Chat history is now loaded from the server, not localStorage
+	return [];
 }
 
 async function saveChatHistory(history: ChatHistory[]) {
 	if (typeof window === "undefined") return;
 	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
-		// Save to server JSON file
+		// Save to server only
 		await fetch("/api/chat/save", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -93,11 +86,6 @@ export default function CoffeeRecommender() {
 	const [isLoggedIn, setIsLoggedIn] = useState(false); // User login state
 	const [userSubscription, setUserSubscription] = useState<"none" | "basic" | "plus" | "pro" | "max" | "ultimate">("none");
 	const [isTyping, setIsTyping] = useState(false);
-	const gemmaInstanceRef = useRef<any>(null);
-	const gemmaInitPromiseRef = useRef<Promise<void> | null>(null);
-	const [gemmaReady, setGemmaReady] = useState(false);
-	const [gemmaLoading, setGemmaLoading] = useState(false);
-	const [gemmaError, setGemmaError] = useState<string | null>(null);
 	const { addItem } = useCart();
 	const { notify } = useNotifications();
 
@@ -129,105 +117,63 @@ export default function CoffeeRecommender() {
 		return { categoryCounts, modelCounts, modelPercentages, total };
 	}, [chatHistory]);
 
-	const initializeGemma = useCallback(async () => {
-		if (gemmaInstanceRef.current) {
-			return gemmaInstanceRef.current;
-		}
-
-		if (!gemmaInitPromiseRef.current) {
-			setGemmaLoading(true);
-			setGemmaError(null);
-			gemmaInitPromiseRef.current = (async () => {
-				try {
-					const { FilesetResolver, LlmInference } = await import("@mediapipe/tasks-genai");
-					const fileset = await FilesetResolver.forGenAiTasks(
-						"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@0.10.25/wasm"
-					);
-
-					const instance = await LlmInference.createFromOptions(fileset, {
-						baseOptions: {
-							// Use the public folder (served as static assets by Next.js)
-							modelAssetPath: "/models/gemma3-1b-it-int4-web.task",
-						},
-						maxTokens: GEMMA_MAX_TOKENS,
-						topK: 40,
-						temperature: 0.8,
-					});
-					gemmaInstanceRef.current = instance;
-					setGemmaReady(true);
-				} catch (error) {
-					setGemmaError(error instanceof Error ? error.message : "Failed to load Gemma model");
-					throw error;
-				} finally {
-					setGemmaLoading(false);
-					gemmaInitPromiseRef.current = null;
-				}
-			})();
-		}
-
-		try {
-			await gemmaInitPromiseRef.current;
-		} catch (error) {
-			throw error;
-		}
-
-		return gemmaInstanceRef.current;
-	}, [gemmaInstanceRef, gemmaInitPromiseRef]);
-
 	// Fix hydration: only render portal after mount
 	useEffect(() => {
 		setMounted(true);
-		// Load user session and subscription from localStorage (simulated authentication)
+		// Load user session and subscription from sessionStorage
 		if (typeof window !== "undefined") {
 			try {
-				const storedIsLoggedIn = localStorage.getItem("user_logged_in") === "true";
-				const storedSubscription = localStorage.getItem("user_subscription") as
-					| "none"
-					| "basic"
-					| "plus"
-					| "pro"
-					| "max"
-					| "ultimate"
-					| null;
+				const session = sessionStorage.getItem("account_session");
+				const storedIsLoggedIn = !!session;
 				setIsLoggedIn(storedIsLoggedIn);
-				setUserSubscription(storedSubscription || "none");
 
-				// Auto-select model based on subscription
-				if (storedSubscription === "ultimate") {
-					setSelectedModel("ode");
-				} else if (storedSubscription === "max") {
-					setSelectedModel("villanelle");
-				} else {
-					setSelectedModel("tanka");
+				// Fetch subscription from API if logged in
+				if (session) {
+					const { token } = JSON.parse(session);
+					if (token) {
+						fetch("http://localhost:4000/api/auth/me", {
+							headers: { Authorization: `Bearer ${token}` },
+						})
+							.then((res) => res.json())
+							.then((data) => {
+								const sub = data.user?.subscription_name?.toLowerCase() || "none";
+								setUserSubscription(sub as "none" | "basic" | "plus" | "pro" | "max" | "ultimate");
+
+								// Auto-select model based on subscription
+								if (sub === "ultimate") {
+									setSelectedModel("ode");
+								} else if (sub === "max") {
+									setSelectedModel("villanelle");
+								} else {
+									setSelectedModel("tanka");
+								}
+							})
+							.catch(() => {
+								setUserSubscription("none");
+								setSelectedModel("tanka");
+							});
+					}
 				}
 			} catch {
 				// ignore errors
 			}
 			// Load chat history only if logged in
-			if (localStorage.getItem("user_logged_in") === "true") {
-				// Try to load from server first
+			const session = sessionStorage.getItem("account_session");
+			if (session) {
+				// Load from server
 				fetch("/api/chat/save")
 					.then((res) => res.json())
 					.then((data) => {
 						if (data.history && Array.isArray(data.history)) {
 							setChatHistory(data.history);
-							localStorage.setItem(STORAGE_KEY, JSON.stringify(data.history));
-						} else {
-							setChatHistory(loadChatHistory());
 						}
 					})
 					.catch(() => {
-						setChatHistory(loadChatHistory());
+						// ignore
 					});
 			}
 		}
 	}, []);
-
-	useEffect(() => {
-		if (selectedModel === "villanelle" || selectedModel === "ode") {
-			void initializeGemma().catch(() => undefined);
-		}
-	}, [selectedModel, initializeGemma]);
 
 	// Disable chemistry mode if user switches away from Tanka
 	useEffect(() => {
@@ -244,15 +190,6 @@ export default function CoffeeRecommender() {
 		}
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, []);
-
-	useEffect(() => {
-		return () => {
-			if (gemmaInstanceRef.current?.close) {
-				gemmaInstanceRef.current.close();
-			}
-			gemmaInstanceRef.current = null;
-		};
 	}, []);
 
 	// Check Python AI health up to three times per page load
@@ -740,76 +677,10 @@ export default function CoffeeRecommender() {
 		}
 
 		// When Tanka Model is ON: Let all queries go to the chat API
-		// Tanka will handle chemistry questions naturally through the Python endpoint
-
-		const useGemma = selectedModel === "villanelle" || selectedModel === "ode";
-
-		if (useGemma) {
-			try {
-				const llm = await initializeGemma();
-				if (!llm) {
-					throw new Error("Gemma model is not ready");
-				}
-				let aggregated = "";
-				setChatMessages((prev) => [...prev, { role: "assistant", content: "" }]);
-				await llm.generateResponse(prompt, (partial: string, done: boolean) => {
-					aggregated += partial;
-					setChatMessages((prev) => {
-						const updated = [...prev];
-						const lastIndex = updated.length - 1;
-						if (lastIndex >= 0 && updated[lastIndex]?.role === "assistant") {
-							updated[lastIndex] = { ...updated[lastIndex], content: aggregated };
-						}
-						return updated;
-					});
-					if (done) {
-						setIsTyping(false);
-					}
-				});
-				setChatMessages((prev) => {
-					const updated = [...prev];
-					const lastIndex = updated.length - 1;
-					if (lastIndex >= 0 && updated[lastIndex]?.role === "assistant") {
-						updated[lastIndex] = {
-							...updated[lastIndex],
-							content: updated[lastIndex].content.trim(),
-						};
-					}
-					return updated;
-				});
-				setIsTyping(false);
-			} catch (error) {
-				console.error("Gemma inference error:", error);
-				setGemmaError(error instanceof Error ? error.message : "Gemma model unavailable");
-				setChatMessages((prev) => {
-					if (prev.length === 0) return prev;
-					const updated = [...prev];
-					const lastIndex = updated.length - 1;
-					if (lastIndex >= 0 && updated[lastIndex]?.role === "assistant" && updated[lastIndex].content === "") {
-						updated.pop();
-					}
-					return updated;
-				});
-				if (gemmaInstanceRef.current?.close) {
-					gemmaInstanceRef.current.close();
-				}
-				gemmaInstanceRef.current = null;
-				setGemmaReady(false);
-				// No Python fallback for Gemma-only models; use local heuristic
-				const fallbackResponse = generateFallbackResponse(lowerPrompt, chatMode);
-				const assistantMsg: Message = {
-					role: "assistant",
-					content: fallbackResponse.response,
-					products: fallbackResponse.products,
-				};
-				setChatMessages((m) => [...m, assistantMsg]);
-				setIsTyping(false);
-			}
-			return;
-		}
+		// All models now use TinyLlama v2 via Python backend
 
 		try {
-			// If chemistry mode with Tanka enabled, use Python chat
+			// Use Python chat endpoint for all models (TinyLlama v2)
 			const shouldUsePython = smarterAIAvailable && (chemistryMode ? useTankaModel : true);
 			const endpoint = shouldUsePython ? "/api/python-chat" : "/api/chat";
 			const response = await fetch(endpoint, {
@@ -855,7 +726,6 @@ export default function CoffeeRecommender() {
 		userSubscription,
 		generateFallbackResponse,
 		smarterAIAvailable,
-		initializeGemma,
 		chemistryMode,
 		visualizationMode,
 		fetchMoleculeData,
@@ -943,12 +813,19 @@ export default function CoffeeRecommender() {
 								<div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "center" }}>
 									<button
 										onClick={() => {
-											localStorage.setItem("user_logged_in", "true");
-											localStorage.setItem("user_subscription", "max");
+											// Demo login - simulate session with max subscription
+											sessionStorage.setItem(
+												"account_session",
+												JSON.stringify({
+													username: "demo_max",
+													full_name: "Demo Max User",
+													email: "demo_max@test.com",
+													token: "demo_token_max",
+												})
+											);
 											setIsLoggedIn(true);
 											setUserSubscription("max");
 											setSelectedModel("villanelle");
-											setChatHistory(loadChatHistory());
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
 									>
@@ -956,12 +833,19 @@ export default function CoffeeRecommender() {
 									</button>
 									<button
 										onClick={() => {
-											localStorage.setItem("user_logged_in", "true");
-											localStorage.setItem("user_subscription", "ultimate");
+											// Demo login - simulate session with ultimate subscription
+											sessionStorage.setItem(
+												"account_session",
+												JSON.stringify({
+													username: "demo_ultimate",
+													full_name: "Demo Ultimate User",
+													email: "demo_ultimate@test.com",
+													token: "demo_token_ultimate",
+												})
+											);
 											setIsLoggedIn(true);
 											setUserSubscription("ultimate");
 											setSelectedModel("ode");
-											setChatHistory(loadChatHistory());
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
 									>
@@ -969,12 +853,19 @@ export default function CoffeeRecommender() {
 									</button>
 									<button
 										onClick={() => {
-											localStorage.setItem("user_logged_in", "true");
-											localStorage.setItem("user_subscription", "basic");
+											// Demo login - simulate session with basic subscription
+											sessionStorage.setItem(
+												"account_session",
+												JSON.stringify({
+													username: "demo_basic",
+													full_name: "Demo Basic User",
+													email: "demo_basic@test.com",
+													token: "demo_token_basic",
+												})
+											);
 											setIsLoggedIn(true);
 											setUserSubscription("basic");
 											setSelectedModel("tanka");
-											setChatHistory(loadChatHistory());
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
 									>
@@ -984,8 +875,7 @@ export default function CoffeeRecommender() {
 							) : (
 								<button
 									onClick={() => {
-										localStorage.removeItem("user_logged_in");
-										localStorage.removeItem("user_subscription");
+										sessionStorage.removeItem("account_session");
 										setIsLoggedIn(false);
 										setUserSubscription("none");
 										setSelectedModel("tanka");
@@ -1411,13 +1301,7 @@ export default function CoffeeRecommender() {
 										}}
 										aria-live="polite"
 									>
-										{gemmaLoading
-											? "Loading Gemma on-device model..."
-											: gemmaError
-											? `Gemma unavailable (${gemmaError}).`
-											: gemmaReady
-											? "Gemma on-device model is ready."
-											: "Preparing Gemma on-device model..."}
+										{smarterAIAvailable ? "TinyLlama v2 model is ready." : "Connecting to TinyLlama v2..."}
 									</p>
 								)}
 

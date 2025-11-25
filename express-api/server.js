@@ -1,0 +1,77 @@
+/**
+ * Filspresso Express.js API Server
+ * Connects Next.js frontend with MariaDB database
+ */
+
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+
+// Import routes
+const authRoutes = require("./routes/auth");
+const accountRoutes = require("./routes/accounts");
+const cardsRoutes = require("./routes/cards");
+const ordersRoutes = require("./routes/orders");
+const cartRoutes = require("./routes/cart");
+const chatRoutes = require("./routes/chat");
+
+const app = express();
+const PORT = process.env.PORT || 4000;
+
+// Security middleware
+app.use(helmet());
+app.use(
+	cors({
+		origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+		credentials: true,
+	})
+);
+
+// Rate limiting
+const limiter = rateLimit({
+	windowMs: 15 * 60 * 1000, // 15 minutes
+	max: 100, // limit each IP to 100 requests per windowMs
+	message: { error: "Too many requests, please try again later." },
+});
+app.use("/api/", limiter);
+
+// Body parsing
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+// Health check
+app.get("/health", (req, res) => {
+	res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// API Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/accounts", accountRoutes);
+app.use("/api/cards", cardsRoutes);
+app.use("/api/orders", ordersRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/chat", chatRoutes);
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+	console.error("Error:", err);
+	res.status(err.status || 500).json({
+		error: process.env.NODE_ENV === "development" ? err.message : "Internal server error",
+		...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+	});
+});
+
+// 404 handler
+app.use((req, res) => {
+	res.status(404).json({ error: "Endpoint not found" });
+});
+
+// Start server
+app.listen(PORT, () => {
+	console.log(`🚀 Filspresso Express API running on port ${PORT}`);
+	console.log(`📊 Health check: http://localhost:${PORT}/health`);
+});
+
+module.exports = app;

@@ -10,8 +10,8 @@ export default function AccountPage() {
 
 	useEffect(() => {
 		if (typeof window !== "undefined") {
-			const account = localStorage.getItem("account");
-			setIsLoggedIn(!!account);
+			const session = sessionStorage.getItem("account_session");
+			setIsLoggedIn(!!session);
 		}
 		setIsLoading(false);
 	}, []);

@@ -116,22 +116,57 @@ export default function Navbar() {
 		setIsMenuOpen(false);
 	}, []);
 
-	// Account state: read from localStorage (set on signup)
+	// Account state: read from sessionStorage (set on signup/login)
 	const [accountName, setAccountName] = useState<string | null>(null);
 	const [accountIcon, setAccountIcon] = useState<string | null>(null);
 
+	// Helper to get icon URL from stored value
+	const getIconUrl = (icon: string | null) => {
+		if (!icon) return null;
+		// If it's already a full path, use it
+		if (icon.startsWith("/") || icon.startsWith("http")) {
+			// Convert old /api/icons/ paths
+			if (icon.startsWith("/api/icons/")) {
+				return icon.replace("/api/icons/", "/images/icons/");
+			}
+			return icon;
+		}
+		// Otherwise it's just a filename, construct the path
+		return `/images/icons/${icon}`;
+	};
+
 	useEffect(() => {
 		if (typeof window === "undefined") return;
-		try {
-			const a = localStorage.getItem("account");
-			if (a) {
-				const obj = JSON.parse(a);
-				setAccountName(obj.username || obj.full_name || null);
-				setAccountIcon(obj.icon || null);
+		const checkSession = () => {
+			try {
+				const a = sessionStorage.getItem("account_session");
+				console.log("Navbar session check:", a);
+				if (a) {
+					const obj = JSON.parse(a);
+					console.log("Navbar parsed session:", obj);
+					console.log("Icon value:", obj.icon, "-> URL:", getIconUrl(obj.icon));
+					setAccountName(obj.username || obj.full_name || null);
+					setAccountIcon(getIconUrl(obj.icon) || null);
+				} else {
+					setAccountName(null);
+					setAccountIcon(null);
+				}
+			} catch (e) {
+				console.error("Navbar session error:", e);
 			}
-		} catch (e) {
-			// ignore
-		}
+		};
+		checkSession();
+		// Listen for storage events (cross-tab) and custom session-update event (same tab)
+		const handleStorage = () => checkSession();
+		window.addEventListener("storage", handleStorage);
+		window.addEventListener("session-update", handleStorage);
+		// Also check periodically for session changes (same tab navigation)
+		const interval = setInterval(checkSession, 1000);
+		return () => {
+			window.removeEventListener("storage", handleStorage);
+			window.removeEventListener("session-update", handleStorage);
+			clearInterval(interval);
+		};
 	}, []);
 
 	const navDynamicStyle: CSSProperties | undefined = isSmallScreen
@@ -246,6 +281,7 @@ export default function Navbar() {
 										>
 											{accountIcon ? (
 												<>
+													{console.log("Rendering icon img with src:", accountIcon)}
 													<img
 														src={accountIcon}
 														alt="account"
@@ -256,6 +292,8 @@ export default function Navbar() {
 															marginRight: 8,
 															display: "inline-block",
 														}}
+														onError={(e) => console.error("Icon load error:", e)}
+														onLoad={() => console.log("Icon loaded successfully")}
 													/>
 													<span style={{ display: "inline" }}>{accountName || label}</span>
 												</>

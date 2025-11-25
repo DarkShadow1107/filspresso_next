@@ -40,7 +40,7 @@ export default function AccountPageContent() {
 	const { notify } = useNotifications();
 
 	const handleSignUp = useCallback(
-		(event: FormEvent<HTMLFormElement>) => {
+		async (event: FormEvent<HTMLFormElement>) => {
 			event.preventDefault();
 			const nickname = signName.trim();
 			const username = signUsername.trim();
@@ -83,16 +83,34 @@ export default function AccountPageContent() {
 				return;
 			}
 
+			// First, save the icon to the Python server (which stores it in public/images/icons/)
+			let savedIconPath: string | null = null;
+			if (signIconDataUrl && typeof window !== "undefined") {
+				try {
+					const iconRes = await fetch("http://localhost:5000/api/icons/save", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ username, svg: signIconDataUrl }),
+					});
+					const iconData = await iconRes.json();
+					if (iconData.status === "success") {
+						savedIconPath = iconData.icon_path;
+					}
+				} catch (e) {
+					console.error("Failed to save icon:", e);
+				}
+			}
+
 			// Try to persist account to backend
 			const payload = {
 				full_name: nickname,
 				username,
 				email,
 				password,
-				icon: signIconDataUrl,
+				icon: savedIconPath || signIconDataUrl,
 			};
 			if (typeof window !== "undefined") {
-				fetch("http://localhost:5000/api/accounts/create", {
+				fetch("http://localhost:4000/api/auth/register", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
@@ -100,13 +118,15 @@ export default function AccountPageContent() {
 					.then((res) => res.json())
 					.then((data) => {
 						if (data?.status === "success") {
-							// Use the static icon URL from backend
-							const iconUrl = data.icon_path || null;
-							localStorage.setItem(
-								"account",
-								JSON.stringify({ full_name: nickname, username, email, icon: iconUrl })
+							// Use the static icon URL from Python server
+							const iconUrl = savedIconPath || data.icon_path || null;
+							const token = data.token || null;
+							sessionStorage.setItem(
+								"account_session",
+								JSON.stringify({ full_name: nickname, username, email, icon: iconUrl, token })
 							);
-							localStorage.setItem("login_status", "1");
+							// Notify Navbar of session change
+							window.dispatchEvent(new Event("session-update"));
 							notify(
 								`Welcome ${nickname}, your account was registered with the following address ${email}`,
 								6000,
@@ -146,7 +166,7 @@ export default function AccountPageContent() {
 		}
 
 		// Use backend login endpoint
-		fetch("http://localhost:5000/api/accounts/login", {
+		fetch("http://localhost:4000/api/auth/login", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ username, password }),
@@ -155,16 +175,19 @@ export default function AccountPageContent() {
 			.then((data) => {
 				if (data?.status === "success" && data?.account) {
 					const account = data.account;
-					localStorage.setItem(
-						"account",
+					const token = data.token || null;
+					sessionStorage.setItem(
+						"account_session",
 						JSON.stringify({
 							full_name: account.full_name,
 							username: account.username,
 							email: account.email,
 							icon: account.icon,
+							token,
 						})
 					);
-					localStorage.setItem("login_status", "1");
+					// Notify Navbar of session change
+					window.dispatchEvent(new Event("session-update"));
 					notify(`Welcome back ${account.full_name || account.username}!`, 6000, "success", "account");
 					setLoginPassword("");
 					setLoginEmail("");

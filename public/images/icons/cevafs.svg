@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns='http://www.w3.org/2000/svg' width='50' height='50' viewBox='0 0 50 50'>
+<defs>
+		<linearGradient id='grad1-3lht0hi2g' x1='0%' y1='0%' x2='100%' y2='100%'>
+			<stop offset='0%' style='stop-color:hsl(315, 71%, 51%);stop-opacity:1' />
+			<stop offset='50%' style='stop-color:hsl(315, 51%, 61%);stop-opacity:0.9' />
+			<stop offset='100%' style='stop-color:hsl(315, 71%, 36%);stop-opacity:1' />
+		</linearGradient>
+		<radialGradient id='grad2-yz9soqhe1' cx='35%' cy='35%' r='65%'>
+			<stop offset='0%' style='stop-color:hsl(315, 51%, 61%);stop-opacity:0.4' />
+			<stop offset='100%' style='stop-color:hsl(315, 71%, 36%);stop-opacity:0.8' />
+		</radialGradient>
+		<linearGradient id='grad3-mp7567e83' x1='100%' y1='0%' x2='0%' y2='100%'>
+			<stop offset='0%' style='stop-color:hsl(75, 61%, 56%);stop-opacity:0.6' />
+			<stop offset='100%' style='stop-color:hsl(195, 56%, 51%);stop-opacity:0.4' />
+		</linearGradient>
+		<filter id='filter-yvfkmy98v' x='-50%' y='-50%' width='200%' height='200%'>
+			<feGaussianBlur in='SourceGraphic' stdDeviation='1.5'/>
+			<feDropShadow dx='0' dy='1' stdDeviation='1.5' flood-color='rgba(0,0,0,0.3)' flood-opacity='0.8'/>
+		</filter>
+	</defs>
+<rect width='50' height='50' rx='9' fill='url(#grad1-3lht0hi2g)' />
+		<rect width='50' height='50' rx='9' fill='url(#grad2-yz9soqhe1)' />
+<polygon points='37.371390284133646,6.835662967635813 31.63948854060005,8.809315014597608 25.90758679706645,10.782967061559404 27.064304857933177,4.832168516182094 28.221022918799896,-1.1186300291952156 32.79620660146678,2.858516469220297' fill='hsl(195, 56%, 51%)' opacity='0.69' filter='url(#filter-yvfkmy98v)' /><path d='M 5.5 39.5 Q 8.5 41.5 10.5 44.5 Q 8.5 47.5 5.5 49.5 Q 2.5 47.5 0.5 44.5 Q 2.5 41.5 5.5 39.5' fill='hsl(195, 56%, 51%)' opacity='0.31' filter='url(#filter-yvfkmy98v)' /><path d='M 44.5 21.5 Q 53.5 27.5 59.5 36.5 Q 53.5 45.5 44.5 51.5 Q 35.5 45.5 29.5 36.5 Q 35.5 27.5 44.5 21.5' fill='hsl(195, 56%, 51%)' opacity='0.25' filter='url(#filter-yvfkmy98v)' /><polygon points='32.696435644333704,21.65677008332985 32.01712385858715,13.892200842364462 31.337812072840585,6.1276316013990755 38.40178217783315,9.421614958335073 45.46575228282571,12.715598315271075 39.081093963579704,17.186184199300463' fill='hsl(195, 56%, 51%)' opacity='0.75' filter='url(#filter-yvfkmy98v)' /><rect x='2.5' y='11.5' width='22' height='22' fill='hsl(195, 56%, 51%)' opacity='0.75' transform='rotate(45 13.5 22.5)' filter='url(#filter-yvfkmy98v)' /><rect x='8.75' y='17.6' width='27.5' height='19.8' rx='4.4' fill='url(#grad3-mp7567e83)' opacity='0.41' transform='rotate(219 22.5 27.5)' filter='url(#filter-yvfkmy98v)' /><circle cx='27.5' cy='27.5' r='13' fill='hsl(195, 56%, 51%)' opacity='0.59' filter='url(#filter-yvfkmy98v)' /><circle cx='27.5' cy='8.5' r='7' fill='hsl(195, 56%, 51%)' opacity='0.57' filter='url(#filter-yvfkmy98v)' /><circle cx='8.5' cy='41.5' r='5' fill='hsl(195, 56%, 51%)' opacity='0.43' filter='url(#filter-yvfkmy98v)' />
+<circle cx='27.5' cy='27.5' r='14' fill='none' stroke='hsl(195, 56%, 51%)' stroke-width='0.5' opacity='0.295' /><circle cx='27.5' cy='8.5' r='8' fill='none' stroke='hsl(195, 56%, 51%)' stroke-width='0.5' opacity='0.285' /><circle cx='8.5' cy='41.5' r='6' fill='none' stroke='hsl(195, 56%, 51%)' stroke-width='0.5' opacity='0.215' /><circle cx='7.5' cy='18.5' r='6' fill='none' stroke='hsl(75, 61%, 56%)' stroke-width='0.8' opacity='0.39' /><circle cx='18.5' cy='31.5' r='6' fill='none' stroke='hsl(75, 61%, 56%)' stroke-width='0.8' opacity='0.27' /><circle cx='31.5' cy='31.5' r='8' fill='none' stroke='hsl(75, 61%, 56%)' stroke-width='0.8' opacity='0.23' />
+<rect width='50' height='50' rx='9' fill='url(#grad3-mp7567e83)' opacity='0.15' />
+<text x='50%' y='52%' font-family='Inter, Arial, sans-serif' font-size='17' fill='white' text-anchor='middle' dominant-baseline='middle' font-weight='800' letter-spacing='0.5'>C</text>
+</svg>

@@ -1,6 +1,7 @@
 """
-Flask API Server for Advanced AI Models
+Flask API Server for TinyLlama v2 AI Models
 Provides REST endpoints for inference and training
+Uses MariaDB for data storage (accounts, cards, orders, chat)
 """
 
 from flask import Flask, request, jsonify
@@ -12,9 +13,12 @@ import logging
 from typing import Dict, List
 import json
 import urllib.parse
-# bcrypt removed as requested
 
-# TinyLlama model manager
+# Database is handled by Express.js API (port 4000)
+# Python server focuses on AI inference only
+DB_AVAILABLE = False
+
+# TinyLlama v2 model manager
 try:
     from tinyllama_models import TinyLlamaModelManager
     TINYLLAMA_AVAILABLE = True
@@ -568,125 +572,13 @@ def save_model():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/accounts/create', methods=['POST'])
-def create_account():
-    """Create account and save into src/data/accounts.json and save icon into public/images/icons/"""
-    try:
-        data = request.get_json() or {}
-        full_name = data.get('full_name')
-        username = data.get('username')
-        email = data.get('email')
-        password = data.get('password')
-        icon_data = data.get('icon')  # may be data URL
-
-        if not username or not email or not password:
-            return jsonify({'status': 'error', 'message': 'username, email and password required'}), 400
-
-        repo_root = Path(__file__).parent.parent
-        accounts_path = repo_root / 'src' / 'data' / 'accounts.json'
-        icons_dir = repo_root / 'public' / 'images' / 'icons'
-        icons_dir.mkdir(parents=True, exist_ok=True)
-
-        accounts = []
-        if accounts_path.exists():
-            try:
-                with open(accounts_path, 'r', encoding='utf-8') as f:
-                    accounts = json.load(f)
-            except Exception:
-                accounts = []
-
-        # avoid duplicate username
-        for a in accounts:
-            if a.get('username') == username:
-                return jsonify({'status': 'error', 'message': 'username exists'}), 409
-
-        # Store password in plain text as requested
-
-        icon_path_rel = None
-        if icon_data and isinstance(icon_data, str) and icon_data.startswith('data:image/svg'):
-            # parse after comma
-            try:
-                parts = icon_data.split(',')
-                encoded = parts[1] if len(parts) > 1 else parts[0]
-                decoded = urllib.parse.unquote(encoded)
-                icon_filename = f"{username}.svg"
-                icon_path = icons_dir / icon_filename
-                with open(icon_path, 'w', encoding='utf-8') as f:
-                    f.write(decoded)
-                icon_path_rel = f"/images/icons/{username}.svg"
-            except Exception as e:
-                logger.error(f"Failed to save icon: {e}")
-
-        account_entry = {
-            'full_name': full_name,
-            'username': username,
-            'email': email,
-            'password': password,  # Store plaintext password as requested
-            'icon': icon_path_rel,
-        }
-        accounts.append(account_entry)
-
-        with open(accounts_path, 'w', encoding='utf-8') as f:
-            json.dump(accounts, f, indent=2, ensure_ascii=False)
-
-        icon_data_url = icon_path_rel if icon_path_rel else None
-
-        return jsonify({'status': 'success', 'icon_path': icon_path_rel, 'icon_data_url': icon_data_url}), 200
-    except Exception as e:
-        logger.error(f"Error in create_account: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+# =============================================================================
+# Account routes are now handled by Express.js API (port 4000)
+# The Python server focuses only on AI inference
+# =============================================================================
 
 
-@app.route('/api/accounts/login', methods=['POST'])
-def login_account():
-    """Login endpoint - validates username/password against hashed passwords"""
-    try:
-        data = request.get_json() or {}
-        username = data.get('username')
-        password = data.get('password')
-
-        if not username or not password:
-            return jsonify({'status': 'error', 'message': 'username and password required'}), 400
-
-        repo_root = Path(__file__).parent.parent
-        accounts_path = repo_root / 'src' / 'data' / 'accounts.json'
-
-        accounts = []
-        if accounts_path.exists():
-            try:
-                with open(accounts_path, 'r', encoding='utf-8') as f:
-                    accounts = json.load(f)
-            except Exception:
-                pass
-
-        # Find account by username
-        account = None
-        for a in accounts:
-            if a.get('username') == username:
-                account = a
-                break
-
-        if not account:
-            return jsonify({'status': 'error', 'message': 'invalid username or password'}), 401
-
-        # Check password
-        # Check for plaintext password
-        if account.get('password') == password:
-            account_data = {
-                'full_name': account.get('full_name'),
-                'username': account.get('username'),
-                'email': account.get('email'),
-                'icon': account.get('icon'),
-            }
-            return jsonify({'status': 'success', 'account': account_data}), 200
-
-        return jsonify({'status': 'error', 'message': 'invalid username or password'}), 401
-    except Exception as e:
-        logger.error(f"Error in login_account: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-
-# Static route for serving user icons
+# Static route for serving user icons (stored in public/images/icons/)
 @app.route('/api/icons/<username>.svg')
 def get_user_icon(username):
     """Serve user profile icons from public/images/icons/"""
@@ -706,73 +598,59 @@ def get_user_icon(username):
         return jsonify({'error': 'failed to load icon'}), 500
 
 
-@app.route('/api/accounts/update', methods=['POST'])
-def update_account():
-    """Update account information including icon"""
+@app.route('/api/icons/save', methods=['POST'])
+def save_user_icon():
+    """Save user profile icon to public/images/icons/ and return the URL"""
     try:
-        data = request.get_json() or {}
+        from urllib.parse import unquote
+        
+        data = request.json
         username = data.get('username')
-        full_name = data.get('full_name')
-        email = data.get('email')
-        icon_data = data.get('icon')  # may be data URL
-
-        if not username:
-            return jsonify({'status': 'error', 'message': 'username required'}), 400
-
+        svg_content = data.get('svg')
+        
+        if not username or not svg_content:
+            return jsonify({'error': 'username and svg are required'}), 400
+        
+        # Decode data URI if present
+        if svg_content.startswith('data:image/svg+xml'):
+            # Handle both base64 and utf8 encoded data URIs
+            if ';base64,' in svg_content:
+                import base64
+                encoded = svg_content.split(';base64,')[1]
+                svg_content = base64.b64decode(encoded).decode('utf-8')
+            elif ';utf8,' in svg_content:
+                svg_content = unquote(svg_content.split(';utf8,')[1])
+            elif ',' in svg_content:
+                # Generic fallback
+                svg_content = unquote(svg_content.split(',', 1)[1])
+        
+        # Sanitize username for filename
+        safe_username = ''.join(c for c in username if c.isalnum() or c in '-_').lower()
+        if not safe_username:
+            return jsonify({'error': 'invalid username'}), 400
+        
+        # Ensure icons directory exists
         repo_root = Path(__file__).parent.parent
-        accounts_path = repo_root / 'src' / 'data' / 'accounts.json'
         icons_dir = repo_root / 'public' / 'images' / 'icons'
         icons_dir.mkdir(parents=True, exist_ok=True)
-
-        accounts = []
-        if accounts_path.exists():
-            try:
-                with open(accounts_path, 'r', encoding='utf-8') as f:
-                    accounts = json.load(f)
-            except Exception:
-                accounts = []
-
-        # Find account by username
-        account_index = None
-        for i, a in enumerate(accounts):
-            if a.get('username') == username:
-                account_index = i
-                break
-
-        if account_index is None:
-            return jsonify({'status': 'error', 'message': 'account not found'}), 404
-
-        # Update account fields
-        if full_name:
-            accounts[account_index]['full_name'] = full_name
-        if email:
-            accounts[account_index]['email'] = email
-
-        # Handle icon update
-        icon_path_rel = accounts[account_index].get('icon')
-        if icon_data and isinstance(icon_data, str) and icon_data.startswith('data:image/svg'):
-            # parse after comma
-            try:
-                parts = icon_data.split(',')
-                encoded = parts[1] if len(parts) > 1 else parts[0]
-                decoded = urllib.parse.unquote(encoded)
-                icon_filename = f"{username}.svg"
-                icon_path = icons_dir / icon_filename
-                with open(icon_path, 'w', encoding='utf-8') as f:
-                    f.write(decoded)
-                icon_path_rel = f"/images/icons/{username}.svg"
-                accounts[account_index]['icon'] = icon_path_rel
-            except Exception as e:
-                logger.error(f"Failed to save icon: {e}")
-
-        # Save updated accounts
-        with open(accounts_path, 'w', encoding='utf-8') as f:
-            json.dump(accounts, f, indent=2, ensure_ascii=False)
-
-        return jsonify({'status': 'success', 'icon_path': icon_path_rel}), 200
+        
+        # Save SVG file
+        icon_path = icons_dir / f'{safe_username}.svg'
+        with open(icon_path, 'w', encoding='utf-8') as f:
+            f.write(svg_content)
+        
+        # Return just the filename (frontend will construct the full path)
+        icon_filename = f'{safe_username}.svg'
+        
+        logger.info(f"Saved icon for user: {safe_username}")
+        return jsonify({
+            'status': 'success',
+            'icon_path': icon_filename,
+            'username': safe_username
+        })
     except Exception as e:
-        logger.error(f"Error in update_account: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.error(f"Error saving icon: {e}")
+        return jsonify({'error': 'failed to save icon'}), 500
 
 # =============================================================================
 # Chemistry Mode - Molecule Visualization Endpoints

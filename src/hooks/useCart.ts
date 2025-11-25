@@ -5,10 +5,7 @@ import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
 
-const MY_ITEMS = "myItems";
-const PASSED = "passedValue";
-const CURRENT = "currentSum";
-const IS_CLICKED = "is_clicked";
+const API_BASE = "http://localhost:4000/api";
 
 export type CartItem = {
 	id: string;
@@ -16,142 +13,139 @@ export type CartItem = {
 	price: number;
 	qty: number;
 	image?: string;
+	productType?: "capsule" | "machine" | "accessory";
 };
-
-function extractAndConvertFloat(data: string): number {
-	const match = data.match(/\d+(?:[.,]\d+)?/);
-	if (!match) return 0;
-	return parseFloat(match[0].replace(",", "."));
-}
-
-function normaliseEntry(entry: unknown): CartItem | null {
-	if (!entry) return null;
-
-	if (typeof entry === "string") {
-		const trimmed = entry.trim();
-		if (!trimmed) return null;
-		try {
-			const parsed = JSON.parse(trimmed);
-			return normaliseEntry(parsed);
-		} catch {
-			const qtyMatch = trimmed.match(/x\s*(\d+)$/i);
-			const qty = qtyMatch ? Math.max(1, parseInt(qtyMatch[1], 10) || 1) : 1;
-			const name = qtyMatch ? trimmed.replace(/x\s*\d+$/i, "").trim() : trimmed;
-			const price = extractAndConvertFloat(trimmed);
-			const id =
-				name
-					.toLowerCase()
-					.replace(/[^a-z0-9]+/g, "-")
-					.replace(/^-+|-+$/g, "") || `item-${Date.now()}`;
-			return {
-				id,
-				name,
-				price: Number.isFinite(price) ? price : 0,
-				qty,
-			};
-		}
-	}
-
-	if (typeof entry === "object") {
-		const candidate = entry as Partial<CartItem> & { name?: string };
-		if (typeof candidate.name !== "string" || !candidate.name.trim()) return null;
-		const priceCandidate =
-			typeof candidate.price === "number" && Number.isFinite(candidate.price)
-				? candidate.price
-				: extractAndConvertFloat(candidate.name);
-		const qtyCandidate =
-			typeof candidate.qty === "number" && Number.isFinite(candidate.qty) && candidate.qty > 0
-				? Math.floor(candidate.qty)
-				: 1;
-		const idCandidate =
-			typeof candidate.id === "string" && candidate.id.trim()
-				? candidate.id
-				: candidate.name
-						.toLowerCase()
-						.replace(/[^a-z0-9]+/g, "-")
-						.replace(/^-+|-+$/g, "") || `item-${Date.now()}`;
-		return {
-			id: idCandidate,
-			name: candidate.name.trim(),
-			price: Number.isFinite(priceCandidate) ? priceCandidate : 0,
-			qty: qtyCandidate,
-		};
-	}
-
-	return null;
-}
 
 function computeSum(items: CartItem[]): number {
 	return items.reduce((acc, item) => acc + item.price * item.qty, 0);
 }
 
-function readCart(): { items: CartItem[]; total: number } {
-	if (typeof window === "undefined") {
-		return { items: [], total: 0 };
-	}
+// Helper to get auth token
+function getAuthToken(): string | null {
+	if (typeof window === "undefined") return null;
 	try {
-		const raw = localStorage.getItem(MY_ITEMS);
-		const parsed = raw ? JSON.parse(raw) : [];
-		const items = Array.isArray(parsed) ? (parsed.map((entry) => normaliseEntry(entry)).filter(Boolean) as CartItem[]) : [];
-		const total = computeSum(items);
-		localStorage.setItem(MY_ITEMS, JSON.stringify(items));
-		localStorage.setItem(CURRENT, total.toString());
-		return { items, total };
+		const account = sessionStorage.getItem("account_session");
+		if (account) {
+			const parsed = JSON.parse(account);
+			return parsed.token || null;
+		}
 	} catch {
-		return { items: [], total: 0 };
+		// ignore
 	}
+	return null;
 }
 
-function writeCart(items: CartItem[]): number {
-	const total = computeSum(items);
-	localStorage.setItem(MY_ITEMS, JSON.stringify(items));
-	localStorage.setItem(CURRENT, total.toString());
-	return total;
+// Helper to check if user is logged in
+function isLoggedIn(): boolean {
+	return getAuthToken() !== null;
 }
 
 export default function useCart() {
-	const initialCart = typeof window !== "undefined" ? readCart() : { items: [], total: 0 };
-	const [items, setItems] = useState<CartItem[]>(initialCart.items);
-	const [currentSum, setCurrentSum] = useState<number>(initialCart.total);
+	const [items, setItems] = useState<CartItem[]>([]);
+	const [currentSum, setCurrentSum] = useState<number>(0);
+	const [loading, setLoading] = useState(false);
 	const { notify } = useNotifications();
 	const router = useRouter();
 
-	const refreshFromStorage = useCallback(() => {
-		const { items: nextItems, total } = readCart();
-		setItems(nextItems);
-		setCurrentSum(total);
+	// Fetch cart from API
+	const fetchCart = useCallback(async () => {
+		const token = getAuthToken();
+		if (!token) {
+			// Not logged in, reset cart state
+			setItems([]);
+			setCurrentSum(0);
+			return;
+		}
+
+		try {
+			setLoading(true);
+			const res = await fetch(`${API_BASE}/cart`, {
+				headers: {
+					Authorization: `Bearer ${token}`,
+				},
+			});
+
+			if (res.ok) {
+				const data = await res.json();
+				const cartItems: CartItem[] = (data.items || []).map(
+					(item: {
+						id: number;
+						productId: string;
+						name: string;
+						price: number;
+						quantity: number;
+						image?: string;
+						productType?: string;
+					}) => ({
+						id: item.productId,
+						name: item.name,
+						price: item.price,
+						qty: item.quantity,
+						image: item.image,
+						productType: item.productType,
+					})
+				);
+				setItems(cartItems);
+				setCurrentSum(data.subtotal || computeSum(cartItems));
+			} else if (res.status === 401) {
+				// Token expired or invalid
+				setItems([]);
+				setCurrentSum(0);
+			}
+		} catch (error) {
+			console.error("Failed to fetch cart:", error);
+		} finally {
+			setLoading(false);
+		}
 	}, []);
 
+	// Initial fetch and listen for login/logout events
 	useEffect(() => {
-		if (typeof window === "undefined") return;
-		refreshFromStorage();
-		const onStorage = (event: StorageEvent) => {
-			if (!event.key || [MY_ITEMS, PASSED, CURRENT, IS_CLICKED].includes(event.key)) {
-				refreshFromStorage();
-			}
+		fetchCart();
+
+		// Listen for storage events (login/logout)
+		const handleStorageChange = () => {
+			fetchCart();
 		};
-		window.addEventListener("storage", onStorage);
-		const interval = setInterval(refreshFromStorage, 750);
+
+		window.addEventListener("storage", handleStorageChange);
+
+		// Poll for cart updates
+		const interval = setInterval(fetchCart, 30000); // Refresh every 30 seconds
+
 		return () => {
-			window.removeEventListener("storage", onStorage);
+			window.removeEventListener("storage", handleStorageChange);
 			clearInterval(interval);
 		};
-	}, [refreshFromStorage]);
-
-	type ResetOptions = { silent?: boolean };
+	}, [fetchCart]);
 
 	const reset = useCallback(
-		(options?: ResetOptions) => {
-			if (typeof window === "undefined") return;
-			const empty: CartItem[] = [];
-			writeCart(empty);
-			localStorage.setItem(PASSED, "0");
-			localStorage.setItem(IS_CLICKED, "0");
-			setItems(empty);
-			setCurrentSum(0);
-			window.dispatchEvent(new StorageEvent("storage", { key: MY_ITEMS, newValue: JSON.stringify(empty) }));
-			if (!options?.silent) {
-				notify("Your bag is now empty.", 5000, "info", "bag");
+		async (options?: { silent?: boolean }) => {
+			const token = getAuthToken();
+			if (!token) {
+				setItems([]);
+				setCurrentSum(0);
+				if (!options?.silent) {
+					notify("Your bag is now empty.", 5000, "info", "bag");
+				}
+				return;
+			}
+
+			try {
+				await fetch(`${API_BASE}/cart`, {
+					method: "DELETE",
+					headers: {
+						Authorization: `Bearer ${token}`,
+					},
+				});
+				setItems([]);
+				setCurrentSum(0);
+				if (!options?.silent) {
+					notify("Your bag is now empty.", 5000, "info", "bag");
+				}
+			} catch (error) {
+				console.error("Failed to clear cart:", error);
+				notify("Failed to clear cart.", 5000, "error", "bag");
 			}
 		},
 		[notify]
@@ -178,6 +172,27 @@ export default function useCart() {
 			});
 			return;
 		}
+
+		if (!isLoggedIn()) {
+			notify("Please log in to place an order.", 8000, "error", "bag", {
+				actions: [
+					{
+						id: "login",
+						label: "Log in",
+						variant: "primary",
+						onClick: () => router.push(buildPageHref("account")),
+					},
+					{
+						id: "stay",
+						label: "Cancel",
+						variant: "ghost",
+					},
+				],
+				persist: true,
+			});
+			return;
+		}
+
 		const formatted = `${total.toFixed(2).replace(".", ",")} RON`;
 		notify(`Your order worth ${formatted}. Continue to payment?`, 12000, "success", "bag", {
 			actions: [
@@ -187,8 +202,6 @@ export default function useCart() {
 					variant: "primary",
 					onClick: () => {
 						if (typeof window !== "undefined") {
-							// store a timestamp token in sessionStorage — more robust against
-							// development double-mount/unmount and scoped to the browser tab
 							try {
 								window.sessionStorage.setItem("allow_payment_ts", String(Date.now()));
 							} catch {
@@ -208,57 +221,172 @@ export default function useCart() {
 		});
 	}, [items, notify, router]);
 
-	const addItem = useCallback((item: { id: string; name: string; price: number; qty?: number; image?: string }) => {
-		if (typeof window === "undefined") return;
-		const qty = item.qty ?? 1;
-		const { items: existingItems } = readCart();
-		const nextItems = [...existingItems];
-		const idx = nextItems.findIndex((entry) => entry.id === item.id);
-		if (idx >= 0) {
-			nextItems[idx] = {
-				...nextItems[idx],
-				qty: nextItems[idx].qty + qty,
-			};
-		} else {
-			nextItems.push({ id: item.id, name: item.name, price: item.price, qty, ...(item.image && { image: item.image }) });
-		}
-		const total = writeCart(nextItems);
-		localStorage.setItem(IS_CLICKED, "1");
-		localStorage.setItem(PASSED, "0");
-		setItems(nextItems);
-		setCurrentSum(total);
-		window.dispatchEvent(new StorageEvent("storage", { key: MY_ITEMS, newValue: JSON.stringify(nextItems) }));
-	}, []);
+	const addItem = useCallback(
+		async (item: {
+			id: string;
+			name: string;
+			price: number;
+			qty?: number;
+			image?: string;
+			productType?: "capsule" | "machine" | "accessory";
+		}) => {
+			const token = getAuthToken();
+			if (!token) {
+				notify("Please log in to add items to your bag.", 5000, "info", "bag", {
+					actions: [
+						{
+							id: "login",
+							label: "Log in",
+							variant: "primary",
+							onClick: () => router.push(buildPageHref("account")),
+						},
+						{
+							id: "cancel",
+							label: "Cancel",
+							variant: "ghost",
+						},
+					],
+					persist: true,
+				});
+				return;
+			}
 
-	const removeItem = useCallback((id: string) => {
-		if (typeof window === "undefined") return;
-		const { items: existingItems } = readCart();
-		const nextItems = existingItems.filter((item) => item.id !== id);
-		const total = writeCart(nextItems);
-		setItems(nextItems);
-		setCurrentSum(total);
-		window.dispatchEvent(new StorageEvent("storage", { key: MY_ITEMS, newValue: JSON.stringify(nextItems) }));
-	}, []);
+			const qty = item.qty ?? 1;
+			const productType = item.productType || "capsule";
 
-	const updateQuantity = useCallback((id: string, newQty: number) => {
-		if (typeof window === "undefined") return;
-		if (newQty < 1) return; // Don't allow quantity less than 1
-		const { items: existingItems } = readCart();
-		const nextItems = existingItems.map((item) => (item.id === id ? { ...item, qty: newQty } : item));
-		const total = writeCart(nextItems);
-		setItems(nextItems);
-		setCurrentSum(total);
-		window.dispatchEvent(new StorageEvent("storage", { key: MY_ITEMS, newValue: JSON.stringify(nextItems) }));
-	}, []);
+			try {
+				const res = await fetch(`${API_BASE}/cart`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${token}`,
+					},
+					body: JSON.stringify({
+						productType,
+						productId: item.id,
+						productName: item.name,
+						productImage: item.image,
+						unitPrice: item.price,
+						quantity: qty,
+					}),
+				});
+
+				if (res.ok) {
+					// Update local state
+					const existingIdx = items.findIndex((i) => i.id === item.id);
+					let nextItems: CartItem[];
+					if (existingIdx >= 0) {
+						nextItems = items.map((i, idx) => (idx === existingIdx ? { ...i, qty: i.qty + qty } : i));
+					} else {
+						nextItems = [
+							...items,
+							{ id: item.id, name: item.name, price: item.price, qty, image: item.image, productType },
+						];
+					}
+					setItems(nextItems);
+					setCurrentSum(computeSum(nextItems));
+				} else {
+					const data = await res.json();
+					notify(data.error || "Failed to add item to cart.", 5000, "error", "bag");
+				}
+			} catch (error) {
+				console.error("Failed to add to cart:", error);
+				notify("Failed to add item to cart.", 5000, "error", "bag");
+			}
+		},
+		[items, notify, router]
+	);
+
+	const removeItem = useCallback(
+		async (id: string) => {
+			const token = getAuthToken();
+			if (!token) return;
+
+			// Find the cart item's database ID
+			const cartItem = items.find((i) => i.id === id);
+			if (!cartItem) return;
+
+			try {
+				// We need the database ID, but we store productId
+				// First, get the cart to find the database ID
+				const cartRes = await fetch(`${API_BASE}/cart`, {
+					headers: { Authorization: `Bearer ${token}` },
+				});
+
+				if (cartRes.ok) {
+					const cartData = await cartRes.json();
+					const dbItem = cartData.items.find((item: { productId: string; id: number }) => item.productId === id);
+
+					if (dbItem) {
+						await fetch(`${API_BASE}/cart/${dbItem.id}`, {
+							method: "DELETE",
+							headers: { Authorization: `Bearer ${token}` },
+						});
+					}
+				}
+
+				// Update local state
+				const nextItems = items.filter((i) => i.id !== id);
+				setItems(nextItems);
+				setCurrentSum(computeSum(nextItems));
+			} catch (error) {
+				console.error("Failed to remove item:", error);
+				notify("Failed to remove item from cart.", 5000, "error", "bag");
+			}
+		},
+		[items, notify]
+	);
+
+	const updateQuantity = useCallback(
+		async (id: string, newQty: number) => {
+			if (newQty < 1) return;
+
+			const token = getAuthToken();
+			if (!token) return;
+
+			try {
+				// Get the cart to find the database ID
+				const cartRes = await fetch(`${API_BASE}/cart`, {
+					headers: { Authorization: `Bearer ${token}` },
+				});
+
+				if (cartRes.ok) {
+					const cartData = await cartRes.json();
+					const dbItem = cartData.items.find((item: { productId: string; id: number }) => item.productId === id);
+
+					if (dbItem) {
+						await fetch(`${API_BASE}/cart/${dbItem.id}`, {
+							method: "PUT",
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: `Bearer ${token}`,
+							},
+							body: JSON.stringify({ quantity: newQty }),
+						});
+					}
+				}
+
+				// Update local state
+				const nextItems = items.map((item) => (item.id === id ? { ...item, qty: newQty } : item));
+				setItems(nextItems);
+				setCurrentSum(computeSum(nextItems));
+			} catch (error) {
+				console.error("Failed to update quantity:", error);
+				notify("Failed to update cart.", 5000, "error", "bag");
+			}
+		},
+		[items, notify]
+	);
 
 	return {
 		items,
 		currentSum,
+		loading,
 		reset,
 		placeOrder,
 		addItem,
 		removeItem,
 		updateQuantity,
-		refresh: refreshFromStorage,
+		refresh: fetchCart,
 	};
 }

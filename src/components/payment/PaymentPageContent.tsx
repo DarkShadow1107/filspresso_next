@@ -122,7 +122,7 @@ function isUnsignedNumeric(value: string): boolean {
 
 export default function PaymentPageContent() {
 	const router = useRouter();
-	const { reset } = useCart();
+	const { items, currentSum, reset } = useCart();
 	const { notify } = useNotifications();
 
 	// ensure the user came here via the place-order OK action
@@ -299,10 +299,11 @@ export default function PaymentPageContent() {
 			return;
 		}
 
+		// Store card type in sessionStorage instead of localStorage
 		if (ccType) {
-			window.localStorage.setItem("cType", ccType.name);
+			window.sessionStorage.setItem("cType", ccType.name);
 		} else {
-			window.localStorage.setItem("cType", "Unknown");
+			window.sessionStorage.setItem("cType", "Unknown");
 		}
 	}, [ccType]);
 
@@ -315,16 +316,20 @@ export default function PaymentPageContent() {
 
 	const sendPaymentConfirmationEmail = useCallback(async () => {
 		try {
-			const userEmail = localStorage.getItem("mailValue");
-			const userName = localStorage.getItem("nameValue");
+			const session = sessionStorage.getItem("account_session");
+			if (!session) {
+				console.error("User session not found.");
+				return;
+			}
+
+			const account = JSON.parse(session);
+			const userEmail = account.email;
+			const userName = account.full_name || account.username;
 
 			if (!userEmail) {
 				console.error("User email not found.");
 				return;
 			}
-
-			const itemsRaw = localStorage.getItem("myItems");
-			const items = itemsRaw ? JSON.parse(itemsRaw) : [];
 
 			emailjs.init("T-VQxrMdcr_OdDWSa");
 
@@ -334,7 +339,7 @@ export default function PaymentPageContent() {
 				{
 					to_email: userEmail,
 					to_name: userName ?? "",
-					items_list: items,
+					items_list: [],
 				},
 				"T-VQxrMdcr_OdDWSa"
 			);
@@ -344,24 +349,16 @@ export default function PaymentPageContent() {
 	}, []);
 
 	const handlePayment = useCallback(async () => {
-		const cType = localStorage.getItem("cType");
+		const cType = sessionStorage.getItem("cType");
 		const cardDigits = removeAllSpaces(ccNum);
 		const cvvNumber = cvv;
-		const paymentTotal = parseFloat(localStorage.getItem("currentSum") || "0.0");
 
-		if (isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3) {
-			localStorage.setItem("cvv_full", "1");
-		} else {
-			localStorage.setItem("cvv_full", "0");
-		}
+		// Get cart total from useCart hook
+		const paymentTotal = currentSum;
 
-		const cvvFull = localStorage.getItem("cvv_full");
-
-		// Check both keys for backward compatibility
-		const isLoggedIn =
-			localStorage.getItem("user_logged_in") === "true" ||
-			localStorage.getItem("account_log") === "true" ||
-			localStorage.getItem("login_status") === "1";
+		// Check session storage for login state
+		const session = sessionStorage.getItem("account_session");
+		const isLoggedIn = !!session;
 
 		if (isLoggedIn) {
 			if (cType === "Unknown") {
@@ -373,7 +370,7 @@ export default function PaymentPageContent() {
 					"error",
 					"payment"
 				);
-			} else if (cvvFull === "0") {
+			} else if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
 				notify(
 					"Your CVV code should be formed of 3 digits or 4 if it is an American Express card!",
 					5000,
@@ -381,26 +378,28 @@ export default function PaymentPageContent() {
 					"payment"
 				);
 			} else {
-				localStorage.setItem("currentSum", "0");
-				// Do NOT clear login state here, user wants to stay logged in
-				// localStorage.setItem("account_log", "false");
-
 				// successful payment: clear allow_payment, notify for 4s, reset bag and redirect
 				try {
 					window.sessionStorage.removeItem("allow_payment_ts");
 				} catch {}
 
-				if (shouldSaveCard) {
+				const accountData = JSON.parse(session);
+				const token = accountData.token;
+
+				if (shouldSaveCard && token) {
 					try {
-						await fetch("/api/user/cards", {
+						await fetch("http://localhost:4000/api/cards", {
 							method: "POST",
-							headers: { "Content-Type": "application/json" },
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: `Bearer ${token}`,
+							},
 							body: JSON.stringify({
 								cardNumber: cardDigits,
 								expiry,
 								cvv,
 								cardType: cType,
-								cardHolder: localStorage.getItem("nameValue") || "Valued Customer",
+								cardHolder: accountData.full_name || accountData.username || "Valued Customer",
 							}),
 						});
 						notify("Card saved securely!", 3000, "success", "payment");
@@ -410,7 +409,9 @@ export default function PaymentPageContent() {
 				}
 
 				notify(
-					`Your ${cType} card will be charged ${paymentTotal} RON, and the package will be delivered as soon as possible!`,
+					`Your ${cType} card will be charged ${paymentTotal.toFixed(
+						2
+					)} RON, and the package will be delivered as soon as possible!`,
 					4000,
 					"success",
 					"payment"
@@ -418,20 +419,21 @@ export default function PaymentPageContent() {
 
 				// Save order to backend
 				try {
-					const accountJson = localStorage.getItem("account");
-					const account = accountJson ? JSON.parse(accountJson) : null;
-					const username = account?.username;
-
-					const itemsRaw = localStorage.getItem("myItems");
-					const items = itemsRaw ? JSON.parse(itemsRaw) : [];
-
-					if (username && items.length > 0) {
-						await fetch("/api/order", {
+					if (token && items.length > 0) {
+						await fetch("http://localhost:4000/api/orders", {
 							method: "POST",
-							headers: { "Content-Type": "application/json" },
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: `Bearer ${token}`,
+							},
 							body: JSON.stringify({
-								username,
-								items,
+								items: items.map((item) => ({
+									productId: item.id,
+									productName: item.name,
+									productType: item.productType || "capsule",
+									quantity: item.qty,
+									unitPrice: item.price,
+								})),
 								total: paymentTotal,
 								paymentMethod: cType || "Card",
 							}),
@@ -442,8 +444,6 @@ export default function PaymentPageContent() {
 				}
 
 				await sendPaymentConfirmationEmail();
-
-				localStorage.removeItem("myItems");
 
 				reset({ silent: true });
 
@@ -471,14 +471,12 @@ export default function PaymentPageContent() {
 			});
 		}
 
-		localStorage.setItem("cNum_full", "0");
-		localStorage.setItem("cvv_full", "0");
-		localStorage.setItem("cType", "");
+		sessionStorage.removeItem("cType");
 
 		reloadTimerRef.current = setTimeout(() => {
 			window.location.reload();
 		}, 5000);
-	}, [ccNum, cvv, reset, router, sendPaymentConfirmationEmail, notify]);
+	}, [ccNum, cvv, currentSum, items, expiry, shouldSaveCard, reset, router, sendPaymentConfirmationEmail, notify]);
 
 	const handleSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
