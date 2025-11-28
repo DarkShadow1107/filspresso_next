@@ -171,17 +171,32 @@ export default function PaymentPageContent() {
 	const [expiry, setExpiry] = useState("");
 	const [cvv, setCvv] = useState("");
 	const [savedCards, setSavedCards] = useState<any[]>([]);
+	const [selectedSavedCard, setSelectedSavedCard] = useState<any | null>(null);
 	const [shouldSaveCard, setShouldSaveCard] = useState(false);
+	const [isCardDropdownOpen, setIsCardDropdownOpen] = useState(false);
 
 	useEffect(() => {
-		fetch("/api/user/cards")
-			.then((res) => res.json())
-			.then((data) => {
-				if (Array.isArray(data)) {
-					setSavedCards(data);
+		// Fetch saved cards from Express API
+		const session = sessionStorage.getItem("account_session");
+		if (session) {
+			try {
+				const { token } = JSON.parse(session);
+				if (token) {
+					fetch("http://localhost:4000/api/cards", {
+						headers: { Authorization: `Bearer ${token}` },
+					})
+						.then((res) => res.json())
+						.then((data) => {
+							if (data.cards && Array.isArray(data.cards)) {
+								setSavedCards(data.cards);
+							}
+						})
+						.catch((err) => console.error("Failed to load cards", err));
 				}
-			})
-			.catch((err) => console.error("Failed to load cards", err));
+			} catch (e) {
+				console.error("Failed to parse session", e);
+			}
+		}
 	}, []);
 
 	const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -218,23 +233,47 @@ export default function PaymentPageContent() {
 	}, []);
 
 	const handleSelectCard = useCallback(
-		async (cardId: string) => {
-			if (!cardId) return;
-			try {
-				const res = await fetch(`/api/user/cards?id=${cardId}&showFull=true`);
-				const data = await res.json();
-				if (data.cardNumber) {
-					formatCreditCard(data.cardNumber);
-					setExpiry(data.expiry);
-					setCvv(data.cvv);
-					notify("Card details loaded!", 3000, "success", "payment");
+		(cardId: string) => {
+			if (!cardId) {
+				// Clear selection
+				setSelectedSavedCard(null);
+				setCcNum("");
+				setExpiry("");
+				setCvv("");
+				setCcType(null);
+				return;
+			}
+
+			const card = savedCards.find((c) => c.id === parseInt(cardId));
+			if (card) {
+				setSelectedSavedCard(card);
+				// Format the card number display (masked)
+				const maskedNumber = `•••• •••• •••• ${card.card_last_four}`;
+				setCcNum(maskedNumber);
+				setExpiry(card.card_expiry);
+				// Set card type based on card_type from database
+				const cardTypeName = card.card_type || "Visa";
+				let normalizedType = "Visa";
+				const lowerType = cardTypeName.toLowerCase();
+				if (lowerType.includes("visa")) normalizedType = "Visa";
+				else if (lowerType.includes("master")) normalizedType = "Mastercard";
+				else if (lowerType.includes("american") || lowerType.includes("amex")) normalizedType = "American Express";
+				else if (lowerType.includes("discover")) normalizedType = "Discover";
+
+				const detectedType = CARD_TYPES[normalizedType] || CARD_TYPES["Visa"];
+				setCcType(detectedType);
+				setCcSecurity(detectedType.security);
+				// Pre-fill CVV if available from saved card
+				if (card.card_cvv) {
+					setCvv(card.card_cvv);
+					notify("Card selected! Ready to pay.", 3000, "success", "payment");
+				} else {
+					setCvv("");
+					notify("Card selected! Please enter your CVV to continue.", 4000, "info", "payment");
 				}
-			} catch (e) {
-				console.error(e);
-				notify("Failed to load card details.", 3000, "error", "payment");
 			}
 		},
-		[formatCreditCard, notify]
+		[savedCards, notify]
 	);
 
 	const handleCardInput = useCallback(
@@ -349,65 +388,169 @@ export default function PaymentPageContent() {
 	}, []);
 
 	const handlePayment = useCallback(async () => {
-		const cType = sessionStorage.getItem("cType");
+		const cType = sessionStorage.getItem("cType") || (selectedSavedCard ? selectedSavedCard.card_type : null);
 		const cardDigits = removeAllSpaces(ccNum);
 		const cvvNumber = cvv;
 
-		// Get cart total from useCart hook
-		const paymentTotal = currentSum;
+		// Calculate shipping and total
+		const shippingCost = currentSum >= 200 ? 0 : 24.99;
+		const paymentTotal = currentSum + shippingCost;
 
 		// Check session storage for login state
 		const session = sessionStorage.getItem("account_session");
 		const isLoggedIn = !!session;
 
 		if (isLoggedIn) {
-			if (cType === "Unknown") {
-				notify("You need to enter a valid form of payment! For example a Visa card.", 5000, "error", "payment");
-			} else if (cardDigits.length !== 16 && cardDigits.length !== 15 && cType !== "American Express") {
-				notify(
-					"You need to enter a card number formed of 16 digits or 15 digits if it is an American Express card!",
-					5000,
-					"error",
-					"payment"
-				);
-			} else if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
-				notify(
-					"Your CVV code should be formed of 3 digits or 4 if it is an American Express card!",
-					5000,
-					"error",
-					"payment"
-				);
-			} else {
-				// successful payment: clear allow_payment, notify for 4s, reset bag and redirect
-				try {
-					window.sessionStorage.removeItem("allow_payment_ts");
-				} catch {}
-
-				const accountData = JSON.parse(session);
-				const token = accountData.token;
-
-				if (shouldSaveCard && token) {
-					try {
-						await fetch("http://localhost:4000/api/cards", {
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								Authorization: `Bearer ${token}`,
-							},
-							body: JSON.stringify({
-								cardNumber: cardDigits,
-								expiry,
-								cvv,
-								cardType: cType,
-								cardHolder: accountData.full_name || accountData.username || "Valued Customer",
-							}),
-						});
-						notify("Card saved securely!", 3000, "success", "payment");
-					} catch (e) {
-						console.error("Failed to save card", e);
-					}
+			// Validation for saved card
+			if (selectedSavedCard) {
+				if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
+					notify("Please enter your CVV to confirm payment with your saved card.", 5000, "error", "payment");
+					return;
 				}
+			} else {
+				// Validation for new card
+				if (cType === "Unknown" || !cType) {
+					notify("You need to enter a valid form of payment! For example a Visa card.", 5000, "error", "payment");
+					return;
+				} else if (cardDigits.length !== 16 && cardDigits.length !== 15 && cType !== "American Express") {
+					notify(
+						"You need to enter a card number formed of 16 digits or 15 digits if it is an American Express card!",
+						5000,
+						"error",
+						"payment"
+					);
+					return;
+				} else if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
+					notify(
+						"Your CVV code should be formed of 3 digits or 4 if it is an American Express card!",
+						5000,
+						"error",
+						"payment"
+					);
+					return;
+				}
+			}
 
+			// Successful payment
+			try {
+				window.sessionStorage.removeItem("allow_payment_ts");
+			} catch {}
+
+			const accountData = JSON.parse(session);
+			const token = accountData.token;
+
+			if (shouldSaveCard && !selectedSavedCard && token) {
+				try {
+					await fetch("http://localhost:4000/api/cards", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Bearer ${token}`,
+						},
+						body: JSON.stringify({
+							cardNumber: cardDigits,
+							expiry,
+							cvv,
+							cardType: cType,
+							cardHolder: accountData.full_name || accountData.username || "Valued Customer",
+						}),
+					});
+					notify("Card saved securely!", 3000, "success", "payment");
+				} catch (e) {
+					console.error("Failed to save card", e);
+				}
+			}
+
+			// Check if this is a subscription purchase
+			const subscriptionItem = items.find((item) => item.id.startsWith("sub-"));
+			const isSubscriptionPurchase = !!subscriptionItem;
+
+			if (isSubscriptionPurchase && subscriptionItem) {
+				// Extract subscription details from item id (e.g., "sub-ultimate")
+				const subscriptionTier = subscriptionItem.id.replace("sub-", "");
+				const billingCycle = subscriptionItem.name.toLowerCase().includes("yearly") ? "annual" : "monthly";
+
+				// Create subscription via API
+				try {
+					const subResponse = await fetch("http://localhost:4000/api/subscriptions", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Bearer ${token}`,
+						},
+						body: JSON.stringify({
+							tier: subscriptionTier,
+							billingCycle: billingCycle,
+							cardId: selectedSavedCard?.id || null,
+						}),
+					});
+
+					if (subResponse.ok) {
+						const subData = await subResponse.json();
+						const renewalDate = subData.subscription?.renewal_date
+							? new Date(subData.subscription.renewal_date).toLocaleDateString("en-US", {
+									weekday: "short",
+									year: "numeric",
+									month: "short",
+									day: "numeric",
+							  })
+							: "";
+
+						// Show subscription-specific notification (no delivery, confirmed immediately)
+						notify(
+							`🎉 Subscription confirmed! Your ${
+								subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)
+							} plan is now active. Next renewal: ${renewalDate}`,
+							6000,
+							"success",
+							"payment"
+						);
+
+						// Also create an order record for the subscription
+						try {
+							await fetch("http://localhost:4000/api/orders", {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+									Authorization: `Bearer ${token}`,
+								},
+								body: JSON.stringify({
+									items: [
+										{
+											productId: subscriptionItem.id,
+											productName: subscriptionItem.name,
+											productType: "subscription",
+											quantity: 1,
+											unitPrice: subscriptionItem.price,
+											productImage: null,
+										},
+									],
+									shippingCost: 0,
+									total: subscriptionItem.price,
+									paymentMethod: cType || "Card",
+									cardId: selectedSavedCard?.id || null,
+									isSubscription: true,
+								}),
+							});
+						} catch (e) {
+							console.error("Failed to save subscription order", e);
+						}
+
+						// Update session storage with new subscription
+						const updatedAccountData = {
+							...accountData,
+							subscription: subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1),
+						};
+						sessionStorage.setItem("account_session", JSON.stringify(updatedAccountData));
+					} else {
+						notify("Subscription activation failed. Please contact support.", 5000, "error", "payment");
+					}
+				} catch (e) {
+					console.error("Failed to create subscription", e);
+					notify("Subscription activation failed. Please try again.", 5000, "error", "payment");
+				}
+			} else {
+				// Regular product order
 				notify(
 					`Your ${cType} card will be charged ${paymentTotal.toFixed(
 						2
@@ -433,24 +576,27 @@ export default function PaymentPageContent() {
 									productType: item.productType || "capsule",
 									quantity: item.qty,
 									unitPrice: item.price,
+									productImage: item.image,
 								})),
+								shippingCost: shippingCost,
 								total: paymentTotal,
 								paymentMethod: cType || "Card",
+								cardId: selectedSavedCard?.id || null,
 							}),
 						});
 					}
 				} catch (e) {
 					console.error("Failed to save order", e);
 				}
-
-				await sendPaymentConfirmationEmail();
-
-				reset({ silent: true });
-
-				redirectTimerRef.current = setTimeout(() => {
-					router.push(buildPageHref("coffee"));
-				}, 4300);
 			}
+
+			await sendPaymentConfirmationEmail();
+
+			reset({ silent: true });
+
+			redirectTimerRef.current = setTimeout(() => {
+				router.push(buildPageHref("coffee"));
+			}, 4300);
 		} else {
 			// Offer navigation to account page
 			notify("You need to log in or make an account with us first!", 8000, "error", "payment", {
@@ -476,7 +622,19 @@ export default function PaymentPageContent() {
 		reloadTimerRef.current = setTimeout(() => {
 			window.location.reload();
 		}, 5000);
-	}, [ccNum, cvv, currentSum, items, expiry, shouldSaveCard, reset, router, sendPaymentConfirmationEmail, notify]);
+	}, [
+		ccNum,
+		cvv,
+		currentSum,
+		items,
+		expiry,
+		shouldSaveCard,
+		selectedSavedCard,
+		reset,
+		router,
+		sendPaymentConfirmationEmail,
+		notify,
+	]);
 
 	const handleSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -493,20 +651,175 @@ export default function PaymentPageContent() {
 			</div>
 			<div className="payment-card">
 				{savedCards.length > 0 && (
-					<div className="saved-cards-selector" style={{ marginBottom: "1.5rem" }}>
-						<label className="payment-field__title" style={{ display: "block", marginBottom: "0.5rem" }}>
-							Use a saved card
-						</label>
-						<select className="payment-input" onChange={(e) => handleSelectCard(e.target.value)} defaultValue="">
-							<option value="" disabled>
-								Select a card...
-							</option>
-							{savedCards.map((card) => (
-								<option key={card.id} value={card.id}>
-									{card.cardType} ending in {card.last4} (Exp: {card.expiry})
-								</option>
-							))}
-						</select>
+					<div
+						className="saved-cards-selector"
+						style={{
+							marginBottom: "2rem",
+							position: "relative",
+							zIndex: 20,
+							width: "min(100%, 38rem)",
+						}}
+					>
+						<div
+							onClick={() => setIsCardDropdownOpen(!isCardDropdownOpen)}
+							style={{
+								background: "linear-gradient(145deg, #1a1a1a 0%, #0d0d0d 100%)",
+								border: isCardDropdownOpen ? "1px solid #c4a77d" : "1px solid #333",
+								borderRadius: "12px",
+								padding: "1rem 1.25rem",
+								cursor: "pointer",
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "space-between",
+								transition: "all 0.3s ease",
+								boxShadow: isCardDropdownOpen
+									? "0 0 0 2px rgba(196, 167, 125, 0.2), 0 8px 24px rgba(0,0,0,0.4)"
+									: "0 4px 12px rgba(0,0,0,0.2)",
+							}}
+						>
+							<div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+								<div
+									style={{
+										width: "36px",
+										height: "36px",
+										borderRadius: "10px",
+										background: selectedSavedCard
+											? "linear-gradient(135deg, #c4a77d 0%, #a67c52 100%)"
+											: "#2a2a2a",
+										display: "flex",
+										alignItems: "center",
+										justifyContent: "center",
+										fontSize: "1.2rem",
+										color: selectedSavedCard ? "#fff" : "#888",
+									}}
+								>
+									{selectedSavedCard ? "💳" : "💳"}
+								</div>
+								<div>
+									<div
+										style={{
+											color: selectedSavedCard ? "#c4a77d" : "#fff",
+											fontWeight: 600,
+											fontSize: "1rem",
+											fontFamily: selectedSavedCard ? "'Courier New', monospace" : "inherit",
+											letterSpacing: selectedSavedCard ? "1px" : "normal",
+										}}
+									>
+										{selectedSavedCard
+											? `•••• •••• •••• ${selectedSavedCard.card_last_four}`
+											: "Select a saved card"}
+									</div>
+									<div style={{ color: "#888", fontSize: "0.8rem", marginTop: "2px" }}>
+										{selectedSavedCard
+											? `${selectedSavedCard.card_type} • Exp: ${selectedSavedCard.card_expiry}`
+											: "Or enter details manually below"}
+									</div>
+								</div>
+							</div>
+							<div
+								style={{
+									transform: isCardDropdownOpen ? "rotate(180deg)" : "rotate(0deg)",
+									transition: "transform 0.3s ease",
+									color: "#888",
+								}}
+							>
+								▼
+							</div>
+						</div>
+
+						{/* Dropdown Menu */}
+						{isCardDropdownOpen && (
+							<div
+								style={{
+									position: "absolute",
+									top: "calc(100% + 8px)",
+									left: 0,
+									right: 0,
+									background: "#121212",
+									border: "1px solid #333",
+									borderRadius: "12px",
+									overflow: "hidden",
+									boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
+									zIndex: 30,
+									animation: "fadeIn 0.2s ease-out",
+								}}
+							>
+								{savedCards.map((card) => (
+									<div
+										key={card.id}
+										onClick={() => {
+											handleSelectCard(card.id.toString());
+											setIsCardDropdownOpen(false);
+										}}
+										style={{
+											padding: "1rem 1.25rem",
+											display: "flex",
+											alignItems: "center",
+											justifyContent: "space-between",
+											cursor: "pointer",
+											background: selectedSavedCard?.id === card.id ? "#1a1a1a" : "transparent",
+											borderBottom: "1px solid #222",
+											transition: "background 0.2s",
+										}}
+										onMouseEnter={(e) => (e.currentTarget.style.background = "#1a1a1a")}
+										onMouseLeave={(e) =>
+											(e.currentTarget.style.background =
+												selectedSavedCard?.id === card.id ? "#1a1a1a" : "transparent")
+										}
+									>
+										<div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+											<div
+												style={{
+													fontFamily: "'Courier New', monospace",
+													color: "#fff",
+													fontSize: "1rem",
+													letterSpacing: "1px",
+												}}
+											>
+												•••• {card.card_last_four}
+											</div>
+											<div
+												style={{
+													background: "#222",
+													padding: "2px 8px",
+													borderRadius: "4px",
+													fontSize: "0.75rem",
+													color: "#aaa",
+												}}
+											>
+												{card.card_type}
+											</div>
+										</div>
+										{selectedSavedCard?.id === card.id && <span style={{ color: "#c4a77d" }}>✓</span>}
+									</div>
+								))}
+
+								<div
+									onClick={() => {
+										handleSelectCard("");
+										setIsCardDropdownOpen(false);
+									}}
+									style={{
+										padding: "1rem 1.25rem",
+										display: "flex",
+										alignItems: "center",
+										gap: "0.75rem",
+										cursor: "pointer",
+										color: "#3b82f6",
+										background: !selectedSavedCard ? "rgba(59, 130, 246, 0.05)" : "transparent",
+									}}
+									onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(59, 130, 246, 0.1)")}
+									onMouseLeave={(e) =>
+										(e.currentTarget.style.background = !selectedSavedCard
+											? "rgba(59, 130, 246, 0.05)"
+											: "transparent")
+									}
+								>
+									<span>✏️</span>
+									<span style={{ fontWeight: 500 }}>Enter card details manually</span>
+								</div>
+							</div>
+						)}
 					</div>
 				)}
 				<form className="payment-form" autoComplete="off" onSubmit={handleSubmit}>
@@ -531,6 +844,7 @@ export default function PaymentPageContent() {
 									onKeyUp={handleCardInput}
 									maxLength={ccLength}
 									className="payment-input"
+									readOnly={!!selectedSavedCard}
 								/>
 								{cardLogo ? (
 									<span className="payment-card-brand">
@@ -542,8 +856,7 @@ export default function PaymentPageContent() {
 						<label htmlFor="expiry" className="payment-field payment-span-2">
 							<span className="payment-field__title">Expiration date</span>
 							<p className="payment-field__helper">
-								As a user types, a slash should automatically be added once a month is entered. If no year is
-								present and the user hits backspace, it should delete the slash and the second digit of the month
+								As a user types, a slash should automatically be added once a month is entered.
 							</p>
 							<div className="payment-input-wrapper">
 								<input
@@ -559,14 +872,15 @@ export default function PaymentPageContent() {
 									onInput={handleExpiryChange}
 									onKeyUp={handleExpiryKeyUp}
 									className="payment-input"
+									readOnly={!!selectedSavedCard}
 								/>
 							</div>
 						</label>
 						<label htmlFor="cvv" className="payment-field payment-span-1">
-							<span className="payment-field__title">CVV</span>
-							<p className="payment-field__helper">
-								The max length of this field should be 3 for most card types, 4 for American Express
-							</p>
+							<span className="payment-field__title">
+								CVV {selectedSavedCard && <span style={{ color: "#ef4444" }}>*</span>}
+							</span>
+							<p className="payment-field__helper">3 digits for most cards, 4 for Amex.</p>
 							<div className="payment-input-wrapper">
 								<input
 									type="text"
@@ -586,21 +900,192 @@ export default function PaymentPageContent() {
 								/>
 							</div>
 						</label>
-						<div
-							className="payment-span-3"
-							style={{ marginTop: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}
-						>
-							<input
-								type="checkbox"
-								id="saveCard"
-								checked={shouldSaveCard}
-								onChange={(e) => setShouldSaveCard(e.target.checked)}
-								style={{ width: "auto", margin: 0 }}
-							/>
-							<label htmlFor="saveCard" style={{ cursor: "pointer", fontSize: "0.9rem", color: "#555" }}>
-								Save this card for future purchases
-							</label>
-						</div>
+						{!selectedSavedCard && (
+							<div
+								className="payment-span-3"
+								style={{
+									gridColumn: "span 3",
+									marginTop: "2rem",
+									position: "relative",
+									overflow: "hidden",
+									borderRadius: "16px",
+									cursor: "pointer",
+									transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+									background: shouldSaveCard
+										? "linear-gradient(135deg, rgba(196, 167, 125, 0.15) 0%, rgba(166, 124, 82, 0.08) 100%)"
+										: "linear-gradient(145deg, #151515 0%, #0a0a0a 100%)",
+									border: shouldSaveCard ? "2px solid rgba(196, 167, 125, 0.5)" : "1px solid #2a2a2a",
+									boxShadow: shouldSaveCard
+										? "0 8px 32px rgba(196, 167, 125, 0.2), inset 0 1px 0 rgba(255,255,255,0.1)"
+										: "0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255,255,255,0.03)",
+									padding: "1.5rem 2rem", // Increased padding for wider/taller look
+								}}
+								onClick={() => setShouldSaveCard(!shouldSaveCard)}
+								onMouseEnter={(e) => {
+									if (!shouldSaveCard) {
+										e.currentTarget.style.borderColor = "#444";
+										e.currentTarget.style.transform = "translateY(-2px)";
+										e.currentTarget.style.boxShadow =
+											"0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.05)";
+									}
+								}}
+								onMouseLeave={(e) => {
+									if (!shouldSaveCard) {
+										e.currentTarget.style.borderColor = "#2a2a2a";
+										e.currentTarget.style.transform = "translateY(0)";
+										e.currentTarget.style.boxShadow =
+											"0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255,255,255,0.03)";
+									}
+								}}
+							>
+								{/* Animated background shimmer */}
+								{shouldSaveCard && (
+									<div
+										style={{
+											position: "absolute",
+											top: 0,
+											left: "-100%",
+											width: "200%",
+											height: "100%",
+											background:
+												"linear-gradient(90deg, transparent 0%, rgba(196, 167, 125, 0.1) 50%, transparent 100%)",
+											animation: "shimmer 2s infinite",
+											pointerEvents: "none",
+										}}
+									/>
+								)}
+
+								<div
+									style={{
+										display: "flex",
+										alignItems: "center",
+										justifyContent: "space-between",
+										position: "relative",
+										zIndex: 1,
+									}}
+								>
+									<div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+										{/* Card Icon with Shield */}
+										<div
+											style={{
+												position: "relative",
+												width: "64px", // Increased size
+												height: "64px", // Increased size
+											}}
+										>
+											<div
+												style={{
+													width: "64px",
+													height: "64px",
+													borderRadius: "16px",
+													background: shouldSaveCard
+														? "linear-gradient(135deg, #c4a77d 0%, #a67c52 100%)"
+														: "linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%)",
+													display: "flex",
+													alignItems: "center",
+													justifyContent: "center",
+													transition: "all 0.4s ease",
+													boxShadow: shouldSaveCard
+														? "0 4px 16px rgba(196, 167, 125, 0.4)"
+														: "0 2px 8px rgba(0, 0, 0, 0.3)",
+													border: shouldSaveCard ? "none" : "1px solid #333",
+												}}
+											>
+												<span
+													style={{
+														fontSize: "2rem", // Increased font size
+														transition: "transform 0.3s ease",
+														transform: shouldSaveCard ? "scale(1.1)" : "scale(1)",
+													}}
+												>
+													{shouldSaveCard ? "🔒" : "💳"}
+												</span>
+											</div>
+											{/* Checkmark badge */}
+											{shouldSaveCard && (
+												<div
+													style={{
+														position: "absolute",
+														bottom: "-6px",
+														right: "-6px",
+														width: "26px",
+														height: "26px",
+														borderRadius: "50%",
+														background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+														display: "flex",
+														alignItems: "center",
+														justifyContent: "center",
+														boxShadow: "0 2px 8px rgba(16, 185, 129, 0.5)",
+														border: "3px solid #0a0a0a",
+													}}
+												>
+													<span style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 700 }}>✓</span>
+												</div>
+											)}
+										</div>
+										<div>
+											<div
+												style={{
+													fontSize: "1.1rem", // Increased font size
+													color: shouldSaveCard ? "#c4a77d" : "#fff",
+													fontWeight: 700,
+													marginBottom: "6px",
+													letterSpacing: "0.02em",
+												}}
+											>
+												{shouldSaveCard ? "Card will be saved securely" : "Save card for faster checkout"}
+											</div>
+											<div
+												style={{
+													fontSize: "0.9rem",
+													color: "#888",
+													display: "flex",
+													alignItems: "center",
+													gap: "0.5rem",
+												}}
+											>
+												<span style={{ fontSize: "1rem" }}>🔐</span>
+												<span>256-bit encrypted • One-click payments</span>
+											</div>
+										</div>
+									</div>
+									{/* Modern Toggle Switch */}
+									<div
+										style={{
+											width: "68px", // Wider toggle
+											height: "36px", // Taller toggle
+											borderRadius: "18px",
+											background: shouldSaveCard
+												? "linear-gradient(135deg, #c4a77d 0%, #a67c52 100%)"
+												: "#252525",
+											padding: "4px",
+											transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+											boxShadow: shouldSaveCard
+												? "0 2px 12px rgba(196, 167, 125, 0.4), inset 0 1px 2px rgba(255,255,255,0.2)"
+												: "inset 0 2px 4px rgba(0, 0, 0, 0.4)",
+											border: shouldSaveCard ? "none" : "1px solid #333",
+											flexShrink: 0,
+										}}
+									>
+										<div
+											style={{
+												width: "28px",
+												height: "28px",
+												borderRadius: "50%",
+												background: shouldSaveCard
+													? "linear-gradient(135deg, #fff 0%, #f0f0f0 100%)"
+													: "linear-gradient(135deg, #555 0%, #444 100%)",
+												boxShadow: shouldSaveCard
+													? "0 2px 8px rgba(0, 0, 0, 0.3)"
+													: "0 1px 3px rgba(0, 0, 0, 0.3)",
+												transform: shouldSaveCard ? "translateX(32px)" : "translateX(0)",
+												transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+											}}
+										/>
+									</div>
+								</div>
+							</div>
+						)}
 					</div>
 				</form>
 				<button type="button" onClick={handlePayment} id="pay" className="payment-pay-button">

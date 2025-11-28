@@ -5,8 +5,16 @@ import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
-import { coffeeCollections } from "@/data/coffee";
+import { coffeeCollections, type CoffeeProduct } from "@/data/coffee";
 import { machineCollections } from "@/data/machines";
+import type { WeatherData } from "@/lib/weather";
+
+type PopularProduct = {
+	product_id: string;
+	product_name: string;
+	product_image: string | null;
+	total_ordered: number;
+};
 
 function formatRon(value: number) {
 	return `${value.toFixed(2).replace(".", ",")} RON`;
@@ -39,12 +47,28 @@ function getProductImage(productId: string): string | undefined {
 	return undefined;
 }
 
+// Helper function to get full product data by ID
+function getProductData(productId: string): CoffeeProduct | undefined {
+	for (const collection of coffeeCollections) {
+		for (const group of collection.groups) {
+			for (const product of group.products) {
+				if (product.id === productId) {
+					return product;
+				}
+			}
+		}
+	}
+	return undefined;
+}
+
 export default function Cart() {
-	const { items, currentSum, reset, placeOrder, removeItem, updateQuantity } = useCart();
+	const { items, currentSum, reset, placeOrder, removeItem, updateQuantity, addItem } = useCart();
 	const { notify } = useNotifications();
 	const router = useRouter();
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
 	const [isHydrated, setIsHydrated] = useState(false);
+	const [weather, setWeather] = useState<WeatherData | null>(null);
+	const [popularProducts, setPopularProducts] = useState<PopularProduct[]>([]);
 	const hasItems = items.length > 0;
 
 	useEffect(() => {
@@ -53,7 +77,51 @@ export default function Cart() {
 		// Check sessionStorage for login state
 		const session = sessionStorage.getItem("account_session");
 		setIsLoggedIn(!!session);
+
+		// Fetch weather for shipping warnings
+		const fetchWeather = async () => {
+			try {
+				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+				const res = await fetch(`${API_BASE}/api/weather`);
+				if (res.ok) {
+					const data = await res.json();
+					setWeather(data);
+				}
+			} catch {
+				// Silent fail - weather is optional
+			}
+		};
+		fetchWeather();
+
+		// Fetch popular products for "Members also buy"
+		const fetchPopular = async () => {
+			try {
+				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+				const res = await fetch(`${API_BASE}/api/orders/popular?limit=7`);
+				if (res.ok) {
+					const data = await res.json();
+					setPopularProducts(data.products || []);
+				}
+			} catch {
+				// Silent fail - recommendations are optional
+			}
+		};
+		fetchPopular();
 	}, []);
+
+	const handleAddPopularItem = (productId: string) => {
+		const product = getProductData(productId);
+		if (product) {
+			addItem({
+				id: product.id,
+				name: product.name,
+				price: product.priceRon,
+				qty: 1,
+				image: product.image,
+			});
+			notify(`Added ${product.name} to bag!`, 3000, "success", "bag");
+		}
+	};
 
 	const handlePlaceOrder = () => {
 		if (!isLoggedIn) {
@@ -119,6 +187,16 @@ export default function Cart() {
 							<span className="stat-value total-price">{formatRon(finalTotal)}</span>
 						</div>
 					</div>
+					{weather?.hourly && weather.hourly.precipitation_probability[0] > 50 && (
+						<div className="weather-shipping-warning">
+							<span className="weather-warning-icon">🌧️</span>
+							<span className="weather-warning-text">
+								{weather.hourly.precipitation_probability[0] >= 80
+									? "Heavy rain expected – delivery may be delayed"
+									: "Rain in forecast – minor delays possible"}
+							</span>
+						</div>
+					)}
 					<div className="cart-actions">
 						<button
 							id="placeOrderButton"
@@ -257,6 +335,49 @@ export default function Cart() {
 						<div className="empty-icon">🛒</div>
 						<p className="empty-text">Your shopping bag is empty</p>
 						<p className="empty-subtext">Add some delicious coffee capsules to get started!</p>
+					</div>
+				)}
+
+				{/* Members Also Buy Section */}
+				{popularProducts.length > 0 && (
+					<div className="members-also-buy">
+						<h3 className="members-also-buy-title">☕ Members Also Buy</h3>
+						<div className="popular-products-carousel">
+							{popularProducts.map((pop) => {
+								const product = getProductData(pop.product_id);
+								const img = pop.product_image || product?.image || getProductImage(pop.product_id);
+								const alreadyInCart = items.some((item) => item.id === pop.product_id);
+								// Extract just the product name without price (API returns "Name - Price")
+								const displayName = product?.name || pop.product_name.split(" - ")[0];
+
+								return (
+									<div key={pop.product_id} className="popular-product-card">
+										{img && (
+											<div className="popular-product-image">
+												<img src={img} alt={displayName} />
+											</div>
+										)}
+										<div className="popular-product-info">
+											<div className="popular-product-name" title={displayName}>
+												{displayName}
+											</div>
+											{product && (
+												<div className="popular-product-price">{formatRon(product.priceRon)}</div>
+											)}
+											<div className="popular-product-orders">🔥 {pop.total_ordered} ordered</div>
+										</div>
+										<button
+											className="popular-add-btn"
+											onClick={() => handleAddPopularItem(pop.product_id)}
+											disabled={alreadyInCart}
+											title={alreadyInCart ? "Already in bag" : "Add to bag"}
+										>
+											{alreadyInCart ? "✓" : "+"}
+										</button>
+									</div>
+								);
+							})}
+						</div>
 					</div>
 				)}
 			</div>

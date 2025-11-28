@@ -179,7 +179,7 @@
 	--hsl: var(--hue), var(--saturation), var(--lightness);
 	position: relative;
 	width: 100%;
-	max-width: 25rem;
+	max-width: 28.75rem;
 	min-height: 28rem;
 	padding: 1.5em 2em;
 	display: grid;

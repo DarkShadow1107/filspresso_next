@@ -27,12 +27,12 @@ CREATE INDEX idx_accounts_username ON accounts(username);
 -- =============================================================================
 -- USER CARDS TABLE (encrypted card data)
 -- =============================================================================
+-- NOTE: CVV is NOT stored for PCI-DSS compliance
 CREATE TABLE IF NOT EXISTS user_cards (
     id INT AUTO_INCREMENT PRIMARY KEY,
     account_id INT NOT NULL,
     card_number_encrypted VARCHAR(512) NOT NULL,
     card_expiry_encrypted VARCHAR(128) NOT NULL,
-    card_cvv_encrypted VARCHAR(128) NOT NULL,
     card_holder VARCHAR(255) NOT NULL,
     card_type VARCHAR(50) DEFAULT 'visa',
     card_last_four CHAR(4) NOT NULL,
@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS orders (
     payment_method VARCHAR(50),
     card_id INT,
     notes TEXT,
+    weather_condition ENUM('clear', 'rain', 'snow', 'normal') DEFAULT 'normal',
+    estimated_delivery VARCHAR(20) DEFAULT '1-2 days',
+    expected_delivery_date DATE NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
@@ -77,7 +80,7 @@ CREATE INDEX idx_orders_created ON orders(created_at);
 CREATE TABLE IF NOT EXISTS order_items (
     id INT AUTO_INCREMENT PRIMARY KEY,
     order_id INT NOT NULL,
-    product_type ENUM('capsule', 'machine', 'accessory') NOT NULL,
+    product_type ENUM('capsule', 'machine', 'accessory', 'subscription') NOT NULL,
     product_id VARCHAR(100) NOT NULL,
     product_name VARCHAR(255) NOT NULL,
     product_image VARCHAR(500),
@@ -182,3 +185,31 @@ CREATE TABLE IF NOT EXISTS cart_items (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_cart_items_account ON cart_items(account_id);
+
+-- =============================================================================
+-- USER SUBSCRIPTIONS TABLE (tracks active subscriptions with renewal dates)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS user_subscriptions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    account_id INT NOT NULL,
+    subscription_tier ENUM('free', 'basic', 'plus', 'pro', 'max', 'ultimate') NOT NULL DEFAULT 'free',
+    billing_cycle ENUM('monthly', 'annual') NOT NULL DEFAULT 'monthly',
+    price_ron DECIMAL(10,2) DEFAULT 0.00,
+    start_date DATE NOT NULL,
+    renewal_date DATE NOT NULL,
+    end_date DATE NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    auto_renew BOOLEAN DEFAULT TRUE,
+    status ENUM('active', 'ending', 'scheduled', 'cancelled') DEFAULT 'active',
+    payment_method VARCHAR(50),
+    card_id INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (card_id) REFERENCES user_cards(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_user_subscriptions_account ON user_subscriptions(account_id);
+CREATE INDEX idx_user_subscriptions_renewal ON user_subscriptions(renewal_date);
+CREATE INDEX idx_user_subscriptions_active ON user_subscriptions(is_active);
+CREATE INDEX idx_user_subscriptions_status ON user_subscriptions(status);

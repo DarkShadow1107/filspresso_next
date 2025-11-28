@@ -20,11 +20,23 @@ router.get("/", authenticate, async (req, res) => {
 	try {
 		const conn = await pool.getConnection();
 		try {
-			const cards = await conn.query(
-				`SELECT id, card_holder, card_type, card_last_four, is_default, created_at
+			const cardsRaw = await conn.query(
+				`SELECT id, card_holder, card_type, card_last_four, card_expiry_encrypted, card_cvv_encrypted, is_default, created_at
          FROM user_cards WHERE account_id = ? ORDER BY is_default DESC, created_at DESC`,
 				[req.user.id]
 			);
+
+			// Decrypt expiry and CVV for each card
+			const cards = cardsRaw.map((card) => ({
+				id: Number(card.id),
+				card_holder: card.card_holder,
+				card_type: card.card_type,
+				card_last_four: card.card_last_four,
+				card_expiry: decrypt(card.card_expiry_encrypted),
+				card_cvv: card.card_cvv_encrypted ? decrypt(card.card_cvv_encrypted) : null,
+				is_default: Boolean(card.is_default),
+				created_at: card.created_at,
+			}));
 
 			res.json({ cards });
 		} finally {
@@ -44,8 +56,8 @@ router.post("/", authenticate, async (req, res) => {
 		const { cardNumber, expiry, cvv, cardHolder, isDefault } = req.body;
 
 		// Validation
-		if (!cardNumber || !expiry || !cvv || !cardHolder) {
-			return res.status(400).json({ error: "All card fields are required" });
+		if (!cardNumber || !expiry || !cardHolder) {
+			return res.status(400).json({ error: "Card number, expiry, and card holder are required" });
 		}
 
 		const cleanedNumber = cardNumber.replace(/\D/g, "");
@@ -60,16 +72,16 @@ router.post("/", authenticate, async (req, res) => {
 				await conn.query("UPDATE user_cards SET is_default = FALSE WHERE account_id = ?", [req.user.id]);
 			}
 
-			// Encrypt sensitive data
+			// Encrypt sensitive data including CVV
 			const encryptedNumber = encrypt(cleanedNumber);
 			const encryptedExpiry = encrypt(expiry);
-			const encryptedCvv = encrypt(cvv);
+			const encryptedCvv = cvv ? encrypt(cvv) : null;
 			const lastFour = getLastFour(cleanedNumber);
 			const cardType = detectCardType(cleanedNumber);
 
 			const result = await conn.query(
 				`INSERT INTO user_cards 
-         (account_id, card_number_encrypted, card_expiry_encrypted, card_cvv_encrypted, 
+         (account_id, card_number_encrypted, card_expiry_encrypted, card_cvv_encrypted,
           card_holder, card_type, card_last_four, is_default)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 				[req.user.id, encryptedNumber, encryptedExpiry, encryptedCvv, cardHolder, cardType, lastFour, isDefault || false]

@@ -1700,6 +1700,32 @@ curl -X POST http://localhost:5000/api/commands/create -H "Content-Type: applica
 -   The ESP32 accessory will poll `GET /api/commands/check/<MACHINE_ID>` and execute the command according to the accessory instructions.
 -   Monitor the accessory serial console for action logs and POSTs to `/api/commands/update/<command_id>`.
 
+### Express API: disabling rate limiting during local development
+
+The Express API (in `express-api/server.js`) has a global `express-rate-limit` middleware that is applied to `/api/*` endpoints by default. In local development you may hit that limit during heavy testing (hot reloads, repeated login attempts, automated scripts) and see `429 - Too Many Requests`.
+
+Quick / development-friendly options:
+
+-   Node environment check: when `NODE_ENV` is set to `development` the server will skip applying the global rate limiter so you won't hit 429s while testing locally.
+-   Explicit disable flag: you can also set `DISABLE_RATE_LIMIT_FOR_DEV=true` to force the server to skip rate limiting regardless of `NODE_ENV`.
+
+Example (set in PowerShell):
+
+```powershell
+# skip rate limiting (local dev)
+$env:DISABLE_RATE_LIMIT_FOR_DEV = 'true'
+npm run start:express
+```
+
+Important: this setting is intended for local development and debugging only — do not use it in production.
+
+Recommended production configuration:
+
+-   Use route-specific rules — keep a global limiter but also apply stricter limits to sensitive endpoints such as `/api/auth/login` and `/api/auth/register` (e.g., 5-10 attempts per 15 minutes). This balances protection against brute-force attacks and usability for other API routes.
+-   Consider using a persistent store for rate-limiting (Redis) if you run multiple API instances behind a load balancer.
+
+See `express-api/server.js` for the exact environment variable and example implementation.
+
 ---
 
 ## Security Status

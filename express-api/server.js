@@ -16,6 +16,8 @@ const cardsRoutes = require("./routes/cards");
 const ordersRoutes = require("./routes/orders");
 const cartRoutes = require("./routes/cart");
 const chatRoutes = require("./routes/chat");
+const weatherRoutes = require("./routes/weather");
+const subscriptionsRoutes = require("./routes/subscriptions");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -35,7 +37,30 @@ const limiter = rateLimit({
 	max: 100, // limit each IP to 100 requests per windowMs
 	message: { error: "Too many requests, please try again later." },
 });
-app.use("/api/", limiter);
+
+// Development-friendly behavior: allow disabling the rate-limiter while
+// developing locally to avoid hitting 429s during heavy testing / hot reloads.
+// - By default the limiter is applied when NODE_ENV !== 'development'.
+// - You can also force-disable with DISABLE_RATE_LIMIT_FOR_DEV=true.
+// NOTE: For production, prefer per-route controls (e.g. stricter auth limiter)
+// as documented in the README.
+// Allow several safe ways to disable the global rate limiter while working
+// locally or during testing. Defaults (in development) already disabled it,
+// but add an explicit override so maintainers can turn it off quickly.
+// - NODE_ENV === 'development' (already covered)
+// - DISABLE_RATE_LIMIT_FOR_DEV === 'true' (legacy developer toggle)
+// - DISABLE_RATE_LIMIT === 'true' (new explicit toggle used during testing)
+if (
+	process.env.NODE_ENV === "development" ||
+	process.env.DISABLE_RATE_LIMIT_FOR_DEV === "true" ||
+	process.env.DISABLE_RATE_LIMIT === "true"
+) {
+	console.log(
+		"⚠️ Rate limiting disabled (development mode or DISABLE_RATE_LIMIT_FOR_DEV=true / DISABLE_RATE_LIMIT=true). Use route-specific rules for production."
+	);
+} else {
+	app.use("/api/", limiter);
+}
 
 // Body parsing
 app.use(express.json({ limit: "10mb" }));
@@ -53,6 +78,8 @@ app.use("/api/cards", cardsRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/weather", weatherRoutes);
+app.use("/api/subscriptions", subscriptionsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

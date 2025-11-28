@@ -1,0 +1,314 @@
+/* Weather Widget Styles */
+
+.weather-widget {
+	background: linear-gradient(135deg, rgba(196, 167, 125, 0.15) 0%, rgba(166, 124, 82, 0.08) 100%);
+	border: 1px solid rgba(196, 167, 125, 0.3);
+	border-radius: 16px;
+	padding: 1.25rem;
+	backdrop-filter: blur(10px);
+	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+	color: #f8dccb;
+	max-width: 320px;
+}
+
+.weather-widget--compact {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 1rem;
+	border-radius: 24px;
+	max-width: none;
+	background: rgba(30, 30, 30, 0.8);
+	border: 1px solid rgba(196, 167, 125, 0.2);
+}
+
+.weather-widget--loading {
+	min-height: 60px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.weather-widget__skeleton {
+	width: 100px;
+	height: 24px;
+	background: linear-gradient(90deg, #333 25%, #444 50%, #333 75%);
+	background-size: 200% 100%;
+	animation: shimmer 1.5s infinite;
+	border-radius: 4px;
+}
+
+@keyframes shimmer {
+	0% {
+		background-position: -200% 0;
+	}
+	100% {
+		background-position: 200% 0;
+	}
+}
+
+.weather-widget__current {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	margin-bottom: 1rem;
+}
+
+.weather-widget__icon {
+	font-size: 1.25rem;
+}
+
+.weather-widget__icon-large {
+	font-size: 3rem;
+	line-height: 1;
+}
+
+.weather-widget__info {
+	flex: 1;
+}
+
+.weather-widget__temp {
+	font-weight: 600;
+	font-size: 0.95rem;
+}
+
+.weather-widget__temp-large {
+	font-size: 2rem;
+	font-weight: 700;
+	background: linear-gradient(135deg, #c4a77d 0%, #a67c52 100%);
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+	background-clip: text;
+	line-height: 1.1;
+}
+
+.weather-widget__desc {
+	font-size: 0.9rem;
+	color: #aaa;
+	margin-top: 0.25rem;
+}
+
+.weather-widget__location {
+	font-size: 0.75rem;
+	color: #888;
+	margin-top: 0.25rem;
+}
+
+.weather-widget__rec-icon {
+	font-size: 1rem;
+}
+
+.weather-widget__recommendation {
+	padding-top: 1rem;
+	border-top: 1px solid rgba(196, 167, 125, 0.2);
+}
+
+.weather-widget__rec-header {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.5rem;
+}
+
+.weather-widget__rec-icon-large {
+	font-size: 1.5rem;
+}
+
+.weather-widget__rec-drink {
+	font-weight: 600;
+	font-size: 1rem;
+	color: #c4a77d;
+}
+
+.weather-widget__rec-message {
+	font-size: 0.85rem;
+	color: #aaa;
+	margin: 0;
+	line-height: 1.4;
+}
+
+/* Shipping Info Section */
+.weather-widget__shipping {
+	padding: 0.75rem 0;
+	border-top: 1px solid rgba(196, 167, 125, 0.2);
+	margin-top: 0.5rem;
+}
+
+.weather-widget__shipping-header {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.25rem;
+}
+
+.weather-widget__shipping-icon {
+	font-size: 1.25rem;
+}
+
+.weather-widget__shipping-estimate {
+	font-weight: 600;
+	font-size: 0.95rem;
+	color: #c4a77d;
+}
+
+.weather-widget__shipping-message {
+	font-size: 0.8rem;
+	color: #888;
+	margin: 0;
+	line-height: 1.3;
+}
+
+/* Coffee Weather Recommendation Card */
+.coffee-weather-rec {
+	display: flex;
+	align-items: flex-start;
+	gap: 1rem;
+	background: linear-gradient(135deg, rgba(196, 167, 125, 0.12) 0%, rgba(166, 124, 82, 0.06) 100%);
+	border: 1px solid rgba(196, 167, 125, 0.25);
+	border-radius: 12px;
+	padding: 1rem 1.25rem;
+}
+
+.coffee-weather-rec__icon {
+	font-size: 2rem;
+	line-height: 1;
+}
+
+.coffee-weather-rec__content {
+	flex: 1;
+}
+
+.coffee-weather-rec__drink {
+	font-weight: 700;
+	font-size: 1.1rem;
+	color: #c4a77d;
+	margin-bottom: 0.25rem;
+}
+
+.coffee-weather-rec__message {
+	font-size: 0.9rem;
+	color: #aaa;
+	margin: 0;
+	line-height: 1.4;
+}
+
+/* Shipping Weather Warning */
+.shipping-weather-warning {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	background: rgba(245, 158, 11, 0.1);
+	border: 1px solid rgba(245, 158, 11, 0.3);
+	border-radius: 8px;
+	padding: 0.75rem 1rem;
+	margin-top: 1rem;
+}
+
+.shipping-weather-warning__icon {
+	font-size: 1.25rem;
+}
+
+.shipping-weather-warning__message {
+	font-size: 0.85rem;
+	color: #f59e0b;
+	margin: 0;
+}
+
+/* Weather Shipping Warning (Cart) */
+.weather-shipping-warning {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(196, 167, 125, 0.08) 100%);
+	border: 1px solid rgba(245, 158, 11, 0.35);
+	border-radius: 10px;
+	padding: 0.75rem 1rem;
+	/* add symmetric vertical spacing to ensure the weather warning is centered between total and actions */
+	margin-top: 1.5rem;
+	margin-bottom: 1.5rem;
+}
+
+.weather-warning-icon {
+	font-size: 1.25rem;
+	animation: gentle-bounce 2s ease-in-out infinite;
+}
+
+.weather-warning-text {
+	font-size: 0.85rem;
+	color: #f59e0b;
+	font-weight: 500;
+}
+
+@keyframes gentle-bounce {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-2px);
+	}
+}
+
+/* Home page specific placement */
+.legacy-home {
+	position: relative;
+}
+
+.home-weather-widget {
+	position: fixed;
+	top: 5rem;
+	right: 1.5rem;
+	z-index: 100;
+}
+
+/* Home text spacer - pushes text content lower */
+.home-text-spacer {
+	height: 7rem;
+}
+
+@media (min-width: 1280px) {
+	.home-text-spacer {
+		height: 9rem;
+	}
+}
+
+@media (min-width: 1600px) {
+	.home-text-spacer {
+		height: 11rem;
+	}
+}
+
+@media (min-width: 1920px) {
+	.home-text-spacer {
+		height: 12.5rem;
+	}
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+	.weather-widget {
+		max-width: 100%;
+	}
+
+	.home-weather-widget {
+		top: 4.5rem;
+		right: 1rem;
+	}
+
+	.home-weather-widget .weather-widget {
+		max-width: 260px;
+		padding: 0.875rem;
+	}
+
+	.weather-widget__icon-large {
+		font-size: 2.5rem;
+	}
+
+	.weather-widget__temp-large {
+		font-size: 1.75rem;
+	}
+
+	.home-text-spacer {
+		height: 3rem;
+	}
+}

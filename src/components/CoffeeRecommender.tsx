@@ -127,30 +127,50 @@ export default function CoffeeRecommender() {
 				const storedIsLoggedIn = !!session;
 				setIsLoggedIn(storedIsLoggedIn);
 
-				// Fetch subscription from API if logged in
+				// Fetch subscription from DB via /api/subscriptions if logged in
 				if (session) {
 					const { token } = JSON.parse(session);
 					if (token) {
-						fetch("http://localhost:4000/api/auth/me", {
+						// Primary: Fetch subscription tier from subscriptions API (database)
+						fetch("http://localhost:4000/api/subscriptions", {
 							headers: { Authorization: `Bearer ${token}` },
 						})
 							.then((res) => res.json())
 							.then((data) => {
-								const sub = data.user?.subscription_name?.toLowerCase() || "none";
-								setUserSubscription(sub as "none" | "basic" | "plus" | "pro" | "max" | "ultimate");
+								const tier = data.subscription?.tier?.toLowerCase() || "none";
+								setUserSubscription(tier as "none" | "basic" | "plus" | "pro" | "max" | "ultimate");
 
-								// Auto-select model based on subscription
-								if (sub === "ultimate") {
+								// Auto-select model based on subscription tier from DB
+								if (tier === "ultimate") {
 									setSelectedModel("ode");
-								} else if (sub === "max") {
+								} else if (tier === "max") {
 									setSelectedModel("villanelle");
 								} else {
 									setSelectedModel("tanka");
 								}
 							})
 							.catch(() => {
-								setUserSubscription("none");
-								setSelectedModel("tanka");
+								// Fallback to /api/auth/me if subscriptions API fails
+								fetch("http://localhost:4000/api/auth/me", {
+									headers: { Authorization: `Bearer ${token}` },
+								})
+									.then((res) => res.json())
+									.then((data) => {
+										const sub = data.user?.subscription_name?.toLowerCase() || "none";
+										setUserSubscription(sub as "none" | "basic" | "plus" | "pro" | "max" | "ultimate");
+
+										if (sub === "ultimate") {
+											setSelectedModel("ode");
+										} else if (sub === "max") {
+											setSelectedModel("villanelle");
+										} else {
+											setSelectedModel("tanka");
+										}
+									})
+									.catch(() => {
+										setUserSubscription("none");
+										setSelectedModel("tanka");
+									});
 							});
 					}
 				}
@@ -784,9 +804,32 @@ export default function CoffeeRecommender() {
 							<button onClick={() => setStep("chat")}>💬 Chat with me</button>
 							<button onClick={() => setStep("prefs")}>🔍 Advanced search</button>
 							<button
-								onClick={() => {
+								onClick={async () => {
 									setStep("results");
-									setResults(allProducts.slice(0, 8));
+									// Try to fetch popular from API first
+									try {
+										const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+										const res = await fetch(`${API_BASE}/api/orders/popular?limit=5`);
+										if (res.ok) {
+											const data = await res.json();
+											if (data.products && data.products.length > 0) {
+												// Map API products to CoffeeProduct objects
+												const popular = data.products
+													.map((p: { product_id: string }) =>
+														allProducts.find((prod) => prod.id === p.product_id)
+													)
+													.filter(Boolean) as CoffeeProduct[];
+												if (popular.length > 0) {
+													setResults(popular);
+													return;
+												}
+											}
+										}
+									} catch {
+										// Fall back to static data
+									}
+									// Fallback: show first 5 products
+									setResults(allProducts.slice(0, 5));
 								}}
 							>
 								⭐ Show popular

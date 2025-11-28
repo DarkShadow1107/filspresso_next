@@ -1,0 +1,37 @@
+[
+  {
+    "id": "chat-1764284388845",
+    "timestamp": 1764284498719,
+    "messages": [
+      {
+        "role": "user",
+        "content": "cafeine"
+      },
+      {
+        "role": "assistant",
+        "content": "I am Tanka, built for fast coffee pointers. Mention intensity, flavors, time of day, capsule types, or machine questions and I will keep the answer focused, friendly, and practical.",
+        "products": []
+      },
+      {
+        "role": "user",
+        "content": "give me caffeine"
+      },
+      {
+        "role": "assistant",
+        "content": "Caffeine blocks adenosine receptors, so you feel alert instead of sleepy. A standard espresso capsule delivers about 60 to 80 mg, lungos climb near 110 mg, and Vertuo mug capsules can climb above 160 mg. You feel the lift in 30 to 45 minutes, the strongest effects last about 3 hours, and then it tapers off.\n\nIf you are sensitive, switch to Half Caffeinato after lunch, brew shorter (ristretto style) for less volume, or stretch the shot with milk or water to make it feel gentler. Keep water nearby and pause after three cups so you do not edge into jitters or late-night staring at the ceiling.",
+        "products": []
+      },
+      {
+        "role": "user",
+        "content": "show me caffeine"
+      },
+      {
+        "role": "assistant",
+        "content": "🔍 **Found molecule:**\n\n📊 **CAFFEINE CITRATE**\n🔬 **ChEMBL ID:** CHEMBL1200569\n🧪 **Formula:** C14H18N4O9\n⚖️ **Molecular Weight:** 386.32 g/mol\n🔗 **LogP (Lipophilicity):** -1.03\n📐 **TPSA (Polarity):** 61.82\n🔶 **H-Bond Acceptors:** 6\n🔵 **H-Bond Donors:** 0\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow."
+      }
+    ],
+    "preview": "cafeine",
+    "model": "tanka",
+    "category": "chemistry"
+  }
+]

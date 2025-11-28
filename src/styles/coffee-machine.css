@@ -4,7 +4,7 @@
 	height: 350px;
 	background-image: linear-gradient(#000000, #3e352c, #000000);
 	position: absolute;
-	top: 42%;
+	top: 26%;
 	left: 50%;
 	z-index: 1;
 	transform-origin: center;
@@ -14,7 +14,7 @@
 
 @media (max-width: 1024px) {
 	#coffee-wrap {
-		top: 46%;
+		top: 30%;
 		-webkit-transform: translate(-50%, -48%) scale(1.4);
 		transform: translate(-50%, -48%) scale(1.4);
 	}
@@ -22,7 +22,7 @@
 
 @media (min-width: 1280px) {
 	#coffee-wrap {
-		top: 44%;
+		top: 28%;
 		-webkit-transform: translate(-50%, -50%) scale(2.05);
 		transform: translate(-50%, -50%) scale(2.05);
 	}
