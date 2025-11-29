@@ -82,6 +82,8 @@ tokenizer = None
 inference_engines = {}
 tinyllama_manager = None  # New: TinyLlama model manager
 rag_retriever = None  # New: RAG retriever for coffee knowledge
+active_requests = {}  # Track active generation requests for cancellation
+cancelled_requests = set()  # Set of cancelled request IDs (persists after generation)
 device_info = {
     "device": DEVICE,
     "cuda_available": torch.cuda.is_available(),
@@ -260,6 +262,27 @@ def health():
     })
 
 
+@app.route('/api/cancel/<request_id>', methods=['POST'])
+def cancel_request(request_id: str):
+    """Cancel an active generation request"""
+    global cancelled_requests
+    try:
+        # Add to cancelled set - this persists even if the request already completed
+        cancelled_requests.add(request_id)
+        
+        # Also mark in active_requests if still active
+        if request_id in active_requests:
+            active_requests[request_id] = True  # Mark as cancelled
+            logger.info(f"Cancelled active request: {request_id}")
+            return jsonify({'status': 'cancelled', 'request_id': request_id, 'was_active': True})
+        else:
+            logger.info(f"Marked request as cancelled (may have completed): {request_id}")
+            return jsonify({'status': 'cancelled', 'request_id': request_id, 'was_active': False})
+    except Exception as e:
+        logger.error(f"Error cancelling request: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/models', methods=['GET'])
 def get_models_info():
     """Get information about available models"""
@@ -391,6 +414,7 @@ IMPORTANT RESTRICTIONS:
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """Chat endpoint - uses TinyLlama models"""
+    global cancelled_requests
     try:
         data = request.json
         model_name = data.get('model', 'villanelle').lower()
@@ -400,17 +424,33 @@ def chat():
         temperature = data.get('temperature', 0.7)
         subscription_tier = data.get('subscription', 'none')
         chemistry_mode = data.get('chemistry_mode', False)
+        request_id = data.get('request_id')  # For cancellation support
         
         if not message:
             return jsonify({'error': 'Message is required'}), 400
         
+        # Register request for cancellation tracking
+        if request_id:
+            active_requests[request_id] = False  # False = not cancelled
+            # Clean up from cancelled_requests if it was there
+            cancelled_requests.discard(request_id)
+        
         # Handle chemistry mode request
         if chemistry_mode:
             if subscription_tier != 'ultimate':
+                if request_id:
+                    active_requests.pop(request_id, None)
                 return jsonify({
                     'error': 'Chemistry mode requires Ultimate subscription',
                     'message': 'Please upgrade to Ultimate subscription to access molecular analysis features'
                 }), 403
+        
+        # Check if cancelled before starting
+        if request_id and (active_requests.get(request_id) or request_id in cancelled_requests):
+            active_requests.pop(request_id, None)
+            cancelled_requests.discard(request_id)
+            logger.info(f"Request {request_id} was cancelled before generation")
+            return jsonify({'cancelled': True, 'request_id': request_id}), 200
         
         # Use TinyLlama models if available
         if tinyllama_manager and tinyllama_manager.is_ready():
@@ -426,13 +466,33 @@ def chat():
                 except Exception as e:
                     logger.warning(f"RAG retrieval failed: {e}")
             
-            # Generate response with TinyLlama
+            # Check if cancelled before generation
+            if request_id and (active_requests.get(request_id) or request_id in cancelled_requests):
+                active_requests.pop(request_id, None)
+                cancelled_requests.discard(request_id)
+                logger.info(f"Request {request_id} was cancelled before generation started")
+                return jsonify({'cancelled': True, 'request_id': request_id}), 200
+            
+            # Generate response with TinyLlama (pass request_id for potential mid-generation cancellation)
             response = tinyllama_manager.generate(
                 prompt=augmented_message,
                 chemistry_mode=chemistry_mode,
                 max_length=max_length,
-                temperature=temperature
+                temperature=temperature,
+                request_id=request_id,
+                cancel_check=lambda: request_id in cancelled_requests or active_requests.get(request_id, False) if request_id else False
             )
+            
+            # Check if cancelled after generation
+            if request_id and (active_requests.get(request_id) or request_id in cancelled_requests):
+                active_requests.pop(request_id, None)
+                cancelled_requests.discard(request_id)
+                logger.info(f"Request {request_id} was cancelled during/after generation")
+                return jsonify({'cancelled': True, 'request_id': request_id}), 200
+            
+            # Cleanup request tracking
+            if request_id:
+                active_requests.pop(request_id, None)
             
             return jsonify({
                 'model': 'tinyllama_chemistry' if chemistry_mode else 'tinyllama_coffee',
@@ -442,6 +502,8 @@ def chat():
                 'rag_enhanced': rag_retriever is not None and not chemistry_mode,
             })
         else:
+            if request_id:
+                active_requests.pop(request_id, None)
             return jsonify({'error': 'No models available. Please train TinyLlama models or install dependencies.'}), 500
     
     except Exception as e:

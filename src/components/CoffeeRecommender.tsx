@@ -86,6 +86,8 @@ export default function CoffeeRecommender() {
 	const [isLoggedIn, setIsLoggedIn] = useState(false); // User login state
 	const [userSubscription, setUserSubscription] = useState<"none" | "basic" | "plus" | "pro" | "max" | "ultimate">("none");
 	const [isTyping, setIsTyping] = useState(false);
+	const abortControllerRef = useRef<AbortController | null>(null);
+	const currentRequestIdRef = useRef<string | null>(null);
 	const { addItem } = useCart();
 	const { notify } = useNotifications();
 
@@ -700,6 +702,13 @@ export default function CoffeeRecommender() {
 		// All models now use TinyLlama v2 via Python backend
 
 		try {
+			// Create AbortController for this request
+			abortControllerRef.current = new AbortController();
+
+			// Generate unique request ID for server-side cancellation
+			const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+			currentRequestIdRef.current = requestId;
+
 			// Use Python chat endpoint for all models (TinyLlama v2)
 			const shouldUsePython = smarterAIAvailable && (chemistryMode ? useTankaModel : true);
 			const endpoint = shouldUsePython ? "/api/python-chat" : "/api/chat";
@@ -713,12 +722,20 @@ export default function CoffeeRecommender() {
 					subscription: userSubscription,
 					chemistry_mode: chemistryMode && useTankaModel,
 					context: { products: allProducts },
+					request_id: requestId,
 				}),
+				signal: abortControllerRef.current.signal,
 			});
 
 			if (!response.ok) throw new Error("Failed to get response");
 
 			const data = await response.json();
+
+			// Check if request was cancelled on the server
+			if (data.cancelled) {
+				return; // Silently exit, user cancelled
+			}
+
 			const assistantMsg: Message = {
 				role: "assistant",
 				content: data.response,
@@ -727,6 +744,11 @@ export default function CoffeeRecommender() {
 
 			setChatMessages((m) => [...m, assistantMsg]);
 		} catch (error) {
+			// Check if it was aborted by user
+			if (error instanceof Error && error.name === "AbortError") {
+				// User cancelled, don't show error
+				return;
+			}
 			console.error("Chat error:", error);
 			const fallbackResponse = generateFallbackResponse(lowerPrompt, chatMode);
 			const assistantMsg: Message = {
@@ -736,6 +758,8 @@ export default function CoffeeRecommender() {
 			};
 			setChatMessages((m) => [...m, assistantMsg]);
 		} finally {
+			abortControllerRef.current = null;
+			currentRequestIdRef.current = null;
 			setIsTyping(false);
 		}
 	}, [
@@ -750,6 +774,31 @@ export default function CoffeeRecommender() {
 		visualizationMode,
 		fetchMoleculeData,
 	]);
+
+	// Stop generation handler
+	const handleStopGeneration = useCallback(async () => {
+		// Abort the frontend fetch
+		if (abortControllerRef.current) {
+			abortControllerRef.current.abort();
+			abortControllerRef.current = null;
+		}
+
+		// Cancel on the server side
+		if (currentRequestIdRef.current) {
+			try {
+				await fetch(`/api/python-chat?request_id=${currentRequestIdRef.current}`, {
+					method: "DELETE",
+				});
+			} catch (e) {
+				// Ignore cancellation errors
+				console.warn("Failed to cancel server request:", e);
+			}
+			currentRequestIdRef.current = null;
+		}
+
+		setIsTyping(false);
+		notify("Generation stopped", 2000, "info", "coffee");
+	}, [notify]);
 
 	const handleChatKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -1600,8 +1649,12 @@ export default function CoffeeRecommender() {
 								}
 								rows={2}
 							/>
-							<button onClick={handleChatSubmit} disabled={!chatInput.trim() || isTyping}>
-								{isTyping ? "..." : "Send"}
+							<button
+								onClick={isTyping ? handleStopGeneration : handleChatSubmit}
+								disabled={!isTyping && !chatInput.trim()}
+								className={isTyping ? "stop-btn" : ""}
+							>
+								{isTyping ? "⏹ Stop" : "Send"}
 							</button>
 						</div>
 						<div className="recommender-cta">

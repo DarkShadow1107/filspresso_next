@@ -6,17 +6,33 @@ Handles loading and inference with fine-tuned TinyLlama models
 import torch
 from pathlib import Path
 import logging
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
 # Try to import transformers and peft
 try:
-    from transformers import AutoTokenizer, AutoModelForCausalLM
+    from transformers import AutoTokenizer, AutoModelForCausalLM, StoppingCriteria, StoppingCriteriaList
     from peft import PeftModel
     TINYLLAMA_AVAILABLE = True
 except ImportError:
     TINYLLAMA_AVAILABLE = False
     logger.warning("⚠️ Transformers/PEFT not installed. Run: pip install transformers peft bitsandbytes")
+
+
+class CancellationStoppingCriteria(StoppingCriteria):
+    """Custom stopping criteria that checks a cancellation callback"""
+    
+    def __init__(self, cancel_check: Callable[[], bool]):
+        self.cancel_check = cancel_check
+        self.was_cancelled = False
+    
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+        if self.cancel_check():
+            self.was_cancelled = True
+            logger.info("Generation cancelled by user request")
+            return True
+        return False
 
 class TinyLlamaModelManager:
     """Manages TinyLlama coffee and chemistry models"""
@@ -74,7 +90,8 @@ class TinyLlamaModelManager:
             logger.warning(f"⚠️ TinyLlama Chemistry model not found at {chem_path}")
             logger.info("   Run: python scripts/finetune_tinyllama_chemistry.py")
     
-    def generate(self, prompt: str, chemistry_mode: bool = False, max_length: int = 512, temperature: float = 0.7):
+    def generate(self, prompt: str, chemistry_mode: bool = False, max_length: int = 512, temperature: float = 0.7,
+                 request_id: Optional[str] = None, cancel_check: Optional[Callable[[], bool]] = None):
         """
         Generate response using appropriate TinyLlama model
         
@@ -83,6 +100,8 @@ class TinyLlamaModelManager:
             chemistry_mode: Use chemistry model if True, coffee model if False
             max_length: Maximum generation length
             temperature: Sampling temperature
+            request_id: Optional request ID for logging
+            cancel_check: Optional callback that returns True if generation should stop
         
         Returns:
             Generated text string
@@ -109,6 +128,13 @@ class TinyLlamaModelManager:
             inputs = self.tokenizer(formatted_prompt, return_tensors="pt").to(self.device)
             input_length = inputs['input_ids'].shape[1]
             
+            # Prepare stopping criteria for cancellation support
+            stopping_criteria = None
+            cancellation_criteria = None
+            if cancel_check:
+                cancellation_criteria = CancellationStoppingCriteria(cancel_check)
+                stopping_criteria = StoppingCriteriaList([cancellation_criteria])
+            
             # Generate (use max_new_tokens instead of max_length)
             with torch.no_grad():
                 outputs = model.generate(
@@ -119,7 +145,13 @@ class TinyLlamaModelManager:
                     top_p=0.9,
                     pad_token_id=self.tokenizer.eos_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
+                    stopping_criteria=stopping_criteria,
                 )
+            
+            # Check if generation was cancelled
+            if cancellation_criteria and cancellation_criteria.was_cancelled:
+                logger.info(f"Generation for request {request_id} was cancelled mid-generation")
+                return "[Generation cancelled by user]"
             
             # Decode only the new tokens (skip the input prompt)
             generated_text = self.tokenizer.decode(outputs[0][input_length:], skip_special_tokens=True)
