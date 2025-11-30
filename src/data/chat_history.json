@@ -1,5 +1,18 @@
 [
   {
+    "id": "chat-1764450375906",
+    "timestamp": 1764450406211,
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello, what are youy doing today?"
+      }
+    ],
+    "preview": "hello, what are youy doing today?",
+    "model": "villanelle",
+    "category": "general"
+  },
+  {
     "id": "chat-1764449914922",
     "timestamp": 1764450062553,
     "messages": [

@@ -3,6 +3,8 @@
  * GET /api/orders - Get user's orders
  * GET /api/orders/:id - Get order details
  * GET /api/orders/popular - Get most ordered products
+ * GET /api/orders/machines - Get user's purchased machines with warranty info
+ * GET /api/orders/spending - Get user's total spending summary
  * POST /api/orders - Create new order
  * PUT /api/orders/:id/status - Update order status
  */
@@ -124,6 +126,177 @@ router.get("/popular", async (req, res) => {
 	} catch (error) {
 		console.error("Get popular products error:", error);
 		res.status(500).json({ error: "Failed to get popular products" });
+	}
+});
+
+/**
+ * Get all machines purchased by user
+ * GET /api/orders/machines
+ * Returns machines and forfaits (packs) from order_items with warranty info
+ */
+router.get("/machines", authenticate, async (req, res) => {
+	try {
+		const conn = await pool.getConnection();
+		try {
+			// Get all machine items from user's orders
+			// We look for items where:
+			// 1. product_type = 'machine' OR
+			// 2. product_name contains machine-related keywords
+			// Matching: Machine, Forfait, Vertuo Next, Vertuo Pop, pack
+			const machines = await conn.query(
+				`SELECT 
+					oi.id,
+					o.id as order_id,
+					o.order_number,
+					oi.product_type,
+					oi.product_id,
+					oi.product_name,
+					oi.product_image,
+					oi.unit_price,
+					oi.quantity,
+					o.created_at as purchase_date,
+					DATE_ADD(o.created_at, INTERVAL 3 YEAR) as warranty_end_date,
+					CASE WHEN DATE_ADD(o.created_at, INTERVAL 3 YEAR) > NOW() THEN TRUE ELSE FALSE END as is_under_warranty,
+					CASE 
+						WHEN oi.product_id LIKE 'pack-%' OR oi.product_id LIKE 'forfait-%' 
+							OR LOWER(oi.product_name) LIKE '%forfait%'
+						THEN TRUE ELSE FALSE 
+					END as is_forfait
+				FROM order_items oi
+				JOIN orders o ON oi.order_id = o.id
+				WHERE o.account_id = ? 
+					AND o.status != 'cancelled'
+					AND (
+						oi.product_type = 'machine'
+						OR LOWER(oi.product_name) LIKE '%machine%'
+						OR LOWER(oi.product_name) LIKE '%forfait%'
+						OR LOWER(oi.product_name) LIKE '%vertuo next%'
+						OR LOWER(oi.product_name) LIKE '%vertuo pop%'
+						OR LOWER(oi.product_name) LIKE '%vertuo plus%'
+						OR LOWER(oi.product_name) LIKE '%essenza%'
+						OR LOWER(oi.product_name) LIKE '%pixie%'
+						OR LOWER(oi.product_name) LIKE '%citiz%'
+						OR LOWER(oi.product_name) LIKE '%lattissima%'
+						OR LOWER(oi.product_name) LIKE '%creatista%'
+						OR LOWER(oi.product_name) LIKE '%inissia%'
+						OR oi.product_id LIKE 'pack-%'
+						OR oi.product_id LIKE 'forfait-%'
+					)
+				ORDER BY o.created_at DESC`,
+				[req.user.id]
+			);
+
+			res.json({
+				machines: serializeBigInt(machines),
+				total: machines.length,
+			});
+		} finally {
+			conn.release();
+		}
+	} catch (error) {
+		console.error("Get machines error:", error);
+		res.status(500).json({ error: "Failed to get machines" });
+	}
+});
+
+/**
+ * Get user's total spending summary
+ * GET /api/orders/spending
+ * Returns breakdown of orders vs subscriptions spending
+ */
+router.get("/spending", authenticate, async (req, res) => {
+	try {
+		const conn = await pool.getConnection();
+		try {
+			// Get total from all orders
+			const [ordersResult] = await conn.query(
+				`SELECT COALESCE(SUM(total), 0) as orders_total
+				FROM orders 
+				WHERE account_id = ? AND status != 'cancelled'`,
+				[req.user.id]
+			);
+
+			// Get subscription spending (from order_items with product_type = 'subscription')
+			const [subscriptionResult] = await conn.query(
+				`SELECT COALESCE(SUM(oi.total_price), 0) as subscriptions_total
+				FROM order_items oi
+				JOIN orders o ON oi.order_id = o.id
+				WHERE o.account_id = ? AND oi.product_type = 'subscription' AND o.status != 'cancelled'`,
+				[req.user.id]
+			);
+
+			// Get machines AND forfaits spending
+			// Same patterns as /machines endpoint
+			const [machinesResult] = await conn.query(
+				`SELECT COALESCE(SUM(oi.total_price), 0) as machines_total
+				FROM order_items oi
+				JOIN orders o ON oi.order_id = o.id
+				WHERE o.account_id = ? 
+					AND o.status != 'cancelled'
+					AND (
+						oi.product_type = 'machine'
+						OR LOWER(oi.product_name) LIKE '%machine%'
+						OR LOWER(oi.product_name) LIKE '%forfait%'
+						OR LOWER(oi.product_name) LIKE '%vertuo next%'
+						OR LOWER(oi.product_name) LIKE '%vertuo pop%'
+						OR LOWER(oi.product_name) LIKE '%vertuo plus%'
+						OR LOWER(oi.product_name) LIKE '%essenza%'
+						OR LOWER(oi.product_name) LIKE '%pixie%'
+						OR LOWER(oi.product_name) LIKE '%citiz%'
+						OR LOWER(oi.product_name) LIKE '%lattissima%'
+						OR LOWER(oi.product_name) LIKE '%creatista%'
+						OR LOWER(oi.product_name) LIKE '%inissia%'
+						OR oi.product_id LIKE 'pack-%'
+						OR oi.product_id LIKE 'forfait-%'
+					)`,
+				[req.user.id]
+			);
+
+			// Get capsules/accessories spending (everything that's not a machine/forfait and not a subscription)
+			const [productsResult] = await conn.query(
+				`SELECT COALESCE(SUM(oi.total_price), 0) as products_total
+				FROM order_items oi
+				JOIN orders o ON oi.order_id = o.id
+				WHERE o.account_id = ? 
+					AND o.status != 'cancelled'
+					AND oi.product_type != 'subscription'
+					AND oi.product_type != 'machine'
+					AND LOWER(oi.product_name) NOT LIKE '%machine%'
+					AND LOWER(oi.product_name) NOT LIKE '%forfait%'
+					AND LOWER(oi.product_name) NOT LIKE '%vertuo next%'
+					AND LOWER(oi.product_name) NOT LIKE '%vertuo pop%'
+					AND LOWER(oi.product_name) NOT LIKE '%vertuo plus%'
+					AND LOWER(oi.product_name) NOT LIKE '%essenza%'
+					AND LOWER(oi.product_name) NOT LIKE '%pixie%'
+					AND LOWER(oi.product_name) NOT LIKE '%citiz%'
+					AND LOWER(oi.product_name) NOT LIKE '%lattissima%'
+					AND LOWER(oi.product_name) NOT LIKE '%creatista%'
+					AND LOWER(oi.product_name) NOT LIKE '%inissia%'
+					AND oi.product_id NOT LIKE 'pack-%'
+					AND oi.product_id NOT LIKE 'forfait-%'`,
+				[req.user.id]
+			);
+
+			const ordersTotal = Number(ordersResult.orders_total) || 0;
+			const subscriptionsTotal = Number(subscriptionResult.subscriptions_total) || 0;
+			const machinesTotal = Number(machinesResult.machines_total) || 0;
+			const productsTotal = Number(productsResult.products_total) || 0;
+
+			res.json({
+				spending: {
+					orders: ordersTotal,
+					subscriptions: subscriptionsTotal,
+					machines: machinesTotal,
+					products: productsTotal,
+					total: ordersTotal,
+				},
+			});
+		} finally {
+			conn.release();
+		}
+	} catch (error) {
+		console.error("Get spending error:", error);
+		res.status(500).json({ error: "Failed to get spending" });
 	}
 });
 

@@ -15,7 +15,7 @@ function MachineProductCard({ product }: { product: MachineProduct }) {
 
 	const handleAddToBag = () => {
 		const itemName = `${product.name} - ${formatRon(product.priceRon)}`;
-		addItem({ id: product.id, name: itemName, price: product.priceRon, image: product.image });
+		addItem({ id: product.id, name: itemName, price: product.priceRon, image: product.image, productType: "machine" });
 		// machine-scoped notify
 		notify(`Added ${product.name} to bag!`, 6000);
 	};
