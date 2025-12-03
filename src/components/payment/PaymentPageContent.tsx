@@ -122,7 +122,7 @@ function isUnsignedNumeric(value: string): boolean {
 
 export default function PaymentPageContent() {
 	const router = useRouter();
-	const { items, currentSum, reset } = useCart();
+	const { items, currentSum, memberDiscount, reset } = useCart();
 	const { notify } = useNotifications();
 
 	// ensure the user came here via the place-order OK action
@@ -392,8 +392,9 @@ export default function PaymentPageContent() {
 		const cardDigits = removeAllSpaces(ccNum);
 		const cvvNumber = cvv;
 
-		// Calculate shipping and total
-		const shippingCost = currentSum >= 200 ? 0 : 24.99;
+		// Calculate shipping and total - free shipping for Master+ tiers or orders over 200 RON
+		const hasFreeShipping = ["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) || currentSum >= 200;
+		const shippingCost = hasFreeShipping ? 0 : 24.99;
 		const paymentTotal = currentSum + shippingCost;
 
 		// Check session storage for login state
@@ -626,6 +627,7 @@ export default function PaymentPageContent() {
 		ccNum,
 		cvv,
 		currentSum,
+		memberDiscount,
 		items,
 		expiry,
 		shouldSaveCard,

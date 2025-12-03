@@ -62,7 +62,7 @@ function getProductData(productId: string): CoffeeProduct | undefined {
 }
 
 export default function Cart() {
-	const { items, currentSum, reset, placeOrder, removeItem, updateQuantity, addItem } = useCart();
+	const { items, currentSum, memberDiscount, reset, placeOrder, removeItem, updateQuantity, addItem } = useCart();
 	const { notify } = useNotifications();
 	const router = useRouter();
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -70,6 +70,9 @@ export default function Cart() {
 	const [weather, setWeather] = useState<WeatherData | null>(null);
 	const [popularProducts, setPopularProducts] = useState<PopularProduct[]>([]);
 	const hasItems = items.length > 0;
+
+	// Calculate subtotal before discount (for display purposes)
+	const subtotalBeforeDiscount = items.reduce((sum, item) => sum + item.price * item.qty, 0);
 
 	useEffect(() => {
 		setIsHydrated(true);
@@ -148,8 +151,20 @@ export default function Cart() {
 
 	const displayedTotal = formatRon(currentSum);
 	const totalItems = items.reduce((sum, item) => sum + item.qty, 0);
-	const shippingFee = currentSum >= 200 ? 0 : 24.99;
+	// Free shipping for Master tier and above, or orders over 200 RON
+	const hasFreeShipping = ["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) || currentSum >= 200;
+	const shippingFee = hasFreeShipping ? 0 : 24.99;
 	const finalTotal = currentSum + shippingFee;
+
+	// Tier icons for display
+	const tierIcons: Record<string, string> = {
+		None: "☕",
+		Connoisseur: "🎖️",
+		Expert: "⭐",
+		Master: "🏆",
+		Virtuoso: "💎",
+		Ambassador: "👑",
+	};
 
 	return (
 		<>
@@ -165,14 +180,43 @@ export default function Cart() {
 						</div>
 						<div className="stat-item">
 							<span className="stat-label">Subtotal:</span>
-							<span className="stat-value">{displayedTotal}</span>
+							<span className="stat-value">{formatRon(subtotalBeforeDiscount)}</span>
 						</div>
+
+						{/* Member Discount Row */}
+						{memberDiscount.percent > 0 && (
+							<div
+								className="stat-item"
+								style={{
+									background: "rgba(16, 185, 129, 0.15)",
+									border: "1px solid rgba(16, 185, 129, 0.3)",
+								}}
+							>
+								<span className="stat-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+									<span>{tierIcons[memberDiscount.tier] || "🎖️"}</span>
+									<span>
+										{memberDiscount.tier} Discount ({memberDiscount.percent}%):
+									</span>
+								</span>
+								<span className="stat-value" style={{ color: "rgb(100, 255, 150)" }}>
+									-{formatRon(memberDiscount.amount)}
+								</span>
+							</div>
+						)}
+
 						<div className="stat-item">
 							<span className="stat-label">Shipping:</span>
 							<span className="stat-value shipping-info">
 								{shippingFee === 0 ? (
 									<>
 										<span className="free-shipping">FREE ✓</span>
+										{["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) &&
+											currentSum < 200 && (
+												<span className="shipping-note" style={{ color: "rgba(100, 255, 150, 0.8)" }}>
+													{" "}
+													({memberDiscount.tier} benefit)
+												</span>
+											)}
 									</>
 								) : (
 									<>

@@ -1,6 +1,6 @@
-version: "3.8"
-
 services:
+    # MariaDB database - managed automatically by Express server
+    # The Express server will start/stop this container
     mariadb:
         image: mariadb:10.11
         container_name: filspresso_next_mariadb
@@ -14,43 +14,14 @@ services:
             - "3306:3306"
         volumes:
             - mariadb_data:/var/lib/mysql
-            - ./src/data/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+            # Mount the SQL init scripts directory from the express-api package.
+            - ./express-api/data:/docker-entrypoint-initdb.d:ro
         healthcheck:
             test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
             interval: 10s
             timeout: 5s
             retries: 5
-        networks:
-            - filspresso_network
-
-    express-api:
-        build:
-            context: .
-            dockerfile: Dockerfile.express
-        container_name: filspresso_express
-        restart: unless-stopped
-        environment:
-            NODE_ENV: ${NODE_ENV:-development}
-            DB_HOST: mariadb
-            DB_PORT: 3306
-            DB_NAME: ${DB_NAME:-filspresso}
-            DB_USER: ${DB_USER:-filspresso_user}
-            DB_PASSWORD: ${DB_PASSWORD:-filspresso_secure_2024}
-            ENCRYPTION_KEY: ${ENCRYPTION_KEY:-your-32-character-encryption-key!}
-            JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-here!}
-            PORT: 4000
-        ports:
-            - "4000:4000"
-        depends_on:
-            mariadb:
-                condition: service_healthy
-        networks:
-            - filspresso_network
 
 volumes:
     mariadb_data:
         driver: local
-
-networks:
-    filspresso_network:
-        driver: bridge

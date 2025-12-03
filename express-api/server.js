@@ -1,6 +1,10 @@
 /**
  * Filspresso Express.js API Server
  * Connects Next.js frontend with MariaDB database
+ *
+ * This server automatically manages the MariaDB Docker container:
+ * - Starts the container when the server starts
+ * - Stops the container when the server is shut down (Ctrl+C)
  */
 
 require("dotenv").config();
@@ -8,6 +12,9 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
+
+// Docker container manager
+const dockerManager = require("./utils/dockerManager");
 
 // Import routes
 const authRoutes = require("./routes/auth");
@@ -18,6 +25,7 @@ const cartRoutes = require("./routes/cart");
 const chatRoutes = require("./routes/chat");
 const weatherRoutes = require("./routes/weather");
 const subscriptionsRoutes = require("./routes/subscriptions");
+const repairsRoutes = require("./routes/repairs");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -80,6 +88,7 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/weather", weatherRoutes);
 app.use("/api/subscriptions", subscriptionsRoutes);
+app.use("/api/repairs", repairsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -95,10 +104,33 @@ app.use((req, res) => {
 	res.status(404).json({ error: "Endpoint not found" });
 });
 
-// Start server
-app.listen(PORT, () => {
-	console.log(`🚀 Filspresso Express API running on port ${PORT}`);
-	console.log(`📊 Health check: http://localhost:${PORT}/health`);
-});
+/**
+ * Start server with Docker container management
+ * 1. Start MariaDB container (if not running)
+ * 2. Setup shutdown handlers to stop container on exit
+ * 3. Start Express server
+ */
+async function startServer() {
+	try {
+		// Start MariaDB container before starting the server
+		await dockerManager.startContainer();
+
+		// Setup handlers to stop container when server exits
+		dockerManager.setupShutdownHandlers();
+
+		// Start Express server
+		app.listen(PORT, () => {
+			console.log(`🚀 Filspresso Express API running on port ${PORT}`);
+			console.log(`📊 Health check: http://localhost:${PORT}/health`);
+			console.log(`💡 Press Ctrl+C to stop server and MariaDB container`);
+		});
+	} catch (error) {
+		console.error("❌ Failed to start server:", error.message);
+		console.error("💡 Make sure Docker Desktop is running");
+		process.exit(1);
+	}
+}
+
+startServer();
 
 module.exports = app;

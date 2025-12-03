@@ -16,6 +16,12 @@ export type CartItem = {
 	productType?: "capsule" | "machine" | "accessory";
 };
 
+export type MemberDiscount = {
+	tier: string;
+	percent: number;
+	amount: number;
+};
+
 function computeSum(items: CartItem[]): number {
 	return items.reduce((acc, item) => acc + item.price * item.qty, 0);
 }
@@ -43,6 +49,7 @@ function isLoggedIn(): boolean {
 export default function useCart() {
 	const [items, setItems] = useState<CartItem[]>([]);
 	const [currentSum, setCurrentSum] = useState<number>(0);
+	const [memberDiscount, setMemberDiscount] = useState<MemberDiscount>({ tier: "None", percent: 0, amount: 0 });
 	const [loading, setLoading] = useState(false);
 	const { notify } = useNotifications();
 	const router = useRouter();
@@ -54,6 +61,7 @@ export default function useCart() {
 			// Not logged in, reset cart state
 			setItems([]);
 			setCurrentSum(0);
+			setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
 			return;
 		}
 
@@ -86,11 +94,17 @@ export default function useCart() {
 					})
 				);
 				setItems(cartItems);
-				setCurrentSum(data.subtotal || computeSum(cartItems));
+				setCurrentSum(data.subtotalAfterDiscount ?? data.subtotal ?? computeSum(cartItems));
+				setMemberDiscount({
+					tier: data.memberTier || "None",
+					percent: data.discountPercent || 0,
+					amount: data.discountAmount || 0,
+				});
 			} else if (res.status === 401) {
 				// Token expired or invalid
 				setItems([]);
 				setCurrentSum(0);
+				setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
 			}
 		} catch (error) {
 			console.error("Failed to fetch cart:", error);
@@ -125,6 +139,7 @@ export default function useCart() {
 			if (!token) {
 				setItems([]);
 				setCurrentSum(0);
+				setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
 				if (!options?.silent) {
 					notify("Your bag is now empty.", 5000, "info", "bag");
 				}
@@ -140,6 +155,7 @@ export default function useCart() {
 				});
 				setItems([]);
 				setCurrentSum(0);
+				setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
 				if (!options?.silent) {
 					notify("Your bag is now empty.", 5000, "info", "bag");
 				}
@@ -152,8 +168,7 @@ export default function useCart() {
 	);
 
 	const placeOrder = useCallback(() => {
-		const total = computeSum(items);
-		if (total === 0) {
+		if (currentSum === 0 || items.length === 0) {
 			notify("Your bag is empty. You'll need to pick something delicious before checking out.", 8000, "error", "bag", {
 				actions: [
 					{
@@ -193,7 +208,8 @@ export default function useCart() {
 			return;
 		}
 
-		const formatted = `${total.toFixed(2).replace(".", ",")} RON`;
+		// Use currentSum which already includes the member discount
+		const formatted = `${currentSum.toFixed(2).replace(".", ",")} RON`;
 		notify(`Your order worth ${formatted}. Continue to payment?`, 12000, "success", "bag", {
 			actions: [
 				{
@@ -219,7 +235,7 @@ export default function useCart() {
 			],
 			persist: true,
 		});
-	}, [items, notify, router]);
+	}, [items, currentSum, notify, router]);
 
 	const addItem = useCallback(
 		async (item: {
@@ -272,19 +288,8 @@ export default function useCart() {
 				});
 
 				if (res.ok) {
-					// Update local state
-					const existingIdx = items.findIndex((i) => i.id === item.id);
-					let nextItems: CartItem[];
-					if (existingIdx >= 0) {
-						nextItems = items.map((i, idx) => (idx === existingIdx ? { ...i, qty: i.qty + qty } : i));
-					} else {
-						nextItems = [
-							...items,
-							{ id: item.id, name: item.name, price: item.price, qty, image: item.image, productType },
-						];
-					}
-					setItems(nextItems);
-					setCurrentSum(computeSum(nextItems));
+					// Refresh cart from server to get proper discounted total
+					await fetchCart();
 				} else {
 					const data = await res.json();
 					notify(data.error || "Failed to add item to cart.", 5000, "error", "bag");
@@ -294,7 +299,7 @@ export default function useCart() {
 				notify("Failed to add item to cart.", 5000, "error", "bag");
 			}
 		},
-		[items, notify, router]
+		[notify, router, fetchCart]
 	);
 
 	const removeItem = useCallback(
@@ -325,16 +330,14 @@ export default function useCart() {
 					}
 				}
 
-				// Update local state
-				const nextItems = items.filter((i) => i.id !== id);
-				setItems(nextItems);
-				setCurrentSum(computeSum(nextItems));
+				// Refresh cart from server to get proper discounted total
+				await fetchCart();
 			} catch (error) {
 				console.error("Failed to remove item:", error);
 				notify("Failed to remove item from cart.", 5000, "error", "bag");
 			}
 		},
-		[items, notify]
+		[items, notify, fetchCart]
 	);
 
 	const updateQuantity = useCallback(
@@ -366,21 +369,20 @@ export default function useCart() {
 					}
 				}
 
-				// Update local state
-				const nextItems = items.map((item) => (item.id === id ? { ...item, qty: newQty } : item));
-				setItems(nextItems);
-				setCurrentSum(computeSum(nextItems));
+				// Refresh cart from server to get proper discounted total
+				await fetchCart();
 			} catch (error) {
 				console.error("Failed to update quantity:", error);
 				notify("Failed to update cart.", 5000, "error", "bag");
 			}
 		},
-		[items, notify]
+		[items, notify, fetchCart]
 	);
 
 	return {
 		items,
 		currentSum,
+		memberDiscount,
 		loading,
 		reset,
 		placeOrder,

@@ -1,0 +1,14 @@
+node_modules
+express-api/node_modules
+python_ai/venv
+**/__pycache__
+*.log
+.env
+*.pyc
+.vscode
+dist
+build
+npm-debug.log
+Dockerfile*
+docker-compose*.yml
+*.sqlite

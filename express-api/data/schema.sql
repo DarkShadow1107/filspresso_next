@@ -80,7 +80,7 @@ CREATE INDEX idx_orders_created ON orders(created_at);
 CREATE TABLE IF NOT EXISTS order_items (
     id INT AUTO_INCREMENT PRIMARY KEY,
     order_id INT NOT NULL,
-    product_type ENUM('capsule', 'machine', 'accessory', 'subscription') NOT NULL,
+    product_type ENUM('capsule', 'machine', 'accessory', 'subscription', 'service') NOT NULL,
     product_id VARCHAR(100) NOT NULL,
     product_name VARCHAR(255) NOT NULL,
     product_image VARCHAR(500),

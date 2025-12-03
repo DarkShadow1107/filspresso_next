@@ -13,6 +13,78 @@ const { authenticate } = require("../middleware/auth");
 
 const router = express.Router();
 
+// Tier discount percentages
+const TIER_DISCOUNTS = {
+	None: 0,
+	Connoisseur: 5,
+	Expert: 10,
+	Master: 15,
+	Virtuoso: 18,
+	Ambassador: 20,
+};
+
+// Function to get user's current tier
+async function getUserTier(conn, accountId) {
+	try {
+		// First check if member_status table exists
+		try {
+			const [memberStatus] = await conn.query(`SELECT current_tier FROM member_status WHERE account_id = ?`, [accountId]);
+
+			if (memberStatus && memberStatus.current_tier) {
+				return memberStatus.current_tier;
+			}
+		} catch (tableError) {
+			// Table doesn't exist yet, fall through to calculate from orders
+			if (tableError.code !== "ER_NO_SUCH_TABLE") {
+				console.error("Error checking member_status:", tableError);
+			}
+		}
+
+		// If no status found or table doesn't exist, calculate from orders
+		const accountRow = await conn.query(`SELECT created_at FROM accounts WHERE id = ?`, [accountId]);
+
+		if (!accountRow || accountRow.length === 0) {
+			return "None";
+		}
+
+		const accountCreated = new Date(accountRow[0].created_at);
+		const now = new Date();
+
+		// Calculate current membership year
+		let periodStart = new Date(accountCreated);
+		while (periodStart <= now) {
+			const nextYear = new Date(periodStart);
+			nextYear.setFullYear(nextYear.getFullYear() + 1);
+			if (nextYear > now) break;
+			periodStart = nextYear;
+		}
+
+		// Count capsules in current period
+		const capsuleResult = await conn.query(
+			`SELECT COALESCE(SUM(oi.quantity), 0) as total_sleeves
+			 FROM orders o
+			 JOIN order_items oi ON o.id = oi.order_id
+			 WHERE o.account_id = ?
+			 AND o.created_at >= ?
+			 AND oi.product_type = 'capsule'`,
+			[accountId, periodStart.toISOString()]
+		);
+
+		const totalCapsules = (capsuleResult[0]?.total_sleeves || 0) * 10;
+
+		// Determine tier
+		if (totalCapsules >= 7000) return "Ambassador";
+		if (totalCapsules >= 4000) return "Virtuoso";
+		if (totalCapsules >= 2000) return "Master";
+		if (totalCapsules >= 750) return "Expert";
+		if (totalCapsules >= 1) return "Connoisseur";
+		return "None";
+	} catch (error) {
+		console.error("Error getting user tier:", error);
+		return "None";
+	}
+}
+
 /**
  * Get user's cart items (product details come from frontend JSON data)
  */
@@ -28,6 +100,10 @@ router.get("/", authenticate, async (req, res) => {
 				[req.user.id]
 			);
 
+			// Get user's member tier for discount
+			const memberTier = await getUserTier(conn, req.user.id);
+			const discountPercent = TIER_DISCOUNTS[memberTier] || 0;
+
 			// Calculate totals
 			const items = cartItems.map((item) => ({
 				id: item.id,
@@ -41,12 +117,18 @@ router.get("/", authenticate, async (req, res) => {
 			}));
 
 			const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+			const discountAmount = Math.round(subtotal * (discountPercent / 100) * 100) / 100;
+			const subtotalAfterDiscount = subtotal - discountAmount;
 			const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
 			res.json({
 				items,
 				subtotal,
 				itemCount,
+				memberTier,
+				discountPercent,
+				discountAmount,
+				subtotalAfterDiscount,
 			});
 		} finally {
 			conn.release();

@@ -181,4 +181,74 @@ router.put("/:id/subscription", authenticate, async (req, res) => {
 	}
 });
 
+/**
+ * Update account preferences (graph theme, etc.)
+ */
+router.put("/preferences", async (req, res) => {
+	try {
+		const { accountId, graph_theme } = req.body;
+
+		if (!accountId) {
+			return res.status(400).json({ error: "Account ID is required" });
+		}
+
+		// Validate theme
+		const validThemes = ["classic", "neon", "minimal", "gradient", "monochrome"];
+		if (graph_theme && !validThemes.includes(graph_theme)) {
+			return res.status(400).json({ error: "Invalid theme" });
+		}
+
+		const conn = await pool.getConnection();
+		try {
+			const updates = [];
+			const params = [];
+
+			if (graph_theme) {
+				updates.push("graph_theme = ?");
+				params.push(graph_theme);
+			}
+
+			if (updates.length === 0) {
+				return res.status(400).json({ error: "No preferences to update" });
+			}
+
+			params.push(accountId);
+
+			await conn.query(`UPDATE accounts SET ${updates.join(", ")}, updated_at = NOW() WHERE id = ?`, params);
+
+			res.json({ message: "Preferences updated", graph_theme });
+		} finally {
+			conn.release();
+		}
+	} catch (error) {
+		console.error("Update preferences error:", error);
+		res.status(500).json({ error: "Failed to update preferences" });
+	}
+});
+
+/**
+ * Get account preferences
+ */
+router.get("/preferences/:id", async (req, res) => {
+	try {
+		const accountId = parseInt(req.params.id);
+
+		const conn = await pool.getConnection();
+		try {
+			const rows = await conn.query("SELECT graph_theme FROM accounts WHERE id = ?", [accountId]);
+
+			if (!rows || rows.length === 0) {
+				return res.status(404).json({ error: "Account not found" });
+			}
+
+			res.json({ graph_theme: rows[0].graph_theme || "classic" });
+		} finally {
+			conn.release();
+		}
+	} catch (error) {
+		console.error("Get preferences error:", error);
+		res.status(500).json({ error: "Failed to get preferences" });
+	}
+});
+
 module.exports = router;
