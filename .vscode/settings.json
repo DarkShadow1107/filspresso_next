@@ -6,17 +6,6 @@
 		"editor.defaultFormatter": "ms-python.python",
 		"editor.formatOnSave": false
 	},
-	"sqltools.connections": [
-		{
-			"name": "Filspresso (MySQL/MariaDB)",
-			"driver": "MySql",
-			"server": "127.0.0.1",
-			"port": 3306,
-			"database": "filspresso",
-			"username": "filspresso_user",
-			"password": "filspresso_secure_2024"
-		}
-	],
 	"python.analysis.extraPaths": ["${workspaceFolder}/python_ai", "${workspaceFolder}/src"],
 	"files.exclude": {
 		"**/__pycache__": true,
