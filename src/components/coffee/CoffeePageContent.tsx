@@ -1,12 +1,31 @@
 "use client";
 
-import React from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import Image from "next/image";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import CoffeeRecommender from "@/components/CoffeeRecommender";
 import { coffeeCollections, type CoffeeCollection, type CoffeeGroup, type CoffeeProduct } from "@/data/coffee";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+type StockInfo = {
+	productId: string;
+	stock: number;
+	stockStatus: "in_stock" | "low_stock" | "out_of_stock";
+};
+
+type StockContextType = {
+	stockData: Map<string, StockInfo>;
+	isLoading: boolean;
+};
+
+const StockContext = createContext<StockContextType>({ stockData: new Map(), isLoading: true });
+
+function useStock() {
+	return useContext(StockContext);
+}
 
 function formatRon(value: number) {
 	return `${value.toFixed(2).replace(".", ",")} RON`;
@@ -240,12 +259,20 @@ function NotePills({ notes, productId }: { notes: string[]; productId: string })
 function CoffeeProductCard({ product }: { product: CoffeeProduct }) {
 	const { addItem } = useCart();
 	const { notify } = useNotifications();
+	const { stockData, isLoading: stockLoading } = useStock();
 	const perUnit = formatPerUnit(product);
 	const [popupOpen, setPopupOpen] = React.useState(false);
 	const addButtonRef = React.useRef<HTMLButtonElement | null>(null);
 	const defaultCapsules = 10;
 
+	// Get stock info for this product
+	const stockInfo = stockData.get(product.id);
+	const stock = stockInfo?.stock ?? 100; // Default to 100 if not loaded
+	const isOutOfStock = stock === 0;
+	const isLowStock = stock > 0 && stock < 10;
+
 	const openPopup = () => {
+		if (isOutOfStock) return;
 		setPopupOpen(true);
 	};
 
@@ -285,12 +312,27 @@ function CoffeeProductCard({ product }: { product: CoffeeProduct }) {
 		imageStyle.transformOrigin = "50% 50%";
 	}
 
-	const cardClasses = ["coffee_groups_capsules", ...(product.extraClass ?? [])].join(" ");
+	const cardClasses = ["coffee_groups_capsules", ...(product.extraClass ?? []), isOutOfStock ? "out-of-stock" : ""]
+		.filter(Boolean)
+		.join(" ");
 	const priceWrapperClass = product.priceClass ? `bag_group ${product.priceClass}` : "bag_group";
+
+	// Stock status display
+	const getStockDisplay = () => {
+		if (stockLoading) return null;
+		if (isOutOfStock) {
+			return <div className="stock-badge out-of-stock">Out of Stock</div>;
+		}
+		if (isLowStock) {
+			return <div className="stock-badge low-stock">{stock} left in stock</div>;
+		}
+		return <div className="stock-badge in-stock">In Stock</div>;
+	};
 
 	return (
 		<>
 			<div className={cardClasses}>
+				{isOutOfStock && <div className="out-of-stock-overlay" />}
 				<div className="capsule_box">
 					{/* Edition limitée badge: detect either by image path or extraClass */}
 					{(product.image?.includes("Limited Edition") || (product.extraClass ?? []).includes("limited")) && (
@@ -308,11 +350,18 @@ function CoffeeProductCard({ product }: { product: CoffeeProduct }) {
 					<ProductServings servings={product.servings} />
 					<ProductIntensity value={product.intensity} scale={product.intensityScale} />
 					<div className={priceWrapperClass}>
+						{getStockDisplay()}
 						<div className="price">{formatRon(product.priceRon)}</div>
 						<div className="price_per_capsule">{product.unitLabel}</div>
 						{perUnit ? <div className="price_per_capsule">{perUnit}</div> : null}
-						<button type="button" className="button_add_bag" onClick={openPopup} ref={addButtonRef}>
-							Add to Bag
+						<button
+							type="button"
+							className={`button_add_bag ${isOutOfStock ? "disabled" : ""}`}
+							onClick={openPopup}
+							ref={addButtonRef}
+							disabled={isOutOfStock}
+						>
+							{isOutOfStock ? "Out of Stock" : "Add to Bag"}
 						</button>
 					</div>
 				</div>
@@ -360,28 +409,61 @@ function CoffeeCollectionSection({ collection }: { collection: CoffeeCollection 
 }
 
 export default function CoffeePageContent() {
+	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
+	const [isLoading, setIsLoading] = useState(true);
+
+	// Fetch stock data on mount
+	useEffect(() => {
+		async function fetchStock() {
+			try {
+				const res = await fetch(`${API_BASE}/api/products/coffee`);
+				if (res.ok) {
+					const data = await res.json();
+					const stockMap = new Map<string, StockInfo>();
+					for (const product of data.products || []) {
+						stockMap.set(product.productId, {
+							productId: product.productId,
+							stock: product.stock,
+							stockStatus: product.stockStatus,
+						});
+					}
+					setStockData(stockMap);
+				}
+			} catch (error) {
+				console.error("Failed to fetch stock data:", error);
+			} finally {
+				setIsLoading(false);
+			}
+		}
+		fetchStock();
+	}, []);
+
 	return (
-		<main>
-			<div className="coffee_pres">
-				<Image src="/images/coffee_background_subheader.png" alt="Coffee background" width={1920} height={1080} />
-			</div>
-			<div className="nav_coffee_type">
-				<div className="glass_morph coffee_type">
-					<nav>
-						<ul>
-							{coffeeCollections.map((collection) => (
-								<li key={collection.id}>
-									<a href={`#${collection.id}`}>{collection.title === "Original" ? "Original" : "Vertuo"}</a>
-								</li>
-							))}
-						</ul>
-					</nav>
+		<StockContext.Provider value={{ stockData, isLoading }}>
+			<main>
+				<div className="coffee_pres">
+					<Image src="/images/coffee_background_subheader.png" alt="Coffee background" width={1920} height={1080} />
 				</div>
-			</div>
-			{coffeeCollections.map((collection) => (
-				<CoffeeCollectionSection key={collection.id} collection={collection} />
-			))}
-			<CoffeeRecommender />
-		</main>
+				<div className="nav_coffee_type">
+					<div className="glass_morph coffee_type">
+						<nav>
+							<ul>
+								{coffeeCollections.map((collection) => (
+									<li key={collection.id}>
+										<a href={`#${collection.id}`}>
+											{collection.title === "Original" ? "Original" : "Vertuo"}
+										</a>
+									</li>
+								))}
+							</ul>
+						</nav>
+					</div>
+				</div>
+				{coffeeCollections.map((collection) => (
+					<CoffeeCollectionSection key={collection.id} collection={collection} />
+				))}
+				<CoffeeRecommender />
+			</main>
+		</StockContext.Provider>
 	);
 }

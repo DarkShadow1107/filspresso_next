@@ -26,10 +26,10 @@ router.get("/sessions", authenticate, async (req, res) => {
 			const sessions = await conn.query(
 				`SELECT id, session_uuid, title, model_type, ai_enabled, 
                 message_count, created_at, updated_at
-         FROM chat_sessions 
-         WHERE account_id = ? AND is_active = TRUE
-         ORDER BY updated_at DESC
-         LIMIT ? OFFSET ?`,
+        FROM chat_sessions 
+        WHERE account_id = ? AND is_active = TRUE
+        ORDER BY updated_at DESC
+        LIMIT ? OFFSET ?`,
 				[req.user.id, parseInt(limit), parseInt(offset)]
 			);
 
@@ -64,8 +64,8 @@ router.get("/sessions/:uuid", authenticate, async (req, res) => {
 			const [session] = await conn.query(
 				`SELECT id, session_uuid, title, model_type, ai_enabled, 
                 message_count, created_at, updated_at
-         FROM chat_sessions 
-         WHERE session_uuid = ? AND account_id = ?`,
+        FROM chat_sessions 
+        WHERE session_uuid = ? AND account_id = ?`,
 				[uuid, req.user.id]
 			);
 
@@ -75,10 +75,10 @@ router.get("/sessions/:uuid", authenticate, async (req, res) => {
 
 			const messages = await conn.query(
 				`SELECT id, role, content, tokens_used, response_time_ms, created_at
-         FROM chat_messages 
-         WHERE session_id = ?
-         ORDER BY created_at ASC
-         LIMIT ?`,
+        FROM chat_messages 
+        WHERE session_id = ?
+        ORDER BY created_at ASC
+        LIMIT ?`,
 				[session.id, parseInt(messageLimit)]
 			);
 
@@ -112,8 +112,8 @@ router.post("/sessions", authenticate, async (req, res) => {
 
 			const result = await conn.query(
 				`INSERT INTO chat_sessions 
-         (account_id, session_uuid, title, model_type, ai_enabled)
-         VALUES (?, ?, ?, ?, ?)`,
+        (account_id, session_uuid, title, model_type, ai_enabled)
+        VALUES (?, ?, ?, ?, ?)`,
 				[req.user.id, sessionUuid, title || "New Chat", modelType, aiEnabled]
 			);
 
@@ -165,24 +165,24 @@ router.post("/sessions/:uuid/messages", authenticate, async (req, res) => {
 
 			const result = await conn.query(
 				`INSERT INTO chat_messages 
-         (session_id, role, content, tokens_used, response_time_ms)
-         VALUES (?, ?, ?, ?, ?)`,
+        (session_id, role, content, tokens_used, response_time_ms)
+        VALUES (?, ?, ?, ?, ?)`,
 				[session.id, role, content, tokensUsed, responseTimeMs]
 			);
 
 			// Update session
 			await conn.query(
 				`UPDATE chat_sessions 
-         SET message_count = message_count + 1, updated_at = NOW()
-         WHERE id = ?`,
+        SET message_count = message_count + 1, updated_at = NOW()
+        WHERE id = ?`,
 				[session.id]
 			);
 
 			// Auto-generate title from first user message
 			const [firstMessage] = await conn.query(
 				`SELECT content FROM chat_messages 
-         WHERE session_id = ? AND role = 'user' 
-         ORDER BY created_at ASC LIMIT 1`,
+        WHERE session_id = ? AND role = 'user' 
+        ORDER BY created_at ASC LIMIT 1`,
 				[session.id]
 			);
 

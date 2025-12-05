@@ -30,9 +30,9 @@ router.get("/:id", authenticate, async (req, res) => {
                 a.email_verified, a.last_login, a.created_at,
                 s.name as subscription_name, s.description as subscription_description,
                 s.price_ron as subscription_price, s.features as subscription_features
-         FROM accounts a
-         LEFT JOIN subscriptions s ON a.subscription_id = s.id
-         WHERE a.id = ?`,
+        FROM accounts a
+        LEFT JOIN subscriptions s ON a.subscription_id = s.id
+        WHERE a.id = ?`,
 				[accountId]
 			);
 

@@ -25,7 +25,7 @@
 }
 
 .account-page .font {
-	font-family: var(--font-poppins), sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 }
 
 .account-page .margin {
@@ -82,7 +82,7 @@
 
 .account-page h4 {
 	font-weight: 600 !important;
-	font-family: var(--font-poppins), sans-serif !important;
+	font-family: "Poppins", sans-serif !important;
 	font-size: 1.65rem;
 }
 

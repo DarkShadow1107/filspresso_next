@@ -59,11 +59,11 @@ async function getUserTier(conn, accountId) {
 	try {
 		const [result] = await conn.query(
 			`SELECT COALESCE(SUM(oi.quantity), 0) as total_capsules
-       FROM orders o
-       JOIN order_items oi ON o.id = oi.order_id
-       WHERE o.account_id = ? 
-       AND o.status IN ('confirmed', 'shipped', 'delivered')
-       AND oi.product_type = 'capsule'`,
+        FROM orders o
+        JOIN order_items oi ON o.id = oi.order_id
+        WHERE o.account_id = ? 
+        AND o.status IN ('confirmed', 'shipped', 'delivered')
+        AND oi.product_type = 'capsule'`,
 			[accountId]
 		);
 
@@ -543,7 +543,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 				await conn.query(
 					`INSERT INTO member_status 
 						(account_id, total_capsules, original_capsules, vertuo_capsules, current_tier, 
-						 current_year_capsules, current_year_start, highest_tier_achieved)
+						current_year_capsules, current_year_start, highest_tier_achieved)
 					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 					ON DUPLICATE KEY UPDATE 
 						total_capsules = VALUES(total_capsules),
@@ -556,7 +556,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 							WHEN highest_tier_achieved IS NULL THEN VALUES(current_tier)
 							WHEN VALUES(current_tier) IS NULL THEN highest_tier_achieved
 							WHEN FIELD(VALUES(current_tier), 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') > 
-								 FIELD(highest_tier_achieved, 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') 
+								FIELD(highest_tier_achieved, 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') 
 							THEN VALUES(current_tier)
 							ELSE highest_tier_achieved
 						END,
@@ -589,7 +589,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 									WHEN highest_tier IS NULL THEN VALUES(highest_tier)
 									WHEN VALUES(highest_tier) IS NULL THEN highest_tier
 									WHEN FIELD(VALUES(highest_tier), 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') > 
-										 FIELD(highest_tier, 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') 
+										FIELD(highest_tier, 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') 
 									THEN VALUES(highest_tier)
 									ELSE highest_tier
 								END,
@@ -693,15 +693,15 @@ router.get("/", authenticate, async (req, res) => {
 		try {
 			let query = `
         SELECT o.id, o.order_number, o.status, o.subtotal, o.shipping_cost, 
-               o.tax, o.total, o.created_at, o.weather_condition, o.estimated_delivery,
-               o.expected_delivery_date,
-               o.discount_tier, o.discount_percent, o.discount_amount,
-               uc.card_type, uc.card_last_four,
-               (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
+                o.tax, o.total, o.created_at, o.weather_condition, o.estimated_delivery,
+                o.expected_delivery_date,
+                o.discount_tier, o.discount_percent, o.discount_amount,
+                uc.card_type, uc.card_last_four,
+                (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
         FROM orders o
         LEFT JOIN user_cards uc ON o.card_id = uc.id
         WHERE o.account_id = ?
-      `;
+        `;
 			const params = [req.user.id];
 
 			if (status) {
@@ -840,9 +840,9 @@ router.get("/:id", authenticate, async (req, res) => {
 			const [order] = await conn.query(
 				`SELECT o.*, 
                 uc.card_holder, uc.card_type, uc.card_last_four
-         FROM orders o
-         LEFT JOIN user_cards uc ON o.card_id = uc.id
-         WHERE o.id = ? AND o.account_id = ?`,
+        FROM orders o
+        LEFT JOIN user_cards uc ON o.card_id = uc.id
+        WHERE o.id = ? AND o.account_id = ?`,
 				[orderId, req.user.id]
 			);
 
@@ -854,7 +854,7 @@ router.get("/:id", authenticate, async (req, res) => {
 			const items = await conn.query(
 				`SELECT id, product_type, product_id, product_name, product_image,
                 quantity, unit_price, total_price
-         FROM order_items WHERE order_id = ?`,
+        FROM order_items WHERE order_id = ?`,
 				[orderId]
 			);
 
@@ -950,11 +950,11 @@ router.post("/", authenticate, async (req, res) => {
 			// Create order with discount info
 			const orderResult = await conn.query(
 				`INSERT INTO orders 
-         (account_id, order_number, status, subtotal, shipping_cost, tax, total,
-          shipping_address, billing_address, payment_method, card_id, notes,
-          weather_condition, estimated_delivery, expected_delivery_date,
-          discount_tier, discount_percent, discount_amount)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (account_id, order_number, status, subtotal, shipping_cost, tax, total,
+        shipping_address, billing_address, payment_method, card_id, notes,
+        weather_condition, estimated_delivery, expected_delivery_date,
+        discount_tier, discount_percent, discount_amount)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				[
 					req.user.id,
 					orderNumber,
@@ -979,13 +979,13 @@ router.post("/", authenticate, async (req, res) => {
 
 			const orderId = Number(orderResult.insertId);
 
-			// Create order items
+			// Create order items and update stock
 			for (const item of items) {
 				await conn.query(
 					`INSERT INTO order_items 
-           (order_id, product_type, product_id, product_name, product_image, 
+            (order_id, product_type, product_id, product_name, product_image, 
             quantity, unit_price, total_price)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 					[
 						orderId,
 						item.productType,
@@ -997,6 +997,25 @@ router.post("/", authenticate, async (req, res) => {
 						item.unitPrice * item.quantity,
 					]
 				);
+
+				// Update stock in products table based on product type
+				if (item.productType === "capsule") {
+					// Update coffee_products stock
+					await conn.query(
+						`UPDATE coffee_products 
+						SET stock = GREATEST(0, stock - ?) 
+						WHERE product_id = ?`,
+						[item.quantity, item.productId]
+					);
+				} else if (item.productType === "machine") {
+					// Update machine_products stock
+					await conn.query(
+						`UPDATE machine_products 
+						SET stock = GREATEST(0, stock - ?) 
+						WHERE product_id = ?`,
+						[item.quantity, item.productId]
+					);
+				}
 			}
 
 			// Clear user's cart
@@ -1045,6 +1064,29 @@ router.put("/:id/cancel", authenticate, async (req, res) => {
 
 			if (order.status !== "pending" && order.status !== "confirmed") {
 				return res.status(400).json({ error: "Only pending or confirmed orders can be cancelled" });
+			}
+
+			// Restore stock for cancelled order items
+			const orderItems = await conn.query("SELECT product_type, product_id, quantity FROM order_items WHERE order_id = ?", [
+				orderId,
+			]);
+
+			for (const item of orderItems) {
+				if (item.product_type === "capsule") {
+					await conn.query(
+						`UPDATE coffee_products 
+						SET stock = stock + ? 
+						WHERE product_id = ?`,
+						[item.quantity, item.product_id]
+					);
+				} else if (item.product_type === "machine") {
+					await conn.query(
+						`UPDATE machine_products 
+						SET stock = stock + ? 
+						WHERE product_id = ?`,
+						[item.quantity, item.product_id]
+					);
+				}
 			}
 
 			await conn.query("UPDATE orders SET status = ?, updated_at = NOW() WHERE id = ?", ["cancelled", orderId]);

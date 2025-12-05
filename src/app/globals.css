@@ -19,6 +19,36 @@ body {
 	font-family: "Poppins", sans-serif;
 }
 
+/* Global font override - ensure Poppins is used everywhere */
+* {
+	font-family: "Poppins", sans-serif;
+}
+
+/* Override common elements that might have different fonts */
+input,
+button,
+select,
+textarea,
+label,
+span,
+div,
+p,
+a,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+li,
+ul,
+ol,
+table,
+th,
+td {
+	font-family: "Poppins", sans-serif;
+}
+
 /* load the consolidated legacy stylesheet */
 @import "../styles/globals.css";
 @import "../styles/account-management.css";

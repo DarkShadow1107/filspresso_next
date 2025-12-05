@@ -8,7 +8,8 @@ import ScrollToTopButton from "@/components/ScrollToTopButton";
 export default function LayoutChrome({ children }: PropsWithChildren) {
 	const pathname = usePathname();
 	const hideNavbar =
-		typeof pathname === "string" && (pathname.startsWith("/payment") || pathname.startsWith("/manage-subscription"));
+		typeof pathname === "string" &&
+		(pathname.startsWith("/payment") || pathname.startsWith("/manage-subscription") || pathname.startsWith("/admin"));
 
 	return (
 		<>

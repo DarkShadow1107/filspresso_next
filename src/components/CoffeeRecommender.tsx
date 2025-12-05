@@ -20,6 +20,9 @@ import KafelotUsage from "./kafelot/KafelotUsage";
 // Memoize product flattening for performance
 const allProducts = coffeeCollections.flatMap((c) => c.groups.flatMap((g) => g.products));
 
+// Stock data type
+type StockData = Record<string, { price: number; stock: number }>;
+
 type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[] };
 type ChatHistory = {
 	id: string;
@@ -91,6 +94,9 @@ export default function CoffeeRecommender() {
 	const { addItem } = useCart();
 	const { notify } = useNotifications();
 
+	// Stock data for products
+	const [stockData, setStockData] = useState<StockData>({});
+
 	const allNotes = useMemo(() => {
 		const set = new Set<string>();
 		allProducts.forEach((p) => p.notes?.forEach((n) => set.add(n)));
@@ -122,6 +128,25 @@ export default function CoffeeRecommender() {
 	// Fix hydration: only render portal after mount
 	useEffect(() => {
 		setMounted(true);
+
+		// Fetch stock data for coffee products
+		const fetchStockData = async () => {
+			try {
+				const res = await fetch("http://localhost:4000/api/products/coffee");
+				if (res.ok) {
+					const data = await res.json();
+					const stockMap: StockData = {};
+					data.products?.forEach((p: { product_id: string; price: number; stock: number }) => {
+						stockMap[p.product_id] = { price: p.price, stock: p.stock };
+					});
+					setStockData(stockMap);
+				}
+			} catch (error) {
+				console.error("Failed to fetch stock data:", error);
+			}
+		};
+		fetchStockData();
+
 		// Load user session and subscription from sessionStorage
 		if (typeof window !== "undefined") {
 			try {
@@ -1101,36 +1126,77 @@ export default function CoffeeRecommender() {
 							<p>No matches found — try different notes or a simpler query.</p>
 						) : (
 							<div className="results-list">
-								{results.map((r) => (
-									<div key={r.id} className="result-item">
-										<Image src={r.image} alt={r.name} width={70} height={48} />
-										<div className="result-meta">
-											<div className="result-name">{r.name}</div>
-											<div className="result-desc">{r.description}</div>
-											<div className="result-notes">
-												{(r.notes ?? []).slice(0, 3).map((n) => (
-													<span key={n} className="note-pill small">
-														{n}
-													</span>
-												))}
-											</div>
-											<div className="result-actions">
-												<button className="btn-ghost" onClick={() => handleAdd(r)}>
-													Add to bag
-												</button>
-												<button
-													className="btn-link"
-													onClick={() => {
-														setQuery(r.name);
-														setStep("prefs");
+								{results.map((r) => {
+									const productStock = stockData[r.id];
+									const stock = productStock?.stock ?? 100; // Default to 100 if not loaded
+									const isOutOfStock = stock === 0;
+									const isLowStock = stock > 0 && stock < 10;
+
+									return (
+										<div
+											key={r.id}
+											className={`result-item ${isOutOfStock ? "out-of-stock" : ""}`}
+											style={isOutOfStock ? { opacity: 0.5, filter: "grayscale(50%)" } : undefined}
+										>
+											<Image src={r.image} alt={r.name} width={70} height={48} />
+											<div className="result-meta">
+												<div className="result-name">{r.name}</div>
+												<div className="result-desc">{r.description}</div>
+												<div className="result-notes">
+													{(r.notes ?? []).slice(0, 3).map((n) => (
+														<span key={n} className="note-pill small">
+															{n}
+														</span>
+													))}
+												</div>
+												{/* Stock status badge */}
+												<div
+													className={`stock-badge ${
+														isOutOfStock ? "out-of-stock" : isLowStock ? "low-stock" : "in-stock"
+													}`}
+													style={{
+														fontSize: "0.75rem",
+														padding: "2px 8px",
+														borderRadius: "4px",
+														marginBottom: "4px",
+														display: "inline-block",
+														backgroundColor: isOutOfStock
+															? "rgba(231, 76, 60, 0.2)"
+															: isLowStock
+															? "rgba(243, 156, 18, 0.2)"
+															: "rgba(46, 204, 113, 0.2)",
+														color: isOutOfStock ? "#e74c3c" : isLowStock ? "#f39c12" : "#2ecc71",
 													}}
 												>
-													More like this
-												</button>
+													{isOutOfStock
+														? "Out of stock"
+														: isLowStock
+														? `${stock} sleeves left`
+														: "In Stock"}
+												</div>
+												<div className="result-actions">
+													<button
+														className="btn-ghost"
+														onClick={() => handleAdd(r)}
+														disabled={isOutOfStock}
+														style={isOutOfStock ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+													>
+														{isOutOfStock ? "Out of stock" : "Add to bag"}
+													</button>
+													<button
+														className="btn-link"
+														onClick={() => {
+															setQuery(r.name);
+															setStep("prefs");
+														}}
+													>
+														More like this
+													</button>
+												</div>
 											</div>
 										</div>
-									</div>
-								))}
+									);
+								})}
 							</div>
 						)}
 						<div className="recommender-cta results-cta">
@@ -1493,20 +1559,44 @@ export default function CoffeeRecommender() {
 									</div>
 									{msg.products && msg.products.length > 0 && (
 										<div className="chat-products">
-											{msg.products.map((p) => (
-												<div key={p.id} className="chat-product-card">
-													<Image src={p.image} alt={p.name} width={50} height={35} />
-													<div className="chat-product-info">
-														<strong>{p.name}</strong>
-														<span className="chat-product-intensity">
-															Intensity: {p.intensity ?? "N/A"}
-														</span>
+											{msg.products.map((p) => {
+												const productStock = stockData[p.id];
+												const stock = productStock?.stock ?? 100;
+												const isOutOfStock = stock === 0;
+
+												return (
+													<div
+														key={p.id}
+														className="chat-product-card"
+														style={
+															isOutOfStock ? { opacity: 0.5, filter: "grayscale(50%)" } : undefined
+														}
+													>
+														<Image src={p.image} alt={p.name} width={50} height={35} />
+														<div className="chat-product-info">
+															<strong>{p.name}</strong>
+															<span className="chat-product-intensity">
+																Intensity: {p.intensity ?? "N/A"}
+															</span>
+															{isOutOfStock && (
+																<span style={{ fontSize: "0.7rem", color: "#e74c3c" }}>
+																	Out of stock
+																</span>
+															)}
+														</div>
+														<button
+															className="chat-add-btn"
+															onClick={() => handleAdd(p)}
+															disabled={isOutOfStock}
+															style={
+																isOutOfStock ? { opacity: 0.5, cursor: "not-allowed" } : undefined
+															}
+														>
+															{isOutOfStock ? "✕" : "+"}
+														</button>
 													</div>
-													<button className="chat-add-btn" onClick={() => handleAdd(p)}>
-														+
-													</button>
-												</div>
-											))}
+												);
+											})}
 										</div>
 									)}
 								</div>

@@ -538,18 +538,16 @@ h4 {
 .coffee_groups_head,
 .coffee_groups_capsules {
 	width: 270px;
-	/* increased height by ~10% to make room for Notes */
-	height: 605px;
 }
 .machine_groups_head,
 .machine_groups_models {
 	width: 340px;
-	height: 680px;
+	height: 803px; /* 730px + 10% */
 }
 .machine_groups_head_2,
 .machine_groups_models_2 {
 	width: 340px;
-	height: 540px;
+	height: 638px; /* 580px + 10% */
 }
 .machine_groups_models,
 .machine_groups_models_2 {
@@ -1861,7 +1859,7 @@ body.recommender-open {
 	border-radius: 15px;
 	background-color: rgba(200, 151, 123, 0.153);
 	align-items: center;
-	height: 200px;
+	height: 220px; /* 200px + 10% */
 }
 .capsule_box img {
 	width: 70%;
@@ -2687,143 +2685,226 @@ svg {
 
 /* Stats Window Styles */
 .recommender-stats {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    padding: 8px 0;
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+	padding: 8px 0;
 }
 
 .stats-section {
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 12px;
-    padding: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+	background: rgba(255, 255, 255, 0.03);
+	border-radius: 12px;
+	padding: 16px;
+	border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .stats-section h4 {
-    margin: 0 0 12px 0;
-    font-size: 14px;
-    color: rgba(250, 204, 144, 0.9);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+	margin: 0 0 12px 0;
+	font-size: 14px;
+	color: rgba(250, 204, 144, 0.9);
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
 }
 
 .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 10px;
 }
 
 .stat-card {
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 8px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    text-align: center;
+	background: rgba(0, 0, 0, 0.2);
+	border-radius: 8px;
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+	text-align: center;
 }
 
 .stat-icon {
-    font-size: 20px;
-    margin-bottom: 4px;
+	font-size: 20px;
+	margin-bottom: 4px;
 }
 
 .stat-label {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
+	font-size: 12px;
+	color: rgba(255, 255, 255, 0.6);
 }
 
 .stat-value {
-    font-size: 18px;
-    font-weight: 700;
-    color: #fff;
+	font-size: 18px;
+	font-weight: 700;
+	color: #fff;
 }
 
 .usage-mini-window {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
 }
 
 .usage-bar-container {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
 }
 
 .usage-bar-label {
-    display: flex;
-    justify-content: space-between;
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+	display: flex;
+	justify-content: space-between;
+	font-size: 13px;
+	color: rgba(255, 255, 255, 0.8);
 }
 
 .usage-bar {
-    height: 8px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-    overflow: hidden;
+	height: 8px;
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 4px;
+	overflow: hidden;
 }
 
 .usage-fill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.5s ease-out;
+	height: 100%;
+	border-radius: 4px;
+	transition: width 0.5s ease-out;
 }
 
 .usage-fill.tanka {
-    background: linear-gradient(90deg, #4CAF50, #8BC34A);
+	background: linear-gradient(90deg, #4caf50, #8bc34a);
 }
 
 .usage-fill.villanelle {
-    background: linear-gradient(90deg, #2196F3, #03A9F4);
+	background: linear-gradient(90deg, #2196f3, #03a9f4);
 }
 
 .usage-fill.ode {
-    background: linear-gradient(90deg, #9C27B0, #E91E63);
+	background: linear-gradient(90deg, #9c27b0, #e91e63);
 }
 
-
 .stat-total {
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 14px;
-    color: rgba(255, 255, 255, 0.8);
+	margin-top: 16px;
+	padding-top: 12px;
+	border-top: 1px solid rgba(255, 255, 255, 0.1);
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-size: 14px;
+	color: rgba(255, 255, 255, 0.8);
 }
 
 .stat-total strong {
-    color: #fff;
-    font-size: 16px;
+	color: #fff;
+	font-size: 16px;
 }
 
 .fade-in {
-    animation: fadeIn 0.4s ease-out forwards;
-    opacity: 0;
-    transform: translateY(10px);
+	animation: fadeIn 0.4s ease-out forwards;
+	opacity: 0;
+	transform: translateY(10px);
 }
 
 @keyframes fadeIn {
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
-
 .stat-card {
-    transition: all 0.2s ease;
+	transition: all 0.2s ease;
 }
 
 .stat-card:hover {
-    background: rgba(255, 255, 255, 0.08);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	background: rgba(255, 255, 255, 0.08);
+	transform: translateY(-2px);
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
+/* Stock Badge Styles - Coffee & Machines */
+.stock-badge {
+	font-family: "Poppins", sans-serif !important;
+	font-size: 0.75rem;
+	font-weight: 600;
+	padding: 0.25rem 0.625rem;
+	border-radius: 12px;
+	margin-bottom: 0.5rem;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.stock-badge.in-stock {
+	background: rgba(34, 197, 94, 0.15);
+	color: #22c55e;
+	border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.stock-badge.low-stock {
+	background: rgba(251, 191, 36, 0.15);
+	color: #fbbf24;
+	border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.stock-badge.out-of-stock {
+	background: rgba(239, 68, 68, 0.15);
+	color: #ef4444;
+	border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Out of Stock Card Styling */
+.coffee_groups_capsules.out-of-stock,
+.machine_groups_models.out-of-stock,
+.machine_groups_models_2.out-of-stock {
+	position: relative;
+	opacity: 0.55;
+	filter: grayscale(40%);
+	pointer-events: none;
+}
+
+.coffee_groups_capsules.out-of-stock::after,
+.machine_groups_models.out-of-stock::after,
+.machine_groups_models_2.out-of-stock::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.15);
+	border-radius: 20px;
+	pointer-events: none;
+	z-index: 5;
+}
+
+.out-of-stock-overlay {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 10;
+	pointer-events: all;
+	cursor: not-allowed;
+}
+
+/* Disabled button styling */
+.button_add_bag.disabled,
+.button_add_bag_2.disabled {
+	background: rgba(100, 100, 100, 0.4) !important;
+	cursor: not-allowed !important;
+	color: rgba(255, 255, 255, 0.5) !important;
+	pointer-events: none;
+}
+
+.button_add_bag.disabled:hover,
+.button_add_bag_2.disabled:hover {
+	transform: none !important;
+	box-shadow: none !important;
+}
+
+/* Increase coffee card height slightly for stock badge */
+.coffee_groups_capsules {
+	height: 635px;
+}

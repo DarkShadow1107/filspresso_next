@@ -57,11 +57,11 @@ router.get("/", authenticate, async (req, res) => {
 				`SELECT us.id, us.subscription_tier, us.billing_cycle, us.price_ron, 
                         us.start_date, us.renewal_date, us.end_date, us.is_active, us.auto_renew, us.status,
                         us.card_id, uc.card_last_four, uc.card_type
-                 FROM user_subscriptions us
-                 LEFT JOIN user_cards uc ON us.card_id = uc.id
-                 WHERE us.account_id = ? AND us.is_active = TRUE AND us.status IN ('active', 'ending')
-                 ORDER BY us.created_at DESC
-                 LIMIT 1`,
+                FROM user_subscriptions us
+                LEFT JOIN user_cards uc ON us.card_id = uc.id
+                WHERE us.account_id = ? AND us.is_active = TRUE AND us.status IN ('active', 'ending')
+                ORDER BY us.created_at DESC
+                LIMIT 1`,
 				[req.user.id]
 			);
 
@@ -70,11 +70,11 @@ router.get("/", authenticate, async (req, res) => {
 				`SELECT us.id, us.subscription_tier, us.billing_cycle, us.price_ron, 
                         us.start_date, us.renewal_date, us.is_active, us.status,
                         us.card_id, uc.card_last_four, uc.card_type
-                 FROM user_subscriptions us
-                 LEFT JOIN user_cards uc ON us.card_id = uc.id
-                 WHERE us.account_id = ? AND us.status = 'scheduled'
-                 ORDER BY us.start_date ASC
-                 LIMIT 1`,
+                FROM user_subscriptions us
+                LEFT JOIN user_cards uc ON us.card_id = uc.id
+                WHERE us.account_id = ? AND us.status = 'scheduled'
+                ORDER BY us.start_date ASC
+                LIMIT 1`,
 				[req.user.id]
 			);
 
@@ -114,7 +114,7 @@ router.get("/", authenticate, async (req, res) => {
 								id: currentSub.card_id,
 								last_four: currentSub.card_last_four,
 								type: currentSub.card_type,
-						  }
+						}
 						: null,
 				},
 				scheduled: scheduledSub
@@ -131,9 +131,9 @@ router.get("/", authenticate, async (req, res) => {
 										id: scheduledSub.card_id,
 										last_four: scheduledSub.card_last_four,
 										type: scheduledSub.card_type,
-								  }
+								}
 								: null,
-					  }
+					}
 					: null,
 			};
 
@@ -178,9 +178,9 @@ router.post("/", authenticate, async (req, res) => {
 			// Create new subscription
 			const result = await conn.query(
 				`INSERT INTO user_subscriptions 
-                 (account_id, subscription_tier, billing_cycle, price_ron, 
-                  start_date, renewal_date, is_active, auto_renew, status, card_id)
-                 VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, 'active', ?)`,
+                (account_id, subscription_tier, billing_cycle, price_ron, 
+                start_date, renewal_date, is_active, auto_renew, status, card_id)
+                VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, 'active', ?)`,
 				[req.user.id, tier, billingCycle || "monthly", price, startDate, renewalDate, tier !== "free", cardId || null]
 			);
 
@@ -240,8 +240,8 @@ router.post("/change", authenticate, async (req, res) => {
 			// Get current active subscription
 			const [currentSub] = await conn.query(
 				`SELECT id, subscription_tier, renewal_date, card_id FROM user_subscriptions 
-				 WHERE account_id = ? AND is_active = TRUE AND status IN ('active', 'ending')
-				 LIMIT 1`,
+				WHERE account_id = ? AND is_active = TRUE AND status IN ('active', 'ending')
+				LIMIT 1`,
 				[req.user.id]
 			);
 
@@ -265,7 +265,7 @@ router.post("/change", authenticate, async (req, res) => {
 				// Mark current as ending now
 				await conn.query(
 					`UPDATE user_subscriptions SET status = 'ending', end_date = CURDATE(), auto_renew = FALSE, is_active = FALSE
-					 WHERE id = ?`,
+					WHERE id = ?`,
 					[currentSub.id]
 				);
 
@@ -275,9 +275,9 @@ router.post("/change", authenticate, async (req, res) => {
 				// Create new active subscription
 				const result = await conn.query(
 					`INSERT INTO user_subscriptions 
-					 (account_id, subscription_tier, billing_cycle, price_ron, 
-					  start_date, renewal_date, is_active, auto_renew, status, card_id)
-					 VALUES (?, ?, ?, ?, ?, ?, TRUE, TRUE, 'active', ?)`,
+					(account_id, subscription_tier, billing_cycle, price_ron, 
+					start_date, renewal_date, is_active, auto_renew, status, card_id)
+					VALUES (?, ?, ?, ?, ?, ?, TRUE, TRUE, 'active', ?)`,
 					[req.user.id, tier, billingCycle, price, startDate, renewalDate, useCardId]
 				);
 
@@ -309,7 +309,7 @@ router.post("/change", authenticate, async (req, res) => {
 				const endDate = currentSub.renewal_date;
 				await conn.query(
 					`UPDATE user_subscriptions SET status = 'ending', end_date = ?, auto_renew = FALSE
-					 WHERE id = ?`,
+					WHERE id = ?`,
 					[endDate, currentSub.id]
 				);
 
@@ -319,9 +319,9 @@ router.post("/change", authenticate, async (req, res) => {
 
 				const result = await conn.query(
 					`INSERT INTO user_subscriptions 
-					 (account_id, subscription_tier, billing_cycle, price_ron, 
-					  start_date, renewal_date, is_active, auto_renew, status, card_id)
-					 VALUES (?, ?, ?, ?, ?, ?, FALSE, TRUE, 'scheduled', ?)`,
+					(account_id, subscription_tier, billing_cycle, price_ron, 
+					start_date, renewal_date, is_active, auto_renew, status, card_id)
+					VALUES (?, ?, ?, ?, ?, ?, FALSE, TRUE, 'scheduled', ?)`,
 					[req.user.id, tier, billingCycle, price, startDate, renewalDate, useCardId]
 				);
 
@@ -363,7 +363,7 @@ router.put("/cancel", authenticate, async (req, res) => {
 		try {
 			const [subscription] = await conn.query(
 				`SELECT id FROM user_subscriptions 
-                 WHERE account_id = ? AND is_active = TRUE`,
+                WHERE account_id = ? AND is_active = TRUE`,
 				[req.user.id]
 			);
 
@@ -373,8 +373,8 @@ router.put("/cancel", authenticate, async (req, res) => {
 
 			await conn.query(
 				`UPDATE user_subscriptions 
-                 SET auto_renew = FALSE, updated_at = NOW() 
-                 WHERE id = ?`,
+                SET auto_renew = FALSE, updated_at = NOW() 
+                WHERE id = ?`,
 				[subscription.id]
 			);
 
@@ -414,8 +414,8 @@ router.put("/update-card", authenticate, async (req, res) => {
 			// Update subscription with new card
 			await conn.query(
 				`UPDATE user_subscriptions 
-				 SET card_id = ?, updated_at = NOW() 
-				 WHERE account_id = ? AND is_active = TRUE`,
+				SET card_id = ?, updated_at = NOW() 
+				WHERE account_id = ? AND is_active = TRUE`,
 				[cardId, req.user.id]
 			);
 
@@ -438,7 +438,7 @@ router.put("/toggle-auto-renew", authenticate, async (req, res) => {
 		try {
 			const [subscription] = await conn.query(
 				`SELECT id, auto_renew FROM user_subscriptions 
-				 WHERE account_id = ? AND is_active = TRUE`,
+				WHERE account_id = ? AND is_active = TRUE`,
 				[req.user.id]
 			);
 
@@ -450,8 +450,8 @@ router.put("/toggle-auto-renew", authenticate, async (req, res) => {
 
 			await conn.query(
 				`UPDATE user_subscriptions 
-				 SET auto_renew = ?, updated_at = NOW() 
-				 WHERE id = ?`,
+				SET auto_renew = ?, updated_at = NOW() 
+				WHERE id = ?`,
 				[newAutoRenew, subscription.id]
 			);
 

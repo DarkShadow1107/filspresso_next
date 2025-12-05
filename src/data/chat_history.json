@@ -1,5 +1,22 @@
 [
   {
+    "id": "chat-1764776600040",
+    "timestamp": 1764776693887,
+    "messages": [
+      {
+        "role": "user",
+        "content": "show me caffeine"
+      },
+      {
+        "role": "assistant",
+        "content": "🔍 **Found molecule:**\n\n📊 **CAFFEINE CITRATE**\n🔬 **ChEMBL ID:** CHEMBL1200569\n🧪 **Formula:** C14H18N4O9\n⚖️ **Molecular Weight:** 386.32 g/mol\n🔗 **LogP (Lipophilicity):** -1.03\n📐 **TPSA (Polarity):** 61.82\n🔶 **H-Bond Acceptors:** 6\n🔵 **H-Bond Donors:** 0\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow."
+      }
+    ],
+    "preview": "show me caffeine",
+    "model": "tanka",
+    "category": "chemistry"
+  },
+  {
     "id": "chat-1764450375906",
     "timestamp": 1764450406211,
     "messages": [

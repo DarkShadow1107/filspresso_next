@@ -4,16 +4,14 @@
 }
 
 .font-sans {
-	font-family: "Inter var", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji",
-		"Segoe UI Emoji";
+	font-family: "Poppins", sans-serif;
 }
 
 .payment-page-body {
 	background: radial-gradient(circle at 50% 10%, rgba(84, 63, 42, 0.6) 0%, rgba(19, 12, 7, 0.85) 30%, rgb(4, 4, 4) 100%);
 	color: #f8dccb;
 	min-height: 100vh;
-	font-family: "Poppins", "Inter var", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif,
-		"Apple Color Emoji", "Segoe UI Emoji";
+	font-family: "Poppins", sans-serif;
 }
 
 .payment-page-body #__next {
@@ -126,7 +124,7 @@
 	background-color: rgba(230, 208, 179, 0.18);
 	color: #dcc8b4;
 	font-size: 0.95rem;
-	font-family: "Poppins", "Inter var", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	font-family: "Poppins", sans-serif;
 	letter-spacing: 0.08em;
 	transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
@@ -168,7 +166,7 @@
 	background-color: #e6d0b3;
 	color: #1f2937;
 	font-size: 1.1rem;
-	font-family: "Poppins", "Inter var", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	font-family: "Poppins", sans-serif;
 	font-weight: 600;
 	letter-spacing: 0.04em;
 	text-transform: capitalize;

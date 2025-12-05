@@ -49,7 +49,7 @@ router.post("/register", async (req, res) => {
 			// Insert user
 			const result = await conn.query(
 				`INSERT INTO accounts (username, email, password_hash, name, icon) 
-         VALUES (?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?)`,
 				[username.toLowerCase(), email.toLowerCase(), passwordHash, displayName || username, icon || null]
 			);
 

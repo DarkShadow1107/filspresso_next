@@ -26,6 +26,8 @@ const chatRoutes = require("./routes/chat");
 const weatherRoutes = require("./routes/weather");
 const subscriptionsRoutes = require("./routes/subscriptions");
 const repairsRoutes = require("./routes/repairs");
+const adminRoutes = require("./routes/admin");
+const productsRoutes = require("./routes/products");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -89,6 +91,8 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/weather", weatherRoutes);
 app.use("/api/subscriptions", subscriptionsRoutes);
 app.use("/api/repairs", repairsRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/products", productsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

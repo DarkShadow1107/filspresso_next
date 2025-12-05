@@ -62,11 +62,11 @@ async function getUserTier(conn, accountId) {
 		// Count capsules in current period
 		const capsuleResult = await conn.query(
 			`SELECT COALESCE(SUM(oi.quantity), 0) as total_sleeves
-			 FROM orders o
-			 JOIN order_items oi ON o.id = oi.order_id
-			 WHERE o.account_id = ?
-			 AND o.created_at >= ?
-			 AND oi.product_type = 'capsule'`,
+			FROM orders o
+			JOIN order_items oi ON o.id = oi.order_id
+			WHERE o.account_id = ?
+			AND o.created_at >= ?
+			AND oi.product_type = 'capsule'`,
 			[accountId, periodStart.toISOString()]
 		);
 
@@ -94,9 +94,9 @@ router.get("/", authenticate, async (req, res) => {
 		try {
 			const cartItems = await conn.query(
 				`SELECT id, product_type, product_id, product_name, product_image, unit_price, quantity, created_at
-         FROM cart_items
-         WHERE account_id = ?
-         ORDER BY created_at DESC`,
+        FROM cart_items
+        WHERE account_id = ?
+        ORDER BY created_at DESC`,
 				[req.user.id]
 			);
 
@@ -159,7 +159,7 @@ router.post("/", authenticate, async (req, res) => {
 			// Check if item already in cart
 			const [existing] = await conn.query(
 				`SELECT id, quantity FROM cart_items 
-         WHERE account_id = ? AND product_type = ? AND product_id = ?`,
+        WHERE account_id = ? AND product_type = ? AND product_id = ?`,
 				[req.user.id, productType, productId]
 			);
 
@@ -175,7 +175,7 @@ router.post("/", authenticate, async (req, res) => {
 				// Insert new item with product details
 				await conn.query(
 					`INSERT INTO cart_items (account_id, product_type, product_id, product_name, product_image, unit_price, quantity)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
 					[req.user.id, productType, productId, productName, productImage || null, unitPrice, quantity]
 				);
 				res.status(201).json({ message: "Item added to cart" });

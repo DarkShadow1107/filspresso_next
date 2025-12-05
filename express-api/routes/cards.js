@@ -22,7 +22,7 @@ router.get("/", authenticate, async (req, res) => {
 		try {
 			const cardsRaw = await conn.query(
 				`SELECT id, card_holder, card_type, card_last_four, card_expiry_encrypted, card_cvv_encrypted, is_default, created_at
-         FROM user_cards WHERE account_id = ? ORDER BY is_default DESC, created_at DESC`,
+        FROM user_cards WHERE account_id = ? ORDER BY is_default DESC, created_at DESC`,
 				[req.user.id]
 			);
 
@@ -81,9 +81,9 @@ router.post("/", authenticate, async (req, res) => {
 
 			const result = await conn.query(
 				`INSERT INTO user_cards 
-         (account_id, card_number_encrypted, card_expiry_encrypted, card_cvv_encrypted,
-          card_holder, card_type, card_last_four, is_default)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        (account_id, card_number_encrypted, card_expiry_encrypted, card_cvv_encrypted,
+            card_holder, card_type, card_last_four, is_default)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 				[req.user.id, encryptedNumber, encryptedExpiry, encryptedCvv, cardHolder, cardType, lastFour, isDefault || false]
 			);
 
