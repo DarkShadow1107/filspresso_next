@@ -5,11 +5,10 @@
  */
 
 const express = require("express");
+const pool = require("../db/connection");
 const router = express.Router();
 
-// Simple in-memory cache
-const cache = new Map();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL_MINUTES = 10;
 
 // Default coordinates (Bucharest, Romania)
 const DEFAULT_LAT = 44.4323;
@@ -31,46 +30,65 @@ router.get("/", async (req, res) => {
 		// Round to 2 decimal places for cache key consistency
 		const cacheKey = `${lat.toFixed(2)}:${lon.toFixed(2)}`;
 
-		// Check cache
-		const cached = cache.get(cacheKey);
-		if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-			return res.json(cached.data);
+		const client = await pool.connect();
+		try {
+			// Check database cache
+			const cacheResult = await client.query(
+				"SELECT data, timestamp FROM weather_cache WHERE cache_key = $1",
+				[cacheKey]
+			);
+
+			if (cacheResult.rows.length > 0) {
+				const cached = cacheResult.rows[0];
+				const ageMinutes = (Date.now() - new Date(cached.timestamp).getTime()) / (1000 * 60);
+				
+				if (ageMinutes < CACHE_TTL_MINUTES) {
+					return res.json(cached.data);
+				}
+			}
+
+			// Fetch from Open-Meteo API
+			const url = new URL("https://api.open-meteo.com/v1/forecast");
+			url.searchParams.set("latitude", lat.toString());
+			url.searchParams.set("longitude", lon.toString());
+			url.searchParams.set("hourly", "temperature_2m,precipitation,precipitation_probability,weather_code");
+			url.searchParams.set("current", "temperature_2m,weather_code,is_day");
+			url.searchParams.set("timezone", "auto");
+			url.searchParams.set("forecast_days", "2");
+
+			const response = await fetch(url.toString());
+
+			if (!response.ok) {
+				console.error("Open-Meteo API error:", response.status, response.statusText);
+				return res.status(502).json({ error: "Weather API unavailable" });
+			}
+
+			const json = await response.json();
+
+			// Build simplified response
+			const output = {
+				latitude: json.latitude,
+				longitude: json.longitude,
+				timezone: json.timezone,
+				timezone_abbreviation: json.timezone_abbreviation,
+				current: json.current || null,
+				hourly: json.hourly || null,
+				// Add coffee recommendation based on current temperature
+				recommendation: getCoffeeRecommendation(json.current?.temperature_2m),
+			};
+
+			// Update database cache
+			await client.query(
+				`INSERT INTO weather_cache (cache_key, data, timestamp) 
+				 VALUES ($1, $2, NOW()) 
+				 ON CONFLICT (cache_key) DO UPDATE SET data = EXCLUDED.data, timestamp = NOW()`,
+				[cacheKey, JSON.stringify(output)]
+			);
+
+			res.json(output);
+		} finally {
+			client.release();
 		}
-
-		// Fetch from Open-Meteo API
-		const url = new URL("https://api.open-meteo.com/v1/forecast");
-		url.searchParams.set("latitude", lat.toString());
-		url.searchParams.set("longitude", lon.toString());
-		url.searchParams.set("hourly", "temperature_2m,precipitation,precipitation_probability,weather_code");
-		url.searchParams.set("current", "temperature_2m,weather_code,is_day");
-		url.searchParams.set("timezone", "auto");
-		url.searchParams.set("forecast_days", "2");
-
-		const response = await fetch(url.toString());
-
-		if (!response.ok) {
-			console.error("Open-Meteo API error:", response.status, response.statusText);
-			return res.status(502).json({ error: "Weather API unavailable" });
-		}
-
-		const json = await response.json();
-
-		// Build simplified response
-		const output = {
-			latitude: json.latitude,
-			longitude: json.longitude,
-			timezone: json.timezone,
-			timezone_abbreviation: json.timezone_abbreviation,
-			current: json.current || null,
-			hourly: json.hourly || null,
-			// Add coffee recommendation based on current temperature
-			recommendation: getCoffeeRecommendation(json.current?.temperature_2m),
-		};
-
-		// Cache the result
-		cache.set(cacheKey, { data: output, timestamp: Date.now() });
-
-		res.json(output);
 	} catch (error) {
 		console.error("Weather fetch error:", error);
 		res.status(500).json({ error: "Failed to fetch weather data" });

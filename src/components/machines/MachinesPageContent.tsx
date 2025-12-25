@@ -4,7 +4,8 @@ import { createContext, useContext, useEffect, useState } from "react";
 import Image from "next/image";
 import useCart from "@/hooks/useCart";
 import MachineNotificationsProvider, { useMachineNotifications } from "@/components/machines/MachineNotifications";
-import { machineCollections, type MachineCollection, type MachineGroup, type MachineProduct } from "@/data/machines";
+import { type MachineCollection, type MachineGroup, type MachineProduct } from "@/data/machines";
+import { useMachineCollections } from "@/hooks/useMachineCollections";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -138,6 +139,8 @@ function MachineCollectionSection({ collection }: { collection: MachineCollectio
 }
 
 export default function MachinesPageContent() {
+	const { collections, loading } = useMachineCollections();
+	const machineCollections = collections ?? [];
 	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
 	const [isLoading, setIsLoading] = useState(true);
 

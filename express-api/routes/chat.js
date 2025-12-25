@@ -21,29 +21,30 @@ router.get("/sessions", authenticate, async (req, res) => {
 	try {
 		const { limit = 20, offset = 0 } = req.query;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const sessions = await conn.query(
+			const result = await client.query(
 				`SELECT id, session_uuid, title, model_type, ai_enabled, 
                 message_count, created_at, updated_at
         FROM chat_sessions 
-        WHERE account_id = ? AND is_active = TRUE
+        WHERE account_id = $1 AND is_active = TRUE
         ORDER BY updated_at DESC
-        LIMIT ? OFFSET ?`,
+        LIMIT $2 OFFSET $3`,
 				[req.user.id, parseInt(limit), parseInt(offset)]
 			);
+			const sessions = result.rows;
 
-			const [countResult] = await conn.query(
-				"SELECT COUNT(*) as total FROM chat_sessions WHERE account_id = ? AND is_active = TRUE",
+			const countResult = await client.query(
+				"SELECT COUNT(*) as total FROM chat_sessions WHERE account_id = $1 AND is_active = TRUE",
 				[req.user.id]
 			);
 
 			res.json({
 				sessions,
-				total: Number(countResult.total),
+				total: Number(countResult.rows[0].total),
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get sessions error:", error);
@@ -59,35 +60,36 @@ router.get("/sessions/:uuid", authenticate, async (req, res) => {
 		const { uuid } = req.params;
 		const { messageLimit = 50 } = req.query;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [session] = await conn.query(
+			const result = await client.query(
 				`SELECT id, session_uuid, title, model_type, ai_enabled, 
                 message_count, created_at, updated_at
         FROM chat_sessions 
-        WHERE session_uuid = ? AND account_id = ?`,
+        WHERE session_uuid = $1 AND account_id = $2`,
 				[uuid, req.user.id]
 			);
+			const session = result.rows[0];
 
 			if (!session) {
 				return res.status(404).json({ error: "Session not found" });
 			}
 
-			const messages = await conn.query(
+			const messagesResult = await client.query(
 				`SELECT id, role, content, tokens_used, response_time_ms, created_at
         FROM chat_messages 
-        WHERE session_id = ?
+        WHERE session_id = $1
         ORDER BY created_at ASC
-        LIMIT ?`,
+        LIMIT $2`,
 				[session.id, parseInt(messageLimit)]
 			);
 
 			res.json({
 				session,
-				messages,
+				messages: messagesResult.rows,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get session error:", error);
@@ -106,21 +108,22 @@ router.post("/sessions", authenticate, async (req, res) => {
 			return res.status(400).json({ error: "Invalid model type" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			const sessionUuid = uuidv4();
 
-			const result = await conn.query(
+			const result = await client.query(
 				`INSERT INTO chat_sessions 
         (account_id, session_uuid, title, model_type, ai_enabled)
-        VALUES (?, ?, ?, ?, ?)`,
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id`,
 				[req.user.id, sessionUuid, title || "New Chat", modelType, aiEnabled]
 			);
 
 			res.status(201).json({
 				message: "Session created",
 				session: {
-					id: Number(result.insertId),
+					id: result.rows[0].id,
 					session_uuid: sessionUuid,
 					title: title || "New Chat",
 					model_type: modelType,
@@ -128,7 +131,7 @@ router.post("/sessions", authenticate, async (req, res) => {
 				},
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Create session error:", error);
@@ -152,43 +155,46 @@ router.post("/sessions/:uuid/messages", authenticate, async (req, res) => {
 			return res.status(400).json({ error: "Invalid role" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [session] = await conn.query("SELECT id FROM chat_sessions WHERE session_uuid = ? AND account_id = ?", [
+			const sessionResult = await client.query("SELECT id FROM chat_sessions WHERE session_uuid = $1 AND account_id = $2", [
 				uuid,
 				req.user.id,
 			]);
+			const session = sessionResult.rows[0];
 
 			if (!session) {
 				return res.status(404).json({ error: "Session not found" });
 			}
 
-			const result = await conn.query(
+			const result = await client.query(
 				`INSERT INTO chat_messages 
         (session_id, role, content, tokens_used, response_time_ms)
-        VALUES (?, ?, ?, ?, ?)`,
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id`,
 				[session.id, role, content, tokensUsed, responseTimeMs]
 			);
 
 			// Update session
-			await conn.query(
+			await client.query(
 				`UPDATE chat_sessions 
         SET message_count = message_count + 1, updated_at = NOW()
-        WHERE id = ?`,
+        WHERE id = $1`,
 				[session.id]
 			);
 
 			// Auto-generate title from first user message
-			const [firstMessage] = await conn.query(
+			const firstMessageResult = await client.query(
 				`SELECT content FROM chat_messages 
-        WHERE session_id = ? AND role = 'user' 
+        WHERE session_id = $1 AND role = 'user' 
         ORDER BY created_at ASC LIMIT 1`,
 				[session.id]
 			);
+			const firstMessage = firstMessageResult.rows[0];
 
 			if (firstMessage && role === "user") {
 				const autoTitle = firstMessage.content.slice(0, 50) + (firstMessage.content.length > 50 ? "..." : "");
-				await conn.query("UPDATE chat_sessions SET title = ? WHERE id = ? AND title = ?", [
+				await client.query("UPDATE chat_sessions SET title = $1 WHERE id = $2 AND title = $3", [
 					autoTitle,
 					session.id,
 					"New Chat",
@@ -197,10 +203,10 @@ router.post("/sessions/:uuid/messages", authenticate, async (req, res) => {
 
 			res.status(201).json({
 				message: "Message added",
-				messageId: Number(result.insertId),
+				messageId: result.rows[0].id,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Add message error:", error);
@@ -216,12 +222,13 @@ router.put("/sessions/:uuid", authenticate, async (req, res) => {
 		const { uuid } = req.params;
 		const { title, modelType, aiEnabled } = req.body;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [session] = await conn.query("SELECT id FROM chat_sessions WHERE session_uuid = ? AND account_id = ?", [
+			const sessionResult = await client.query("SELECT id FROM chat_sessions WHERE session_uuid = $1 AND account_id = $2", [
 				uuid,
 				req.user.id,
 			]);
+			const session = sessionResult.rows[0];
 
 			if (!session) {
 				return res.status(404).json({ error: "Session not found" });
@@ -231,29 +238,29 @@ router.put("/sessions/:uuid", authenticate, async (req, res) => {
 			const params = [];
 
 			if (title !== undefined) {
-				updates.push("title = ?");
 				params.push(title);
+				updates.push(`title = $${params.length}`);
 			}
 			if (modelType !== undefined) {
 				if (!["tanka", "villanelle", "ode", "chemistry"].includes(modelType)) {
 					return res.status(400).json({ error: "Invalid model type" });
 				}
-				updates.push("model_type = ?");
 				params.push(modelType);
+				updates.push(`model_type = $${params.length}`);
 			}
 			if (aiEnabled !== undefined) {
-				updates.push("ai_enabled = ?");
 				params.push(aiEnabled);
+				updates.push(`ai_enabled = $${params.length}`);
 			}
 
 			if (updates.length > 0) {
 				params.push(session.id);
-				await conn.query(`UPDATE chat_sessions SET ${updates.join(", ")}, updated_at = NOW() WHERE id = ?`, params);
+				await client.query(`UPDATE chat_sessions SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${params.length}`, params);
 			}
 
 			res.json({ message: "Session updated" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Update session error:", error);
@@ -268,23 +275,24 @@ router.delete("/sessions/:uuid", authenticate, async (req, res) => {
 	try {
 		const { uuid } = req.params;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [session] = await conn.query("SELECT id FROM chat_sessions WHERE session_uuid = ? AND account_id = ?", [
+			const sessionResult = await client.query("SELECT id FROM chat_sessions WHERE session_uuid = $1 AND account_id = $2", [
 				uuid,
 				req.user.id,
 			]);
+			const session = sessionResult.rows[0];
 
 			if (!session) {
 				return res.status(404).json({ error: "Session not found" });
 			}
 
 			// Soft delete
-			await conn.query("UPDATE chat_sessions SET is_active = FALSE, updated_at = NOW() WHERE id = ?", [session.id]);
+			await client.query("UPDATE chat_sessions SET is_active = FALSE, updated_at = NOW() WHERE id = $1", [session.id]);
 
 			res.json({ message: "Session deleted" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Delete session error:", error);

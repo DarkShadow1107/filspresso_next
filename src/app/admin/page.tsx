@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import "@/styles/admin.css";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+// @ts-expect-error: Global admin styles imported for the dashboard page
+import "../../styles/admin.css";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -36,8 +37,13 @@ export default function AdminPage() {
 	const [adminToken, setAdminToken] = useState<string | null>(null);
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
+	const [showPassword, setShowPassword] = useState(false);
 	const [loginError, setLoginError] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
+	const [isUploadingImage, setIsUploadingImage] = useState(false);
+	const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
+	const [pendingUploadMode, setPendingUploadMode] = useState<"new" | "edit" | null>(null);
+	const fileInputRef = useRef<HTMLInputElement | null>(null);
 
 	// Table state
 	const [tables, setTables] = useState<TableInfo[]>([]);
@@ -45,7 +51,7 @@ export default function AdminPage() {
 	const [columns, setColumns] = useState<Column[]>([]);
 	const [primaryKey, setPrimaryKey] = useState<string>("id");
 	const [tableData, setTableData] = useState<RowData[]>([]);
-	const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
+	const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 10, total: 0, totalPages: 0 });
 	const [sortBy, setSortBy] = useState<string>("id");
 	const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 	const [searchQuery, setSearchQuery] = useState("");
@@ -224,20 +230,46 @@ export default function AdminPage() {
 		setEditedData({});
 	};
 
+	// Ensure JSON fields are properly stringified and system fields are stripped/normalized
+	const prepareDataForSave = (data: RowData): RowData => {
+		const jsonFields = ["notes", "servings"];
+		const prepared: RowData = { ...data };
+
+		// Strip system/PK fields so DB handles them (avoids datetime format errors)
+		delete prepared.id;
+		delete prepared.created_at;
+		delete prepared.updated_at;
+
+		for (const field of jsonFields) {
+			if (field in prepared) {
+				const val = prepared[field];
+				// If it's already a string, keep it; if it's an object/array, stringify it
+				if (val !== null && val !== undefined && typeof val !== "string") {
+					prepared[field] = JSON.stringify(val);
+				}
+			}
+		}
+		return prepared;
+	};
+
 	const handleSaveEdit = async () => {
 		if (!selectedTable || !editingRow) return;
 		setActionError("");
 		setIsLoading(true);
 
 		try {
+			const readyForSave = await ensurePendingUploadBeforeSave(false);
+			if (!readyForSave) return;
+
 			const rowId = editingRow[primaryKey];
+			const dataToSend = prepareDataForSave(editedData);
 			const res = await fetch(`${API_BASE}/api/admin/tables/${selectedTable}/${rowId}`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${adminToken}`,
 				},
-				body: JSON.stringify(editedData),
+				body: JSON.stringify(dataToSend),
 			});
 
 			const data = await res.json();
@@ -307,13 +339,17 @@ export default function AdminPage() {
 		setIsLoading(true);
 
 		try {
+			const readyForSave = await ensurePendingUploadBeforeSave(true);
+			if (!readyForSave) return;
+
+			const dataToSend = prepareDataForSave(newRowData);
 			const res = await fetch(`${API_BASE}/api/admin/tables/${selectedTable}`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${adminToken}`,
 				},
-				body: JSON.stringify(newRowData),
+				body: JSON.stringify(dataToSend),
 			});
 
 			const data = await res.json();
@@ -341,6 +377,135 @@ export default function AdminPage() {
 		}
 	};
 
+	const normalizeCategoryKey = (value: string) =>
+		(value || "")
+			.toLowerCase()
+			.normalize("NFD")
+			.replace(/[\u0300-\u036f]/g, "")
+			.trim();
+
+	const CATEGORY_FOLDER_MAP: Record<string, Record<string, string>> = {
+		original: {
+			"coffee+": "Coffee+",
+			"craft brew": "Craft Brew",
+			"creations barista": "Barista Creations",
+			"barista creations": "Barista Creations",
+			espresso: "Espresso",
+			"edition limitee": "Limited Edition",
+			"limited edition": "Limited Edition",
+			"ispirazione italiana": "Ispirazione Italiana",
+			"italian explorations": "Italian Explorations",
+			"origines principales": "Master Origins",
+			"master origins": "Master Origins",
+			"explorations du monde": "World Explorations",
+			"world explorations": "World Explorations",
+			tasse: "Mug",
+			mug: "Mug",
+		},
+		vertuo: {
+			"coffee+": "Coffee+",
+			"craft brew": "Craft Brew",
+			"double espresso": "Double Espresso",
+			espresso: "Espressos",
+			espressos: "Espressos",
+			"gran lungo": "Gran Lungo",
+			"edition limitee": "Limited Edition",
+			"limited edition": "Limited Edition",
+			"barista creation": "Barista Creation",
+			"barista creations": "Barista Creation",
+			"creations barista": "Barista Creation",
+			"master origins": "Master Origins",
+			"origines principales": "Master Origins",
+			mug: "Mug",
+			tasse: "Mug",
+		},
+	};
+
+	const resolveCategoryFolder = (productType?: string | null, category?: string | null) => {
+		const typeKey = productType?.toLowerCase() === "vertuo" ? "vertuo" : "original";
+		const categoryKey = normalizeCategoryKey(category || "");
+		const mapped = CATEGORY_FOLDER_MAP[typeKey]?.[categoryKey];
+		const categoryDir = mapped || category || "Uncategorized";
+		const typeDir = typeKey === "vertuo" ? "Vertuo" : "Original";
+		return { typeDir, categoryDir };
+	};
+
+	const handleImageUpload = async (file: File | null, isNew = false): Promise<boolean> => {
+		if (!file) return true;
+		if (!selectedTable) return true;
+		if (selectedTable !== "coffee_products") {
+			setActionError("Image upload is only available for coffee_products.");
+			return false;
+		}
+
+		const rowData = isNew ? newRowData : editedData;
+		const productType = (rowData.product_type as string) || "";
+		const category = (rowData.category as string) || "";
+
+		if (!productType || !category) {
+			setActionError("Please select product_type and category before uploading an image.");
+			return false;
+		}
+
+		const formData = new FormData();
+		// Append metadata first so Multer sees fields before the file part and resolves the proper folder
+		formData.append("product_type", productType);
+		formData.append("category", category);
+		formData.append("image", file);
+
+		setIsUploadingImage(true);
+		setActionError("");
+		setActionSuccess("");
+
+		try {
+			const res = await fetch(`${API_BASE}/api/admin/upload/coffee-image`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${adminToken}` },
+				body: formData,
+			});
+
+			const data = await res.json();
+			if (!res.ok) {
+				setActionError(data.error || "Failed to upload image");
+				return false;
+			}
+
+			handleFieldChange("image_filename", data.filename, isNew);
+			handleFieldChange("image_extension", data.extension, isNew);
+			setActionSuccess(`Image uploaded to ${data.relativePath}`);
+			return true;
+		} catch (error) {
+			setActionError("Failed to upload image");
+			return false;
+		} finally {
+			setIsUploadingImage(false);
+		}
+	};
+
+	const ensurePendingUploadBeforeSave = async (isNew: boolean): Promise<boolean> => {
+		if (selectedTable !== "coffee_products") return true;
+		if (!pendingUploadFile) return true;
+		const mode = pendingUploadMode ?? (isNew ? "new" : "edit");
+		const uploadOk = await handleImageUpload(pendingUploadFile, mode === "new");
+		if (uploadOk) {
+			setPendingUploadFile(null);
+			setPendingUploadMode(null);
+		}
+		return uploadOk;
+	};
+
+	const triggerPendingUpload = (isNew: boolean) => {
+		const file = pendingUploadFile;
+		const mode = pendingUploadMode ?? (isNew ? "new" : "edit");
+		if (!file) {
+			setActionError("Select an image file first.");
+			return;
+		}
+		handleImageUpload(file, mode === "new");
+		setPendingUploadFile(null);
+		setPendingUploadMode(null);
+	};
+
 	const formatCellValue = (value: unknown): string => {
 		if (value === null || value === undefined) return "NULL";
 		if (typeof value === "object") {
@@ -350,11 +515,339 @@ export default function AdminPage() {
 		return String(value);
 	};
 
+	// Dropdown options for specific fields
+	const PRODUCT_TYPE_OPTIONS = ["original", "vertuo"];
+	const CATEGORY_OPTIONS = [
+		"Coffee+",
+		"Craft Brew",
+		"Créations Barista",
+		"Double Espresso",
+		"Édition Limitée",
+		"Espresso",
+		"Espressos",
+		"Explorations du Monde",
+		"Gran Lungo",
+		"Ispirazione Italiana",
+		"Italian Explorations",
+		"Origines Principales",
+		"Tasse",
+	];
+	const IMAGE_EXTENSION_OPTIONS = ["png", "avif", "webp"];
+	const IMAGE_STYLE_SCALE_OPTIONS = ["", "1", "0.95", "0.9", "0.84", "0.8"];
+	const IMAGE_STYLE_MARGIN_OPTIONS = ["", "0", "0%", "-5%", "-10%"];
+	const PRICE_CLASS_OPTIONS = ["", "bag_group", "bag_group_2", "bag_group_3", "bag_group_4", "bag_group_5", "bag_group_6"];
+	const SERVING_OPTIONS = [
+		{ title: "Ristretto", volume: "25 ml", icon: "images/svg/ristretto.svg" },
+		{ title: "Espresso", volume: "40 ml", icon: "images/svg/espresso.svg" },
+		{ title: "Lungo", volume: "110 ml", icon: "images/svg/lungo.svg" },
+		{ title: "Double Espresso", volume: "80 ml", icon: "images/svg/lungo vl.svg" },
+		{ title: "Gran Lungo", volume: "150 ml", icon: "images/svg/gran lungo vl.svg" },
+		{ title: "Mug", volume: "230 ml", icon: "images/svg/mug.svg" },
+		{ title: "Alto", volume: "414 ml", icon: "images/svg/alto vl.svg" },
+		{ title: "Carafe", volume: "535 ml", icon: "images/svg/carafe vl.svg" },
+		{ title: "Cappuccino", volume: "Latte", icon: "images/svg/milk recipies.svg" },
+		{ title: "Reverso", volume: "Latte", icon: "images/svg/reverso.svg" },
+		{ title: "Cold-Brew", volume: "Iced", icon: "images/svg/iced vl.svg" },
+	];
+
+	const parseImageStyle = (style: string | null | undefined) => {
+		const safe = style || "";
+		const scaleMatch = safe.match(/scale:\s*([0-9.]+)/i);
+		const marginMatch = safe.match(/margin-top:\s*([^;]+)/i);
+		return {
+			scale: scaleMatch ? scaleMatch[1].trim() : "",
+			marginTop: marginMatch ? marginMatch[1].trim() : "",
+		};
+	};
+
+	const buildImageStyle = (scale: string, marginTop: string) => {
+		const parts: string[] = [];
+		if (scale) parts.push(`scale: ${scale}`);
+		if (marginTop) parts.push(`margin-top: ${marginTop}`);
+		return parts.length ? `${parts.join("; ")};` : "";
+	};
+
 	const renderCellInput = (column: Column, value: unknown, isNew = false) => {
 		const strValue = value === null || value === undefined ? "" : String(value);
 
 		if (column.isAutoIncrement && !isNew) {
 			return <span className="readonly-value">{strValue}</span>;
+		}
+
+		// Notes table editor (JSON array of strings)
+		if (column.name === "notes") {
+			let noteList: string[] = [];
+			try {
+				noteList = strValue ? JSON.parse(strValue) : [];
+				if (!Array.isArray(noteList)) noteList = [];
+				noteList = noteList.map((n) => (typeof n === "string" ? n : ""));
+			} catch {
+				noteList = [];
+			}
+
+			const updateNote = (idx: number, newValue: string) => {
+				const updated = [...noteList];
+				updated[idx] = newValue;
+				handleFieldChange(column.name, JSON.stringify(updated), isNew);
+			};
+
+			const addNote = () => {
+				handleFieldChange(column.name, JSON.stringify([...noteList, ""]), isNew);
+			};
+
+			const removeNote = (idx: number) => {
+				const updated = noteList.filter((_, i) => i !== idx);
+				handleFieldChange(column.name, JSON.stringify(updated), isNew);
+			};
+
+			return (
+				<div className="notes-table">
+					<div className="notes-rows">
+						{noteList.map((note, idx) => (
+							<div key={idx} className="note-row">
+								<input
+									type="text"
+									value={note}
+									onChange={(e) => updateNote(idx, e.target.value)}
+									className="note-input"
+									placeholder={`Note ${idx + 1}`}
+								/>
+								<button type="button" className="note-remove" onClick={() => removeNote(idx)}>
+									✕
+								</button>
+							</div>
+						))}
+					</div>
+					<button type="button" className="note-add" onClick={addNote}>
+						➕ Add note
+					</button>
+				</div>
+			);
+		}
+
+		// Product type dropdown
+		if (column.name === "product_type") {
+			return (
+				<select
+					value={strValue}
+					onChange={(e) => handleFieldChange(column.name, e.target.value, isNew)}
+					className="cell-select"
+				>
+					<option value="">-- Select --</option>
+					{PRODUCT_TYPE_OPTIONS.map((opt) => (
+						<option key={opt} value={opt}>
+							{opt}
+						</option>
+					))}
+				</select>
+			);
+		}
+
+		// Category dropdown
+		if (column.name === "category") {
+			return (
+				<select
+					value={strValue}
+					onChange={(e) => handleFieldChange(column.name, e.target.value, isNew)}
+					className="cell-select"
+				>
+					<option value="">-- Select --</option>
+					{CATEGORY_OPTIONS.map((opt) => (
+						<option key={opt} value={opt}>
+							{opt}
+						</option>
+					))}
+				</select>
+			);
+		}
+
+		// Image filename with upload helper
+		if (column.name === "image_filename") {
+			const rowData = isNew ? newRowData : editedData;
+			const { typeDir, categoryDir } = resolveCategoryFolder(
+				(rowData.product_type as string) || "",
+				(rowData.category as string) || ""
+			);
+
+			const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+				const file = event.target.files?.[0];
+				setPendingUploadFile(file || null);
+				setPendingUploadMode(isNew ? "new" : "edit");
+				setActionError("");
+				setActionSuccess("");
+
+				// Auto-populate filename and extension for visibility before upload
+				if (file) {
+					const nameParts = file.name.split(".");
+					const ext = nameParts.length > 1 ? nameParts.pop() || "" : "";
+					const base = nameParts.join(".");
+					handleFieldChange("image_filename", file.name, isNew);
+					handleFieldChange("image_extension", ext.toLowerCase(), isNew);
+					// If no product name yet, prefill name from base
+					if (!((isNew ? newRowData : editedData).name as string)) {
+						handleFieldChange("name", base, isNew);
+					}
+				}
+				// Reset the input so the same file can be re-selected if needed
+				event.target.value = "";
+			};
+
+			return (
+				<div className="image-upload">
+					<input
+						type="text"
+						value={strValue}
+						onChange={(e) => handleFieldChange(column.name, e.target.value, isNew)}
+						className="cell-input"
+						placeholder="image filename (auto-set after upload)"
+					/>
+					<div className="image-upload-row">
+						<input
+							type="file"
+							accept=".png,.avif,.webp,.jpg,.jpeg"
+							onChange={onFileChange}
+							ref={fileInputRef}
+							className="file-input"
+							disabled={isUploadingImage}
+						/>
+						<button
+							type="button"
+							onClick={() => {
+								if (!pendingUploadFile) {
+									fileInputRef.current?.click();
+									return;
+								}
+								triggerPendingUpload(isNew);
+							}}
+							className="upload-button"
+							disabled={isUploadingImage}
+						>
+							{isUploadingImage ? "Uploading..." : "Upload"}
+						</button>
+						<span className="upload-status">
+							{pendingUploadFile ? pendingUploadFile.name : "Select a file then click Upload"}
+						</span>
+					</div>
+					<small className="upload-hint">
+						Destination: images/Capsules/{typeDir}/{categoryDir} (extension auto-detected)
+					</small>
+				</div>
+			);
+		}
+
+		// Image extension dropdown
+		if (column.name === "image_extension") {
+			return (
+				<select
+					value={strValue}
+					onChange={(e) => handleFieldChange(column.name, e.target.value, isNew)}
+					className="cell-select"
+				>
+					<option value="">-- Select --</option>
+					{IMAGE_EXTENSION_OPTIONS.map((opt) => (
+						<option key={opt} value={opt}>
+							{opt}
+						</option>
+					))}
+				</select>
+			);
+		}
+
+		// Image style composed from scale + margin-top selectors
+		if (column.name === "image_style") {
+			const { scale, marginTop } = parseImageStyle(strValue);
+			const updateStyle = (newScale: string, newMarginTop: string) => {
+				handleFieldChange(column.name, buildImageStyle(newScale, newMarginTop), isNew);
+			};
+
+			return (
+				<div className="image-style-fields">
+					<div className="image-style-row">
+						<label className="inline-label">Scale</label>
+						<select value={scale} onChange={(e) => updateStyle(e.target.value, marginTop)} className="cell-select">
+							{IMAGE_STYLE_SCALE_OPTIONS.map((opt) => (
+								<option key={opt || "default"} value={opt}>
+									{opt === "" ? "Default" : opt}
+								</option>
+							))}
+						</select>
+					</div>
+					<div className="image-style-row">
+						<label className="inline-label">Margin-Top</label>
+						<select value={marginTop} onChange={(e) => updateStyle(scale, e.target.value)} className="cell-select">
+							{IMAGE_STYLE_MARGIN_OPTIONS.map((opt) => (
+								<option key={opt || "default"} value={opt}>
+									{opt === "" ? "Default" : opt}
+								</option>
+							))}
+						</select>
+					</div>
+					<small className="image-style-preview">{buildImageStyle(scale, marginTop) || "No custom style"}</small>
+				</div>
+			);
+		}
+
+		// Price class dropdown
+		if (column.name === "price_class") {
+			return (
+				<select
+					value={strValue}
+					onChange={(e) => handleFieldChange(column.name, e.target.value, isNew)}
+					className="cell-select"
+				>
+					{PRICE_CLASS_OPTIONS.map((opt) => (
+						<option key={opt || "default"} value={opt}>
+							{opt === "" ? "default" : opt}
+						</option>
+					))}
+				</select>
+			);
+		}
+
+		// Servings multi-select (max 2)
+		if (column.name === "servings") {
+			let currentServings: Array<{ title: string; volume: string; icon: string }> = [];
+			try {
+				currentServings = strValue ? JSON.parse(strValue) : [];
+			} catch {
+				currentServings = [];
+			}
+
+			const toggleServing = (serving: { title: string; volume: string; icon: string }) => {
+				const exists = currentServings.some((s) => s.title === serving.title);
+				let newServings;
+				if (exists) {
+					newServings = currentServings.filter((s) => s.title !== serving.title);
+				} else if (currentServings.length < 2) {
+					newServings = [...currentServings, serving];
+				} else {
+					return; // Max 2 servings
+				}
+				handleFieldChange(column.name, JSON.stringify(newServings), isNew);
+			};
+
+			return (
+				<div className="servings-select">
+					<div className="servings-chips">
+						{SERVING_OPTIONS.map((serving) => {
+							const isSelected = currentServings.some((s) => s.title === serving.title);
+							return (
+								<button
+									key={serving.title}
+									type="button"
+									onClick={() => toggleServing(serving)}
+									className={`serving-chip ${isSelected ? "selected" : ""}`}
+									disabled={!isSelected && currentServings.length >= 2}
+									title={`${serving.title} (${serving.volume})`}
+								>
+									{serving.title}
+								</button>
+							);
+						})}
+					</div>
+					<small className="servings-hint">Selected: {currentServings.length}/2</small>
+				</div>
+			);
 		}
 
 		if (column.type === "text" || column.type === "longtext" || column.type === "mediumtext") {
@@ -417,15 +910,26 @@ export default function AdminPage() {
 						</div>
 						<div className="form-group">
 							<label htmlFor="password">Password</label>
-							<input
-								id="password"
-								type="password"
-								value={password}
-								onChange={(e) => setPassword(e.target.value)}
-								placeholder="Admin password"
-								autoComplete="current-password"
-								required
-							/>
+							<div className="password-input-wrapper" style={{ position: "relative" }}>
+								<input
+									id="password"
+									type={showPassword ? "text" : "password"}
+									value={password}
+									onChange={(e) => setPassword(e.target.value)}
+									placeholder="Admin password"
+									autoComplete="current-password"
+									required
+									style={{ width: "100%", paddingRight: "50px" }}
+								/>
+								<button
+									type="button"
+									onClick={() => setShowPassword(!showPassword)}
+									className="password-toggle-btn"
+									title={showPassword ? "Hide password" : "Show password"}
+								>
+									{showPassword ? "HIDE" : "SHOW"}
+								</button>
+							</div>
 						</div>
 						{loginError && <div className="error-message">{loginError}</div>}
 						<button type="submit" className="login-button" disabled={isLoading}>
@@ -527,6 +1031,12 @@ export default function AdminPage() {
 									<div className="form-grid">
 										{columns
 											.filter((c) => !c.isAutoIncrement)
+											.filter((column) => {
+												if (selectedTable === "machine_products") {
+													return column.name !== "image";
+												}
+												return true;
+											})
 											.map((column) => (
 												<div key={column.name} className="form-field">
 													<label>
@@ -556,19 +1066,28 @@ export default function AdminPage() {
 									<thead>
 										<tr>
 											<th className="actions-column">Actions</th>
-											{columns.map((column) => (
-												<th
-													key={column.name}
-													onClick={() => handleSort(column.name)}
-													className={`sortable ${sortBy === column.name ? "sorted" : ""}`}
-												>
-													{column.name}
-													{column.isPrimary && <span className="pk-badge">PK</span>}
-													{sortBy === column.name && (
-														<span className="sort-indicator">{sortOrder === "asc" ? "▲" : "▼"}</span>
-													)}
-												</th>
-											))}
+											{columns
+												.filter((column) => {
+													if (selectedTable === "machine_products") {
+														return column.name !== "image";
+													}
+													return true;
+												})
+												.map((column) => (
+													<th
+														key={column.name}
+														onClick={() => handleSort(column.name)}
+														className={`sortable ${sortBy === column.name ? "sorted" : ""}`}
+													>
+														{column.name}
+														{column.isPrimary && <span className="pk-badge">PK</span>}
+														{sortBy === column.name && (
+															<span className="sort-indicator">
+																{sortOrder === "asc" ? "▲" : "▼"}
+															</span>
+														)}
+													</th>
+												))}
 										</tr>
 									</thead>
 									<tbody>
@@ -611,20 +1130,27 @@ export default function AdminPage() {
 														</>
 													)}
 												</td>
-												{columns.map((column) => (
-													<td
-														key={column.name}
-														className={row[column.name] === null ? "null-value" : ""}
-													>
-														{editingRow === row ? (
-															renderCellInput(column, editedData[column.name])
-														) : (
-															<span className="cell-value">
-																{formatCellValue(row[column.name])}
-															</span>
-														)}
-													</td>
-												))}
+												{columns
+													.filter((column) => {
+														if (selectedTable === "machine_products") {
+															return column.name !== "image";
+														}
+														return true;
+													})
+													.map((column) => (
+														<td
+															key={column.name}
+															className={row[column.name] === null ? "null-value" : ""}
+														>
+															{editingRow === row ? (
+																renderCellInput(column, editedData[column.name])
+															) : (
+																<span className="cell-value">
+																	{formatCellValue(row[column.name])}
+																</span>
+															)}
+														</td>
+													))}
 											</tr>
 										))}
 									</tbody>

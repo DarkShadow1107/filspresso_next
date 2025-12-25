@@ -24,24 +24,27 @@ const TIER_DISCOUNTS = {
 };
 
 // Function to get user's current tier
-async function getUserTier(conn, accountId) {
+async function getUserTier(client, accountId) {
 	try {
 		// First check if member_status table exists
 		try {
-			const [memberStatus] = await conn.query(`SELECT current_tier FROM member_status WHERE account_id = ?`, [accountId]);
+			const result = await client.query(`SELECT current_tier FROM member_status WHERE account_id = $1`, [accountId]);
+			const memberStatus = result.rows[0];
 
 			if (memberStatus && memberStatus.current_tier) {
 				return memberStatus.current_tier;
 			}
 		} catch (tableError) {
 			// Table doesn't exist yet, fall through to calculate from orders
-			if (tableError.code !== "ER_NO_SUCH_TABLE") {
+			// PostgreSQL error code for undefined_table is 42P01
+			if (tableError.code !== "42P01") {
 				console.error("Error checking member_status:", tableError);
 			}
 		}
 
 		// If no status found or table doesn't exist, calculate from orders
-		const accountRow = await conn.query(`SELECT created_at FROM accounts WHERE id = ?`, [accountId]);
+		const accountResult = await client.query(`SELECT created_at FROM accounts WHERE id = $1`, [accountId]);
+		const accountRow = accountResult.rows;
 
 		if (!accountRow || accountRow.length === 0) {
 			return "None";
@@ -60,17 +63,17 @@ async function getUserTier(conn, accountId) {
 		}
 
 		// Count capsules in current period
-		const capsuleResult = await conn.query(
+		const capsuleResult = await client.query(
 			`SELECT COALESCE(SUM(oi.quantity), 0) as total_sleeves
 			FROM orders o
 			JOIN order_items oi ON o.id = oi.order_id
-			WHERE o.account_id = ?
-			AND o.created_at >= ?
+			WHERE o.account_id = $1
+			AND o.created_at >= $2
 			AND oi.product_type = 'capsule'`,
 			[accountId, periodStart.toISOString()]
 		);
 
-		const totalCapsules = (capsuleResult[0]?.total_sleeves || 0) * 10;
+		const totalCapsules = (Number(capsuleResult.rows[0]?.total_sleeves) || 0) * 10;
 
 		// Determine tier
 		if (totalCapsules >= 7000) return "Ambassador";
@@ -90,18 +93,19 @@ async function getUserTier(conn, accountId) {
  */
 router.get("/", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const cartItems = await conn.query(
+			const result = await client.query(
 				`SELECT id, product_type, product_id, product_name, product_image, unit_price, quantity, created_at
         FROM cart_items
-        WHERE account_id = ?
+        WHERE account_id = $1
         ORDER BY created_at DESC`,
 				[req.user.id]
 			);
+			const cartItems = result.rows;
 
 			// Get user's member tier for discount
-			const memberTier = await getUserTier(conn, req.user.id);
+			const memberTier = await getUserTier(client, req.user.id);
 			const discountPercent = TIER_DISCOUNTS[memberTier] || 0;
 
 			// Calculate totals
@@ -131,7 +135,7 @@ router.get("/", authenticate, async (req, res) => {
 				subtotalAfterDiscount,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get cart error:", error);
@@ -154,34 +158,35 @@ router.post("/", authenticate, async (req, res) => {
 			return res.status(400).json({ error: "Invalid product type" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Check if item already in cart
-			const [existing] = await conn.query(
+			const result = await client.query(
 				`SELECT id, quantity FROM cart_items 
-        WHERE account_id = ? AND product_type = ? AND product_id = ?`,
+        WHERE account_id = $1 AND product_type = $2 AND product_id = $3`,
 				[req.user.id, productType, productId]
 			);
+			const existing = result.rows[0];
 
 			if (existing) {
 				// Update quantity
 				const newQuantity = existing.quantity + quantity;
-				await conn.query("UPDATE cart_items SET quantity = ?, updated_at = NOW() WHERE id = ?", [
+				await client.query("UPDATE cart_items SET quantity = $1, updated_at = NOW() WHERE id = $2", [
 					newQuantity,
 					existing.id,
 				]);
 				res.json({ message: "Cart updated", quantity: newQuantity });
 			} else {
 				// Insert new item with product details
-				await conn.query(
+				await client.query(
 					`INSERT INTO cart_items (account_id, product_type, product_id, product_name, product_image, unit_price, quantity)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 					[req.user.id, productType, productId, productName, productImage || null, unitPrice, quantity]
 				);
 				res.status(201).json({ message: "Item added to cart" });
 			}
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Add to cart error:", error);
@@ -201,19 +206,20 @@ router.put("/:id", authenticate, async (req, res) => {
 			return res.status(400).json({ error: "Quantity must be at least 1" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [item] = await conn.query("SELECT id FROM cart_items WHERE id = ? AND account_id = ?", [itemId, req.user.id]);
+			const result = await client.query("SELECT id FROM cart_items WHERE id = $1 AND account_id = $2", [itemId, req.user.id]);
+			const item = result.rows[0];
 
 			if (!item) {
 				return res.status(404).json({ error: "Cart item not found" });
 			}
 
-			await conn.query("UPDATE cart_items SET quantity = ?, updated_at = NOW() WHERE id = ?", [quantity, itemId]);
+			await client.query("UPDATE cart_items SET quantity = $1, updated_at = NOW() WHERE id = $2", [quantity, itemId]);
 
 			res.json({ message: "Cart updated" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Update cart error:", error);
@@ -228,19 +234,20 @@ router.delete("/:id", authenticate, async (req, res) => {
 	try {
 		const itemId = parseInt(req.params.id);
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [item] = await conn.query("SELECT id FROM cart_items WHERE id = ? AND account_id = ?", [itemId, req.user.id]);
+			const result = await client.query("SELECT id FROM cart_items WHERE id = $1 AND account_id = $2", [itemId, req.user.id]);
+			const item = result.rows[0];
 
 			if (!item) {
 				return res.status(404).json({ error: "Cart item not found" });
 			}
 
-			await conn.query("DELETE FROM cart_items WHERE id = ?", [itemId]);
+			await client.query("DELETE FROM cart_items WHERE id = $1", [itemId]);
 
 			res.json({ message: "Item removed from cart" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Remove from cart error:", error);
@@ -253,12 +260,12 @@ router.delete("/:id", authenticate, async (req, res) => {
  */
 router.delete("/", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			await conn.query("DELETE FROM cart_items WHERE account_id = ?", [req.user.id]);
+			await client.query("DELETE FROM cart_items WHERE account_id = $1", [req.user.id]);
 			res.json({ message: "Cart cleared" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Clear cart error:", error);

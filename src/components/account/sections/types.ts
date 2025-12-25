@@ -119,6 +119,8 @@ export type CapsuleStats = {
 	totalCapsules: number;
 	originalCapsules: number;
 	vertuoCapsules: number;
+	totalOrders: number;
+	totalRepairs: number;
 	machineStats: {
 		total: number;
 		original: number;

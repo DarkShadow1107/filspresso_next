@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
-import { coffeeCollections, type CoffeeProduct } from "@/data/coffee";
+import type { CoffeeProduct } from "@/data/coffee";
+import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
 import type { WeatherData } from "@/lib/weather";
 
@@ -16,21 +17,19 @@ type PopularProduct = {
 	total_ordered: number;
 };
 
+type StockInfo = {
+	stock: number;
+	stockStatus: "in_stock" | "low_stock" | "out_of_stock";
+};
+
 function formatRon(value: number) {
 	return `${value.toFixed(2).replace(".", ",")} RON`;
 }
 
 // Helper function to get product image from data
-function getProductImage(productId: string): string | undefined {
-	// Search in coffee collections
-	for (const collection of coffeeCollections) {
-		for (const group of collection.groups) {
-			for (const product of group.products) {
-				if (product.id === productId) {
-					return product.image;
-				}
-			}
-		}
+function getProductImage(productId: string, coffeeData: CoffeeProduct[]): string | undefined {
+	for (const product of coffeeData) {
+		if (product.id === productId) return product.image;
 	}
 
 	// Search in machine collections
@@ -48,20 +47,13 @@ function getProductImage(productId: string): string | undefined {
 }
 
 // Helper function to get full product data by ID
-function getProductData(productId: string): CoffeeProduct | undefined {
-	for (const collection of coffeeCollections) {
-		for (const group of collection.groups) {
-			for (const product of group.products) {
-				if (product.id === productId) {
-					return product;
-				}
-			}
-		}
-	}
-	return undefined;
+function getProductData(productId: string, coffeeData: CoffeeProduct[]): CoffeeProduct | undefined {
+	return coffeeData.find((p) => p.id === productId);
 }
 
 export default function Cart() {
+	const { collections } = useCoffeeCollections();
+	const coffeeData = collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [];
 	const { items, currentSum, memberDiscount, reset, placeOrder, removeItem, updateQuantity, addItem } = useCart();
 	const { notify } = useNotifications();
 	const router = useRouter();
@@ -69,7 +61,10 @@ export default function Cart() {
 	const [isHydrated, setIsHydrated] = useState(false);
 	const [weather, setWeather] = useState<WeatherData | null>(null);
 	const [popularProducts, setPopularProducts] = useState<PopularProduct[]>([]);
+	const [stockMap, setStockMap] = useState<Record<string, StockInfo>>({});
 	const hasItems = items.length > 0;
+	const getProductImageForId = useCallback((productId: string) => getProductImage(productId, coffeeData), [coffeeData]);
+	const getProductDataById = useCallback((productId: string) => getProductData(productId, coffeeData), [coffeeData]);
 
 	// Calculate subtotal before discount (for display purposes)
 	const subtotalBeforeDiscount = items.reduce((sum, item) => sum + item.price * item.qty, 0);
@@ -110,10 +105,34 @@ export default function Cart() {
 			}
 		};
 		fetchPopular();
+
+		// Fetch coffee stock for recommendations
+		const fetchStock = async () => {
+			try {
+				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+				const res = await fetch(`${API_BASE}/api/products/coffee`);
+				if (res.ok) {
+					const data = await res.json();
+					const map: Record<string, StockInfo> = {};
+					for (const p of data.products || []) {
+						map[p.productId] = { stock: p.stock, stockStatus: p.stockStatus };
+						// Database uses -vl for vertuo products, not -vertuo
+						const base = p.productId.replace(/-(original|vertuo|vl)$/i, "");
+						if (base !== p.productId && !map[base]) {
+							map[base] = { stock: p.stock, stockStatus: p.stockStatus };
+						}
+					}
+					setStockMap(map);
+				}
+			} catch {
+				// Silent fail - stock info optional
+			}
+		};
+		fetchStock();
 	}, []);
 
 	const handleAddPopularItem = (productId: string) => {
-		const product = getProductData(productId);
+		const product = getProductDataById(productId);
 		if (product) {
 			addItem({
 				id: product.id,
@@ -124,6 +143,24 @@ export default function Cart() {
 			});
 			notify(`Added ${product.name} to bag!`, 3000, "success", "bag");
 		}
+	};
+
+	const renderStockBadge = (productId: string) => {
+		// Database uses -vl for vertuo products
+		const base = productId.replace(/-(original|vertuo|vl)$/i, "");
+		const info =
+			stockMap[productId] ||
+			stockMap[base] ||
+			stockMap[`${base}-original`] ||
+			stockMap[`${base}-vertuo`] ||
+			stockMap[`${base}-vl`];
+		const stock = info?.stock ?? 0;
+		const isOutOfStock = info?.stockStatus === "out_of_stock" || stock <= 0;
+		const isLowStock = info?.stockStatus === "low_stock" || (stock > 0 && stock < 40);
+
+		if (isOutOfStock) return <span className="popular-stock out">Out of stock</span>;
+		if (isLowStock) return <span className="popular-stock low">{stock} left in stock</span>;
+		return <span className="popular-stock in">In stock</span>;
 	};
 
 	const handlePlaceOrder = () => {
@@ -146,6 +183,7 @@ export default function Cart() {
 			});
 			return;
 		}
+
 		placeOrder();
 	};
 
@@ -313,7 +351,7 @@ export default function Cart() {
 								}
 
 								// Get image from item or look up from product data
-								const itemImage = item.image || getProductImage(item.id);
+								const itemImage = item.image || getProductImageForId(item.id);
 
 								return (
 									<div key={item.id} className="cart-item-card">
@@ -388,11 +426,12 @@ export default function Cart() {
 						<h3 className="members-also-buy-title">☕ Members Also Buy</h3>
 						<div className="popular-products-carousel">
 							{popularProducts.map((pop) => {
-								const product = getProductData(pop.product_id);
-								const img = pop.product_image || product?.image || getProductImage(pop.product_id);
+								const product = getProductDataById(pop.product_id);
+								const img = pop.product_image || product?.image || getProductImageForId(pop.product_id);
 								const alreadyInCart = items.some((item) => item.id === pop.product_id);
 								// Extract just the product name without price (API returns "Name - Price")
 								const displayName = product?.name || pop.product_name.split(" - ")[0];
+								const stockBadge = renderStockBadge(pop.product_id);
 
 								return (
 									<div key={pop.product_id} className="popular-product-card">
@@ -408,6 +447,7 @@ export default function Cart() {
 											{product && (
 												<div className="popular-product-price">{formatRon(product.priceRon)}</div>
 											)}
+											{stockBadge}
 											<div className="popular-product-orders">🔥 {pop.total_ordered} ordered</div>
 										</div>
 										<button

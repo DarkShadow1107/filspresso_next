@@ -42,10 +42,11 @@ const FREE_SHIPPING_THRESHOLD_TIERS = { Expert: 150 };
 /**
  * Get user's member tier
  */
-async function getUserTier(conn, accountId) {
+async function getUserTier(client, accountId) {
 	try {
 		// First try to get from member_status table
-		const [status] = await conn.query("SELECT current_tier FROM member_status WHERE account_id = ?", [accountId]);
+		const result = await client.query("SELECT current_tier FROM member_status WHERE account_id = $1", [accountId]);
+		const status = result.rows[0];
 
 		if (status && status.current_tier) {
 			return status.current_tier;
@@ -57,17 +58,17 @@ async function getUserTier(conn, accountId) {
 
 	// Fallback: Calculate tier from orders
 	try {
-		const [result] = await conn.query(
+		const result = await client.query(
 			`SELECT COALESCE(SUM(oi.quantity), 0) as total_capsules
         FROM orders o
         JOIN order_items oi ON o.id = oi.order_id
-        WHERE o.account_id = ? 
+        WHERE o.account_id = $1 
         AND o.status IN ('confirmed', 'shipped', 'delivered')
         AND oi.product_type = 'capsule'`,
 			[accountId]
 		);
 
-		const totalCapsules = Number(result?.total_capsules || 0) * 10; // sleeves * 10
+		const totalCapsules = Number(result.rows[0]?.total_capsules || 0) * 10; // sleeves * 10
 
 		for (const threshold of TIER_THRESHOLDS) {
 			if (totalCapsules >= threshold.min) {
@@ -128,7 +129,7 @@ async function getWeatherDeliveryEstimate() {
 function calculateExpectedDeliveryDate(daysMax) {
 	const date = new Date();
 	date.setDate(date.getDate() + daysMax);
-	// Format as YYYY-MM-DD for MySQL DATE type
+	// Format as YYYY-MM-DD for PostgreSQL DATE type
 	return date.toISOString().split("T")[0];
 }
 
@@ -161,10 +162,10 @@ router.get("/popular", async (req, res) => {
 	try {
 		const limit = Math.min(parseInt(req.query.limit) || 5, 20);
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get most ordered capsule products
-			const results = await conn.query(
+			const result = await client.query(
 				`SELECT 
 					oi.product_id, 
 					oi.product_name,
@@ -175,18 +176,18 @@ router.get("/popular", async (req, res) => {
 				WHERE oi.product_type = 'capsule'
 				GROUP BY oi.product_id, oi.product_name, oi.product_image
 				ORDER BY total_ordered DESC
-				LIMIT ?`,
+				LIMIT $1`,
 				[limit]
 			);
 
-			const products = serializeBigInt(results);
+			const products = serializeBigInt(result.rows);
 
 			res.json({
 				products,
 				total: products.length,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get popular products error:", error);
@@ -201,14 +202,14 @@ router.get("/popular", async (req, res) => {
  */
 router.get("/machines", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get all machine items from user's orders
 			// We look for items where:
 			// 1. product_type = 'machine' OR
 			// 2. product_name contains machine-related keywords
 			// Matching: Machine, Forfait, Vertuo Next, Vertuo Pop, pack
-			const machines = await conn.query(
+			const result = await client.query(
 				`SELECT 
 					oi.id,
 					o.id as order_id,
@@ -220,8 +221,8 @@ router.get("/machines", authenticate, async (req, res) => {
 					oi.unit_price,
 					oi.quantity,
 					o.created_at as purchase_date,
-					DATE_ADD(o.created_at, INTERVAL 3 YEAR) as warranty_end_date,
-					CASE WHEN DATE_ADD(o.created_at, INTERVAL 3 YEAR) > NOW() THEN TRUE ELSE FALSE END as is_under_warranty,
+					(o.created_at + INTERVAL '3 years') as warranty_end_date,
+					CASE WHEN (o.created_at + INTERVAL '3 years') > NOW() THEN TRUE ELSE FALSE END as is_under_warranty,
 					CASE 
 						WHEN oi.product_id LIKE 'pack-%' OR oi.product_id LIKE 'forfait-%' 
 							OR LOWER(oi.product_name) LIKE '%forfait%'
@@ -229,7 +230,7 @@ router.get("/machines", authenticate, async (req, res) => {
 					END as is_forfait
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type != 'service'
 					AND (
@@ -252,12 +253,14 @@ router.get("/machines", authenticate, async (req, res) => {
 				[req.user.id]
 			);
 
+			const machines = serializeBigInt(result.rows);
+
 			res.json({
-				machines: serializeBigInt(machines),
+				machines,
 				total: machines.length,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get machines error:", error);
@@ -272,32 +275,32 @@ router.get("/machines", authenticate, async (req, res) => {
  */
 router.get("/spending", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get total from all orders
-			const [ordersResult] = await conn.query(
+			const ordersResult = await client.query(
 				`SELECT COALESCE(SUM(total), 0) as orders_total
 				FROM orders 
-				WHERE account_id = ? AND status != 'cancelled'`,
+				WHERE account_id = $1 AND status != 'cancelled'`,
 				[req.user.id]
 			);
 
 			// Get subscription spending (from order_items with product_type = 'subscription')
-			const [subscriptionResult] = await conn.query(
+			const subscriptionResult = await client.query(
 				`SELECT COALESCE(SUM(oi.total_price), 0) as subscriptions_total
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? AND oi.product_type = 'subscription' AND o.status != 'cancelled'`,
+				WHERE o.account_id = $1 AND oi.product_type = 'subscription' AND o.status != 'cancelled'`,
 				[req.user.id]
 			);
 
 			// Get machines AND forfaits spending
 			// Same patterns as /machines endpoint
-			const [machinesResult] = await conn.query(
+			const machinesResult = await client.query(
 				`SELECT COALESCE(SUM(oi.total_price), 0) as machines_total
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND (
 						oi.product_type = 'machine'
@@ -319,11 +322,11 @@ router.get("/spending", authenticate, async (req, res) => {
 			);
 
 			// Get capsules/accessories spending (everything that's not a machine/forfait and not a subscription)
-			const [productsResult] = await conn.query(
+			const productsResult = await client.query(
 				`SELECT COALESCE(SUM(oi.total_price), 0) as products_total
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type != 'subscription'
 					AND oi.product_type != 'machine'
@@ -343,10 +346,10 @@ router.get("/spending", authenticate, async (req, res) => {
 				[req.user.id]
 			);
 
-			const ordersTotal = Number(ordersResult.orders_total) || 0;
-			const subscriptionsTotal = Number(subscriptionResult.subscriptions_total) || 0;
-			const machinesTotal = Number(machinesResult.machines_total) || 0;
-			const productsTotal = Number(productsResult.products_total) || 0;
+			const ordersTotal = Number(ordersResult.rows[0].orders_total) || 0;
+			const subscriptionsTotal = Number(subscriptionResult.rows[0].subscriptions_total) || 0;
+			const machinesTotal = Number(machinesResult.rows[0].machines_total) || 0;
+			const productsTotal = Number(productsResult.rows[0].products_total) || 0;
 
 			res.json({
 				spending: {
@@ -358,7 +361,7 @@ router.get("/spending", authenticate, async (req, res) => {
 				},
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get spending error:", error);
@@ -382,10 +385,11 @@ router.get("/spending", authenticate, async (req, res) => {
  */
 router.get("/capsule-stats", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get account creation date
-			const [accountInfo] = await conn.query(`SELECT created_at FROM accounts WHERE id = ?`, [req.user.id]);
+			const accountInfoResult = await client.query(`SELECT created_at FROM accounts WHERE id = $1`, [req.user.id]);
+			const accountInfo = accountInfoResult.rows[0];
 
 			const accountCreatedAt = accountInfo?.created_at || new Date();
 			const accountYear = new Date(accountCreatedAt).getFullYear();
@@ -396,7 +400,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 
 			// Get total sleeves ordered all-time, split by Original vs Vertuo
 			// product_id or product_image path indicates Original vs Vertuo
-			const [totalResult] = await conn.query(
+			const totalResultRaw = await client.query(
 				`SELECT 
 					COALESCE(SUM(oi.quantity), 0) as total_sleeves,
 					COALESCE(SUM(CASE 
@@ -409,20 +413,34 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) as vertuo_sleeves
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type = 'capsule'`,
 				[req.user.id]
 			);
+			const totalResult = totalResultRaw.rows[0];
 
 			const totalCapsules = (Number(totalResult?.total_sleeves) || 0) * CAPSULES_PER_SLEEVE;
 			const originalCapsules = (Number(totalResult?.original_sleeves) || 0) * CAPSULES_PER_SLEEVE;
 			const vertuoCapsules = (Number(totalResult?.vertuo_sleeves) || 0) * CAPSULES_PER_SLEEVE;
 
+			// Total orders (non-cancelled, excluding repairs) and repairs (order_number starts with REP-)
+			const totalOrdersResultRaw = await client.query(
+				`SELECT COUNT(*) as total_orders FROM orders WHERE account_id = $1 AND status != 'cancelled' AND order_number NOT LIKE 'REP-%'`,
+				[req.user.id]
+			);
+			const totalOrdersResult = totalOrdersResultRaw.rows[0];
+
+			const totalRepairsResultRaw = await client.query(
+				`SELECT COUNT(*) as total_repairs FROM orders WHERE account_id = $1 AND status != 'cancelled' AND order_number LIKE 'REP-%'`,
+				[req.user.id]
+			);
+			const totalRepairsResult = totalRepairsResultRaw.rows[0];
+
 			// Get sleeves ordered per year (from account creation year to now)
-			const yearlyStats = await conn.query(
+			const yearlyStatsResult = await client.query(
 				`SELECT 
-					YEAR(o.created_at) as year,
+					EXTRACT(YEAR FROM o.created_at) as year,
 					COALESCE(SUM(oi.quantity), 0) as sleeves_ordered,
 					COALESCE(SUM(CASE 
 						WHEN LOWER(oi.product_id) LIKE 'original-%' 
@@ -435,14 +453,15 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 					COUNT(DISTINCT o.id) as order_count
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type = 'capsule'
-					AND YEAR(o.created_at) >= ?
-				GROUP BY YEAR(o.created_at)
+					AND EXTRACT(YEAR FROM o.created_at) >= $2
+				GROUP BY EXTRACT(YEAR FROM o.created_at)
 				ORDER BY year DESC`,
 				[req.user.id, accountYear]
 			);
+			const yearlyStats = yearlyStatsResult.rows;
 
 			// Get sleeves ordered in current anniversary year
 			const createdDate = new Date(accountCreatedAt);
@@ -456,7 +475,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 			const anniversaryEnd = new Date(anniversaryStart);
 			anniversaryEnd.setFullYear(anniversaryEnd.getFullYear() + 1);
 
-			const [currentPeriodResult] = await conn.query(
+			const currentPeriodResultRaw = await client.query(
 				`SELECT 
 					COALESCE(SUM(oi.quantity), 0) as sleeves_this_period,
 					COALESCE(SUM(CASE 
@@ -469,13 +488,14 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) as vertuo_sleeves
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type = 'capsule'
-					AND o.created_at >= ?
-					AND o.created_at < ?`,
+					AND o.created_at >= $2
+					AND o.created_at < $3`,
 				[req.user.id, anniversaryStart.toISOString().split("T")[0], anniversaryEnd.toISOString().split("T")[0]]
 			);
+			const currentPeriodResult = currentPeriodResultRaw.rows[0];
 
 			const currentPeriodCapsules = (Number(currentPeriodResult?.sleeves_this_period) || 0) * CAPSULES_PER_SLEEVE;
 			const currentPeriodOriginal = (Number(currentPeriodResult?.original_sleeves) || 0) * CAPSULES_PER_SLEEVE;
@@ -540,25 +560,27 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 
 			// Save/update member_status in database
 			try {
-				await conn.query(
+				await client.query(
 					`INSERT INTO member_status 
 						(account_id, total_capsules, original_capsules, vertuo_capsules, current_tier, 
 						current_year_capsules, current_year_start, highest_tier_achieved)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-					ON DUPLICATE KEY UPDATE 
-						total_capsules = VALUES(total_capsules),
-						original_capsules = VALUES(original_capsules),
-						vertuo_capsules = VALUES(vertuo_capsules),
-						current_tier = VALUES(current_tier),
-						current_year_capsules = VALUES(current_year_capsules),
-						current_year_start = VALUES(current_year_start),
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+					ON CONFLICT (account_id) DO UPDATE SET 
+						total_capsules = EXCLUDED.total_capsules,
+						original_capsules = EXCLUDED.original_capsules,
+						vertuo_capsules = EXCLUDED.vertuo_capsules,
+						current_tier = EXCLUDED.current_tier,
+						current_year_capsules = EXCLUDED.current_year_capsules,
+						current_year_start = EXCLUDED.current_year_start,
 						highest_tier_achieved = CASE 
-							WHEN highest_tier_achieved IS NULL THEN VALUES(current_tier)
-							WHEN VALUES(current_tier) IS NULL THEN highest_tier_achieved
-							WHEN FIELD(VALUES(current_tier), 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') > 
-								FIELD(highest_tier_achieved, 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') 
-							THEN VALUES(current_tier)
-							ELSE highest_tier_achieved
+							WHEN member_status.highest_tier_achieved IS NULL THEN EXCLUDED.current_tier
+							WHEN EXCLUDED.current_tier IS NULL THEN member_status.highest_tier_achieved
+							WHEN (CASE EXCLUDED.current_tier 
+									WHEN 'Connoisseur' THEN 1 WHEN 'Expert' THEN 2 WHEN 'Master' THEN 3 WHEN 'Virtuoso' THEN 4 WHEN 'Ambassador' THEN 5 ELSE 0 END) > 
+								 (CASE member_status.highest_tier_achieved 
+									WHEN 'Connoisseur' THEN 1 WHEN 'Expert' THEN 2 WHEN 'Master' THEN 3 WHEN 'Virtuoso' THEN 4 WHEN 'Ambassador' THEN 5 ELSE 0 END) 
+							THEN EXCLUDED.current_tier
+							ELSE member_status.highest_tier_achieved
 						END,
 						updated_at = NOW()`,
 					[
@@ -576,22 +598,24 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 				// Update yearly history in member_status_history
 				for (const yearData of yearlyHistory) {
 					if (yearData.capsules > 0 || yearData.year === currentYear) {
-						await conn.query(
+						await client.query(
 							`INSERT INTO member_status_history 
 								(account_id, year, capsules_ordered, original_capsules, vertuo_capsules, order_count, highest_tier)
-							VALUES (?, ?, ?, ?, ?, ?, ?)
-							ON DUPLICATE KEY UPDATE 
-								capsules_ordered = VALUES(capsules_ordered),
-								original_capsules = VALUES(original_capsules),
-								vertuo_capsules = VALUES(vertuo_capsules),
-								order_count = VALUES(order_count),
+							VALUES ($1, $2, $3, $4, $5, $6, $7)
+							ON CONFLICT (account_id, year) DO UPDATE SET 
+								capsules_ordered = EXCLUDED.capsules_ordered,
+								original_capsules = EXCLUDED.original_capsules,
+								vertuo_capsules = EXCLUDED.vertuo_capsules,
+								order_count = EXCLUDED.order_count,
 								highest_tier = CASE 
-									WHEN highest_tier IS NULL THEN VALUES(highest_tier)
-									WHEN VALUES(highest_tier) IS NULL THEN highest_tier
-									WHEN FIELD(VALUES(highest_tier), 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') > 
-										FIELD(highest_tier, 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') 
-									THEN VALUES(highest_tier)
-									ELSE highest_tier
+									WHEN member_status_history.highest_tier IS NULL THEN EXCLUDED.highest_tier
+									WHEN EXCLUDED.highest_tier IS NULL THEN member_status_history.highest_tier
+									WHEN (CASE EXCLUDED.highest_tier 
+											WHEN 'Connoisseur' THEN 1 WHEN 'Expert' THEN 2 WHEN 'Master' THEN 3 WHEN 'Virtuoso' THEN 4 WHEN 'Ambassador' THEN 5 ELSE 0 END) > 
+										 (CASE member_status_history.highest_tier 
+											WHEN 'Connoisseur' THEN 1 WHEN 'Expert' THEN 2 WHEN 'Master' THEN 3 WHEN 'Virtuoso' THEN 4 WHEN 'Ambassador' THEN 5 ELSE 0 END) 
+									THEN EXCLUDED.highest_tier
+									ELSE member_status_history.highest_tier
 								END,
 								updated_at = NOW()`,
 							[
@@ -612,7 +636,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 			}
 
 			// Get machines breakdown by Original vs Vertuo
-			const [machineStats] = await conn.query(
+			const machineStatsResult = await client.query(
 				`SELECT 
 					COUNT(*) as total_machines,
 					COALESCE(SUM(CASE 
@@ -636,7 +660,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) as vertuo_machines
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND (
 						oi.product_type = 'machine'
@@ -653,11 +677,14 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 					)`,
 				[req.user.id]
 			);
+			const machineStats = machineStatsResult.rows[0];
 
 			res.json({
 				totalCapsules,
 				originalCapsules,
 				vertuoCapsules,
+				totalOrders: Number(totalOrdersResult?.total_orders) || 0,
+				totalRepairs: Number(totalRepairsResult?.total_repairs) || 0,
 				machineStats: {
 					total: Number(machineStats?.total_machines) || 0,
 					original: Number(machineStats?.original_machines) || 0,
@@ -677,7 +704,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 				accountCreatedAt: accountCreatedAt,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get capsule stats error:", error);
@@ -687,9 +714,12 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 
 router.get("/", authenticate, async (req, res) => {
 	try {
-		const { status, limit = 20, offset = 0 } = req.query;
+		const rawLimit = parseInt(req.query.limit) || 1000;
+		const limit = Math.min(rawLimit, 1000);
+		const offset = parseInt(req.query.offset) || 0;
+		const { status } = req.query;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			let query = `
         SELECT o.id, o.order_number, o.status, o.subtotal, o.shipping_cost, 
@@ -700,32 +730,34 @@ router.get("/", authenticate, async (req, res) => {
                 (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
         FROM orders o
         LEFT JOIN user_cards uc ON o.card_id = uc.id
-        WHERE o.account_id = ?
+        WHERE o.account_id = $1
         `;
 			const params = [req.user.id];
 
 			if (status) {
-				query += " AND o.status = ?";
+				query += " AND o.status = $2";
 				params.push(status);
 			}
 
-			query += " ORDER BY o.created_at DESC LIMIT ? OFFSET ?";
-			params.push(parseInt(limit), parseInt(offset));
+			const limitParamIndex = params.length + 1;
+			const offsetParamIndex = params.length + 2;
+			query += ` ORDER BY o.created_at DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`;
+			params.push(limit, offset);
 
-			const ordersRaw = await conn.query(query, params);
-			const orders = serializeBigInt(ordersRaw);
+			const result = await client.query(query, params);
+			const orders = serializeBigInt(result.rows);
 
 			// Get total count
-			const [countResult] = await conn.query("SELECT COUNT(*) as total FROM orders WHERE account_id = ?", [req.user.id]);
+			const countResult = await client.query("SELECT COUNT(*) as total FROM orders WHERE account_id = $1", [req.user.id]);
 
 			res.json({
 				orders,
-				total: Number(countResult.total),
-				limit: parseInt(limit),
-				offset: parseInt(offset),
+				total: Number(countResult.rows[0].total),
+				limit,
+				offset,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get orders error:", error);
@@ -740,14 +772,14 @@ router.get("/", authenticate, async (req, res) => {
  */
 router.get("/consumption-history", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get account creation date to start the graph
-			const [accountInfo] = await conn.query(`SELECT created_at FROM accounts WHERE id = ?`, [req.user.id]);
-			const accountCreatedAt = accountInfo?.created_at || new Date();
+			const accountInfoResult = await client.query(`SELECT created_at FROM accounts WHERE id = $1`, [req.user.id]);
+			const accountCreatedAt = accountInfoResult.rows[0]?.created_at || new Date();
 
 			// Daily capsule stats
-			const capsuleStats = await conn.query(
+			const capsuleStatsResult = await client.query(
 				`SELECT 
 					DATE(o.created_at) as date,
 					COALESCE(SUM(CASE 
@@ -760,7 +792,7 @@ router.get("/consumption-history", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) * 10 as vertuo_capsules
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type = 'capsule'
 				GROUP BY DATE(o.created_at)
@@ -769,7 +801,7 @@ router.get("/consumption-history", authenticate, async (req, res) => {
 			);
 
 			// Daily machine stats
-			const machineStats = await conn.query(
+			const machineStatsResult = await client.query(
 				`SELECT 
 					DATE(o.created_at) as date,
 					COALESCE(SUM(CASE 
@@ -793,7 +825,7 @@ router.get("/consumption-history", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) as vertuo_machines
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND (
 						oi.product_type = 'machine'
@@ -815,11 +847,11 @@ router.get("/consumption-history", authenticate, async (req, res) => {
 
 			res.json({
 				accountCreatedAt,
-				capsules: serializeBigInt(capsuleStats),
-				machines: serializeBigInt(machineStats),
+				capsules: serializeBigInt(capsuleStatsResult.rows),
+				machines: serializeBigInt(machineStatsResult.rows),
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get consumption history error:", error);
@@ -834,35 +866,36 @@ router.get("/:id", authenticate, async (req, res) => {
 	try {
 		const orderId = parseInt(req.params.id);
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get order
-			const [order] = await conn.query(
+			const result = await client.query(
 				`SELECT o.*, 
                 uc.card_holder, uc.card_type, uc.card_last_four
         FROM orders o
         LEFT JOIN user_cards uc ON o.card_id = uc.id
-        WHERE o.id = ? AND o.account_id = ?`,
+        WHERE o.id = $1 AND o.account_id = $2`,
 				[orderId, req.user.id]
 			);
+			const order = result.rows[0];
 
 			if (!order) {
 				return res.status(404).json({ error: "Order not found" });
 			}
 
 			// Get order items
-			const items = await conn.query(
+			const itemsResult = await client.query(
 				`SELECT id, product_type, product_id, product_name, product_image,
                 quantity, unit_price, total_price
-        FROM order_items WHERE order_id = ?`,
+        FROM order_items WHERE order_id = $1`,
 				[orderId]
 			);
 
-			order.items = items;
+			order.items = itemsResult.rows;
 
 			res.json({ order });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get order error:", error);
@@ -901,12 +934,12 @@ router.post("/", authenticate, async (req, res) => {
 			expectedDeliveryDate = calculateExpectedDeliveryDate(deliveryInfo.daysMax);
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			await conn.beginTransaction();
+			await client.query("BEGIN");
 
 			// Get user's member tier for discount calculation
-			const memberTier = await getUserTier(conn, req.user.id);
+			const memberTier = await getUserTier(client, req.user.id);
 			const discountPercent = TIER_DISCOUNTS[memberTier] || 0;
 
 			// Calculate subtotal from items
@@ -948,13 +981,14 @@ router.post("/", authenticate, async (req, res) => {
 			const orderNumber = `${orderPrefix}-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
 
 			// Create order with discount info
-			const orderResult = await conn.query(
+			const orderResult = await client.query(
 				`INSERT INTO orders 
         (account_id, order_number, status, subtotal, shipping_cost, tax, total,
         shipping_address, billing_address, payment_method, card_id, notes,
         weather_condition, estimated_delivery, expected_delivery_date,
         discount_tier, discount_percent, discount_amount)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        RETURNING id`,
 				[
 					req.user.id,
 					orderNumber,
@@ -977,15 +1011,15 @@ router.post("/", authenticate, async (req, res) => {
 				]
 			);
 
-			const orderId = Number(orderResult.insertId);
+			const orderId = orderResult.rows[0].id;
 
 			// Create order items and update stock
 			for (const item of items) {
-				await conn.query(
+				await client.query(
 					`INSERT INTO order_items 
             (order_id, product_type, product_id, product_name, product_image, 
             quantity, unit_price, total_price)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 					[
 						orderId,
 						item.productType,
@@ -1001,27 +1035,27 @@ router.post("/", authenticate, async (req, res) => {
 				// Update stock in products table based on product type
 				if (item.productType === "capsule") {
 					// Update coffee_products stock
-					await conn.query(
+					await client.query(
 						`UPDATE coffee_products 
-						SET stock = GREATEST(0, stock - ?) 
-						WHERE product_id = ?`,
+						SET stock = GREATEST(0, stock - $1) 
+						WHERE product_id = $2`,
 						[item.quantity, item.productId]
 					);
 				} else if (item.productType === "machine") {
 					// Update machine_products stock
-					await conn.query(
+					await client.query(
 						`UPDATE machine_products 
-						SET stock = GREATEST(0, stock - ?) 
-						WHERE product_id = ?`,
+						SET stock = GREATEST(0, stock - $1) 
+						WHERE product_id = $2`,
 						[item.quantity, item.productId]
 					);
 				}
 			}
 
 			// Clear user's cart
-			await conn.query("DELETE FROM cart_items WHERE account_id = ?", [req.user.id]);
+			await client.query("DELETE FROM cart_items WHERE account_id = $1", [req.user.id]);
 
-			await conn.commit();
+			await client.query("COMMIT");
 
 			res.status(201).json({
 				message: "Order created successfully",
@@ -1033,10 +1067,10 @@ router.post("/", authenticate, async (req, res) => {
 				},
 			});
 		} catch (error) {
-			await conn.rollback();
+			await client.query("ROLLBACK");
 			throw error;
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Create order error:", error);
@@ -1051,12 +1085,13 @@ router.put("/:id/cancel", authenticate, async (req, res) => {
 	try {
 		const orderId = parseInt(req.params.id);
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [order] = await conn.query("SELECT id, status FROM orders WHERE id = ? AND account_id = ?", [
+			const result = await client.query("SELECT id, status FROM orders WHERE id = $1 AND account_id = $2", [
 				orderId,
 				req.user.id,
 			]);
+			const order = result.rows[0];
 
 			if (!order) {
 				return res.status(404).json({ error: "Order not found" });
@@ -1067,33 +1102,34 @@ router.put("/:id/cancel", authenticate, async (req, res) => {
 			}
 
 			// Restore stock for cancelled order items
-			const orderItems = await conn.query("SELECT product_type, product_id, quantity FROM order_items WHERE order_id = ?", [
+			const itemsResult = await client.query("SELECT product_type, product_id, quantity FROM order_items WHERE order_id = $1", [
 				orderId,
 			]);
+			const orderItems = itemsResult.rows;
 
 			for (const item of orderItems) {
 				if (item.product_type === "capsule") {
-					await conn.query(
+					await client.query(
 						`UPDATE coffee_products 
-						SET stock = stock + ? 
-						WHERE product_id = ?`,
+						SET stock = stock + $1 
+						WHERE product_id = $2`,
 						[item.quantity, item.product_id]
 					);
 				} else if (item.product_type === "machine") {
-					await conn.query(
+					await client.query(
 						`UPDATE machine_products 
-						SET stock = stock + ? 
-						WHERE product_id = ?`,
+						SET stock = stock + $1 
+						WHERE product_id = $2`,
 						[item.quantity, item.product_id]
 					);
 				}
 			}
 
-			await conn.query("UPDATE orders SET status = ?, updated_at = NOW() WHERE id = ?", ["cancelled", orderId]);
+			await client.query("UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2", ["cancelled", orderId]);
 
 			res.json({ message: "Order cancelled successfully" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Cancel order error:", error);

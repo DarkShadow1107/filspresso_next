@@ -1,8 +1,8 @@
 /**
  * Filspresso Express.js API Server
- * Connects Next.js frontend with MariaDB database
+ * Connects Next.js frontend with PostgreSQL database
  *
- * This server automatically manages the MariaDB Docker container:
+ * This server automatically manages the PostgreSQL Docker container:
  * - Starts the container when the server starts
  * - Stops the container when the server is shut down (Ctrl+C)
  */

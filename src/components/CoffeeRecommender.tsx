@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import useCart from "@/hooks/useCart";
-import { coffeeCollections, type CoffeeProduct } from "@/data/coffee";
+import type { CoffeeProduct } from "@/data/coffee";
+import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import {
@@ -18,10 +19,13 @@ import KafelotStats from "./kafelot/KafelotStats";
 import KafelotUsage from "./kafelot/KafelotUsage";
 
 // Memoize product flattening for performance
-const allProducts = coffeeCollections.flatMap((c) => c.groups.flatMap((g) => g.products));
+function useAllProducts(): CoffeeProduct[] {
+	const { collections } = useCoffeeCollections();
+	return collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [];
+}
 
 // Stock data type
-type StockData = Record<string, { price: number; stock: number }>;
+type StockData = Record<string, { price: number; stock: number; stockStatus?: "in_stock" | "low_stock" | "out_of_stock" }>;
 
 type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[] };
 type ChatHistory = {
@@ -56,6 +60,7 @@ async function saveChatHistory(history: ChatHistory[]) {
 }
 
 export default function CoffeeRecommender() {
+	const allProducts = useAllProducts();
 	const [mounted, setMounted] = useState(false);
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<"greeting" | "prefs" | "results" | "chat" | "history" | "stats">("greeting");
@@ -132,13 +137,28 @@ export default function CoffeeRecommender() {
 		// Fetch stock data for coffee products
 		const fetchStockData = async () => {
 			try {
-				const res = await fetch("http://localhost:4000/api/products/coffee");
+				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+				const res = await fetch(`${API_BASE}/api/products/coffee`);
 				if (res.ok) {
 					const data = await res.json();
 					const stockMap: StockData = {};
-					data.products?.forEach((p: { product_id: string; price: number; stock: number }) => {
-						stockMap[p.product_id] = { price: p.price, stock: p.stock };
-					});
+					data.products?.forEach(
+						(p: { productId?: string; product_id?: string; price: number; stock: number; stockStatus?: string }) => {
+							const pid = p.productId || p.product_id;
+							if (!pid) return;
+							const entry = {
+								price: p.price,
+								stock: p.stock,
+								stockStatus: p.stockStatus as StockData[string]["stockStatus"],
+							};
+							// Database uses -vl for vertuo products, not -vertuo
+							const base = pid.replace(/-(original|vertuo|vl)$/i, "");
+							stockMap[pid] = entry;
+							if (base !== pid && !stockMap[base]) {
+								stockMap[base] = entry;
+							}
+						}
+					);
 					setStockData(stockMap);
 				}
 			} catch (error) {
@@ -724,7 +744,7 @@ export default function CoffeeRecommender() {
 		}
 
 		// When Tanka Model is ON: Let all queries go to the chat API
-		// All models now use TinyLlama v2 via Python backend
+		// All models now use MiniLM and ResNet-18 via Python backend
 
 		try {
 			// Create AbortController for this request
@@ -734,7 +754,7 @@ export default function CoffeeRecommender() {
 			const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 			currentRequestIdRef.current = requestId;
 
-			// Use Python chat endpoint for all models (TinyLlama v2)
+			// Use Python chat endpoint for all models (MiniLM / ResNet-18)
 			const shouldUsePython = smarterAIAvailable && (chemistryMode ? useTankaModel : true);
 			const endpoint = shouldUsePython ? "/api/python-chat" : "/api/chat";
 			const response = await fetch(endpoint, {
@@ -1127,10 +1147,12 @@ export default function CoffeeRecommender() {
 						) : (
 							<div className="results-list">
 								{results.map((r) => {
-									const productStock = stockData[r.id];
-									const stock = productStock?.stock ?? 100; // Default to 100 if not loaded
-									const isOutOfStock = stock === 0;
-									const isLowStock = stock > 0 && stock < 10;
+									const pidWithSuffix = stockData[r.id] ? r.id : `${r.id}-original`;
+									const productStock =
+										stockData[r.id] || stockData[pidWithSuffix] || stockData[`${r.id}-vertuo`];
+									const stock = productStock?.stock ?? 0; // Default to 0 if not loaded
+									const isOutOfStock = productStock?.stockStatus === "out_of_stock" || stock <= 0;
+									const isLowStock = productStock?.stockStatus === "low_stock" || (stock > 0 && stock < 40);
 
 									return (
 										<div
@@ -1459,7 +1481,7 @@ export default function CoffeeRecommender() {
 										}}
 										aria-live="polite"
 									>
-										{smarterAIAvailable ? "TinyLlama v2 model is ready." : "Connecting to TinyLlama v2..."}
+										{smarterAIAvailable ? "AI models are ready." : "Connecting to AI service..."}
 									</p>
 								)}
 
@@ -1560,7 +1582,14 @@ export default function CoffeeRecommender() {
 									{msg.products && msg.products.length > 0 && (
 										<div className="chat-products">
 											{msg.products.map((p) => {
-												const productStock = stockData[p.id];
+												// Database uses -vl for vertuo products
+												const baseId = p.id.replace(/-(original|vertuo|vl)$/i, "");
+												const productStock =
+													stockData[p.id] ||
+													stockData[baseId] ||
+													stockData[`${baseId}-original`] ||
+													stockData[`${baseId}-vertuo`] ||
+													stockData[`${baseId}-vl`];
 												const stock = productStock?.stock ?? 100;
 												const isOutOfStock = stock === 0;
 

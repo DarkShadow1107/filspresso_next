@@ -1,12 +1,12 @@
 /**
  * Docker Container Manager
- * Manages MariaDB container lifecycle alongside Express server
+ * Manages PostgreSQL container lifecycle alongside Express server
  */
 
 const { exec, spawn } = require("child_process");
 const path = require("path");
 
-const CONTAINER_NAME = "filspresso_next_mariadb";
+const CONTAINER_NAME = "filspresso_next_postgres";
 const COMPOSE_FILE = path.resolve(__dirname, "../../docker-compose.yml");
 
 /**
@@ -92,10 +92,10 @@ async function waitForHealthy(timeoutMs = 60000) {
 }
 
 /**
- * Start the MariaDB container using docker compose
+ * Start the PostgreSQL container using docker compose
  */
 async function startContainer() {
-	console.log("🐳 Starting MariaDB container...");
+	console.log("🐳 Starting PostgreSQL container...");
 
 	if (!(await isDockerRunning())) {
 		throw new Error("Docker daemon is not running. Please start Docker Desktop first.");
@@ -103,7 +103,7 @@ async function startContainer() {
 
 	const running = await isContainerRunning();
 	if (running) {
-		console.log("✅ MariaDB container is already running");
+		console.log("✅ PostgreSQL container is already running");
 		return true;
 	}
 
@@ -113,31 +113,31 @@ async function startContainer() {
 		console.log("🔄 Starting existing container...");
 		await execAsync(`docker start ${CONTAINER_NAME}`);
 	} else {
-		// Create and start container using compose (only mariadb service)
-		console.log("📦 Creating MariaDB container...");
-		await execAsync(`docker compose -f "${COMPOSE_FILE}" up -d mariadb`);
+		// Create and start container using compose (only postgres service)
+		console.log("📦 Creating PostgreSQL container...");
+		await execAsync(`docker compose -f "${COMPOSE_FILE}" up -d postgres`);
 	}
 
 	// Wait for healthy status
-	process.stdout.write("⏳ Waiting for MariaDB to be healthy");
+	process.stdout.write("⏳ Waiting for PostgreSQL to be healthy");
 	const healthy = await waitForHealthy(60000);
 	console.log(); // newline after dots
 
 	if (healthy) {
-		console.log("✅ MariaDB container is healthy and ready");
+		console.log("✅ PostgreSQL container is healthy and ready");
 		return true;
 	} else {
-		console.log("⚠️ MariaDB container started but health check timed out");
+		console.log("⚠️ PostgreSQL container started but health check timed out");
 		// Still return true, the connection pool will retry
 		return true;
 	}
 }
 
 /**
- * Stop the MariaDB container
+ * Stop the PostgreSQL container
  */
 async function stopContainer() {
-	console.log("🛑 Stopping MariaDB container...");
+	console.log("🛑 Stopping PostgreSQL container...");
 
 	if (!(await isDockerRunning())) {
 		console.log("⚠️ Docker daemon is not running");
@@ -146,12 +146,12 @@ async function stopContainer() {
 
 	const running = await isContainerRunning();
 	if (!running) {
-		console.log("ℹ️ MariaDB container is not running");
+		console.log("ℹ️ PostgreSQL container is not running");
 		return;
 	}
 
 	await execAsync(`docker stop ${CONTAINER_NAME}`);
-	console.log("✅ MariaDB container stopped");
+	console.log("✅ PostgreSQL container stopped");
 }
 
 /**

@@ -6,7 +6,8 @@ import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import CoffeeRecommender from "@/components/CoffeeRecommender";
-import { coffeeCollections, type CoffeeCollection, type CoffeeGroup, type CoffeeProduct } from "@/data/coffee";
+import type { CoffeeCollection, CoffeeGroup, CoffeeProduct } from "@/data/coffee";
+import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -265,11 +266,22 @@ function CoffeeProductCard({ product }: { product: CoffeeProduct }) {
 	const addButtonRef = React.useRef<HTMLButtonElement | null>(null);
 	const defaultCapsules = 10;
 
-	// Get stock info for this product
-	const stockInfo = stockData.get(product.id);
-	const stock = stockInfo?.stock ?? 100; // Default to 100 if not loaded
-	const isOutOfStock = stock === 0;
-	const isLowStock = stock > 0 && stock < 10;
+	const getStockInfoFor = (id: string): StockInfo => {
+		const direct = stockData.get(id);
+		const base = stockData.get(id.replace(/-(original|vertuo|vl)$/i, ""));
+		const withOriginal = stockData.get(`${id}-original`);
+		const withVertuo = stockData.get(`${id}-vertuo`);
+		const withVl = stockData.get(`${id}-vl`); // Database uses -vl for vertuo
+		const info = direct || base || withOriginal || withVertuo || withVl;
+		if (info) return info;
+		return { productId: id, stock: 0, stockStatus: "out_of_stock" };
+	};
+
+	// Get stock info for this product (with suffix fallbacks)
+	const stockInfo = getStockInfoFor(product.id);
+	const stock = stockInfo.stock ?? 0;
+	const isOutOfStock = stockInfo.stockStatus === "out_of_stock" || stock <= 0;
+	const isLowStock = stockInfo.stockStatus === "low_stock" || (stock > 0 && stock < 40);
 
 	const openPopup = () => {
 		if (isOutOfStock) return;
@@ -409,6 +421,8 @@ function CoffeeCollectionSection({ collection }: { collection: CoffeeCollection 
 }
 
 export default function CoffeePageContent() {
+	const { collections, loading } = useCoffeeCollections();
+	const coffeeCollections = collections ?? [];
 	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
 	const [isLoading, setIsLoading] = useState(true);
 
@@ -420,12 +434,24 @@ export default function CoffeePageContent() {
 				if (res.ok) {
 					const data = await res.json();
 					const stockMap = new Map<string, StockInfo>();
-					for (const product of data.products || []) {
-						stockMap.set(product.productId, {
+
+					const addEntry = (key: string, product: any) => {
+						stockMap.set(key, {
 							productId: product.productId,
 							stock: product.stock,
 							stockStatus: product.stockStatus,
 						});
+					};
+
+					for (const product of data.products || []) {
+						const pid: string = product.productId;
+						addEntry(pid, product);
+						// Also add a base key without collection suffix so UI ids match
+						// Database uses -vl for vertuo products, not -vertuo
+						const base = pid.replace(/-(original|vertuo|vl)$/i, "");
+						if (base !== pid && !stockMap.has(base)) {
+							addEntry(base, product);
+						}
 					}
 					setStockData(stockMap);
 				}

@@ -14,6 +14,8 @@ declare module "*.gif";
 declare module "*.webp";
 declare module "*.avif";
 declare module "*.html";
+declare module "@/styles/admin.css";
+declare module "../../styles/admin.css";
 
 // Allow other module-like assets if needed
 declare module "*.module.*";

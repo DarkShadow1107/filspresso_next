@@ -73,7 +73,7 @@ type RawCollection = {
 	groups: RawGroup[];
 };
 
-import rawCollectionsJson from "./coffee.generated.json" assert { type: "json" };
+import rawCollectionsJson from "./coffee.generated.json" with { type: "json" };
 
 const rawCollections = rawCollectionsJson as RawCollection[];
 

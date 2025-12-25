@@ -1,3 +1,277 @@
+# Filspresso Next — Architecture & Operations Guide (2025)
+
+This section is a fresh, end-to-end guide for contributors. It explains what runs where, how the pieces talk to each other, and how to develop, test, and deploy. The original README is preserved below for historical context.
+
+## Quick links
+
+-   Runbooks: [Local setup](#local-development), [Testing](#testing-and-quality), [Troubleshooting](#troubleshooting)
+-   Architecture: [System diagram](#system-architecture), [Services & ports](#services-and-ports), [APIs](#apis)
+-   Data & storage: [Product data](#data-and-storage), [AI assets](#ai-models-and-training), [Command queue schema](#commands-table-schema)
+-   IoT: [Device loop](#iot-device-flow), [ESP32 sketch](scripts/esp32/esp32_coffeemachine.ino)
+
+## Project snapshot
+
+-   **What**: Coffee e-commerce UI with AI-powered chat and optional IoT brewing
+-   **Frontend**: Next.js 15 (App Router, TypeScript, Turbopack) on port 3000
+-   **AI/Backend**: Flask service (MiniLM & ResNet-18) on port 5000
+-   **Database**: PostgreSQL 16 with `pgvector` and `rdkit` extensions
+-   **Data**: JSON product catalogs and ML training corpora stored in-repo; model checkpoints under `python_ai/checkpoints`
+
+## Services and ports
+
+| Service                    | Port (default) | Role                                                                                     | Notes                                                        |
+| -------------------------- | -------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Next.js App Router         | 3000           | UI, SSR/ISR, route handlers that proxy to AI and external APIs                           | `npm run dev` / `npm run start`                              |
+| Python AI (Flask)          | 5000           | Text generation (MiniLM), image classification (ResNet-18), chemistry helpers, IoT        | `python python_ai/app.py`                                    |
+| PostgreSQL                 | 5432           | Main database with vector search and molecular informatics                               | `docker compose up -d postgres`                              |
+| Express API                | 4000           | Backend API for products, orders, and user accounts                                      | `npm run dev` in `express-api`                               |
+
+## System architecture
+
+```
+Browser (React UI)
+   |
+   | fetch/chat ↔ SSR
+   v
+Next.js 15 (App Router, TypeScript)
+   |  - Route handlers under src/app/api/*
+   |  - Static/catalog data under src/data
+   |  - Uses env: NEXT_PUBLIC_API_URL, PYTHON_AI_HOST
+   |
+   | proxy /api/python-chat, /api/python-health → PYTHON_AI_HOST
+   v
+Flask AI service (python_ai/app.py)
+   |  - MiniLM (NLP) & ResNet-18 (Vision) inference
+   |  - Chemistry/ChEMBL helpers (RDKit)
+   |  - IoT command lifecycle: create → poll → update
+   |
+   | persistence (PostgreSQL)
+   v
+PostgreSQL (pgvector + rdkit)
+   |
+   v
+ESP32 accessory (scripts/esp32/esp32_coffeemachine.ino)
+   - Polls /api/commands/check/{machine_id}
+   - Executes recipe JSON
+   - Posts status to /api/commands/update/{id}
+```
+
+## Tech stack
+
+-   **Frontend**: Next.js 15.5.4, React 19, TypeScript 5, Tailwind/PostCSS, Turbopack, ESLint 9
+-   **AI/Backend**: Flask 3, Flask-CORS, PyTorch 2.7, MiniLM-L6-v2 (NLP), ResNet-18 (Vision), FAISS + sentence-transformers for RAG, RDKit & chembl client for chemistry
+-   **Data & Storage**: PostgreSQL 16, JSON catalogs (`src/data`, `python_ai/data`), training corpora (`python_ai/training_data`), model checkpoints (`python_ai/checkpoints`)
+-   **Tooling**: npm scripts for Next, Python virtualenv + pip, Docker Compose for PostgreSQL, ESLint for frontend, and pytest-style tests under `python_ai/tests`
+
+## Repository layout (working set)
+
+```
+package.json                 Next.js app metadata & scripts
+src/                         App Router pages, route handlers, components, styles
+  app/api/                   Route handlers (chat, python proxy, subscribe, etc.)
+  data/                      Coffee and machine catalog JSON/TS
+  components/                UI modules (cart, recommender, payment, account)
+python_ai/                   Flask AI + training code
+  app.py                     Main Flask server (AI + IoT endpoints)
+  requirements.txt           Python deps
+  data/                      Consolidated AI data (PDFs, embeddings, training sets)
+  checkpoints/               Model checkpoints (gitignored)
+  training_data/             Text corpora for fine-tuning
+  tests/                     Sample tests for IoT/db/model helpers
+scripts/                     Node/utility scripts + ESP32 sketch
+public/                      Static assets (fonts, images)
+express-api/                 Main Backend API
+  data/01_schema.sql         Unified PostgreSQL schema
+```
+
+## Runtime configuration
+
+-   `NEXT_PUBLIC_API_URL`: Base URL for external commerce/admin API (default `http://localhost:4000`). Components: cart, admin, weather, machine pages.
+-   `PYTHON_AI_HOST`: Base URL for Flask AI service used by `/api/python-chat` and `/api/python-health` (default `http://localhost:5000`).
+-   `PYTHON_AI_PORT`: Port the Flask app binds to (default `5000`).
+-   `POSTGRES_*`: PostgreSQL connection settings (Host, Port, DB, User, Password).
+
+## Frontend (Next.js App Router)
+
+-   Pages live under `src/app/*` with layouts and shared styles in `src/app/globals.css` and `src/styles/*`.
+-   Product data is sourced from `src/data/coffee.ts`, `src/data/machines.ts`, and generated JSON derivatives for fast render.
+-   Client features: cart, coffee recommender, subscription forms, payment UI, account pages with pagination, and chat UI.
+-   Route handlers (`src/app/api`):
+    -   `/api/chat`: Local fallback coffee Q&A using static data and rule-based responses.
+    -   `/api/python-chat`: Proxy to Flask `/api/chat` for TinyLlama responses; supports cancellation.
+    -   `/api/python-health`: Proxy to Flask `/api/health`.
+    -   `/api/subscribe`: Handles subscription form posts (implementation in repo).
+    -   `/api/chemistry`, `/api/model`, `/api/pages`: Scoped utilities for content and form handling.
+-   Environment-aware fetching: many components default to `http://localhost:4000` via `NEXT_PUBLIC_API_URL`; point this to your own API or mock server.
+
+## Python AI/Flask service
+
+File: `python_ai/app.py`. Responsibilities:
+
+-   TinyLlama-based generation: `/api/generate`, `/api/chat`, `/api/summarize`, `/api/classify`
+-   Model management: `/api/models`, `/api/train`, `/api/save-model`, cancellation `/api/cancel/{request_id}`
+-   Health: `/api/health`
+-   Chemistry helpers (ChEMBL/RDKit): `/api/molecules/search`, `/api/molecule/<chembl_id>` + render/download variants
+-   Icon utilities: `/api/icons/<username>.svg`, `/api/icons/save`
+-   IoT command lifecycle: `/api/commands/create`, `/api/commands/check/{machine_id}`, `/api/commands/update/{command_id}`
+-   Static serving: exposes `public/` when present for icon assets
+
+### Commands table schema
+
+Whether using the in-memory stub (`iot_db.py`) or MariaDB, commands share the same shape:
+
+| Column            | Type               | Notes                                           |
+| ----------------- | ------------------ | ----------------------------------------------- |
+| `command_id`      | INT                | Primary key / auto-increment                    |
+| `machine_id`      | VARCHAR            | Device identifier                               |
+| `recipe`          | JSON               | Brew parameters sent to the device              |
+| `execute_allowed` | BOOL               | Gate to allow execution when user approves      |
+| `meta`            | JSON               | Arbitrary metadata from UI/device               |
+| `status`          | VARCHAR            | `pending`, `brewing`, `complete`, `failed`, ... |
+| `created_at`      | DATETIME/TIMESTAMP | Server-set creation time                        |
+
+Example MariaDB table (aligns with the stub):
+
+```sql
+CREATE TABLE commands (
+  command_id INT AUTO_INCREMENT PRIMARY KEY,
+  machine_id VARCHAR(255) NOT NULL,
+  recipe JSON NOT NULL,
+  execute_allowed BOOLEAN DEFAULT TRUE,
+  meta JSON,
+  status VARCHAR(32) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## Data and storage
+
+-   **Catalogs**: `src/data/coffee.ts` and `src/data/machines.ts` (plus generated JSON) drive the storefront and recommendations.
+-   **AI input**: `python_ai/training_data/*.txt` corpora for fine-tuning; `python_ai/data/capsule_volumes.json` for recipe sizing.
+-   **Model checkpoints**: place under `python_ai/checkpoints/` (ignored by git). `python_ai/models/` holds exported artifacts for TinyLlama variants.
+-   **RAG assets**: `python_ai/rag_data/` for chunked coffee knowledge (if generated).
+-   **IoT commands**: In-memory dictionary by default (`python_ai/iot_db.py`); swap to MariaDB for persistence.
+
+## AI models and training
+
+-   Entry points: `python_ai/train.py` and `python_ai/trainer.py` (TinyLlama fine-tuning with PEFT/LoRA and 4-bit quantization).
+-   Model manager: `python_ai/tinyllama_models.py` handles loading coffee vs chemistry LoRA adapters.
+-   Requirements: see `python_ai/requirements.txt` (includes torch, transformers, bitsandbytes, accelerate, sentence-transformers, FAISS, RDKit).
+-   RAG: `python_ai/rag_retriever.py` consumes `rag_data/coffee_chunks.json` when present.
+-   Chemistry: relies on ChEMBL client and RDKit for molecule lookup, rendering, and property extraction.
+
+### Chemistry data & pipelines
+
+-   **Sources**: ChEMBL (via `chembl-webresource-client`) for molecule metadata and canonical SMILES; coffee/aroma compounds enumerated in `python_ai/download_chembl_data.py`.
+-   **Download script**: `python_ai/download_chembl_data.py` pulls ~100+ coffee compounds, 200+ flavor/aroma molecules, roasting byproducts, alkaloids, acids, terpenes, and vitamins. Output is `python_ai/data/chembl-training.json` (generated when run).
+-   **Rendering/analysis**: RDKit and ChEMBL data power `/api/molecule*` endpoints (SVG/PDB/SDF/SMILES exports, property lookup) and chemistry mode chat answers.
+-   **RAG-ready assets**: Chemistry chunks can be added to `python_ai/rag_data/coffee_chunks.json` for retrieval-augmented answers.
+
+### Datasets (stored in-repo)
+
+-   `python_ai/training_data/coffee_*.jsonl`: Coffee dialogue/training splits (train/val/test) for general coffee chat.
+-   `python_ai/training_data/molecules_*.jsonl`: Molecule-focused splits for chemistry mode responses.
+-   `python_ai/data/chembl-molecules.json`: Raw molecule dump (ChEMBL-derived).
+-   `python_ai/data/capsule_volumes.json`: Brew volumes per capsule, used for recipe generation.
+-   Multilingual coffee PDFs under `python_ai/data/coffee_*.pdf` (reference material).
+
+### Frameworks & libraries (chemistry + ML)
+
+-   **Core ML**: PyTorch 2.7, Hugging Face Transformers/PEFT/bitsandbytes/accelerate for TinyLlama fine-tuning and 4-bit inference.
+-   **Vector search**: FAISS + sentence-transformers for retrieval.
+-   **Chemistry**: RDKit for molecule parsing/rendering; `chembl-webresource-client` for ChEMBL queries; Py3Dmol for 3D visualization; Pillow for image ops.
+-   **Data/ETL**: pandas, numpy for dataset prep; scripts under `python_ai/scripts` for RAG/data processing.
+
+## IoT device flow
+
+1. UI (Next) creates a command via Flask `/api/commands/create` with `machine_id` and `recipe` JSON.
+2. ESP32 polls `/api/commands/check/{machine_id}` on an interval; receives the oldest `pending` command.
+3. Device executes the recipe (servo/stepper actions defined in `scripts/esp32/esp32_coffeemachine.ino`).
+4. Device posts status updates to `/api/commands/update/{command_id}` (`brewing`, `complete`, `failed`, etc.).
+5. Server/UI can display live status; persistence is in-memory unless MariaDB is enabled.
+
+## Local development
+
+Prereqs: Node 18+ (recommend 20), npm; Python 3.11+; optional Docker for MariaDB; PowerShell on Windows.
+
+1. Install frontend deps
+
+```pwsh
+npm install
+```
+
+2. Configure environment (create `.env.local` at repo root)
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:4000   # or your mock/real API
+PYTHON_AI_HOST=http://localhost:5000
+```
+
+3. Install Python deps
+
+```pwsh
+python -m venv .venv
+./.venv/Scripts/Activate.ps1
+pip install -r python_ai/requirements.txt
+```
+
+4. Run services
+
+```pwsh
+# Terminal 1
+npm run dev
+
+# Terminal 2 (from repo root)
+python python_ai/app.py
+
+# Optional: start MariaDB for command persistence
+docker compose -f python_ai/docker-compose.maria.yml up -d
+```
+
+5. Open the app at `http://localhost:3000`.
+
+## APIs
+
+-   **Next route handlers**
+
+    -   `/api/chat`: deterministic coffee FAQ + product suggestions using static data.
+    -   `/api/python-chat`: proxies chat payloads to Flask `/api/chat`.
+    -   `/api/python-health`: surfaces Flask health.
+    -   `/api/subscribe`: subscription form handler.
+    -   `/api/chemistry`, `/api/model`, `/api/pages`: utilities for chemistry previews, model info, page data.
+
+-   **Flask endpoints (selection)**
+    -   `GET /api/health`: model/device status
+    -   `POST /api/generate` | `POST /api/chat` | `POST /api/summarize` | `POST /api/classify`: TinyLlama inference
+    -   `POST /api/train`, `POST /api/save-model`: training and persistence hooks
+    -   `POST /api/cancel/{request_id}`: cancel long-running generations
+    -   `POST /api/commands/create`, `GET /api/commands/check/{machine_id}`, `POST /api/commands/update/{id}`: IoT command lifecycle
+    -   Chemistry suite under `/api/molecule*` and `/api/molecules/search`: ChEMBL/RDKit lookups, rendering, and downloads
+
+## Testing and quality
+
+-   Frontend lint: `npm run lint`
+-   Python tests: activate venv, then `pytest python_ai/tests` (install `pytest` if not already available)
+-   Manual checks: verify `/api/python-health` returns `status: ok`; run a chat request through `/api/python-chat` to ensure the proxy works.
+
+## Deployment notes
+
+-   Build frontend: `npm run build` then `npm run start` on your host or container runtime.
+-   Run Flask with a production WSGI server (e.g., `waitress-serve --port=5000 python_ai.app:app`) and ensure `PYTHON_AI_HOST` points to it.
+-   Add TLS/HTTPS termination in front of both services; lock down CORS in Flask if exposing publicly.
+-   Persist the command queue: enable MariaDB and migrate the `commands` table before attaching devices.
+
+## Troubleshooting
+
+-   Chat returns 502: ensure `python_ai/app.py` is running and `PYTHON_AI_HOST` matches. Check Flask logs for missing model checkpoints.
+-   IoT commands never arrive: device must poll the correct `machine_id`; verify commands are created and status is `pending`.
+-   Chemistry endpoints fail: install RDKit (via conda) and `chembl-webresource-client` per `requirements.txt`.
+-   Port collisions: change `PYTHON_AI_PORT` or Next.js `PORT` envs, and update proxies accordingly.
+
+---
+
+## Legacy README (previous full guide)
+
 # Filspresso Next — Full Project README
 
 This document is a comprehensive guide to the Filspresso Next project (Next.js frontend + Python AI + IoT integration). It combines the app overview, AI model design and training, training data, IoT workflow and device integration (ESP32 + Krups Essenza Mini XN110 guidance), developer instructions, and production recommendations.

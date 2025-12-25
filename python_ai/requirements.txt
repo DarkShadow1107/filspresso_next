@@ -1,6 +1,8 @@
 Flask==3.0.0
 Flask-CORS==4.0.0
 torch==2.7.1
+torchvision
+Pillow
 numpy>=1.25,<2.0
 pandas==2.1.0
 scikit-learn>=1.5.0
@@ -8,7 +10,8 @@ requests==2.31.0
 requests-cache>=1.0.0
 python-dotenv==1.0.0
 waitress==2.1.2
-pymysql==1.1.0
+psycopg2-binary
+sentence-transformers
 SQLAlchemy==2.0.19
 attrs>=25.4.0
 

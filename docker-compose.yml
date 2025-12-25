@@ -1,27 +1,26 @@
 services:
-    # MariaDB database - managed automatically by Express server
-    # The Express server will start/stop this container
-    mariadb:
-        image: mariadb:10.11
-        container_name: filspresso_next_mariadb
+    # PostgreSQL database with pgvector and rdkit
+    postgres:
+        build:
+            context: .
+            dockerfile: Dockerfile.db
+        container_name: filspresso_next_postgres
         restart: unless-stopped
         environment:
-            MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-filspresso_root_2024}
-            MYSQL_DATABASE: ${DB_NAME:-filspresso}
-            MYSQL_USER: ${DB_USER:-filspresso_user}
-            MYSQL_PASSWORD: ${DB_PASSWORD:-filspresso_secure_2024}
+            POSTGRES_DB: ${DB_NAME:-filspresso}
+            POSTGRES_USER: ${DB_USER:-filspresso_user}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:-filspresso_secure_2024}
         ports:
-            - "3306:3306"
+            - "5432:5432"
         volumes:
-            - mariadb_data:/var/lib/mysql
-            # Mount the SQL init scripts directory from the express-api package.
+            - postgres_data:/var/lib/postgresql/data
             - ./express-api/data:/docker-entrypoint-initdb.d:ro
         healthcheck:
-            test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+            test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-filspresso_user} -d ${DB_NAME:-filspresso}"]
             interval: 10s
             timeout: 5s
             retries: 5
 
 volumes:
-    mariadb_data:
+    postgres_data:
         driver: local

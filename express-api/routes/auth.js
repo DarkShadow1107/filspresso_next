@@ -31,15 +31,15 @@ router.post("/register", async (req, res) => {
 			return res.status(400).json({ status: "error", message: "Password must be at least 8 characters" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Check if user exists
-			const existing = await conn.query("SELECT id FROM accounts WHERE email = ? OR username = ?", [
+			const existing = await client.query("SELECT id FROM accounts WHERE email = $1 OR username = $2", [
 				email.toLowerCase(),
 				username.toLowerCase(),
 			]);
 
-			if (existing.length > 0) {
+			if (existing.rows.length > 0) {
 				return res.status(409).json({ status: "error", message: "User with this email or username already exists" });
 			}
 
@@ -47,19 +47,22 @@ router.post("/register", async (req, res) => {
 			const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
 			// Insert user
-			const result = await conn.query(
+			const result = await client.query(
 				`INSERT INTO accounts (username, email, password_hash, name, icon) 
-        VALUES (?, ?, ?, ?, ?)`,
+        VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 				[username.toLowerCase(), email.toLowerCase(), passwordHash, displayName || username, icon || null]
 			);
 
-			const userId = Number(result.insertId);
+			const userId = result.rows[0].id;
 
 			// Get created user
-			const [user] = await conn.query("SELECT id, username, email, name, icon FROM accounts WHERE id = ?", [userId]);
+			const userRes = await client.query("SELECT id, username, email, name, icon FROM accounts WHERE id = $1", [userId]);
+			const user = userRes.rows[0];
 
 			// Generate token
 			const token = generateToken(user);
+
+			const iconFilename = user.icon ? (user.icon.toLowerCase().endsWith(".svg") ? user.icon : `${user.icon}.svg`) : null;
 
 			res.status(201).json({
 				status: "success",
@@ -68,9 +71,9 @@ router.post("/register", async (req, res) => {
 					full_name: user.name,
 					username: user.username,
 					email: user.email,
-					icon: user.icon,
+					icon: iconFilename ? `/images/icons/${iconFilename}` : null,
 				},
-				icon_path: user.icon,
+				icon_path: iconFilename ? `/images/icons/${iconFilename}` : null,
 				token,
 			});
 		} finally {
@@ -94,13 +97,14 @@ router.post("/login", async (req, res) => {
 			return res.status(400).json({ status: "error", message: "Email/username and password are required" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Find user by email or username
-			const [user] = await conn.query(
-				"SELECT id, username, email, password_hash, name, icon, subscription FROM accounts WHERE email = ? OR username = ?",
+			const userRes = await client.query(
+				"SELECT id, username, email, password_hash, name, icon, subscription FROM accounts WHERE email = $1 OR username = $2",
 				[loginField.toLowerCase(), loginField.toLowerCase()]
 			);
+			const user = userRes.rows[0];
 
 			if (!user) {
 				return res.status(401).json({ status: "error", message: "Invalid credentials" });
@@ -113,13 +117,15 @@ router.post("/login", async (req, res) => {
 			}
 
 			// Update last login
-			await conn.query("UPDATE accounts SET last_login = NOW() WHERE id = ?", [user.id]);
+			await client.query("UPDATE accounts SET last_login = NOW() WHERE id = $1", [user.id]);
 
 			// Generate token
 			const token = generateToken(user);
 
 			// Remove password hash from response
 			delete user.password_hash;
+
+			const iconFilename = user.icon ? (user.icon.toLowerCase().endsWith(".svg") ? user.icon : `${user.icon}.svg`) : null;
 
 			res.json({
 				status: "success",
@@ -128,12 +134,12 @@ router.post("/login", async (req, res) => {
 					full_name: user.name,
 					username: user.username,
 					email: user.email,
-					icon: user.icon,
+					icon: iconFilename ? `/images/icons/${iconFilename}` : null,
 				},
 				token,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Login error:", error);
@@ -146,19 +152,27 @@ router.post("/login", async (req, res) => {
  */
 router.get("/me", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [user] = await conn.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = ?", [
+			const userRes = await client.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = $1", [
 				req.user.id,
 			]);
+			const user = userRes.rows[0];
 
 			if (!user) {
 				return res.status(404).json({ error: "User not found" });
 			}
 
-			res.json({ user });
+			const iconFilename = user.icon ? (user.icon.toLowerCase().endsWith(".svg") ? user.icon : `${user.icon}.svg`) : null;
+
+			res.json({
+				user: {
+					...user,
+					icon: iconFilename ? `/images/icons/${iconFilename}` : null,
+				},
+			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get user error:", error);
@@ -190,10 +204,11 @@ router.put("/password", authenticate, async (req, res) => {
 			return res.status(400).json({ error: "New password must be at least 8 characters" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get current password hash
-			const [user] = await conn.query("SELECT password_hash FROM accounts WHERE id = ?", [req.user.id]);
+			const userRes = await client.query("SELECT password_hash FROM accounts WHERE id = $1", [req.user.id]);
+			const user = userRes.rows[0];
 
 			if (!user) {
 				return res.status(404).json({ error: "User not found" });
@@ -209,14 +224,14 @@ router.put("/password", authenticate, async (req, res) => {
 			const newPasswordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
 			// Update password
-			await conn.query("UPDATE accounts SET password_hash = ?, updated_at = NOW() WHERE id = ?", [
+			await client.query("UPDATE accounts SET password_hash = $1, updated_at = NOW() WHERE id = $2", [
 				newPasswordHash,
 				req.user.id,
 			]);
 
 			res.json({ message: "Password changed successfully" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Change password error:", error);

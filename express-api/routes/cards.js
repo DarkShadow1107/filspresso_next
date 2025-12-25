@@ -18,16 +18,16 @@ const router = express.Router();
  */
 router.get("/", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const cardsRaw = await conn.query(
+			const result = await client.query(
 				`SELECT id, card_holder, card_type, card_last_four, card_expiry_encrypted, card_cvv_encrypted, is_default, created_at
-        FROM user_cards WHERE account_id = ? ORDER BY is_default DESC, created_at DESC`,
+        FROM user_cards WHERE account_id = $1 ORDER BY is_default DESC, created_at DESC`,
 				[req.user.id]
 			);
 
 			// Decrypt expiry and CVV for each card
-			const cards = cardsRaw.map((card) => ({
+			const cards = result.rows.map((card) => ({
 				id: Number(card.id),
 				card_holder: card.card_holder,
 				card_type: card.card_type,
@@ -40,7 +40,7 @@ router.get("/", authenticate, async (req, res) => {
 
 			res.json({ cards });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get cards error:", error);
@@ -65,11 +65,11 @@ router.post("/", authenticate, async (req, res) => {
 			return res.status(400).json({ error: "Invalid card number" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// If setting as default, unset other defaults
 			if (isDefault) {
-				await conn.query("UPDATE user_cards SET is_default = FALSE WHERE account_id = ?", [req.user.id]);
+				await client.query("UPDATE user_cards SET is_default = FALSE WHERE account_id = $1", [req.user.id]);
 			}
 
 			// Encrypt sensitive data including CVV
@@ -79,15 +79,15 @@ router.post("/", authenticate, async (req, res) => {
 			const lastFour = getLastFour(cleanedNumber);
 			const cardType = detectCardType(cleanedNumber);
 
-			const result = await conn.query(
+			const result = await client.query(
 				`INSERT INTO user_cards 
         (account_id, card_number_encrypted, card_expiry_encrypted, card_cvv_encrypted,
             card_holder, card_type, card_last_four, is_default)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
 				[req.user.id, encryptedNumber, encryptedExpiry, encryptedCvv, cardHolder, cardType, lastFour, isDefault || false]
 			);
 
-			const cardId = Number(result.insertId);
+			const cardId = Number(result.rows[0].id);
 
 			res.status(201).json({
 				message: "Card added successfully",
@@ -100,7 +100,7 @@ router.post("/", authenticate, async (req, res) => {
 				},
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Add card error:", error);
@@ -116,10 +116,11 @@ router.put("/:id", authenticate, async (req, res) => {
 		const cardId = parseInt(req.params.id);
 		const { cardHolder, isDefault } = req.body;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Verify ownership
-			const [card] = await conn.query("SELECT id FROM user_cards WHERE id = ? AND account_id = ?", [cardId, req.user.id]);
+			const result = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [cardId, req.user.id]);
+			const card = result.rows[0];
 
 			if (!card) {
 				return res.status(404).json({ error: "Card not found" });
@@ -127,29 +128,30 @@ router.put("/:id", authenticate, async (req, res) => {
 
 			// If setting as default, unset other defaults
 			if (isDefault) {
-				await conn.query("UPDATE user_cards SET is_default = FALSE WHERE account_id = ?", [req.user.id]);
+				await client.query("UPDATE user_cards SET is_default = FALSE WHERE account_id = $1", [req.user.id]);
 			}
 
 			const updates = [];
 			const params = [];
+			let paramIdx = 1;
 
 			if (cardHolder !== undefined) {
-				updates.push("card_holder = ?");
+				updates.push(`card_holder = $${paramIdx++}`);
 				params.push(cardHolder);
 			}
 			if (isDefault !== undefined) {
-				updates.push("is_default = ?");
+				updates.push(`is_default = $${paramIdx++}`);
 				params.push(isDefault);
 			}
 
 			if (updates.length > 0) {
 				params.push(cardId);
-				await conn.query(`UPDATE user_cards SET ${updates.join(", ")}, updated_at = NOW() WHERE id = ?`, params);
+				await client.query(`UPDATE user_cards SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${paramIdx}`, params);
 			}
 
 			res.json({ message: "Card updated successfully" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Update card error:", error);
@@ -164,20 +166,21 @@ router.delete("/:id", authenticate, async (req, res) => {
 	try {
 		const cardId = parseInt(req.params.id);
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Verify ownership
-			const [card] = await conn.query("SELECT id FROM user_cards WHERE id = ? AND account_id = ?", [cardId, req.user.id]);
+			const result = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [cardId, req.user.id]);
+			const card = result.rows[0];
 
 			if (!card) {
 				return res.status(404).json({ error: "Card not found" });
 			}
 
-			await conn.query("DELETE FROM user_cards WHERE id = ?", [cardId]);
+			await client.query("DELETE FROM user_cards WHERE id = $1", [cardId]);
 
 			res.json({ message: "Card deleted successfully" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Delete card error:", error);

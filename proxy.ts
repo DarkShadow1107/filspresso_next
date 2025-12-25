@@ -27,7 +27,7 @@ function shouldBypass(pathname: string) {
 	);
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
 	const { nextUrl } = request;
 	const pathname = nextUrl.pathname;
 

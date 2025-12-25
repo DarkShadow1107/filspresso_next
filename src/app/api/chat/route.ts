@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { coffeeCollections, type CoffeeProduct } from "@/data/coffee";
+import { getCoffeeCollectionsCached } from "@/data/coffee";
+import type { CoffeeProduct } from "@/data/coffee";
 import tankaFallback from "@/app/data/coffee-fallback-tanka.json";
 import villanelleFallback from "@/app/data/coffee-fallback-villanelle.json";
 import odeFallback from "@/app/data/coffee-fallback-ode.json";
@@ -72,9 +73,13 @@ const FALLBACK_DATA: Record<ModelTier, CoffeeFallbackModelData> = {
 	ode: odeFallback as CoffeeFallbackModelData,
 };
 
-function generateCoffeeResponseByModel(input: string, model: ModelTier): { response: string; products: CoffeeProduct[] } {
+async function generateCoffeeResponseByModel(
+	input: string,
+	model: ModelTier
+): Promise<{ response: string; products: CoffeeProduct[] }> {
 	const lower = input.toLowerCase();
-	const allProducts = coffeeCollections.flatMap((c) => c.groups.flatMap((g) => g.products));
+	const collections = await getCoffeeCollectionsCached();
+	const allProducts = collections.flatMap((c) => c.groups.flatMap((g) => g.products));
 	const config = MODEL_CONFIGS[model];
 	const modelData = FALLBACK_DATA[model];
 	const answers = modelData.answers;
@@ -210,7 +215,7 @@ export async function POST(request: NextRequest) {
 		const modelHierarchy: Record<ModelTier, number> = { tanka: 1, villanelle: 2, ode: 3 };
 		const canAccess = modelHierarchy[requestedModel] <= modelHierarchy[maxAllowedModel];
 		const selectedModel: ModelTier = canAccess ? requestedModel : maxAllowedModel;
-		const result = generateCoffeeResponseByModel(userMessage, selectedModel);
+		const result = await generateCoffeeResponseByModel(userMessage, selectedModel);
 		return NextResponse.json({
 			response: result.response,
 			products: result.products,

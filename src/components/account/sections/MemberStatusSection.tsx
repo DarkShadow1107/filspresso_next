@@ -354,6 +354,41 @@ export function MemberStatusSection({
 						gap: "1rem",
 					}}
 				>
+					{/* Total Orders */}
+					<div
+						style={{
+							background: "linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(37, 99, 235, 0.12) 100%)",
+							border: "1px solid rgba(59, 130, 246, 0.35)",
+							borderRadius: "12px",
+							padding: "1.5rem",
+							textAlign: "center",
+							animation: "pager-fade-slide 0.35s ease",
+						}}
+					>
+						<div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🧾</div>
+						<div style={{ fontSize: "2rem", fontWeight: 700, color: "#60a5fa" }}>
+							{(capsuleStats.totalOrders ?? 0).toLocaleString()}
+						</div>
+						<div style={{ fontSize: "0.9rem", color: "#8aa6d7", marginTop: "0.25rem" }}>Total Orders</div>
+					</div>
+
+					{/* Total Repairs */}
+					<div
+						style={{
+							background: "linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.12) 100%)",
+							border: "1px solid rgba(16, 185, 129, 0.35)",
+							borderRadius: "12px",
+							padding: "1.5rem",
+							textAlign: "center",
+							animation: "pager-fade-slide 0.35s ease",
+						}}
+					>
+						<div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🔧</div>
+						<div style={{ fontSize: "2rem", fontWeight: 700, color: "#34d399" }}>
+							{(capsuleStats.totalRepairs ?? 0).toLocaleString()}
+						</div>
+						<div style={{ fontSize: "0.9rem", color: "#6ee7b7", marginTop: "0.25rem" }}>Total Repairs</div>
+					</div>
 					{/* Total Capsules All Time */}
 					<div
 						style={{

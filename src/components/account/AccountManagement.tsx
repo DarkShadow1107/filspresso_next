@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AccountIconGenerator from "@/components/AccountIconGenerator";
 import Image from "next/image";
-import { coffeeCollections } from "@/data/coffee";
+import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
+import type { CoffeeProduct } from "@/data/coffee";
 
 // Import section components
 import {
@@ -48,16 +49,9 @@ import {
 } from "./sections/types";
 
 // Helper function to get product image from data
-function getProductImage(productId: string): string | undefined {
-	// Search in coffee collections
-	for (const collection of coffeeCollections) {
-		for (const group of collection.groups) {
-			for (const product of group.products) {
-				if (product.id === productId) {
-					return product.image;
-				}
-			}
-		}
+function getProductImage(productId: string, coffeeProducts: CoffeeProduct[]): string | undefined {
+	for (const product of coffeeProducts) {
+		if (product.id === productId) return product.image;
 	}
 
 	// Search in machine collections
@@ -75,6 +69,8 @@ function getProductImage(productId: string): string | undefined {
 }
 
 export default function AccountManagement() {
+	const { collections } = useCoffeeCollections();
+	const coffeeProducts = collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [];
 	const router = useRouter();
 	const { notify } = useNotifications();
 	const [account, setAccount] = useState<AccountData | null>(null);
@@ -139,6 +135,10 @@ export default function AccountManagement() {
 
 	// Portal mount state
 	const [mounted, setMounted] = useState(false);
+	const getCoffeeProductImage = useCallback(
+		(productId: string) => getProductImage(productId, coffeeProducts),
+		[coffeeProducts]
+	);
 
 	// Spending State
 	const [totalSpending, setTotalSpending] = useState<{
@@ -241,8 +241,8 @@ export default function AccountManagement() {
 				})
 				.catch((err) => console.error("Failed to load cards", err));
 
-			// Load orders from Express API
-			fetch(`${API_BASE}/api/orders`, {
+			// Load orders from Express API (fetch all with high limit)
+			fetch(`${API_BASE}/api/orders?limit=1000`, {
 				headers: { Authorization: `Bearer ${token}` },
 			})
 				.then((res) => res.json())
@@ -774,7 +774,7 @@ export default function AccountManagement() {
 						setMaintenancePopup={setMaintenancePopup}
 						setRepairPopup={setRepairPopup}
 						setSelectedRepairType={setSelectedRepairType}
-						getProductImage={getProductImage}
+						getProductImage={getCoffeeProductImage}
 					/>
 				)}
 
@@ -787,7 +787,7 @@ export default function AccountManagement() {
 						loadingOrderItems={loadingOrderItems}
 						toggleOrderExpand={toggleOrderExpand}
 						handleDeleteCard={handleDeleteCard}
-						getProductImage={getProductImage}
+						getProductImage={getCoffeeProductImage}
 					/>
 				)}
 

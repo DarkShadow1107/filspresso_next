@@ -1,112 +1,11 @@
 [
   {
-    "id": "chat-1764776600040",
-    "timestamp": 1764776693887,
-    "messages": [
-      {
-        "role": "user",
-        "content": "show me caffeine"
-      },
-      {
-        "role": "assistant",
-        "content": "🔍 **Found molecule:**\n\n📊 **CAFFEINE CITRATE**\n🔬 **ChEMBL ID:** CHEMBL1200569\n🧪 **Formula:** C14H18N4O9\n⚖️ **Molecular Weight:** 386.32 g/mol\n🔗 **LogP (Lipophilicity):** -1.03\n📐 **TPSA (Polarity):** 61.82\n🔶 **H-Bond Acceptors:** 6\n🔵 **H-Bond Donors:** 0\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow."
-      }
-    ],
-    "preview": "show me caffeine",
-    "model": "tanka",
-    "category": "chemistry"
-  },
-  {
-    "id": "chat-1764450375906",
-    "timestamp": 1764450406211,
-    "messages": [
-      {
-        "role": "user",
-        "content": "hello, what are youy doing today?"
-      }
-    ],
-    "preview": "hello, what are youy doing today?",
-    "model": "villanelle",
-    "category": "general"
-  },
-  {
-    "id": "chat-1764449914922",
-    "timestamp": 1764450062553,
-    "messages": [
-      {
-        "role": "user",
-        "content": "hello, what are you doing?"
-      }
-    ],
-    "preview": "hello, what are you doing?",
-    "model": "villanelle",
-    "category": "general"
-  },
-  {
-    "id": "chat-1764449393820",
-    "timestamp": 1764449464275,
+    "id": "chat-1765382004883",
+    "timestamp": 1765382375512,
     "messages": [
       {
         "role": "user",
         "content": "hello"
-      }
-    ],
-    "preview": "hello",
-    "model": "ode",
-    "category": "coffee"
-  },
-  {
-    "id": "chat-1764449370891",
-    "timestamp": 1764449374910,
-    "messages": [
-      {
-        "role": "user",
-        "content": "hello"
-      }
-    ],
-    "preview": "hello",
-    "model": "ode",
-    "category": "coffee"
-  },
-  {
-    "id": "chat-1764448976535",
-    "timestamp": 1764449087406,
-    "messages": [
-      {
-        "role": "user",
-        "content": "Hello"
-      },
-      {
-        "role": "assistant",
-        "content": "What is the difference between coffee and caffeine?\n[Language: english] 8. Sweetener\nCoffee is typically prepared by brewing the seeds from\ncoffee plants. Coffee is usually prepared in a\npot-roasted or percolator method, and the spent\ncoffee grounds are typically discarded. Coffee\nmay be served black with hot water or a\nsugar-free sweetener.\n\n[Language: spanish] 290.\nCasado, Carlos A. (2003). Historia de la cosecha de café.\n\n[Language: english] y 300 m s. n. m.3  (metros sobre el nivel del mar).2  (2015).\n\"Coffee growing regions\" (en inglés). FAO (Forestry\nAgriculture and Forestry) .\n\n[Language: spanish] 290. Casado, Carlos A. (2003). Historia de la cosecha de café.\n\n[Language: english] 301. \"Coffee Growing Regions\" (en inglés). FAO (Forestry, Agriculture and\nForestry) . Consultado el 21 de febrero de 2021 .\n302. \"Coffee\" . The World Factbook . Central Intelligence Agency . Consultado el 21 de\nfebrero de 2021 .\n303. \"Coffee\" . Encyclopædia Britannica . Encyclopædia Britannica , S.v. \"Coffee\" . Consultado el\n21 de febrero de 2021 .\n304. \"Coffee - A Brief History\" .\n305. \"Coffee: The First Bottled Beverage\" .\n306. \"Coffee - A History\" .\n307. \"History of Coffee\" .\n308. \"The Story of Coffee\" .\n309. \"Coffee - The Beginnings\" .\n310. \"The History of Coffee\" .\n311. \"Coffee\" .\n312. \"Coffee - An Introduction\" .\n313. \"C",
-        "products": []
-      }
-    ],
-    "preview": "Hello",
-    "model": "ode",
-    "category": "general"
-  },
-  {
-    "id": "chat-1764284388845",
-    "timestamp": 1764284498719,
-    "messages": [
-      {
-        "role": "user",
-        "content": "cafeine"
-      },
-      {
-        "role": "assistant",
-        "content": "I am Tanka, built for fast coffee pointers. Mention intensity, flavors, time of day, capsule types, or machine questions and I will keep the answer focused, friendly, and practical.",
-        "products": []
-      },
-      {
-        "role": "user",
-        "content": "give me caffeine"
-      },
-      {
-        "role": "assistant",
-        "content": "Caffeine blocks adenosine receptors, so you feel alert instead of sleepy. A standard espresso capsule delivers about 60 to 80 mg, lungos climb near 110 mg, and Vertuo mug capsules can climb above 160 mg. You feel the lift in 30 to 45 minutes, the strongest effects last about 3 hours, and then it tapers off.\n\nIf you are sensitive, switch to Half Caffeinato after lunch, brew shorter (ristretto style) for less volume, or stretch the shot with milk or water to make it feel gentler. Keep water nearby and pause after three cups so you do not edge into jitters or late-night staring at the ceiling.",
-        "products": []
       },
       {
         "role": "user",
@@ -117,8 +16,8 @@
         "content": "🔍 **Found molecule:**\n\n📊 **CAFFEINE CITRATE**\n🔬 **ChEMBL ID:** CHEMBL1200569\n🧪 **Formula:** C14H18N4O9\n⚖️ **Molecular Weight:** 386.32 g/mol\n🔗 **LogP (Lipophilicity):** -1.03\n📐 **TPSA (Polarity):** 61.82\n🔶 **H-Bond Acceptors:** 6\n🔵 **H-Bond Donors:** 0\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow."
       }
     ],
-    "preview": "cafeine",
+    "preview": "hello",
     "model": "tanka",
-    "category": "chemistry"
+    "category": "coffee"
   }
 ]

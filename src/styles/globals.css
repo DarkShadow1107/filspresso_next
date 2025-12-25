@@ -2853,6 +2853,17 @@ svg {
 	border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
+@keyframes pager-fade-slide {
+	0% {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	100% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
 /* Out of Stock Card Styling */
 .coffee_groups_capsules.out-of-stock,
 .machine_groups_models.out-of-stock,
