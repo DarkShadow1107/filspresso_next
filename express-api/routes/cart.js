@@ -208,7 +208,10 @@ router.put("/:id", authenticate, async (req, res) => {
 
 		const client = await pool.connect();
 		try {
-			const result = await client.query("SELECT id FROM cart_items WHERE id = $1 AND account_id = $2", [itemId, req.user.id]);
+			const result = await client.query("SELECT id FROM cart_items WHERE id = $1 AND account_id = $2", [
+				itemId,
+				req.user.id,
+			]);
 			const item = result.rows[0];
 
 			if (!item) {
@@ -236,7 +239,10 @@ router.delete("/:id", authenticate, async (req, res) => {
 
 		const client = await pool.connect();
 		try {
-			const result = await client.query("SELECT id FROM cart_items WHERE id = $1 AND account_id = $2", [itemId, req.user.id]);
+			const result = await client.query("SELECT id FROM cart_items WHERE id = $1 AND account_id = $2", [
+				itemId,
+				req.user.id,
+			]);
 			const item = result.rows[0];
 
 			if (!item) {

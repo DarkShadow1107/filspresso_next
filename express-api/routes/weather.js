@@ -33,15 +33,12 @@ router.get("/", async (req, res) => {
 		const client = await pool.connect();
 		try {
 			// Check database cache
-			const cacheResult = await client.query(
-				"SELECT data, timestamp FROM weather_cache WHERE cache_key = $1",
-				[cacheKey]
-			);
+			const cacheResult = await client.query("SELECT data, timestamp FROM weather_cache WHERE cache_key = $1", [cacheKey]);
 
 			if (cacheResult.rows.length > 0) {
 				const cached = cacheResult.rows[0];
 				const ageMinutes = (Date.now() - new Date(cached.timestamp).getTime()) / (1000 * 60);
-				
+
 				if (ageMinutes < CACHE_TTL_MINUTES) {
 					return res.json(cached.data);
 				}

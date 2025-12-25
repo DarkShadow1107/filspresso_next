@@ -470,7 +470,9 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 				);
 
 				if (columnsResult.rows.length > 0) {
-					const searchConditions = columnsResult.rows.map((c) => `"${c.column_name}"::text ILIKE $${paramIdx++}`).join(" OR ");
+					const searchConditions = columnsResult.rows
+						.map((c) => `"${c.column_name}"::text ILIKE $${paramIdx++}`)
+						.join(" OR ");
 					countQuery += ` WHERE (${searchConditions})`;
 					dataQuery += ` WHERE (${searchConditions})`;
 					columnsResult.rows.forEach(() => params.push(`%${search}%`));
@@ -481,7 +483,7 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 			const total = Number(countResult.rows[0].total);
 
 			// Add sorting and pagination
-			dataQuery += ` ORDER BY "${sortBy}" ${sortOrder} LIMIT $${paramIdx++ } OFFSET $${paramIdx++}`;
+			dataQuery += ` ORDER BY "${sortBy}" ${sortOrder} LIMIT $${paramIdx++} OFFSET $${paramIdx++}`;
 			params.push(limit, offset);
 
 			const result = await client.query(dataQuery, params);
@@ -587,7 +589,7 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 			// Special handling for users table password hashing
 			if (table === "users" && sanitized.password_hash) {
 				// Get current password hash
-				const result = await client.query('SELECT password_hash FROM users WHERE id = $1', [id]);
+				const result = await client.query("SELECT password_hash FROM users WHERE id = $1", [id]);
 				const currentUser = result.rows[0];
 				if (currentUser && currentUser.password_hash === sanitized.password_hash) {
 					// Password hasn't changed (it's the same hash), so don't update it
@@ -620,7 +622,10 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 			console.log("[Update] SQL:", `UPDATE "${table}" SET ${setClause} WHERE "${primaryKey}" = $${columns.length + 1}`);
 			console.log("[Update] Values:", values);
 
-			const result = await client.query(`UPDATE "${table}" SET ${setClause} WHERE "${primaryKey}" = $${columns.length + 1}`, [...values, id]);
+			const result = await client.query(
+				`UPDATE "${table}" SET ${setClause} WHERE "${primaryKey}" = $${columns.length + 1}`,
+				[...values, id]
+			);
 
 			if (result.rowCount === 0) {
 				return res.status(404).json({ error: "Row not found" });

@@ -116,7 +116,7 @@ router.get("/", authenticate, async (req, res) => {
 								id: currentSub.card_id,
 								last_four: currentSub.card_last_four,
 								type: currentSub.card_type,
-						}
+						  }
 						: null,
 				},
 				scheduled: scheduledSub
@@ -133,9 +133,9 @@ router.get("/", authenticate, async (req, res) => {
 										id: scheduledSub.card_id,
 										last_four: scheduledSub.card_last_four,
 										type: scheduledSub.card_type,
-								}
+								  }
 								: null,
-					}
+					  }
 					: null,
 			};
 
@@ -409,7 +409,10 @@ router.put("/update-card", authenticate, async (req, res) => {
 		const client = await pool.connect();
 		try {
 			// Verify the card belongs to the user
-			const result = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [cardId, req.user.id]);
+			const result = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [
+				cardId,
+				req.user.id,
+			]);
 			const card = result.rows[0];
 
 			if (!card) {

@@ -154,9 +154,10 @@ router.get("/me", authenticate, async (req, res) => {
 	try {
 		const client = await pool.connect();
 		try {
-			const userRes = await client.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = $1", [
-				req.user.id,
-			]);
+			const userRes = await client.query(
+				"SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = $1",
+				[req.user.id]
+			);
 			const user = userRes.rows[0];
 
 			if (!user) {

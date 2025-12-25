@@ -19,12 +19,12 @@ This section is a fresh, end-to-end guide for contributors. It explains what run
 
 ## Services and ports
 
-| Service                    | Port (default) | Role                                                                                     | Notes                                                        |
-| -------------------------- | -------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Next.js App Router         | 3000           | UI, SSR/ISR, route handlers that proxy to AI and external APIs                           | `npm run dev` / `npm run start`                              |
-| Python AI (Flask)          | 5000           | Text generation (MiniLM), image classification (ResNet-18), chemistry helpers, IoT        | `python python_ai/app.py`                                    |
-| PostgreSQL                 | 5432           | Main database with vector search and molecular informatics                               | `docker compose up -d postgres`                              |
-| Express API                | 4000           | Backend API for products, orders, and user accounts                                      | `npm run dev` in `express-api`                               |
+| Service            | Port (default) | Role                                                                               | Notes                           |
+| ------------------ | -------------- | ---------------------------------------------------------------------------------- | ------------------------------- |
+| Next.js App Router | 3000           | UI, SSR/ISR, route handlers that proxy to AI and external APIs                     | `npm run dev` / `npm run start` |
+| Python AI (Flask)  | 5000           | Text generation (MiniLM), image classification (ResNet-18), chemistry helpers, IoT | `python python_ai/app.py`       |
+| PostgreSQL         | 5432           | Main database with vector search and molecular informatics                         | `docker compose up -d postgres` |
+| Express API        | 4000           | Backend API for products, orders, and user accounts                                | `npm run dev` in `express-api`  |
 
 ## System architecture
 

@@ -255,7 +255,10 @@ router.put("/sessions/:uuid", authenticate, async (req, res) => {
 
 			if (updates.length > 0) {
 				params.push(session.id);
-				await client.query(`UPDATE chat_sessions SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${params.length}`, params);
+				await client.query(
+					`UPDATE chat_sessions SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${params.length}`,
+					params
+				);
 			}
 
 			res.json({ message: "Session updated" });

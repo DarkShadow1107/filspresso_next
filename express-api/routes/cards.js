@@ -119,7 +119,10 @@ router.put("/:id", authenticate, async (req, res) => {
 		const client = await pool.connect();
 		try {
 			// Verify ownership
-			const result = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [cardId, req.user.id]);
+			const result = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [
+				cardId,
+				req.user.id,
+			]);
 			const card = result.rows[0];
 
 			if (!card) {
@@ -146,7 +149,10 @@ router.put("/:id", authenticate, async (req, res) => {
 
 			if (updates.length > 0) {
 				params.push(cardId);
-				await client.query(`UPDATE user_cards SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${paramIdx}`, params);
+				await client.query(
+					`UPDATE user_cards SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${paramIdx}`,
+					params
+				);
 			}
 
 			res.json({ message: "Card updated successfully" });
@@ -169,7 +175,10 @@ router.delete("/:id", authenticate, async (req, res) => {
 		const client = await pool.connect();
 		try {
 			// Verify ownership
-			const result = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [cardId, req.user.id]);
+			const result = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [
+				cardId,
+				req.user.id,
+			]);
 			const card = result.rows[0];
 
 			if (!card) {

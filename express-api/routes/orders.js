@@ -1102,9 +1102,10 @@ router.put("/:id/cancel", authenticate, async (req, res) => {
 			}
 
 			// Restore stock for cancelled order items
-			const itemsResult = await client.query("SELECT product_type, product_id, quantity FROM order_items WHERE order_id = $1", [
-				orderId,
-			]);
+			const itemsResult = await client.query(
+				"SELECT product_type, product_id, quantity FROM order_items WHERE order_id = $1",
+				[orderId]
+			);
 			const orderItems = itemsResult.rows;
 
 			for (const item of orderItems) {
