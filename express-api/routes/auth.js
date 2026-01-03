@@ -56,7 +56,9 @@ router.post("/register", async (req, res) => {
 			const userId = result.rows[0].id;
 
 			// Get created user
-			const userRes = await client.query("SELECT id, username, email, name, icon FROM accounts WHERE id = $1", [userId]);
+			const userRes = await client.query("SELECT id, username, email, name, icon, role FROM accounts WHERE id = $1", [
+				userId,
+			]);
 			const user = userRes.rows[0];
 
 			// Generate token
@@ -71,6 +73,7 @@ router.post("/register", async (req, res) => {
 					full_name: user.name,
 					username: user.username,
 					email: user.email,
+					role: user.role,
 					icon: iconFilename ? `/images/icons/${iconFilename}` : null,
 				},
 				icon_path: iconFilename ? `/images/icons/${iconFilename}` : null,
@@ -122,6 +125,14 @@ router.post("/login", async (req, res) => {
 			// Generate token
 			const token = generateToken(user);
 
+			// Record session in database
+			const expiresAt = new Date();
+			expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+			await client.query(
+				"INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)",
+				[user.id, token, expiresAt, req.ip, req.get("user-agent")]
+			);
+
 			// Remove password hash from response
 			delete user.password_hash;
 
@@ -134,6 +145,7 @@ router.post("/login", async (req, res) => {
 					full_name: user.name,
 					username: user.username,
 					email: user.email,
+					role: user.role,
 					icon: iconFilename ? `/images/icons/${iconFilename}` : null,
 				},
 				token,
@@ -185,9 +197,20 @@ router.get("/me", authenticate, async (req, res) => {
  * Logout (optional - invalidate token server-side if using sessions)
  */
 router.post("/logout", authenticate, async (req, res) => {
-	// With JWT, logout is typically handled client-side by removing the token
-	// If you want server-side invalidation, use a token blacklist or sessions
-	res.json({ message: "Logged out successfully" });
+	try {
+		const authHeader = req.headers.authorization;
+		const token = authHeader.substring(7);
+		const client = await pool.connect();
+		try {
+			await client.query("DELETE FROM user_sessions WHERE session_token = $1", [token]);
+			res.json({ status: "success", message: "Logged out successfully" });
+		} finally {
+			client.release();
+		}
+	} catch (error) {
+		console.error("Logout error:", error);
+		res.status(500).json({ error: "Logout failed" });
+	}
 });
 
 /**

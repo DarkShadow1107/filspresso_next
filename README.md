@@ -13,18 +13,18 @@ This section is a fresh, end-to-end guide for contributors. It explains what run
 
 -   **What**: Coffee e-commerce UI with AI-powered chat and optional IoT brewing
 -   **Frontend**: Next.js 15 (App Router, TypeScript, Turbopack) on port 3000
--   **AI/Backend**: Flask service (MiniLM & ResNet-18) on port 5000
+-   **AI/Backend**: Flask service (MiniLM, ResNet-18, and Gemma 3 1B) on port 5000
 -   **Database**: PostgreSQL 16 with `pgvector` and `rdkit` extensions
--   **Data**: JSON product catalogs and ML training corpora stored in-repo; model checkpoints under `python_ai/checkpoints`
+-   **Data**: Dynamic product catalogs (Capsules & Machines) stored in PostgreSQL; AI training corpora under `python_ai/training_data/`
 
 ## Services and ports
 
-| Service            | Port (default) | Role                                                                               | Notes                           |
-| ------------------ | -------------- | ---------------------------------------------------------------------------------- | ------------------------------- |
-| Next.js App Router | 3000           | UI, SSR/ISR, route handlers that proxy to AI and external APIs                     | `npm run dev` / `npm run start` |
-| Python AI (Flask)  | 5000           | Text generation (MiniLM), image classification (ResNet-18), chemistry helpers, IoT | `python python_ai/app.py`       |
-| PostgreSQL         | 5432           | Main database with vector search and molecular informatics                         | `docker compose up -d postgres` |
-| Express API        | 4000           | Backend API for products, orders, and user accounts                                | `npm run dev` in `express-api`  |
+| Service            | Port (default) | Role                                                                          | Notes                           |
+| ------------------ | -------------- | ----------------------------------------------------------------------------- | ------------------------------- |
+| Next.js App Router | 3000           | UI, SSR/ISR, route handlers that proxy to AI and external APIs                | `npm run dev` / `npm run start` |
+| Python AI (Flask)  | 5000           | Text generation (Gemma 3 1B), Embeddings (MiniLM), Vision (ResNet-18), IoT    | `python python_ai/app.py`       |
+| PostgreSQL         | 5432           | Main database with vector search, molecular informatics, and session tracking | `docker compose up -d postgres` |
+| Express API        | 4000           | Backend API for products, orders, RBAC (Admin/User), and sessions             | `npm run dev` in `express-api`  |
 
 ## System architecture
 
@@ -59,9 +59,9 @@ ESP32 accessory (scripts/esp32/esp32_coffeemachine.ino)
 ## Tech stack
 
 -   **Frontend**: Next.js 15.5.4, React 19, TypeScript 5, Tailwind/PostCSS, Turbopack, ESLint 9
--   **AI/Backend**: Flask 3, Flask-CORS, PyTorch 2.7, MiniLM-L6-v2 (NLP), ResNet-18 (Vision), FAISS + sentence-transformers for RAG, RDKit & chembl client for chemistry
--   **Data & Storage**: PostgreSQL 16, JSON catalogs (`src/data`, `python_ai/data`), training corpora (`python_ai/training_data`), model checkpoints (`python_ai/checkpoints`)
--   **Tooling**: npm scripts for Next, Python virtualenv + pip, Docker Compose for PostgreSQL, ESLint for frontend, and pytest-style tests under `python_ai/tests`
+-   **AI/Backend**: Flask 3, PyTorch 2.7, Gemma 3 1B (LLM), MiniLM-L6-v2 (Embeddings), ResNet-18 (Vision), FAISS + sentence-transformers for RAG, RDKit for chemistry
+-   **Data & Storage**: PostgreSQL 16 (pgvector, rdkit), Bcrypt (Password hashing), JSON fallback catalogs (`src/data`), training corpora (`python_ai/training_data`)
+-   **Tooling**: npm scripts, Python virtualenv, Docker Compose for PostgreSQL, ESLint, and pytest
 
 ## Repository layout (working set)
 
@@ -81,7 +81,7 @@ python_ai/                   Flask AI + training code
 scripts/                     Node/utility scripts + ESP32 sketch
 public/                      Static assets (fonts, images)
 express-api/                 Main Backend API
-  data/01_schema.sql         Unified PostgreSQL schema
+  data/schema.sql            Unified PostgreSQL schema (Accounts, Products, Sessions, IoT)
 ```
 
 ## Runtime configuration
@@ -94,7 +94,8 @@ express-api/                 Main Backend API
 ## Frontend (Next.js App Router)
 
 -   Pages live under `src/app/*` with layouts and shared styles in `src/app/globals.css` and `src/styles/*`.
--   Product data is sourced from `src/data/coffee.ts`, `src/data/machines.ts`, and generated JSON derivatives for fast render.
+-   **Dynamic Hydration**: Product data is fetched from the PostgreSQL API. The `useCoffeeCollections` and `useMachineCollections` hooks merge DB data with static fallbacks.
+-   **Performance**: The Coffee page uses `IntersectionObserver` for lazy rendering and CSS fade-in animations to ensure smooth performance even with large catalogs.
 -   Client features: cart, coffee recommender, subscription forms, payment UI, account pages with pagination, and chat UI.
 -   Route handlers (`src/app/api`):
     -   `/api/chat`: Local fallback coffee Q&A using static data and rule-based responses.
@@ -108,7 +109,9 @@ express-api/                 Main Backend API
 
 File: `python_ai/app.py`. Responsibilities:
 
--   TinyLlama-based generation: `/api/generate`, `/api/chat`, `/api/summarize`, `/api/classify`
+-   Gemma 3 1B generation: `/api/generate`, `/api/chat`, `/api/summarize`, `/api/classify`
+-   Vision (ResNet-18): Image classification and molecule prediction
+-   Embeddings (MiniLM): Vector search and RAG retrieval
 -   Model management: `/api/models`, `/api/train`, `/api/save-model`, cancellation `/api/cancel/{request_id}`
 -   Health: `/api/health`
 -   Chemistry helpers (ChEMBL/RDKit): `/api/molecules/search`, `/api/molecule/<chembl_id>` + render/download variants
@@ -146,16 +149,18 @@ CREATE TABLE commands (
 
 ## Data and storage
 
--   **Catalogs**: `src/data/coffee.ts` and `src/data/machines.ts` (plus generated JSON) drive the storefront and recommendations.
+-   **Catalogs**: PostgreSQL `coffee_products` and `machine_products` tables drive the storefront. `src/data/*.ts` files are used as static fallbacks.
+-   **User Data**: `accounts` (with Bcrypt hashed passwords), `user_sessions` (persistent tracking), and `user_cards` are stored in PostgreSQL.
 -   **AI input**: `python_ai/training_data/*.txt` corpora for fine-tuning; `python_ai/data/capsule_volumes.json` for recipe sizing.
--   **Model checkpoints**: place under `python_ai/checkpoints/` (ignored by git). `python_ai/models/` holds exported artifacts for TinyLlama variants.
--   **RAG assets**: `python_ai/rag_data/` for chunked coffee knowledge (if generated).
--   **IoT commands**: In-memory dictionary by default (`python_ai/iot_db.py`); swap to MariaDB for persistence.
+-   **Model checkpoints**: place under `python_ai/checkpoints/`. `public/models/` holds web-optimized artifacts like `gemma3-1b-it-int4-web.task`.
+-   **IoT commands**: Stored in the `iot_commands` table in PostgreSQL for persistence.
 
 ## AI models and training
 
--   Entry points: `python_ai/train.py` and `python_ai/trainer.py` (TinyLlama fine-tuning with PEFT/LoRA and 4-bit quantization).
--   Model manager: `python_ai/tinyllama_models.py` handles loading coffee vs chemistry LoRA adapters.
+-   **LLM**: Gemma 3 1B (replacing TinyLlama) for high-quality coffee and chemistry dialogue.
+-   **Vision**: ResNet-18 for image-based molecule prediction and capsule recognition.
+-   **Embeddings**: MiniLM-L6-v2 for vectorizing coffee knowledge and RAG retrieval.
+-   **Entry points**: `python_ai/train.py` and `python_ai/trainer.py` (Gemma fine-tuning with PEFT/LoRA).
 -   Requirements: see `python_ai/requirements.txt` (includes torch, transformers, bitsandbytes, accelerate, sentence-transformers, FAISS, RDKit).
 -   RAG: `python_ai/rag_retriever.py` consumes `rag_data/coffee_chunks.json` when present.
 -   Chemistry: relies on ChEMBL client and RDKit for molecule lookup, rendering, and property extraction.
@@ -294,8 +299,8 @@ This document is a comprehensive guide to the Filspresso Next project (Next.js f
 
 ## Project overview
 
-> **⚠️ SECURITY WARNING: EDUCATIONAL USE ONLY**
-> This project currently uses **plain text storage** for all user data (passwords, credit cards, orders) and has **no encryption**. It is designed for demonstration purposes only. DO NOT use real credentials or payment information.
+> **ℹ️ SECURITY UPDATE**
+> This project now uses **PostgreSQL 16** for data persistence and **Bcrypt** for secure password hashing. Role-Based Access Control (RBAC) is implemented for Admin and User roles.
 
 Filspresso Next is a modern migration of the original Filspresso site into a Next.js (App Router + TypeScript) frontend that integrates with a Python AI service and optional IoT-enabled coffee machines.
 

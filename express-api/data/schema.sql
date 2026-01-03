@@ -263,6 +263,30 @@ CREATE TABLE IF NOT EXISTS coffee_facts (
 );
 
 -- =============================================================================
+-- USER SUBSCRIPTIONS TABLE
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS user_subscriptions (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    plan_id VARCHAR(255) NULL,
+    subscription_tier VARCHAR(50) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'active', -- active, canceled, expired
+    billing_cycle VARCHAR(20) NOT NULL DEFAULT 'monthly', -- monthly, yearly
+    price_ron DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    renewal_date DATE NULL,
+    end_date DATE NULL,
+    auto_renew BOOLEAN NOT NULL DEFAULT TRUE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    card_id INTEGER NULL REFERENCES user_cards(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_user_subscriptions_account ON user_subscriptions(account_id);
+CREATE INDEX idx_user_subscriptions_active ON user_subscriptions(is_active);
+
+-- =============================================================================
 -- PRODUCTS TABLES (Coffee & Machines)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS coffee_products (
@@ -345,6 +369,7 @@ CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXE
 CREATE TRIGGER update_chat_sessions_updated_at BEFORE UPDATE ON chat_sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_iot_commands_updated_at BEFORE UPDATE ON iot_commands FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_cart_items_updated_at BEFORE UPDATE ON cart_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_user_subscriptions_updated_at BEFORE UPDATE ON user_subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_coffee_products_updated_at BEFORE UPDATE ON coffee_products FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_machine_products_updated_at BEFORE UPDATE ON machine_products FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_member_status_updated_at BEFORE UPDATE ON member_status FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -355,9 +380,9 @@ CREATE TRIGGER update_repairs_updated_at BEFORE UPDATE ON repairs FOR EACH ROW E
 -- INITIAL DATA
 -- =============================================================================
 
--- Admin User (Password: 'admin')
+-- Admin User (Password: 'FilspressoNext')
 INSERT INTO accounts (username, email, password_hash, role, name) VALUES
-('admin', 'admin@filspresso.com', '$2b$10$MwkoxRdCpgxMF9eDOwK/lOqYPm8.erpJCK8otRJmuFV7nXpXS3JnW', 'admin', 'Administrator')
+('Admin', 'admin@filspresso.com', '$2b$12$W09GNFA6uYG9t/TJzd9ppOyXOcqifjTG17/slLpHqyBoqA9fNnagm', 'admin', 'Administrator')
 ON CONFLICT (username) DO NOTHING;
 
 -- Coffee Products

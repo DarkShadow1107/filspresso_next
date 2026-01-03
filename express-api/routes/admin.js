@@ -87,22 +87,23 @@ const PROTECTED_TABLES = ["accounts"];
  */
 const ALLOWED_TABLES = [
 	"accounts",
+	"user_cards",
+	"orders",
+	"order_items",
 	"cart_items",
-	"chat_messages",
 	"chat_sessions",
-	"coffee_products",
+	"chat_messages",
+	"user_sessions",
 	"iot_commands",
-	"machine_products",
 	"member_status",
 	"member_status_history",
-	"order_items",
-	"orders",
 	"repairs",
-	"user_cards",
-	"user_sessions",
+	"weather_cache",
+	"coffee_facts",
+	"coffee_products",
+	"machine_products",
+	"molecules",
 	"user_subscriptions",
-	"users",
-	"sessions",
 ];
 
 const CATEGORY_FOLDER_MAP = {
@@ -220,7 +221,7 @@ router.post("/login", async (req, res) => {
 		}
 
 		client = await pool.connect();
-		const result = await client.query("SELECT * FROM users WHERE username = $1", [username]);
+		const result = await client.query("SELECT * FROM accounts WHERE username = $1", [username]);
 
 		if (result.rows.length === 0) {
 			return res.status(401).json({ error: "Invalid credentials" });
@@ -238,12 +239,21 @@ router.post("/login", async (req, res) => {
 		}
 
 		const token = generateAdminToken();
+		const expiresAt = new Date(Date.now() + 3600000); // 1 hour
+
 		adminSessions.set(token, {
 			username: user.username,
 			userId: user.id,
 			loginAt: Date.now(),
-			expiresAt: Date.now() + 3600000, // 1 hour
+			expiresAt: expiresAt.getTime(),
 		});
+
+		// Record session in database
+		await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at) VALUES ($1, $2, $3)", [
+			user.id,
+			token,
+			expiresAt,
+		]);
 
 		res.json({
 			status: "success",
@@ -262,10 +272,21 @@ router.post("/login", async (req, res) => {
 /**
  * Admin Logout
  */
-router.post("/logout", authenticateAdmin, (req, res) => {
+router.post("/logout", authenticateAdmin, async (req, res) => {
 	const authHeader = req.headers.authorization;
 	const token = authHeader.substring(7);
 	adminSessions.delete(token);
+
+	let client;
+	try {
+		client = await pool.connect();
+		await client.query("DELETE FROM user_sessions WHERE session_token = $1", [token]);
+	} catch (error) {
+		console.error("Error deleting admin session from DB:", error);
+	} finally {
+		if (client) client.release();
+	}
+
 	res.json({ status: "success", message: "Admin logged out" });
 });
 
@@ -529,8 +550,8 @@ router.post("/tables/:table", authenticateAdmin, async (req, res) => {
 			return res.status(400).json({ error: "No data provided" });
 		}
 
-		// Special handling for users table password hashing
-		if (table === "users" && sanitized.password_hash) {
+		// Special handling for accounts table password hashing
+		if (table === "accounts" && sanitized.password_hash) {
 			sanitized.password_hash = await bcrypt.hash(sanitized.password_hash, 10);
 		}
 
@@ -586,10 +607,10 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 
 		const client = await pool.connect();
 		try {
-			// Special handling for users table password hashing
-			if (table === "users" && sanitized.password_hash) {
+			// Special handling for accounts table password hashing
+			if (table === "accounts" && sanitized.password_hash) {
 				// Get current password hash
-				const result = await client.query("SELECT password_hash FROM users WHERE id = $1", [id]);
+				const result = await client.query("SELECT password_hash FROM accounts WHERE id = $1", [id]);
 				const currentUser = result.rows[0];
 				if (currentUser && currentUser.password_hash === sanitized.password_hash) {
 					// Password hasn't changed (it's the same hash), so don't update it

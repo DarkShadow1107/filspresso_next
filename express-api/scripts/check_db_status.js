@@ -1,30 +1,29 @@
-const mariadb = require("mariadb");
+const { Pool } = require("pg");
 
-const pool = mariadb.createPool({
+const pool = new Pool({
 	host: process.env.DB_HOST || "localhost",
-	port: parseInt(process.env.DB_PORT || "3306"),
+	port: parseInt(process.env.DB_PORT || "5432"),
 	database: process.env.DB_NAME || "filspresso",
 	user: process.env.DB_USER || "filspresso_user",
 	password: process.env.DB_PASSWORD || "filspresso_secure_2024",
 });
 
 async function checkTables() {
-	let conn;
+	let client;
 	try {
-		conn = await pool.getConnection();
-		const rows = await conn.query("SHOW TABLES LIKE 'accounts'");
-		if (rows.length > 0) {
-			console.log("Table 'accounts' exists.");
-		} else {
-			console.log("Table 'accounts' DOES NOT exist.");
-		}
+		client = await pool.connect();
+		const res = await client.query("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public'");
+		console.log(
+			"Tables in database:",
+			res.rows.map((r) => r.tablename)
+		);
 
-		const users = await conn.query("SELECT username FROM users WHERE role='admin'");
-		console.log("Admin users:", users);
+		const accounts = await client.query("SELECT username, role FROM accounts WHERE role='admin'");
+		console.log("Admin accounts:", accounts.rows);
 	} catch (err) {
 		console.error("Error checking tables:", err);
 	} finally {
-		if (conn) conn.release();
+		if (client) client.release();
 		await pool.end();
 	}
 }

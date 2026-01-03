@@ -183,6 +183,7 @@ export default function AccountPageContent() {
 							username: account.username,
 							email: account.email,
 							icon: account.icon,
+							role: account.role,
 							token,
 						})
 					);

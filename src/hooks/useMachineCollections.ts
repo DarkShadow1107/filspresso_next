@@ -53,23 +53,38 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 				const products: ApiMachineProduct[] = Array.isArray(data.products) ? data.products : [];
 
 				const productMap: ProductMap = new Map();
+				const matchedIds = new Set<string>();
 				for (const p of products) {
 					productMap.set(p.productId, p);
 				}
 
+				const convertToMachineProduct = (p: ApiMachineProduct): MachineProduct => ({
+					id: p.productId,
+					name: p.name,
+					description: p.description || "",
+					notes: Array.isArray(p.notes) && p.notes.length ? p.notes : undefined,
+					image: p.image ? `/${p.image.replace(/^\/+/, "")}` : "/images/placeholder-machine.png",
+					boxClass: p.boxClass || "machine_box",
+					wrapperClass: p.wrapperClass || "machine_groups_models",
+					priceRon: typeof p.price === "number" ? p.price : 0,
+					unitLabel: p.unitLabel || "Machine",
+					priceClass: p.priceClass || "bag_group",
+					extraClass: Array.isArray(p.extraClass) && p.extraClass.length ? p.extraClass : undefined,
+				});
+
 				const merged = machineCollections.map((collection) => {
-					const groups = collection.groups.map((group) => ({
-						...group,
-						products: group.products.map((product) => {
+					const groups = collection.groups.map((group) => {
+						const groupProducts = group.products.map((product) => {
 							const match = productMap.get(product.id);
 							if (!match) return product;
+							matchedIds.add(product.id);
 
 							return {
 								...product,
 								name: match.name || product.name,
 								description: match.description || product.description,
 								notes: Array.isArray(match.notes) && match.notes.length ? match.notes : product.notes,
-								image: match.image || product.image,
+								image: match.image ? `/${match.image.replace(/^\/+/, "")}` : product.image,
 								boxClass: match.boxClass || product.boxClass,
 								wrapperClass: match.wrapperClass || product.wrapperClass,
 								priceRon: typeof match.price === "number" ? match.price : product.priceRon,
@@ -80,10 +95,46 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 										? match.extraClass
 										: product.extraClass,
 							};
-						}),
-					}));
+						});
+
+						// Add products from API that match this group title but weren't in static list
+						const extraInGroup = products.filter(
+							(p) => !matchedIds.has(p.productId) && normalizeKey(p.category) === normalizeKey(group.title)
+						);
+
+						for (const p of extraInGroup) {
+							groupProducts.push(convertToMachineProduct(p));
+							matchedIds.add(p.productId);
+						}
+
+						return { ...group, products: groupProducts };
+					});
+
 					return { ...collection, groups };
 				});
+
+				// Handle orphans (products with categories that don't match any existing group)
+				const orphans = products.filter((p) => !matchedIds.has(p.productId));
+				if (orphans.length > 0) {
+					// Group orphans by productType (original/vertuo)
+					for (const p of orphans) {
+						const targetCollection = merged.find((c) => c.id === p.productType);
+						if (targetCollection) {
+							let targetGroup = targetCollection.groups.find(
+								(g) => normalizeKey(g.title) === normalizeKey(p.category)
+							);
+							if (!targetGroup) {
+								targetGroup = {
+									title: p.category || "Other",
+									description: "Added from database",
+									products: [],
+								};
+								targetCollection.groups.push(targetGroup);
+							}
+							targetGroup.products.push(convertToMachineProduct(p));
+						}
+					}
+				}
 
 				if (!cancelled) setCollections(merged);
 				if (!cancelled) setError(null);
