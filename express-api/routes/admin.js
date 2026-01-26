@@ -345,7 +345,7 @@ router.get("/tables", authenticateAdmin, async (req, res) => {
 				 FROM pg_class c
 				 JOIN pg_namespace n ON n.oid = c.relnamespace
 				 WHERE n.nspname = 'public' AND c.relkind = 'r'
-				 ORDER BY relname`
+				 ORDER BY relname`,
 			);
 
 			res.json({
@@ -404,7 +404,7 @@ router.get("/table-info/:table", authenticateAdmin, async (req, res) => {
 				   AND pk.table_schema = c.table_schema
 				 WHERE c.table_schema = 'public' AND c.table_name = $1
 				 ORDER BY c.ordinal_position`,
-				[table]
+				[table],
 			);
 
 			// Get primary key
@@ -417,7 +417,7 @@ router.get("/table-info/:table", authenticateAdmin, async (req, res) => {
 				 WHERE tc.constraint_type = 'PRIMARY KEY' 
 				   AND tc.table_name = $1 
 				   AND tc.table_schema = 'public'`,
-				[table]
+				[table],
 			);
 
 			const primaryKey = pkResult.rows.length > 0 ? pkResult.rows[0].name : "id";
@@ -479,7 +479,7 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 					`SELECT column_name FROM information_schema.columns 
 					 WHERE table_schema = 'public' AND table_name = $1
 					 AND data_type IN ('character varying', 'text', 'character', 'jsonb')`,
-					[table]
+					[table],
 				);
 
 				if (columnsResult.rows.length > 0) {
@@ -555,7 +555,7 @@ router.post("/tables/:table", authenticateAdmin, async (req, res) => {
 
 			const result = await client.query(
 				`INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${placeholders}) RETURNING id`,
-				values
+				values,
 			);
 
 			res.json({
@@ -623,7 +623,7 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 				 WHERE tc.constraint_type = 'PRIMARY KEY' 
 				   AND tc.table_name = $1 
 				   AND tc.table_schema = 'public'`,
-				[table]
+				[table],
 			);
 
 			const primaryKey = pkResult.rows.length > 0 ? pkResult.rows[0].name : "id";
@@ -637,7 +637,7 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 
 			const result = await client.query(
 				`UPDATE "${table}" SET ${setClause} WHERE "${primaryKey}" = $${columns.length + 1}`,
-				[...values, id]
+				[...values, id],
 			);
 
 			if (result.rowCount === 0) {
@@ -681,7 +681,7 @@ router.delete("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 				 WHERE tc.constraint_type = 'PRIMARY KEY' 
 				   AND tc.table_name = $1 
 				   AND tc.table_schema = 'public'`,
-				[table]
+				[table],
 			);
 
 			const primaryKey = pkResult.rows.length > 0 ? pkResult.rows[0].name : "id";

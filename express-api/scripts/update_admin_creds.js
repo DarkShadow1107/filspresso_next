@@ -27,14 +27,17 @@ async function updateAdmin() {
 			console.log("Updating existing admin user...");
 			await client.query(
 				"UPDATE accounts SET username = $1, password_hash = $2, role = 'admin' WHERE email = $3 OR role = 'admin'",
-				[username, hash, email]
+				[username, hash, email],
 			);
 		} else {
 			console.log("Creating new admin user...");
-			await client.query(
-				"INSERT INTO accounts (username, email, password_hash, role, name) VALUES ($1, $2, $3, $4, $5)",
-				[username, email, hash, "admin", "System Administrator"]
-			);
+			await client.query("INSERT INTO accounts (username, email, password_hash, role, name) VALUES ($1, $2, $3, $4, $5)", [
+				username,
+				email,
+				hash,
+				"admin",
+				"System Administrator",
+			]);
 		}
 
 		console.log(`Admin user updated in database: ${username} (Email: ${email})`);
