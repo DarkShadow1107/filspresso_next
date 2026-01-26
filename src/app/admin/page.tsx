@@ -3,6 +3,26 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 // @ts-expect-error: Global admin styles imported for the dashboard page
 import "../../styles/admin.css";
+import {
+	ArrowBigLeftDashIcon,
+	ArrowBigLeftIcon,
+	ArrowBigRightDashIcon,
+	ArrowBigRightIcon,
+	ChartBarIcon,
+	EyeIcon,
+	EyeOffIcon,
+	FileDescriptionIcon,
+	GearIcon,
+	LockIcon,
+	MagnifierIcon,
+	PenIcon,
+	RefreshIcon,
+	SimpleCheckedIcon,
+	TrashIcon,
+	UserCheckIcon,
+	UserPlusIcon,
+	XIcon,
+} from "@/icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -198,7 +218,7 @@ export default function AdminPage() {
 				setIsLoading(false);
 			}
 		},
-		[adminToken, pagination.page, pagination.limit, sortBy, sortOrder, searchQuery]
+		[adminToken, pagination.page, pagination.limit, sortBy, sortOrder, searchQuery],
 	);
 
 	const handleSort = (column: string) => {
@@ -613,13 +633,13 @@ export default function AdminPage() {
 									placeholder={`Note ${idx + 1}`}
 								/>
 								<button type="button" className="note-remove" onClick={() => removeNote(idx)}>
-									✕
+									<XIcon size={12} />
 								</button>
 							</div>
 						))}
 					</div>
 					<button type="button" className="note-add" onClick={addNote}>
-						➕ Add note
+						<UserPlusIcon size={14} /> Add note
 					</button>
 				</div>
 			);
@@ -666,7 +686,7 @@ export default function AdminPage() {
 			const rowData = isNew ? newRowData : editedData;
 			const { typeDir, categoryDir } = resolveCategoryFolder(
 				(rowData.product_type as string) || "",
-				(rowData.category as string) || ""
+				(rowData.category as string) || "",
 			);
 
 			const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -892,7 +912,12 @@ export default function AdminPage() {
 			<div className="admin-login-container">
 				<div className="admin-login-card">
 					<div className="admin-login-header">
-						<h1>🔐 Admin Panel</h1>
+						<h1 className="admin-login-title">
+							<span className="admin-icon admin-icon--lg">
+								<LockIcon size={18} />
+							</span>
+							Admin Panel
+						</h1>
 						<p>Filspresso Database Management</p>
 					</div>
 					<form onSubmit={handleLogin} className="admin-login-form">
@@ -926,14 +951,45 @@ export default function AdminPage() {
 									onClick={() => setShowPassword(!showPassword)}
 									className="password-toggle-btn"
 									title={showPassword ? "Hide password" : "Show password"}
+									style={{
+										position: "absolute",
+										right: "10px",
+										top: "50%",
+										transform: "translateY(-50%)",
+										background: "none",
+										border: "none",
+										color: "rgba(250, 204, 144, 0.6)",
+										cursor: "pointer",
+										display: "flex",
+										alignItems: "center",
+										justifyContent: "center",
+										padding: "5px",
+									}}
 								>
-									{showPassword ? "HIDE" : "SHOW"}
+									{showPassword ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}
 								</button>
 							</div>
 						</div>
 						{loginError && <div className="error-message">{loginError}</div>}
-						<button type="submit" className="login-button" disabled={isLoading}>
-							{isLoading ? "Logging in..." : "Login"}
+						<button
+							type="submit"
+							className="login-button"
+							disabled={isLoading}
+							style={{
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
+								gap: "0.5rem",
+								width: "100%",
+							}}
+						>
+							{isLoading ? (
+								"Logging in..."
+							) : (
+								<>
+									<UserCheckIcon size={20} /> <span style={{ paddingBottom: "1px" }}>Login</span>
+								</>
+							)}
 						</button>
 					</form>
 				</div>
@@ -947,11 +1003,21 @@ export default function AdminPage() {
 			{/* Header */}
 			<header className="admin-header">
 				<div className="admin-header-left">
-					<h1>🛠️ Filspresso Admin</h1>
+					<h1>
+						<span className="admin-icon admin-icon--lg">
+							<GearIcon size={18} />
+						</span>
+						Filspresso Admin
+					</h1>
 					<span className="admin-subtitle">Database Management</span>
 				</div>
 				<div className="admin-header-right">
-					<span className="admin-user">👤 Admin</span>
+					<span className="admin-user">
+						<span className="admin-icon">
+							<UserCheckIcon size={16} />
+						</span>
+						Admin
+					</span>
 					<button onClick={handleLogout} className="logout-button">
 						Logout
 					</button>
@@ -961,7 +1027,12 @@ export default function AdminPage() {
 			<div className="admin-main">
 				{/* Sidebar - Table List */}
 				<aside className="admin-sidebar">
-					<h2>📊 Tables</h2>
+					<h2>
+						<span className="admin-icon">
+							<ChartBarIcon size={16} />
+						</span>
+						Tables
+					</h2>
 					<ul className="table-list">
 						{tables.map((table) => (
 							<li
@@ -985,7 +1056,9 @@ export default function AdminPage() {
 					{!selectedTable ? (
 						<div className="no-table-selected">
 							<div className="empty-state">
-								<span className="empty-icon">📋</span>
+								<span className="empty-icon">
+									<FileDescriptionIcon size={48} />
+								</span>
 								<h2>Select a Table</h2>
 								<p>Choose a table from the sidebar to view and manage its data</p>
 							</div>
@@ -1008,14 +1081,14 @@ export default function AdminPage() {
 											className="search-input"
 										/>
 										<button type="submit" className="search-button">
-											🔍
+											<MagnifierIcon size={16} />
 										</button>
 									</form>
 									<button onClick={handleAddRow} className="add-row-button">
-										➕ Add Row
+										<UserPlusIcon size={16} /> Add Row
 									</button>
 									<button onClick={() => fetchTableData(selectedTable)} className="refresh-button">
-										🔄 Refresh
+										<RefreshIcon size={16} /> Refresh
 									</button>
 								</div>
 							</div>
@@ -1050,7 +1123,7 @@ export default function AdminPage() {
 									</div>
 									<div className="form-actions">
 										<button onClick={handleSaveNewRow} className="save-button" disabled={isLoading}>
-											💾 Save
+											<SimpleCheckedIcon size={16} /> Save
 										</button>
 										<button onClick={handleCancelAdd} className="cancel-button">
 											Cancel
@@ -1101,14 +1174,14 @@ export default function AdminPage() {
 																className="action-btn save"
 																title="Save"
 															>
-																💾
+																<SimpleCheckedIcon size={16} />
 															</button>
 															<button
 																onClick={handleCancelEdit}
 																className="action-btn cancel"
 																title="Cancel"
 															>
-																❌
+																<XIcon size={16} />
 															</button>
 														</>
 													) : (
@@ -1118,14 +1191,14 @@ export default function AdminPage() {
 																className="action-btn edit"
 																title="Edit"
 															>
-																✏️
+																<PenIcon size={16} />
 															</button>
 															<button
 																onClick={() => handleDeleteRow(row)}
 																className="action-btn delete"
 																title="Delete"
 															>
-																🗑️
+																<TrashIcon size={16} />
 															</button>
 														</>
 													)}
@@ -1165,14 +1238,14 @@ export default function AdminPage() {
 										disabled={pagination.page === 1}
 										className="page-btn"
 									>
-										⏮️
+										<ArrowBigLeftDashIcon size={16} />
 									</button>
 									<button
 										onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
 										disabled={pagination.page === 1}
 										className="page-btn"
 									>
-										◀️
+										<ArrowBigLeftIcon size={16} />
 									</button>
 									<span className="page-info">
 										Page {pagination.page} of {pagination.totalPages}
@@ -1182,21 +1255,26 @@ export default function AdminPage() {
 										disabled={pagination.page === pagination.totalPages}
 										className="page-btn"
 									>
-										▶️
+										<ArrowBigRightIcon size={16} />
 									</button>
 									<button
 										onClick={() => setPagination((p) => ({ ...p, page: p.totalPages }))}
 										disabled={pagination.page === pagination.totalPages}
 										className="page-btn"
 									>
-										⏭️
+										<ArrowBigRightDashIcon size={16} />
 									</button>
 								</div>
 							)}
 
 							{/* Column Info */}
 							<details className="column-info">
-								<summary>📋 Column Schema</summary>
+								<summary>
+									<span className="admin-icon">
+										<FileDescriptionIcon size={16} />
+									</span>
+									Column Schema
+								</summary>
 								<table className="schema-table">
 									<thead>
 										<tr>

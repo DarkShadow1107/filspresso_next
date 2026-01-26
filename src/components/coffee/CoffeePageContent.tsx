@@ -2,8 +2,11 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import Image from "next/image";
+import { motion } from "motion/react";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
+import { useFavorites } from "@/components/FavoritesProvider";
+import { HeartIcon } from "@/icons";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import CoffeeRecommender from "@/components/CoffeeRecommender";
 import type { CoffeeCollection, CoffeeGroup, CoffeeProduct } from "@/data/coffee";
@@ -11,34 +14,71 @@ import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
-type StockInfo = {
+export type StockInfo = {
 	productId: string;
 	stock: number;
 	stockStatus: "in_stock" | "low_stock" | "out_of_stock";
 };
 
-type StockContextType = {
+export type StockContextType = {
 	stockData: Map<string, StockInfo>;
 	isLoading: boolean;
 };
 
-const StockContext = createContext<StockContextType>({ stockData: new Map(), isLoading: true });
+export const StockContext = createContext<StockContextType>({ stockData: new Map(), isLoading: true });
 
 function useStock() {
 	return useContext(StockContext);
 }
 
-function formatRon(value: number) {
+function FadeInWhenVisible({
+	children,
+	className,
+	style,
+}: {
+	children: React.ReactNode;
+	className?: string;
+	style?: React.CSSProperties;
+}) {
+	const [scrollDir, setScrollDir] = useState<"up" | "down">("down");
+	const lastScrollY = React.useRef(0);
+
+	useEffect(() => {
+		lastScrollY.current = window.scrollY;
+		const updateScrollDir = () => {
+			const scrollY = window.scrollY;
+			setScrollDir(scrollY > lastScrollY.current ? "down" : "up");
+			lastScrollY.current = scrollY;
+		};
+		window.addEventListener("scroll", updateScrollDir);
+		return () => window.removeEventListener("scroll", updateScrollDir);
+	}, []);
+
+	return (
+		<motion.div
+			initial={{ opacity: 0, y: scrollDir === "down" ? 20 : -20 }}
+			whileInView={{ opacity: 1, y: 0 }}
+			viewport={{ once: false, amount: 0.1, margin: "0px 0px -50px 0px" }}
+			transition={{ duration: 0.6, ease: "easeOut" }}
+			className={className}
+			style={style}
+		>
+			{children}
+		</motion.div>
+	);
+}
+
+export function formatRon(value: number) {
 	return `${value.toFixed(2).replace(".", ",")} RON`;
 }
 
-function formatPerUnit(product: CoffeeProduct) {
+export function formatPerUnit(product: CoffeeProduct) {
 	if (!product.unitCount || product.unitCount <= 0) return null;
 	const unitPrice = product.priceRon / product.unitCount;
 	return `Capsule price: ${unitPrice.toFixed(2).replace(".", ",")} RON`;
 }
 
-function ProductIntensity({ value, scale = 13 }: { value?: number; scale?: number }) {
+export function ProductIntensity({ value, scale = 13 }: { value?: number; scale?: number }) {
 	if (!value) return null;
 	const total = Math.max(scale ?? 0, value);
 	const filledBars = Array.from({ length: Math.min(value, total) });
@@ -59,7 +99,7 @@ function ProductIntensity({ value, scale = 13 }: { value?: number; scale?: numbe
 	);
 }
 
-function ProductServings({ servings }: { servings: CoffeeProduct["servings"] }) {
+export function ProductServings({ servings }: { servings: CoffeeProduct["servings"] }) {
 	const [hoveredIdx, setHoveredIdx] = React.useState<number | null>(null);
 	const boxRefs = React.useRef<(HTMLDivElement | null)[]>([]);
 	const [popoverStyle, setPopoverStyle] = React.useState<React.CSSProperties | undefined>(undefined);
@@ -112,7 +152,7 @@ function ProductServings({ servings }: { servings: CoffeeProduct["servings"] }) 
 }
 
 // NotePills: renders notes fitted on a single row and shows a +N pill when there isn't space
-function NotePills({ notes, productId }: { notes: string[]; productId: string }) {
+export function NotePills({ notes, productId }: { notes: string[]; productId: string }) {
 	const containerRef = React.useRef<HTMLDivElement | null>(null);
 	const [visibleCount, setVisibleCount] = React.useState(notes.length);
 
@@ -257,12 +297,28 @@ function NotePills({ notes, productId }: { notes: string[]; productId: string })
 	);
 }
 
-function CoffeeProductCard({ product }: { product: CoffeeProduct }) {
+export function CoffeeProductCard({ product, category }: { product: CoffeeProduct; category: string }) {
+	const { addItem } = useCart();
+	const { notify } = useNotifications();
+	const { isFavorite, toggleFavorite } = useFavorites();
 	const { stockData, isLoading: stockLoading } = useStock();
 	const perUnit = formatPerUnit(product);
+	const [popupOpen, setPopupOpen] = React.useState(false);
 	const addButtonRef = React.useRef<HTMLButtonElement | null>(null);
-	const cardRef = React.useRef<HTMLDivElement | null>(null);
 	const [isInView, setIsInView] = React.useState(false);
+	const [scrollDir, setScrollDir] = useState<"up" | "down">("down");
+	const lastScrollY = React.useRef(0);
+	const defaultCapsules = 10;
+
+	React.useEffect(() => {
+		const updateScrollDir = () => {
+			const scrollY = window.scrollY;
+			setScrollDir(scrollY > lastScrollY.current ? "down" : "up");
+			lastScrollY.current = scrollY;
+		};
+		window.addEventListener("scroll", updateScrollDir);
+		return () => window.removeEventListener("scroll", updateScrollDir);
+	}, []);
 
 	const getStockInfoFor = (id: string): StockInfo => {
 		const direct = stockData.get(id);
@@ -281,24 +337,32 @@ function CoffeeProductCard({ product }: { product: CoffeeProduct }) {
 	const isOutOfStock = stockInfo.stockStatus === "out_of_stock" || stock <= 0;
 	const isLowStock = stockInfo.stockStatus === "low_stock" || (stock > 0 && stock < 40);
 
-	React.useEffect(() => {
-		const el = cardRef.current;
-		if (!el || typeof IntersectionObserver === "undefined") {
-			setIsInView(true);
-			return;
+	const openPopup = () => {
+		if (isOutOfStock) return;
+		setPopupOpen(true);
+	};
+
+	const closePopup = () => {
+		setPopupOpen(false);
+		setTimeout(() => {
+			addButtonRef.current?.focus({ preventScroll: true });
+		}, 0);
+	};
+
+	const handleConfirmCapsules = (capsules: number) => {
+		if (capsules >= 10) {
+			const sleeves = Math.floor(capsules / 10);
+			const itemName = `${product.name} - ${formatRon(product.priceRon)}`;
+			addItem({ id: product.id, name: itemName, price: product.priceRon, qty: sleeves, image: product.image });
+			notify(
+				`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${product.name} to bag!`,
+				6000,
+				"success",
+				"coffee",
+			);
 		}
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (entries.some((e) => e.isIntersecting)) {
-					setIsInView(true);
-					observer.disconnect();
-				}
-			},
-			{ rootMargin: "200px 0px", threshold: 0.01 }
-		);
-		observer.observe(el);
-		return () => observer.disconnect();
-	}, []);
+		closePopup();
+	};
 
 	const imageStyle: React.CSSProperties = {
 		width: "70%",
@@ -332,58 +396,83 @@ function CoffeeProductCard({ product }: { product: CoffeeProduct }) {
 	};
 
 	return (
-		<div
-			ref={cardRef}
-			className={`${cardClasses} transition-opacity duration-300 ease-out ${isInView ? "opacity-100" : "opacity-0"}`}
-			style={{ contentVisibility: "auto", containIntrinsicSize: "1px 520px" }}
-		>
-			{isOutOfStock && <div className="out-of-stock-overlay" />}
-			<div className="capsule_box">
-				{/* Edition limitée badge: detect either by image path or extraClass */}
-				{(product.image?.includes("Limited Edition") || (product.extraClass ?? []).includes("limited")) && (
-					<span className="badge-limited">Édition limitée</span>
-				)}
-				<Image src={product.image} alt={product.name} width={243} height={165} style={imageStyle} />
-			</div>
-			<h3 className="h3_capsule">{product.name}</h3>
-			<div className="text_capsule">{product.description}</div>
+		<>
+			<motion.div
+				className={cardClasses}
+				style={{ position: "relative" }}
+				initial={{ opacity: 0, y: scrollDir === "down" ? 20 : -20 }}
+				whileInView={{ opacity: 1, y: 0 }}
+				viewport={{ once: false, amount: 0.1, margin: "0px 0px -50px 0px" }}
+				onViewportEnter={() => setIsInView(true)}
+				onViewportLeave={() => setIsInView(false)}
+				transition={{ duration: 0.6, ease: "easeOut" }}
+			>
+				{isInView ? (
+					<>
+						{isOutOfStock && <div className="out-of-stock-overlay" />}
+						<button
+							className="favorite-card-button"
+							onClick={(e) => {
+								e.preventDefault();
+								e.stopPropagation();
+								toggleFavorite("capsule", product.id, category);
+							}}
+							aria-label={isFavorite("capsule", product.id) ? "Remove from favorites" : "Add to favorites"}
+						>
+							<HeartIcon filled={isFavorite("capsule", product.id)} size={20} color="#C8977B" />
+						</button>
+						<div className="capsule_box">
+							{/* Edition limitée badge: detect either by image path or extraClass */}
+							{(product.image?.includes("Limited Edition") || (product.extraClass ?? []).includes("limited")) && (
+								<span className="badge-limited">Édition limitée</span>
+							)}
+							<Image src={product.image} alt={product.name} width={243} height={165} style={imageStyle} />
+						</div>
+						<h3 className="h3_capsule">{product.name}</h3>
+						<div className="text_capsule">{product.description}</div>
 
-			<div className="capsule_footer">
-				{product.notes && product.notes.length > 0 ? <NotePills notes={product.notes} productId={product.id} /> : null}
-				<ProductServings servings={product.servings} />
-				<ProductIntensity value={product.intensity} scale={product.intensityScale} />
-				<div className={priceWrapperClass}>
-					{getStockDisplay()}
-					<div className="price">{formatRon(product.priceRon)}</div>
-					<div className="price_per_capsule">{product.unitLabel}</div>
-					{perUnit ? <div className="price_per_capsule">{perUnit}</div> : null}
-					<button
-						type="button"
-						className={`button_add_bag ${isOutOfStock ? "disabled" : ""}`}
-						onClick={() => {
-							if (isOutOfStock) return;
-							// Bubble to page-level popup handler via CustomEvent
-							window.dispatchEvent(
-								new CustomEvent("filspresso:addCapsules", {
-									detail: { product, buttonEl: addButtonRef.current },
-								})
-							);
-						}}
-						ref={addButtonRef}
-						disabled={isOutOfStock}
-					>
-						{isOutOfStock ? "Out of Stock" : "Add to Bag"}
-					</button>
-				</div>
-			</div>
-		</div>
+						<div className="capsule_footer">
+							{product.notes && product.notes.length > 0 ? (
+								<NotePills notes={product.notes} productId={product.id} />
+							) : null}
+							<ProductServings servings={product.servings} />
+							<ProductIntensity value={product.intensity} scale={product.intensityScale} />
+							<div className={priceWrapperClass}>
+								{getStockDisplay()}
+								<div className="price">{formatRon(product.priceRon)}</div>
+								<div className="price_per_capsule">{product.unitLabel}</div>
+								{perUnit ? <div className="price_per_capsule">{perUnit}</div> : null}
+								<button
+									type="button"
+									className={`button_add_bag ${isOutOfStock ? "disabled" : ""}`}
+									onClick={openPopup}
+									ref={addButtonRef}
+									disabled={isOutOfStock}
+								>
+									{isOutOfStock ? "Out of Stock" : "Add to Bag"}
+								</button>
+							</div>
+						</div>
+					</>
+				) : (
+					<div style={{ minHeight: "440px" }} />
+				)}
+			</motion.div>
+			<AddCapsulesPopup
+				open={popupOpen}
+				productName={product.name}
+				defaultValue={defaultCapsules}
+				onClose={closePopup}
+				onConfirm={handleConfirmCapsules}
+			/>
+		</>
 	);
 }
 
-function CoffeeGroupSection({ group }: { group: CoffeeGroup }) {
+function CoffeeGroupSection({ group, category }: { group: CoffeeGroup; category: string }) {
 	return (
 		<div className="coffee_groups">
-			<div className="coffee_groups_head">
+			<FadeInWhenVisible className="coffee_groups_head">
 				<div className="content_coffee_head">
 					<h3>
 						<strong>{group.title}</strong>
@@ -392,20 +481,25 @@ function CoffeeGroupSection({ group }: { group: CoffeeGroup }) {
 					<br />
 					<div className="text_head">{group.description}</div>
 				</div>
-			</div>
+			</FadeInWhenVisible>
 			{group.products.map((product) => (
-				<CoffeeProductCard key={product.id} product={product} />
+				<CoffeeProductCard key={product.id} product={product} category={category} />
 			))}
 		</div>
 	);
 }
 
 function CoffeeCollectionSection({ collection }: { collection: CoffeeCollection }) {
+	// Determine category string (Original or Vertuo)
+	const category = collection.id.toLowerCase().includes("vertuo") ? "Vertuo" : "Original";
+
 	return (
 		<section className={collection.id}>
-			<h2 id={collection.id}>{collection.title}</h2>
+			<FadeInWhenVisible>
+				<h2 id={collection.id}>{collection.title}</h2>
+			</FadeInWhenVisible>
 			{collection.groups.map((group) => (
-				<CoffeeGroupSection key={group.title} group={group} />
+				<CoffeeGroupSection key={group.title} group={group} category={category} />
 			))}
 		</section>
 	);
@@ -416,12 +510,6 @@ export default function CoffeePageContent() {
 	const coffeeCollections = collections ?? [];
 	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
 	const [isLoading, setIsLoading] = useState(true);
-	const { addItem } = useCart();
-	const { notify } = useNotifications();
-	const [popupOpen, setPopupOpen] = useState(false);
-	const [popupProduct, setPopupProduct] = useState<CoffeeProduct | null>(null);
-	const lastAddButtonRef = React.useRef<HTMLButtonElement | null>(null);
-	const defaultCapsules = 10;
 
 	// Fetch stock data on mount
 	useEffect(() => {
@@ -461,45 +549,6 @@ export default function CoffeePageContent() {
 		fetchStock();
 	}, []);
 
-	useEffect(() => {
-		const handler = (evt: Event) => {
-			const e = evt as CustomEvent<{ product: CoffeeProduct; buttonEl: HTMLButtonElement | null }>;
-			if (!e.detail?.product) return;
-			lastAddButtonRef.current = e.detail.buttonEl;
-			setPopupProduct(e.detail.product);
-			setPopupOpen(true);
-		};
-		window.addEventListener("filspresso:addCapsules", handler as EventListener);
-		return () => window.removeEventListener("filspresso:addCapsules", handler as EventListener);
-	}, []);
-
-	const closePopup = () => {
-		setPopupOpen(false);
-		setTimeout(() => {
-			lastAddButtonRef.current?.focus({ preventScroll: true });
-		}, 0);
-	};
-
-	const handleConfirmCapsules = (capsules: number) => {
-		const product = popupProduct;
-		if (!product) {
-			closePopup();
-			return;
-		}
-		if (capsules >= 10) {
-			const sleeves = Math.floor(capsules / 10);
-			const itemName = `${product.name} - ${formatRon(product.priceRon)}`;
-			addItem({ id: product.id, name: itemName, price: product.priceRon, qty: sleeves, image: product.image });
-			notify(
-				`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${product.name} to bag!`,
-				6000,
-				"success",
-				"coffee"
-			);
-		}
-		closePopup();
-	};
-
 	return (
 		<StockContext.Provider value={{ stockData, isLoading }}>
 			<main>
@@ -525,13 +574,6 @@ export default function CoffeePageContent() {
 					<CoffeeCollectionSection key={collection.id} collection={collection} />
 				))}
 				<CoffeeRecommender />
-				<AddCapsulesPopup
-					open={popupOpen}
-					productName={popupProduct?.name ?? ""}
-					defaultValue={defaultCapsules}
-					onClose={closePopup}
-					onConfirm={handleConfirmCapsules}
-				/>
 			</main>
 		</StockContext.Provider>
 	);

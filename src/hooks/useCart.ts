@@ -5,7 +5,7 @@ import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
 
-const API_BASE = "http://localhost:4000/api";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000") + "/api";
 
 export type CartItem = {
 	id: string;
@@ -71,6 +71,7 @@ export default function useCart() {
 				headers: {
 					Authorization: `Bearer ${token}`,
 				},
+				keepalive: true,
 			});
 
 			if (res.ok) {
@@ -91,7 +92,7 @@ export default function useCart() {
 						qty: item.quantity,
 						image: item.image,
 						productType: item.productType,
-					})
+					}),
 				);
 				setItems(cartItems);
 				setCurrentSum(data.subtotalAfterDiscount ?? data.subtotal ?? computeSum(cartItems));
@@ -152,6 +153,7 @@ export default function useCart() {
 					headers: {
 						Authorization: `Bearer ${token}`,
 					},
+					keepalive: true,
 				});
 				setItems([]);
 				setCurrentSum(0);
@@ -164,7 +166,7 @@ export default function useCart() {
 				notify("Failed to clear cart.", 5000, "error", "bag");
 			}
 		},
-		[notify]
+		[notify],
 	);
 
 	const placeOrder = useCallback(() => {
@@ -285,6 +287,7 @@ export default function useCart() {
 						unitPrice: item.price,
 						quantity: qty,
 					}),
+					keepalive: true,
 				});
 
 				if (res.ok) {
@@ -299,7 +302,7 @@ export default function useCart() {
 				notify("Failed to add item to cart.", 5000, "error", "bag");
 			}
 		},
-		[notify, router, fetchCart]
+		[notify, router, fetchCart],
 	);
 
 	const removeItem = useCallback(
@@ -316,6 +319,7 @@ export default function useCart() {
 				// First, get the cart to find the database ID
 				const cartRes = await fetch(`${API_BASE}/cart`, {
 					headers: { Authorization: `Bearer ${token}` },
+					keepalive: true,
 				});
 
 				if (cartRes.ok) {
@@ -326,6 +330,7 @@ export default function useCart() {
 						await fetch(`${API_BASE}/cart/${dbItem.id}`, {
 							method: "DELETE",
 							headers: { Authorization: `Bearer ${token}` },
+							keepalive: true,
 						});
 					}
 				}
@@ -337,7 +342,7 @@ export default function useCart() {
 				notify("Failed to remove item from cart.", 5000, "error", "bag");
 			}
 		},
-		[items, notify, fetchCart]
+		[items, notify, fetchCart],
 	);
 
 	const updateQuantity = useCallback(
@@ -351,6 +356,7 @@ export default function useCart() {
 				// Get the cart to find the database ID
 				const cartRes = await fetch(`${API_BASE}/cart`, {
 					headers: { Authorization: `Bearer ${token}` },
+					keepalive: true,
 				});
 
 				if (cartRes.ok) {
@@ -365,6 +371,7 @@ export default function useCart() {
 								Authorization: `Bearer ${token}`,
 							},
 							body: JSON.stringify({ quantity: newQty }),
+							keepalive: true,
 						});
 					}
 				}
@@ -376,7 +383,7 @@ export default function useCart() {
 				notify("Failed to update cart.", 5000, "error", "bag");
 			}
 		},
-		[items, notify, fetchCart]
+		[items, notify, fetchCart],
 	);
 
 	return {

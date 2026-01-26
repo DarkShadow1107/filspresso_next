@@ -50,37 +50,46 @@ router.post("/register", async (req, res) => {
 			const result = await client.query(
 				`INSERT INTO accounts (username, email, password_hash, name, icon) 
         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-				[username.toLowerCase(), email.toLowerCase(), passwordHash, displayName || username, icon || null]
+				[username.toLowerCase(), email.toLowerCase(), passwordHash, displayName || username, icon || null],
 			);
 
 			const userId = result.rows[0].id;
 
 			// Get created user
-			const userRes = await client.query("SELECT id, username, email, name, icon, role FROM accounts WHERE id = $1", [
-				userId,
-			]);
+			const userRes = await client.query(
+				"SELECT id, username, email, name, icon, role, created_at FROM accounts WHERE id = $1",
+				[userId],
+			);
 			const user = userRes.rows[0];
 
 			// Generate token
 			const token = generateToken(user);
 
-			const iconFilename = user.icon ? (user.icon.toLowerCase().endsWith(".svg") ? user.icon : `${user.icon}.svg`) : null;
+			let iconUrl = user.icon || null;
+			if (iconUrl && !iconUrl.startsWith("/") && !iconUrl.startsWith("http") && !iconUrl.startsWith("data:")) {
+				iconUrl = `/images/icons/${iconUrl}`;
+			}
+			if (iconUrl && !iconUrl.toLowerCase().endsWith(".svg") && !iconUrl.startsWith("data:")) {
+				iconUrl = `${iconUrl}.svg`;
+			}
 
 			res.status(201).json({
 				status: "success",
 				message: "User registered successfully",
 				account: {
+					name: user.name,
 					full_name: user.name,
 					username: user.username,
 					email: user.email,
 					role: user.role,
-					icon: iconFilename ? `/images/icons/${iconFilename}` : null,
+					icon: iconUrl,
+					created_at: user.created_at,
 				},
-				icon_path: iconFilename ? `/images/icons/${iconFilename}` : null,
+				icon_path: iconUrl,
 				token,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Registration error:", error);
@@ -104,8 +113,8 @@ router.post("/login", async (req, res) => {
 		try {
 			// Find user by email or username
 			const userRes = await client.query(
-				"SELECT id, username, email, password_hash, name, icon, subscription FROM accounts WHERE email = $1 OR username = $2",
-				[loginField.toLowerCase(), loginField.toLowerCase()]
+				"SELECT id, username, email, password_hash, name, icon, subscription, role, created_at FROM accounts WHERE email = $1 OR username = $2",
+				[loginField.toLowerCase(), loginField.toLowerCase()],
 			);
 			const user = userRes.rows[0];
 
@@ -113,7 +122,7 @@ router.post("/login", async (req, res) => {
 				return res.status(401).json({ status: "error", message: "Invalid credentials" });
 			}
 
-			// Verify password
+			// Verify password normally
 			const validPassword = await bcrypt.compare(password, user.password_hash);
 			if (!validPassword) {
 				return res.status(401).json({ status: "error", message: "Invalid credentials" });
@@ -130,23 +139,31 @@ router.post("/login", async (req, res) => {
 			expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
 			await client.query(
 				"INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)",
-				[user.id, token, expiresAt, req.ip, req.get("user-agent")]
+				[user.id, token, expiresAt, req.ip, req.get("user-agent")],
 			);
 
 			// Remove password hash from response
 			delete user.password_hash;
 
-			const iconFilename = user.icon ? (user.icon.toLowerCase().endsWith(".svg") ? user.icon : `${user.icon}.svg`) : null;
+			let iconUrl = user.icon || null;
+			if (iconUrl && !iconUrl.startsWith("/") && !iconUrl.startsWith("http") && !iconUrl.startsWith("data:")) {
+				iconUrl = `/images/icons/${iconUrl}`;
+			}
+			if (iconUrl && !iconUrl.toLowerCase().endsWith(".svg") && !iconUrl.startsWith("data:")) {
+				iconUrl = `${iconUrl}.svg`;
+			}
 
 			res.json({
 				status: "success",
 				message: "Login successful",
 				account: {
+					name: user.name,
 					full_name: user.name,
 					username: user.username,
 					email: user.email,
 					role: user.role,
-					icon: iconFilename ? `/images/icons/${iconFilename}` : null,
+					icon: iconUrl,
+					created_at: user.created_at,
 				},
 				token,
 			});
@@ -167,8 +184,8 @@ router.get("/me", authenticate, async (req, res) => {
 		const client = await pool.connect();
 		try {
 			const userRes = await client.query(
-				"SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = $1",
-				[req.user.id]
+				"SELECT id, username, email, name, icon, subscription, created_at FROM accounts WHERE id = $1",
+				[req.user.id],
 			);
 			const user = userRes.rows[0];
 
@@ -181,6 +198,7 @@ router.get("/me", authenticate, async (req, res) => {
 			res.json({
 				user: {
 					...user,
+					full_name: user.name,
 					icon: iconFilename ? `/images/icons/${iconFilename}` : null,
 				},
 			});

@@ -2,6 +2,19 @@
 
 import Image from "next/image";
 import { Order, formatDate, gradientTextStyle, getCardTypeImage } from "./types";
+import {
+	ArrowNarrowLeftIcon,
+	ArrowNarrowRightIcon,
+	RosetteDiscountCheckIcon,
+	TruckElectricIcon,
+	ShoppingCartIcon,
+	ClockIcon,
+	TriangleAlertIcon,
+	ArrowNarrowDownIcon,
+	CoffeeIcon,
+	RosetteDiscountIcon,
+	SimpleCheckedIcon,
+} from "@/icons";
 
 type OrderHistoryProps = {
 	orders: Order[];
@@ -79,7 +92,7 @@ export function OrderHistory({
 						e.currentTarget.style.boxShadow = page === 1 ? "none" : "0 8px 16px rgba(166,124,82,0.35)";
 					}}
 				>
-					◀
+					<ArrowNarrowLeftIcon size={16} />
 				</button>
 				<span style={{ alignSelf: "center", color: "#aaa", fontSize: "0.9rem" }}>
 					Page {page} of {totalPages}
@@ -109,7 +122,7 @@ export function OrderHistory({
 						e.currentTarget.style.boxShadow = page === totalPages ? "none" : "0 8px 16px rgba(166,124,82,0.35)";
 					}}
 				>
-					▶
+					<ArrowNarrowRightIcon size={16} />
 				</button>
 			</div>
 		);
@@ -117,7 +130,9 @@ export function OrderHistory({
 
 	return (
 		<div className="card">
-			<h2>📦 Order History</h2>
+			<h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+				<ShoppingCartIcon size={24} /> Order History
+			</h2>
 			{orders.length === 0 ? (
 				<p className="empty-state">No orders found.</p>
 			) : (
@@ -175,10 +190,15 @@ export function OrderHistory({
 												display: "flex",
 												alignItems: "center",
 												justifyContent: "center",
-												fontSize: "1.5rem",
 											}}
 										>
-											{order.status === "delivered" ? "📦" : order.status === "shipped" ? "🚚" : "🛍️"}
+											{order.status === "delivered" ? (
+												<RosetteDiscountCheckIcon size={24} />
+											) : order.status === "shipped" ? (
+												<TruckElectricIcon size={24} />
+											) : (
+												<ShoppingCartIcon size={24} />
+											)}
 										</div>
 
 										<div>
@@ -217,7 +237,16 @@ export function OrderHistory({
 													gap: "0.5rem",
 												}}
 											>
-												<span style={{ color: "#e5e5e5" }}>📅 {formatDate(order.created_at)}</span>
+												<span
+													style={{
+														color: "#e5e5e5",
+														display: "flex",
+														alignItems: "center",
+														gap: "0.4rem",
+													}}
+												>
+													<ClockIcon size={14} /> {formatDate(order.created_at)}
+												</span>
 												<span>•</span>
 												<span>{order.item_count || 0} items</span>
 												{order.estimated_delivery && (
@@ -232,13 +261,17 @@ export function OrderHistory({
 																		? "#6BB3F8"
 																		: "#4ade80",
 																fontWeight: 500,
+																display: "flex",
+																alignItems: "center",
+																gap: "0.4rem",
 															}}
 														>
-															{order.weather_condition === "snow"
-																? "❄️"
-																: order.weather_condition === "rain"
-																? "🌧️"
-																: "📦"}{" "}
+															{order.weather_condition === "snow" ||
+															order.weather_condition === "rain" ? (
+																<TriangleAlertIcon size={14} />
+															) : (
+																<TruckElectricIcon size={14} />
+															)}{" "}
 															{order.estimated_delivery}
 														</span>
 													</>
@@ -276,7 +309,7 @@ export function OrderHistory({
 												transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
 											}}
 										>
-											<span style={{ fontSize: "0.8rem", color: "#aaa" }}>▼</span>
+											<ArrowNarrowDownIcon size={16} color="#aaa" />
 										</div>
 									</div>
 								</div>
@@ -353,7 +386,7 @@ export function OrderHistory({
 																			}}
 																		/>
 																	) : (
-																		<span style={{ fontSize: "2rem" }}>☕</span>
+																		<CoffeeIcon size={32} color="#444" />
 																	)}
 																</div>
 
@@ -442,7 +475,7 @@ export function OrderHistory({
 																			gap: "0.35rem",
 																		}}
 																	>
-																		<span>🏅</span>
+																		<RosetteDiscountIcon size={16} />
 																		{order.discount_tier} Discount ({order.discount_percent}
 																		%)
 																	</span>
@@ -520,29 +553,43 @@ export function OrderHistory({
 																			gap: "0.5rem",
 																		}}
 																	>
-																		<span style={{ fontSize: "1.1rem" }}>
-																			{order.weather_condition === "snow"
-																				? "❄️"
-																				: order.weather_condition === "rain"
-																				? "🌧️"
-																				: "📦"}
+																		<span
+																			style={{
+																				fontSize: "1.1rem",
+																				display: "flex",
+																				alignItems: "center",
+																			}}
+																		>
+																			{order.weather_condition === "snow" ||
+																			order.weather_condition === "rain" ? (
+																				<TriangleAlertIcon size={18} />
+																			) : (
+																				<TruckElectricIcon size={18} />
+																			)}
 																		</span>
 																		Expected Delivery
 																	</span>
 																	<span
 																		style={{
 																			fontWeight: 600,
+																			display: "flex",
+																			alignItems: "center",
+																			gap: "0.4rem",
 																			color:
 																				order.status === "delivered"
 																					? "#10b981"
 																					: "#c4a77d",
 																		}}
 																	>
-																		{order.status === "delivered"
-																			? "✓ Delivered"
-																			: order.expected_delivery_date
-																			? formatDate(order.expected_delivery_date)
-																			: order.estimated_delivery}
+																		{order.status === "delivered" ? (
+																			<>
+																				<SimpleCheckedIcon size={16} /> Delivered
+																			</>
+																		) : order.expected_delivery_date ? (
+																			formatDate(order.expected_delivery_date)
+																		) : (
+																			order.estimated_delivery
+																		)}
 																	</span>
 																</div>
 															)}

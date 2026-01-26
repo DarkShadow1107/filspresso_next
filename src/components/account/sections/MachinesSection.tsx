@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { UserMachine, RepairType, formatDate, gradientTextStyle } from "./types";
+import { CoffeeIcon, GearIcon, ShieldCheck as ShieldCheckIcon, SimpleCheckedIcon } from "@/icons";
 
 type MachinesSectionProps = {
 	userMachines: UserMachine[];
@@ -32,7 +33,16 @@ export function MachinesSection({
 						marginBottom: "1.5rem",
 					}}
 				>
-					<h2 style={{ margin: 0 }}>☕ My Machines & Forfaits</h2>
+					<h2
+						style={{
+							margin: 0,
+							display: "flex",
+							alignItems: "center",
+							gap: "0.5rem",
+						}}
+					>
+						<CoffeeIcon size={24} /> My Machines & Forfaits
+					</h2>
 					<div style={{ fontSize: "0.9rem", color: "#888" }}>
 						{userMachines.length} item{userMachines.length !== 1 ? "s" : ""} registered
 					</div>
@@ -54,8 +64,18 @@ export function MachinesSection({
 						Loading your machines...
 					</div>
 				) : userMachines.length === 0 ? (
-					<div style={{ textAlign: "center", padding: "2.5rem" }}>
-						<div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>☕</div>
+					<div
+						style={{
+							textAlign: "center",
+							padding: "2.5rem",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
+						}}
+					>
+						<div style={{ marginBottom: "0.75rem" }}>
+							<CoffeeIcon size={48} />
+						</div>
 						<p style={{ color: "#888", fontSize: "1rem", margin: "0 0 0.5rem 0" }}>No machines found</p>
 						<p style={{ color: "#666", fontSize: "0.85rem", margin: 0 }}>
 							Purchase a Nespresso machine to see it here
@@ -113,7 +133,17 @@ export function MachinesSection({
 													style={{ objectFit: "contain" }}
 												/>
 											) : (
-												<span style={{ fontSize: "2.5rem" }}>☕</span>
+												<div
+													style={{
+														width: "100%",
+														height: "100%",
+														display: "flex",
+														alignItems: "center",
+														justifyContent: "center",
+													}}
+												>
+													<CoffeeIcon size={40} />
+												</div>
 											)}
 										</div>
 
@@ -182,7 +212,13 @@ export function MachinesSection({
 														whiteSpace: "nowrap",
 													}}
 												>
-													{machine.is_under_warranty ? `✓ ${daysUntilWarrantyEnd}d left` : "Expired"}
+													{machine.is_under_warranty ? (
+														<span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+															<SimpleCheckedIcon size={12} /> {daysUntilWarrantyEnd} days left
+														</span>
+													) : (
+														"Expired"
+													)}
 												</div>
 											</div>
 
@@ -253,7 +289,7 @@ export function MachinesSection({
 													"linear-gradient(135deg, rgba(196, 167, 125, 0.15) 0%, rgba(166, 124, 82, 0.15) 100%)";
 											}}
 										>
-											🔧 Maintenance
+											<GearIcon size={16} /> Maintenance
 										</button>
 										<button
 											onClick={() => {
@@ -287,7 +323,15 @@ export function MachinesSection({
 												e.currentTarget.style.opacity = "1";
 											}}
 										>
-											{machine.is_under_warranty ? "🛡️ Warranty" : "🔩 Repair"}
+											{machine.is_under_warranty ? (
+												<>
+													<ShieldCheckIcon size={16} /> Warranty
+												</>
+											) : (
+												<>
+													<GearIcon size={16} /> Repair
+												</>
+											)}
 										</button>
 									</div>
 								</div>

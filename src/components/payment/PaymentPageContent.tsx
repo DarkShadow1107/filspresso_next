@@ -9,6 +9,8 @@ import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { buildPageHref } from "@/lib/pages";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
 type CardType = {
 	name: string;
 	code: string;
@@ -182,7 +184,7 @@ export default function PaymentPageContent() {
 			try {
 				const { token } = JSON.parse(session);
 				if (token) {
-					fetch("http://localhost:4000/api/cards", {
+					fetch(`${API_BASE}/api/cards`, {
 						headers: { Authorization: `Bearer ${token}` },
 					})
 						.then((res) => res.json())
@@ -273,7 +275,7 @@ export default function PaymentPageContent() {
 				}
 			}
 		},
-		[savedCards, notify]
+		[savedCards, notify],
 	);
 
 	const handleCardInput = useCallback(
@@ -281,7 +283,7 @@ export default function PaymentPageContent() {
 			const target = event.currentTarget;
 			formatCreditCard(target.value);
 		},
-		[formatCreditCard]
+		[formatCreditCard],
 	);
 
 	const handleExpiryChange = useCallback((event: FormEvent<HTMLInputElement>) => {
@@ -305,7 +307,7 @@ export default function PaymentPageContent() {
 
 			setExpiry((prev) => formatExpirySpacing(prev));
 		},
-		[expiry, formatExpirySpacing]
+		[expiry, formatExpirySpacing],
 	);
 
 	useEffect(() => {
@@ -380,7 +382,7 @@ export default function PaymentPageContent() {
 					to_name: userName ?? "",
 					items_list: [],
 				},
-				"T-VQxrMdcr_OdDWSa"
+				"T-VQxrMdcr_OdDWSa",
 			);
 		} catch (error) {
 			console.error("Error sending email:", error);
@@ -418,7 +420,7 @@ export default function PaymentPageContent() {
 						"You need to enter a card number formed of 16 digits or 15 digits if it is an American Express card!",
 						5000,
 						"error",
-						"payment"
+						"payment",
 					);
 					return;
 				} else if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
@@ -426,7 +428,7 @@ export default function PaymentPageContent() {
 						"Your CVV code should be formed of 3 digits or 4 if it is an American Express card!",
 						5000,
 						"error",
-						"payment"
+						"payment",
 					);
 					return;
 				}
@@ -442,7 +444,7 @@ export default function PaymentPageContent() {
 
 			if (shouldSaveCard && !selectedSavedCard && token) {
 				try {
-					await fetch("http://localhost:4000/api/cards", {
+					await fetch(`${API_BASE}/api/cards`, {
 						method: "POST",
 						headers: {
 							"Content-Type": "application/json",
@@ -473,7 +475,7 @@ export default function PaymentPageContent() {
 
 				// Create subscription via API
 				try {
-					const subResponse = await fetch("http://localhost:4000/api/subscriptions", {
+					const subResponse = await fetch(`${API_BASE}/api/subscriptions`, {
 						method: "POST",
 						headers: {
 							"Content-Type": "application/json",
@@ -490,11 +492,11 @@ export default function PaymentPageContent() {
 						const subData = await subResponse.json();
 						const renewalDate = subData.subscription?.renewal_date
 							? new Date(subData.subscription.renewal_date).toLocaleDateString("en-US", {
-									weekday: "short",
+									weekday: "long",
 									year: "numeric",
-									month: "short",
+									month: "long",
 									day: "numeric",
-							  })
+								})
 							: "";
 
 						// Show subscription-specific notification (no delivery, confirmed immediately)
@@ -504,12 +506,12 @@ export default function PaymentPageContent() {
 							} plan is now active. Next renewal: ${renewalDate}`,
 							6000,
 							"success",
-							"payment"
+							"payment",
 						);
 
 						// Also create an order record for the subscription
 						try {
-							await fetch("http://localhost:4000/api/orders", {
+							await fetch(`${API_BASE}/api/orders`, {
 								method: "POST",
 								headers: {
 									"Content-Type": "application/json",
@@ -554,17 +556,17 @@ export default function PaymentPageContent() {
 				// Regular product order
 				notify(
 					`Your ${cType} card will be charged ${paymentTotal.toFixed(
-						2
+						2,
 					)} RON, and the package will be delivered as soon as possible!`,
 					4000,
 					"success",
-					"payment"
+					"payment",
 				);
 
 				// Save order to backend
 				try {
 					if (token && items.length > 0) {
-						await fetch("http://localhost:4000/api/orders", {
+						await fetch(`${API_BASE}/api/orders`, {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",

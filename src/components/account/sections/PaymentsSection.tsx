@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Order, SavedCard, Repair, gradientTextStyle, getCardTypeImage } from "./types";
 import { RepairsHistory } from "./RepairsHistory";
 import { OrderHistory } from "./OrderHistory";
+import { TrashIcon, CreditCard, ArrowBackUpIcon, ArrowNarrowRightIcon, ArrowNarrowLeftIcon } from "@/icons";
 
 type PaymentsSectionProps = {
 	savedCards: SavedCard[];
@@ -102,7 +103,7 @@ export function PaymentsSection({
 						e.currentTarget.style.boxShadow = page === 1 ? "none" : "0 8px 16px rgba(166,124,82,0.35)";
 					}}
 				>
-					◀
+					<ArrowNarrowLeftIcon size={16} />
 				</button>
 				<span style={{ alignSelf: "center", color: "#aaa", fontSize: "0.9rem" }}>
 					Page {page} of {total}
@@ -132,7 +133,7 @@ export function PaymentsSection({
 						e.currentTarget.style.boxShadow = page === total ? "none" : "0 8px 16px rgba(166,124,82,0.35)";
 					}}
 				>
-					▶
+					<ArrowNarrowRightIcon size={16} />
 				</button>
 			</div>
 		);
@@ -142,7 +143,9 @@ export function PaymentsSection({
 		<div className="tab-pane fade-in">
 			{/* Saved Cards Section */}
 			<div className="card" style={{ marginBottom: "2rem" }}>
-				<h2>💳 Saved Cards</h2>
+				<h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+					<CreditCard size={28} /> Saved Cards
+				</h2>
 				{savedCards.length === 0 ? (
 					<p className="empty-state">No saved cards found. Add a card during checkout.</p>
 				) : (
@@ -276,7 +279,7 @@ export function PaymentsSection({
 										}}
 										title="Remove card"
 									>
-										<span style={{ fontSize: "1rem" }}>🗑️</span>
+										<TrashIcon size={18} />
 										Remove
 									</button>
 								</div>

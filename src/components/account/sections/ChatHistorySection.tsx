@@ -1,6 +1,19 @@
 "use client";
 
 import { ChatHistory } from "./types";
+import {
+	MessageCircleIcon,
+	ClockIcon,
+	TrashIcon,
+	CoffeeIcon,
+	BulbSvg,
+	GithubCopilotIcon,
+	VinylIcon,
+	FlameIcon,
+	SparklesIcon,
+	ShoppingCartIcon,
+	FileDescriptionIcon,
+} from "@/icons";
 
 type ChatHistorySectionProps = {
 	chatHistory: ChatHistory[];
@@ -61,8 +74,18 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 				</div>
 
 				{chatHistory.length === 0 ? (
-					<div style={{ textAlign: "center", padding: "3rem" }}>
-						<div style={{ fontSize: "3rem", marginBottom: "1rem" }}>💬</div>
+					<div
+						style={{
+							textAlign: "center",
+							padding: "3rem",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
+						}}
+					>
+						<div style={{ marginBottom: "1rem" }}>
+							<MessageCircleIcon size={64} />
+						</div>
 						<p style={{ color: "#888", fontSize: "1.1rem", margin: "0 0 0.5rem 0" }}>No chat history yet</p>
 						<p style={{ color: "#666", fontSize: "0.9rem", margin: 0 }}>
 							Start a conversation with Kafelot to see your history here
@@ -122,10 +145,15 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 													display: "flex",
 													alignItems: "center",
 													justifyContent: "center",
-													fontSize: "1.3rem",
 												}}
 											>
-												{chat.category === "chemistry" ? "🧪" : chat.category === "coffee" ? "☕" : "🤖"}
+												{chat.category === "chemistry" ? (
+													<BulbSvg size={24} />
+												) : chat.category === "coffee" ? (
+													<CoffeeIcon size={24} />
+												) : (
+													<GithubCopilotIcon size={24} />
+												)}
 											</div>
 											<div>
 												<div
@@ -149,7 +177,7 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 												>
 													<span>
 														{new Date(chat.timestamp).toLocaleDateString("en-US", {
-															month: "short",
+															month: "long",
 															day: "numeric",
 															year: "numeric",
 														})}
@@ -191,9 +219,18 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 												fontSize: "0.75rem",
 												fontWeight: 600,
 												textTransform: "capitalize",
+												display: "flex",
+												alignItems: "center",
+												gap: "0.4rem",
 											}}
 										>
-											{chat.model === "ode" ? "🎼 " : chat.model === "villanelle" ? "⚡ " : "🌿 "}
+											{chat.model === "ode" ? (
+												<VinylIcon size={14} />
+											) : chat.model === "villanelle" ? (
+												<FlameIcon size={14} />
+											) : (
+												<SparklesIcon size={14} />
+											)}
 											{chat.model}
 										</div>
 									</div>
@@ -216,7 +253,7 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 												fontSize: "0.85rem",
 											}}
 										>
-											<span style={{ color: "#888" }}>💬</span>
+											<MessageCircleIcon size={14} color="#888" />
 											<span style={{ color: "#aaa" }}>{messageCount} messages</span>
 											<span style={{ color: "#666", fontSize: "0.75rem" }}>
 												({userMessages} you, {assistantMessages} AI)
@@ -231,7 +268,7 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 													fontSize: "0.85rem",
 												}}
 											>
-												<span style={{ color: "#888" }}>🛒</span>
+												<ShoppingCartIcon size={14} color="#888" />
 												<span style={{ color: "#aaa" }}>Product recommendations</span>
 											</div>
 										)}
@@ -243,7 +280,7 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 												fontSize: "0.85rem",
 											}}
 										>
-											<span style={{ color: "#888" }}>📂</span>
+											<FileDescriptionIcon size={14} color="#888" />
 											<span
 												style={{
 													color:

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "chat-1768671381900",
+    "timestamp": 1768671381900,
+    "messages": [
+      {
+        "role": "user",
+        "content": "s"
+      },
+      {
+        "role": "assistant",
+        "content": "[Scientific Analysis via ResNET 18 & MiniLLM] Based on molecular patterns, here is your insight: The roasting process transforms green coffee beans into the aromatic brown beans we know through the Maillard reaction.",
+        "products": []
+      }
+    ],
+    "preview": "s",
+    "model": "ode",
+    "category": "coffee"
+  }
+]

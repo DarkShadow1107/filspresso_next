@@ -22,6 +22,19 @@ export async function POST(request: Request) {
 				chemistry_mode: body.chemistry_mode,
 			}),
 		});
+
+		if (!res.ok) {
+			const text = await res.text();
+			let errorMsg = `Python AI error: ${res.status}`;
+			try {
+				const errorJson = JSON.parse(text);
+				errorMsg = errorJson.error || errorMsg;
+			} catch {
+				// Not JSON, keep status message
+			}
+			return NextResponse.json({ error: errorMsg }, { status: res.status });
+		}
+
 		const json = (await res.json()) as Record<string, unknown>;
 
 		// Check if request was cancelled

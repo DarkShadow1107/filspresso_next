@@ -1,14 +1,47 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { WeatherData, WeatherRecommendation } from "@/lib/weather";
+import type { WeatherData } from "@/lib/weather";
 import { getWeatherIcon, getWeatherDescription } from "@/lib/weather";
+import {
+	MoonIcon,
+	BrightnessDownIcon,
+	TriangleAlertIcon,
+	TruckElectricIcon,
+	CoffeeIcon,
+	BrandAwsIcon,
+	SparklesIcon,
+	FlameIcon,
+	SunIcon,
+	CloudIcon,
+	RainIcon,
+	SnowIcon,
+} from "@/icons";
 
 type WeatherWidgetProps = {
 	weather?: WeatherData | null;
 	compact?: boolean;
 	showRecommendation?: boolean;
 	className?: string;
+};
+
+const WeatherIcon = ({ icon, size }: { icon: string; size: number }) => {
+	const iconMap: Record<string, React.ElementType> = {
+		"clear-day": SunIcon,
+		"clear-night": MoonIcon,
+		"partly-cloudy-day": CloudIcon,
+		"partly-cloudy-night": CloudIcon,
+		cloudy: CloudIcon,
+		fog: CloudIcon,
+		drizzle: RainIcon,
+		rain: RainIcon,
+		"rain-showers": RainIcon,
+		snow: SnowIcon,
+		"snow-showers": SnowIcon,
+		thunderstorm: TriangleAlertIcon,
+	};
+	const IconComp = iconMap[icon] || SunIcon;
+	return <IconComp size={size} />;
 };
 
 export default function WeatherWidget({
@@ -59,18 +92,20 @@ export default function WeatherWidget({
 	}
 
 	const temp = Math.round(weather.current.temperature_2m);
-	const icon = getWeatherIcon(weather.current.weather_code, weather.current.is_day === 1);
+	const iconLabel = getWeatherIcon(weather.current.weather_code, weather.current.is_day === 1);
 	const description = getWeatherDescription(weather.current.weather_code);
 	const recommendation = weather.recommendation;
 
 	if (compact) {
 		return (
 			<div className={`weather-widget weather-widget--compact ${className}`}>
-				<span className="weather-widget__icon">{icon}</span>
+				<span className="weather-widget__icon">
+					<WeatherIcon icon={iconLabel} size={19} />
+				</span>
 				<span className="weather-widget__temp">{temp}°C</span>
 				{recommendation && (
 					<span className="weather-widget__rec-icon" title={recommendation.message}>
-						{recommendation.icon}
+						<WeatherIcon icon={recommendation.icon} size={15} />
 					</span>
 				)}
 			</div>
@@ -82,14 +117,14 @@ export default function WeatherWidget({
 		const weatherCode = weather.current?.weather_code ?? 0;
 		// Snow codes: 71-77, 85-86
 		if ([71, 73, 75, 77, 85, 86].includes(weatherCode)) {
-			return { icon: "❄️", estimate: "3-5 days", message: "Snow may delay deliveries" };
+			return { icon: <TriangleAlertIcon size={16} />, estimate: "3-5 days", message: "Snow may delay deliveries" };
 		}
 		// Rain codes: 51-67, 80-82, 95-99
 		if ([51, 53, 55, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99].includes(weatherCode)) {
-			return { icon: "🌧️", estimate: "2-3 days", message: "Rain may cause slight delays" };
+			return { icon: <TriangleAlertIcon size={16} />, estimate: "2-3 days", message: "Rain may cause slight delays" };
 		}
 		// Clear weather
-		return { icon: "📦", estimate: "1-2 days", message: "Perfect conditions for fast delivery" };
+		return { icon: <TruckElectricIcon size={16} />, estimate: "1-2 days", message: "Perfect conditions for fast delivery" };
 	};
 
 	const shippingInfo = getShippingInfo();
@@ -97,7 +132,9 @@ export default function WeatherWidget({
 	return (
 		<div className={`weather-widget ${className}`}>
 			<div className="weather-widget__current">
-				<div className="weather-widget__icon-large">{icon}</div>
+				<div className="weather-widget__icon-large">
+					<WeatherIcon icon={iconLabel} size={45} />
+				</div>
 				<div className="weather-widget__info">
 					<div className="weather-widget__temp-large">{temp}°C</div>
 					<div className="weather-widget__desc">{description}</div>
@@ -117,7 +154,9 @@ export default function WeatherWidget({
 			{showRecommendation && recommendation && (
 				<div className="weather-widget__recommendation">
 					<div className="weather-widget__rec-header">
-						<span className="weather-widget__rec-icon-large">{recommendation.icon}</span>
+						<span className="weather-widget__rec-icon-large">
+							<CoffeeIcon size={24} />
+						</span>
 						<span className="weather-widget__rec-drink">{recommendation.drink}</span>
 					</div>
 					<p className="weather-widget__rec-message">{recommendation.message}</p>

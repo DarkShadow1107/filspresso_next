@@ -143,7 +143,7 @@ const convertToCoffeeProduct = (product: ApiProduct) => {
 					icon: `/${(serving.icon || "").replace(/^\/+/g, "")}`,
 					title: serving.title,
 					volume: serving.volume,
-			  }))
+				}))
 			: [],
 	};
 };
@@ -213,7 +213,7 @@ export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 												icon: `/${serving.icon.replace(/^\/+/g, "")}`,
 												title: serving.title,
 												volume: serving.volume,
-										  }))
+											}))
 										: product.servings,
 								unitLabel: product.unitLabel || "1 sleeve (10 capsules)",
 								unitCount: product.unitCount || 10,

@@ -99,7 +99,7 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 
 						// Add products from API that match this group title but weren't in static list
 						const extraInGroup = products.filter(
-							(p) => !matchedIds.has(p.productId) && normalizeKey(p.category) === normalizeKey(group.title)
+							(p) => !matchedIds.has(p.productId) && normalizeKey(p.category) === normalizeKey(group.title),
 						);
 
 						for (const p of extraInGroup) {
@@ -121,7 +121,7 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 						const targetCollection = merged.find((c) => c.id === p.productType);
 						if (targetCollection) {
 							let targetGroup = targetCollection.groups.find(
-								(g) => normalizeKey(g.title) === normalizeKey(p.category)
+								(g) => normalizeKey(g.title) === normalizeKey(p.category),
 							);
 							if (!targetGroup) {
 								targetGroup = {

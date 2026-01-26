@@ -15,8 +15,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(100),
     icon VARCHAR(255) DEFAULT '/images/default-avatar.png',
-    subscription VARCHAR(50) DEFAULT 'Free',
+    subscription_id INTEGER,
     role VARCHAR(20) DEFAULT 'user', -- admin, user
+    graph_theme VARCHAR(20) DEFAULT 'classic',
     email_verified BOOLEAN DEFAULT FALSE,
     last_login TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -199,6 +200,21 @@ CREATE TABLE IF NOT EXISTS member_status (
 CREATE INDEX idx_member_status_account ON member_status(account_id);
 
 -- =============================================================================
+-- FAVORITES TABLE
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS favorites (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    product_type VARCHAR(20) NOT NULL, -- capsule, machine
+    product_category VARCHAR(50), -- Original, Vertuo, etc.
+    product_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (account_id, product_type, product_id)
+);
+
+CREATE INDEX idx_favorites_account ON favorites(account_id);
+
+-- =============================================================================
 -- MEMBER STATUS HISTORY TABLE
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS member_status_history (
@@ -261,6 +277,29 @@ CREATE TABLE IF NOT EXISTS coffee_facts (
     embedding vector(384),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- =============================================================================
+-- SUBSCRIPTIONS TABLE
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    description TEXT,
+    price_ron DECIMAL(10,2) DEFAULT 0.00,
+    features JSONB DEFAULT '[]',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Internal link for triggers
+CREATE TRIGGER update_subscriptions_updated_at BEFORE UPDATE ON subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Insert default subscriptions
+INSERT INTO subscriptions (name, description, price_ron, features) VALUES
+('Free', 'Basic access to coffee and machines', 0, '["Standard support", "Basic dashboard"]'),
+('Gold', 'Premium benefits and discounts', 45, '["Free shipping", "Exclusive previews", "Priority support"]'),
+('Platinum', 'Ultimate coffee experience', 95, '["Free shipping", "20% discount on capsules", "VIP support", "Machine maintenance"]')
+ON CONFLICT DO NOTHING;
 
 -- =============================================================================
 -- USER SUBSCRIPTIONS TABLE

@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
+import GearIcon from "@/icons/gear-icon";
 
 type MachineNotification = {
 	id: string;
@@ -136,18 +137,12 @@ export default function MachineNotificationsProvider({ children }: { children: R
 	// Always use the compact wallet-style fan regardless of count (user request).
 	const compact = true;
 	const maxStack = 5;
-	const translateStep = compact ? 18 : 8;
+	const translateStep = 32;
 	const opacityStep = compact ? 0.12 : 0.04;
 	const baseZ = 3000;
 
 	const renderIcon = useCallback(() => {
-		return (
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="notif-icon">
-				<path d="M12 2v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-				<path d="M5 7h14v10H5z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-				<path d="M9 21h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-			</svg>
-		);
+		return <GearIcon size={18} className="notif-icon" />;
 	}, []);
 
 	const [mounted, setMounted] = useState(false);
@@ -172,7 +167,7 @@ export default function MachineNotificationsProvider({ children }: { children: R
 					const zIndex = baseZ + maxStack + 100 + overflowIndex;
 
 					stackingStyle = {
-						transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scale})`,
+						transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`,
 						opacity,
 						boxShadow,
 						zIndex,
@@ -193,7 +188,7 @@ export default function MachineNotificationsProvider({ children }: { children: R
 					const zIndex = baseZ + (maxStack - capped);
 
 					stackingStyle = {
-						transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scale})`,
+						transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`,
 						opacity,
 						boxShadow,
 						zIndex,

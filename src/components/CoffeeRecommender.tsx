@@ -17,6 +17,34 @@ import {
 } from "@/lib/moleculeSearch";
 import KafelotStats from "./kafelot/KafelotStats";
 import KafelotUsage from "./kafelot/KafelotUsage";
+import {
+	LockIcon,
+	TrashIcon,
+	ChartBarIcon,
+	ClockIcon,
+	HistoryCircleIcon,
+	GithubCopilotIcon,
+	SparklesIcon,
+	FlameIcon,
+	MessageCircleIcon,
+	MagnifierIcon,
+	BulbSvg,
+	RocketIcon,
+	VinylIcon,
+	FileDescriptionIcon,
+	RefreshIcon,
+	CpuIcon,
+	InfoCircleIcon,
+	ArrowNarrowDownIcon,
+	ShoppingCartIcon,
+	CoffeeIcon,
+	BrandGeminiIcon,
+	BrandGrokIcon,
+	BrandOllamaIcon,
+	BrandAnthropicIcon,
+	LogoutIcon,
+	XIcon,
+} from "@/icons";
 
 // Memoize product flattening for performance
 function useAllProducts(): CoffeeProduct[] {
@@ -772,7 +800,10 @@ export default function CoffeeRecommender() {
 				signal: abortControllerRef.current.signal,
 			});
 
-			if (!response.ok) throw new Error("Failed to get response");
+			if (!response.ok) {
+				const errorData = await response.json().catch(() => ({}));
+				throw new Error(errorData.error || `Failed to get response (Status: ${response.status})`);
+			}
 
 			const data = await response.json();
 
@@ -863,19 +894,25 @@ export default function CoffeeRecommender() {
 					<div
 						className="smarter-ai-badge"
 						data-status={smarterAIAvailable ? "online" : "offline"}
-						title="Smarter AI (Python service) status"
+						title={`Smarter AI status: ${smarterAIAvailable ? "Online" : "Offline"}`}
 						aria-live="polite"
 					>
-						<span className="badge-icon">AI</span>
+						<span className="badge-icon">
+							<BrandAnthropicIcon size={14} />
+						</span>
 						<span className="badge-text">
-							<span className="badge-label">Smarter AI</span>
 							<span className="badge-status">{smarterAIAvailable ? "Online" : "Offline"}</span>
 						</span>
 					</div>
 				</div>
 				<div className="recommender-actions">
-					<button className="recommender-close" aria-label="Close" onClick={() => setOpen(false)}>
-						×
+					<button
+						className="recommender-close"
+						aria-label="Close"
+						onClick={() => setOpen(false)}
+						style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+					>
+						<XIcon size={24} />
 					</button>
 				</div>
 			</div>
@@ -883,20 +920,36 @@ export default function CoffeeRecommender() {
 				{step === "greeting" && (
 					<div className="recommender-greeting">
 						<p>
-							👋 Hello! I&apos;m Kafelot, your coffee pilot explorer. I can recommend capsules based on your
+							Hello! I&apos;m Kafelot, your coffee pilot explorer. I can recommend capsules based on your
 							preferences, answer questions about coffee, and help you discover new flavors.
 						</p>
 						{!isLoggedIn && (
 							<div className="login-notice">
-								<p style={{ fontSize: "0.9rem", color: "rgba(250, 204, 144, 0.7)", margin: "0.5rem 0" }}>
-									💡 <strong>Tip:</strong> Log in to unlock chat history and access Kafelot Villanelle and
-									Kafelot Ode models with your subscription!
-								</p>
+								<div
+									style={{
+										fontSize: "0.9rem",
+										color: "rgba(250, 204, 144, 0.7)",
+										margin: "0.5rem 0",
+										display: "flex",
+										alignItems: "center",
+										gap: "0.5rem",
+									}}
+								>
+									<BulbSvg className="recommender-inline-icon" />{" "}
+									<div>
+										<strong>Tip:</strong> Log in to unlock chat history and access Kafelot Villanelle and
+										Kafelot Ode models with your subscription!
+									</div>
+								</div>
 							</div>
 						)}
-						<div className="recommender-cta">
-							<button onClick={() => setStep("chat")}>💬 Chat with me</button>
-							<button onClick={() => setStep("prefs")}>🔍 Advanced search</button>
+						<div className="recommender-cta recommender-tabs">
+							<button onClick={() => setStep("chat")}>
+								<MessageCircleIcon className="recommender-inline-icon" /> Chat with me
+							</button>
+							<button onClick={() => setStep("prefs")}>
+								<MagnifierIcon className="recommender-inline-icon" /> Advanced search
+							</button>
 							<button
 								onClick={async () => {
 									setStep("results");
@@ -926,12 +979,18 @@ export default function CoffeeRecommender() {
 									setResults(allProducts.slice(0, 5));
 								}}
 							>
-								⭐ Show popular
+								<RocketIcon className="recommender-inline-icon" /> Show popular
 							</button>
 							{isLoggedIn && chatHistory.length > 0 && (
-								<button onClick={() => setStep("history")}>📜 Chat history</button>
+								<button onClick={() => setStep("history")}>
+									<HistoryCircleIcon className="recommender-inline-icon" /> Chat history
+								</button>
 							)}
-							{isLoggedIn && <button onClick={() => setStep("stats")}>📊 Stats</button>}
+							{isLoggedIn && (
+								<button onClick={() => setStep("stats")}>
+									<ChartBarIcon className="recommender-inline-icon" /> Stats
+								</button>
+							)}
 						</div>
 
 						{/* Demo login/logout for testing */}
@@ -1019,9 +1078,25 @@ export default function CoffeeRecommender() {
 										setChatHistory([]);
 										setChatMessages([]);
 									}}
-									style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem", margin: "0 auto", display: "block" }}
+									style={{
+										fontSize: "0.85rem",
+										padding: "0.4rem 1rem",
+										margin: "0 auto",
+										display: "flex",
+										alignItems: "center",
+										gap: "8px",
+										justifyContent: "center",
+										borderRadius: "6px",
+										backgroundColor: "rgba(255, 120, 120, 0.1)",
+										color: "#ff8080",
+										border: "1px solid rgba(255, 120, 120, 0.2)",
+										cursor: "pointer",
+										fontWeight: 600,
+										transition: "all 0.2s ease",
+									}}
+									className="logout-btn-recommender"
 								>
-									Logout
+									<LogoutIcon size={16} /> Log out
 								</button>
 							)}
 						</div>
@@ -1160,7 +1235,7 @@ export default function CoffeeRecommender() {
 											className={`result-item ${isOutOfStock ? "out-of-stock" : ""}`}
 											style={isOutOfStock ? { opacity: 0.5, filter: "grayscale(50%)" } : undefined}
 										>
-											<Image src={r.image} alt={r.name} width={70} height={48} />
+											<Image src={r.image} alt={r.name} width={70} height={48} unoptimized={true} />
 											<div className="result-meta">
 												<div className="result-name">{r.name}</div>
 												<div className="result-desc">{r.description}</div>
@@ -1253,7 +1328,7 @@ export default function CoffeeRecommender() {
 								}}
 								title="Coffee Helper Mode - Focused on Nespresso recommendations"
 							>
-								☕ Coffee Helper
+								<CoffeeIcon size={16} /> Coffee Helper
 							</button>
 							<button
 								className={chatMode === "general" ? "active" : ""}
@@ -1263,7 +1338,7 @@ export default function CoffeeRecommender() {
 								}}
 								title="Specialized AI Mode - Chat about anything, JS fallback available"
 							>
-								🤖 Specialized AI
+								<GithubCopilotIcon size={16} /> Specialized AI
 							</button>
 							<button
 								className={chemistryMode ? "active chemistry-mode" : "chemistry-mode"}
@@ -1289,8 +1364,10 @@ export default function CoffeeRecommender() {
 										: "Chemistry Mode - Molecule visualization (Tanka + Ultimate)"
 								}
 							>
-								🧪 Chemistry Mode{" "}
-								{(selectedModel !== "tanka" || !isLoggedIn || userSubscription !== "ultimate") && "🔒"}
+								<SparklesIcon size={16} /> Chemistry Mode{" "}
+								{(selectedModel !== "tanka" || !isLoggedIn || userSubscription !== "ultimate") && (
+									<span style={{ marginLeft: "4px" }}><LockIcon size={14} /></span>
+								)}
 							</button>
 						</div>
 
@@ -1299,8 +1376,20 @@ export default function CoffeeRecommender() {
 								<div className="subscription-info-box">
 									{!isLoggedIn ? (
 										<div className="subscription-notice">
-											<p style={{ margin: 0, fontSize: "0.95rem", color: "rgba(250, 204, 144, 0.8)" }}>
-												🔓 <strong>Not logged in</strong> - Using Tanka (free)
+											<p
+												style={{
+													margin: 0,
+													fontSize: "0.95rem",
+													color: "rgba(250, 204, 144, 0.8)",
+													display: "flex",
+													alignItems: "center",
+													gap: "0.5rem",
+												}}
+											>
+												<InfoCircleIcon size={16} />{" "}
+												<span>
+													<strong>Not logged in</strong> - Using Tanka (free)
+												</span>
 											</p>
 											<p
 												style={{
@@ -1314,11 +1403,23 @@ export default function CoffeeRecommender() {
 										</div>
 									) : (
 										<div className="subscription-status">
-											<p style={{ margin: 0, fontSize: "0.95rem", color: "rgba(250, 204, 144, 0.8)" }}>
-												🎫 <strong>Subscription:</strong>{" "}
-												{userSubscription === "none"
-													? "None (Tanka only)"
-													: userSubscription.charAt(0).toUpperCase() + userSubscription.slice(1)}
+											<p
+												style={{
+													margin: 0,
+													fontSize: "0.95rem",
+													color: "rgba(250, 204, 144, 0.8)",
+													display: "flex",
+													alignItems: "center",
+													gap: "0.5rem",
+												}}
+											>
+												<ShoppingCartIcon size={16} />{" "}
+												<span>
+													<strong>Subscription:</strong>{" "}
+													{userSubscription === "none"
+														? "None (Tanka only)"
+														: userSubscription.charAt(0).toUpperCase() + userSubscription.slice(1)}
+												</span>
 											</p>
 											{userSubscription === "none" ||
 											userSubscription === "basic" ||
@@ -1338,13 +1439,18 @@ export default function CoffeeRecommender() {
 								</div>
 
 								<div className="model-selector">
-									<label>🧠 AI Model:</label>
+									<label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+										<CpuIcon size={16} /> AI Model:
+									</label>
 									<button
 										className={selectedModel === "tanka" ? "active" : ""}
 										onClick={() => setSelectedModel("tanka")}
-										title="Tanka - 🌿 Lightweight & Fast (~30M params) - Coffee-focused recommendations, quick responses, perfect for quick searches"
+										title="Tanka - Lightweight & Fast (~30M params) - Coffee-focused recommendations, quick responses, perfect for quick searches"
 									>
-										🌿 Tanka
+										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+											<BrandGeminiIcon size={16} />
+										</span>
+										Tanka
 									</button>
 									<button
 										className={selectedModel === "villanelle" ? "active" : ""}
@@ -1353,7 +1459,7 @@ export default function CoffeeRecommender() {
 											chemistryMode
 												? "Villanelle - Not available in Chemistry Mode (Tanka only)"
 												: isLoggedIn && (userSubscription === "max" || userSubscription === "ultimate")
-												? "Villanelle - ⚡ Balanced & Smart (~60M params) - Deep flavor analysis, personalized insights, nuanced recommendations"
+												? "Villanelle - Balanced & Smart (~60M params) - Deep flavor analysis, personalized insights, nuanced recommendations"
 												: "Villanelle - Requires Max or Ultimate subscription (locked)"
 										}
 										disabled={
@@ -1362,11 +1468,17 @@ export default function CoffeeRecommender() {
 											(userSubscription !== "max" && userSubscription !== "ultimate")
 										}
 									>
-										⚡ Villanelle{" "}
+										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+											<BrandOllamaIcon size={16} />
+										</span>
+										Villanelle{" "}
 										{(chemistryMode ||
 											!isLoggedIn ||
-											(userSubscription !== "max" && userSubscription !== "ultimate")) &&
-											"🔒"}
+											(userSubscription !== "max" && userSubscription !== "ultimate")) && (
+											<span style={{ marginLeft: "4px", display: "inline-flex", alignItems: "center" }}>
+												<LockIcon size={14} />
+											</span>
+										)}
 									</button>
 									<button
 										className={selectedModel === "ode" ? "active" : ""}
@@ -1375,46 +1487,63 @@ export default function CoffeeRecommender() {
 											chemistryMode
 												? "Ode - Not available in Chemistry Mode (Tanka only)"
 												: isLoggedIn && userSubscription === "ultimate"
-												? "Ode - 🎼 Expert & Deep (~90M params) - Advanced flavor profiling, comprehensive analysis, literary flair"
+												? "Ode - Expert & Deep (~90M params) - Advanced flavor profiling, comprehensive analysis, literary flair"
 												: "Ode - Requires Ultimate subscription (locked)"
 										}
 										disabled={chemistryMode || !isLoggedIn || userSubscription !== "ultimate"}
 									>
-										🎼 Ode {(chemistryMode || !isLoggedIn || userSubscription !== "ultimate") && "🔒"}
+										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+											<BrandGrokIcon size={16} />
+										</span>
+										Ode{" "}
+										{(chemistryMode || !isLoggedIn || userSubscription !== "ultimate") && (
+											<span style={{ marginLeft: "4px", display: "inline-flex", alignItems: "center" }}>
+												<LockIcon size={14} />
+											</span>
+										)}
 									</button>
 								</div>
 
 								{chemistryMode && (
 									<div className="visualization-mode-selector" style={{ marginTop: "1rem" }}>
-										<label>🔬 Molecule Display:</label>
+										<label
+											style={{
+												display: "flex",
+												alignItems: "center",
+												gap: "0.5rem",
+												marginBottom: "0.5rem",
+											}}
+										>
+											<MagnifierIcon size={16} /> Molecule Display:
+										</label>
 										<div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
 											<button
 												className={visualizationMode === "text" ? "active" : ""}
 												onClick={() => setVisualizationMode("text")}
 												title="Text only - Show molecular properties without visualization"
 											>
-												📝 Text Only
+												<FileDescriptionIcon size={14} /> Text Only
 											</button>
 											<button
 												className={visualizationMode === "2d" ? "active" : ""}
 												onClick={() => setVisualizationMode("2d")}
 												title="2D Structure - SVG molecular diagram"
 											>
-												🖼️ 2D Structure
+												2D Structure
 											</button>
 											<button
 												className={visualizationMode === "3d" ? "active" : ""}
 												onClick={() => setVisualizationMode("3d")}
 												title="3D Model - SDF format for PyMOL"
 											>
-												🧊 3D Model
+												3D Model
 											</button>
 											<button
 												className={visualizationMode === "both" ? "active" : ""}
 												onClick={() => setVisualizationMode("both")}
 												title="Both 2D & 3D - Show all visualizations"
 											>
-												🔄 Both
+												<RefreshIcon size={14} /> Both
 											</button>
 										</div>
 									</div>
@@ -1422,7 +1551,16 @@ export default function CoffeeRecommender() {
 
 								{chemistryMode && (
 									<div className="tanka-model-toggle-section" style={{ marginTop: "1rem" }}>
-										<label style={{ display: "block", marginBottom: "0.5rem" }}>🤖 Tanka AI Model:</label>
+										<label
+											style={{
+												display: "flex",
+												alignItems: "center",
+												gap: "0.5rem",
+												marginBottom: "0.5rem",
+											}}
+										>
+											<GithubCopilotIcon size={16} /> Tanka AI Model:
+										</label>
 										<button
 											className={useTankaModel ? "active tanka-model-toggle" : "tanka-model-toggle"}
 											onClick={() => {
@@ -1453,20 +1591,26 @@ export default function CoffeeRecommender() {
 											}}
 										>
 											{useTankaModel
-												? "🤖 Tanka Model ON (Chemistry Chat)"
-												: "🔬 Visualization Only (No AI Chat)"}
-											{(!isLoggedIn || userSubscription !== "ultimate") && " 🔒"}
+												? "Tanka Model ON (Chemistry Chat)"
+												: "Visualization Only (No AI Chat)"}
+											{(!isLoggedIn || userSubscription !== "ultimate") && (
+												<LockIcon size={14} className="inline ml-1" />
+											)}
 										</button>
 										{!useTankaModel && (
-											<p
+											<div
 												style={{
 													fontSize: "0.85rem",
 													color: "rgba(250, 204, 144, 0.7)",
 													marginTop: "0.5rem",
+													display: "flex",
+													alignItems: "center",
+													gap: "0.25rem",
 												}}
 											>
-												💡 Uses RDKit, Py3Dmol, and Pillow for molecule visualization
-											</p>
+												<BulbSvg size={14} className="inline-flex" />
+												<span>Uses RDKit, Py3Dmol, and Pillow for molecule visualization</span>
+											</div>
 										)}
 									</div>
 								)}
@@ -1481,7 +1625,7 @@ export default function CoffeeRecommender() {
 										}}
 										aria-live="polite"
 									>
-										{smarterAIAvailable ? "AI models are ready." : "Connecting to AI service..."}
+										{smarterAIAvailable ? "AI Status: Online" : "AI Status: Offline"}
 									</p>
 								)}
 
@@ -1489,7 +1633,17 @@ export default function CoffeeRecommender() {
 								<div className="model-description">
 									{selectedModel === "tanka" && (
 										<div className="description-content">
-											<strong>🌿 Kafelot Tanka</strong>
+											<div
+												style={{
+													fontWeight: 700,
+													display: "flex",
+													alignItems: "center",
+													gap: "0.5rem",
+													marginBottom: "0.25rem",
+												}}
+											>
+												<BrandGeminiIcon size={16} /> Kafelot Tanka
+											</div>
 											<p>
 												Lightweight &amp; Fast. Perfect for quick coffee searches. Focuses on Nespresso
 												capsule recommendations with instant responses.
@@ -1498,7 +1652,17 @@ export default function CoffeeRecommender() {
 									)}
 									{selectedModel === "villanelle" && (
 										<div className="description-content">
-											<strong>⚡ Kafelot Villanelle</strong>
+											<div
+												style={{
+													fontWeight: 700,
+													display: "flex",
+													alignItems: "center",
+													gap: "0.5rem",
+													marginBottom: "0.25rem",
+												}}
+											>
+												<BrandOllamaIcon size={16} /> Kafelot Villanelle
+											</div>
 											<p>
 												Balanced &amp; Smart. Provides deeper flavor analysis and personalized insights
 												based on your preferences. Great for discovering new favorites.
@@ -1507,7 +1671,17 @@ export default function CoffeeRecommender() {
 									)}
 									{selectedModel === "ode" && (
 										<div className="description-content">
-											<strong>🎼 Kafelot Ode</strong>
+											<div
+												style={{
+													fontWeight: 700,
+													display: "flex",
+													alignItems: "center",
+													gap: "0.5rem",
+													marginBottom: "0.25rem",
+												}}
+											>
+												<BrandGrokIcon size={16} /> Kafelot Ode
+											</div>
 											<p>
 												Expert &amp; Deep. Advanced flavor profiling with comprehensive analysis. Crafts
 												poetic and detailed recommendations for the true coffee connoisseur.
@@ -1523,9 +1697,10 @@ export default function CoffeeRecommender() {
 								<div className="chat-welcome">
 									{chatMode === "coffee" ? (
 										<>
-											<p>
-												☕ <strong>Coffee Helper Mode</strong>
-											</p>
+											<div style={{ fontWeight: 600 }}>
+												<CoffeeIcon size={16} className="inline mr-1" />{" "}
+												<strong>Coffee Helper Mode</strong>
+											</div>
 											<p>Ask me anything about Nespresso capsules! For example:</p>
 											<ul>
 												<li>&quot;I want something strong for the morning&quot;</li>
@@ -1537,10 +1712,10 @@ export default function CoffeeRecommender() {
 										</>
 									) : chemistryMode ? (
 										<>
-											<p>
-												🧪 <strong>Chemistry Mode</strong>{" "}
+											<div style={{ fontWeight: 600 }}>
+												<SparklesIcon size={16} className="inline mr-1" /> <strong>Chemistry Mode</strong>{" "}
 												<span style={{ color: "rgba(250, 204, 144, 0.6)" }}>(Tanka + Ultimate)</span>
-											</p>
+											</div>
 											<p>Explore molecular structures with 2D/3D visualizations! Try asking:</p>
 											<ul>
 												<li>&quot;Show me caffeine molecule&quot;</li>
@@ -1552,9 +1727,10 @@ export default function CoffeeRecommender() {
 										</>
 									) : (
 										<>
-											<p>
-												🤖 <strong>Specialized AI Mode</strong>
-											</p>
+											<div style={{ fontWeight: 600 }}>
+												<GithubCopilotIcon size={16} className="inline mr-1" />{" "}
+												<strong>Specialized AI Mode</strong>
+											</div>
 											<p>
 												I can chat about coffee topics, brewing techniques, origins, and more. Try asking:
 											</p>
@@ -1582,6 +1758,7 @@ export default function CoffeeRecommender() {
 									{msg.products && msg.products.length > 0 && (
 										<div className="chat-products">
 											{msg.products.map((p) => {
+												if (!p || !p.id) return null;
 												// Database uses -vl for vertuo products
 												const baseId = p.id.replace(/-(original|vertuo|vl)$/i, "");
 												const productStock =
@@ -1601,7 +1778,15 @@ export default function CoffeeRecommender() {
 															isOutOfStock ? { opacity: 0.5, filter: "grayscale(50%)" } : undefined
 														}
 													>
-														<Image src={p.image} alt={p.name} width={50} height={35} />
+														{p.image && (
+															<Image
+																src={p.image}
+																alt={p.name}
+																width={50}
+																height={35}
+																unoptimized={true}
+															/>
+														)}
 														<div className="chat-product-info">
 															<strong>{p.name}</strong>
 															<span className="chat-product-intensity">
@@ -1617,11 +1802,14 @@ export default function CoffeeRecommender() {
 															className="chat-add-btn"
 															onClick={() => handleAdd(p)}
 															disabled={isOutOfStock}
-															style={
-																isOutOfStock ? { opacity: 0.5, cursor: "not-allowed" } : undefined
-															}
+															style={{
+																...(isOutOfStock ? { opacity: 0.5, cursor: "not-allowed" } : {}),
+																display: "flex",
+																alignItems: "center",
+																justifyContent: "center",
+															}}
 														>
-															{isOutOfStock ? "✕" : "+"}
+															{isOutOfStock ? <XIcon size={14} /> : "+"}
 														</button>
 													</div>
 												);
@@ -1643,13 +1831,17 @@ export default function CoffeeRecommender() {
 							{chemistryMode && currentMolecule && (
 								<div className="molecule-display">
 									<div className="molecule-header">
-										<h3>🧪 {currentMolecule.name || currentMolecule.chembl_id}</h3>
+										<h3>
+											<SparklesIcon size={20} className="inline mr-2" />{" "}
+											{currentMolecule.name || currentMolecule.chembl_id}
+										</h3>
 										<button
 											className="close-molecule"
 											onClick={() => setCurrentMolecule(null)}
 											title="Close molecule view"
+											style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
 										>
-											✕
+											<XIcon size={18} />
 										</button>
 									</div>
 
@@ -1728,10 +1920,20 @@ export default function CoffeeRecommender() {
 											) : (
 												// Fallback: SDF data for download
 												<div className="sdf-info">
-													<p>
-														📥 <strong>SDF Data Available</strong> - Use PyMOL or similar tools to
-														visualize
-													</p>
+													<div
+														style={{
+															display: "flex",
+															alignItems: "center",
+															gap: "0.5rem",
+															marginBottom: "0.5rem",
+														}}
+													>
+														<ArrowNarrowDownIcon size={18} />
+														<span>
+															<strong>SDF Data Available</strong> - Use PyMOL or similar tools to
+															visualize
+														</span>
+													</div>
 													<button
 														onClick={() => {
 															const blob = new Blob([currentMolecule.sdf || ""], {
@@ -1745,8 +1947,9 @@ export default function CoffeeRecommender() {
 															URL.revokeObjectURL(url);
 														}}
 														className="download-sdf-btn"
+														style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
 													>
-														⬇️ Download SDF
+														<ArrowNarrowDownIcon size={16} /> Download SDF
 													</button>
 													<pre className="sdf-preview">{currentMolecule.sdf?.substring(0, 500)}...</pre>
 												</div>
@@ -1773,18 +1976,20 @@ export default function CoffeeRecommender() {
 								disabled={!isTyping && !chatInput.trim()}
 								className={isTyping ? "stop-btn" : ""}
 							>
-								{isTyping ? "⏹ Stop" : "Send"}
+								{isTyping ? "Stop" : "Send"}
 							</button>
 						</div>
 						<div className="recommender-cta">
-							<button onClick={startNewChat}>🆕 New Chat</button>
+							<button onClick={startNewChat}>
+								<RefreshIcon size={16} className="inline mr-1" /> New Chat
+							</button>
 							<button
 								onClick={() => {
 									saveCurrentChat();
 									setStep("history");
 								}}
 							>
-								📜 History
+								<HistoryCircleIcon size={16} /> History
 							</button>
 							<button onClick={() => setStep("greeting")}>Back</button>
 						</div>
@@ -1793,11 +1998,23 @@ export default function CoffeeRecommender() {
 
 				{step === "history" && (
 					<div className="recommender-history">
-						<h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>Chat History 📜</h3>
+						<h3 style={{ margin: "0 0 12px 0", fontSize: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
+							Chat History <ClockIcon size={18} />
+						</h3>
 						{!isLoggedIn ? (
 							<div style={{ textAlign: "center", padding: "2rem 1rem" }}>
-								<p style={{ color: "rgba(250, 204, 144, 0.8)", fontSize: "1.1rem", margin: "0 0 0.5rem 0" }}>
-									🔒 Chat history is locked
+								<p
+									style={{
+										color: "rgba(250, 204, 144, 0.8)",
+										fontSize: "1.1rem",
+										margin: "0 0 0.5rem 0",
+										display: "flex",
+										alignItems: "center",
+										justifyContent: "center",
+										gap: "8px",
+									}}
+								>
+									<LockIcon size={20} /> Chat history is locked
 								</p>
 								<p style={{ color: "rgba(250, 204, 144, 0.6)", fontSize: "0.9rem", margin: 0 }}>
 									Please log in to access your saved conversations
@@ -1826,7 +2043,7 @@ export default function CoffeeRecommender() {
 											onClick={() => deleteChat(chat.id)}
 											aria-label="Delete chat"
 										>
-											🗑️
+											<TrashIcon size={16} />
 										</button>
 									</div>
 								))}
@@ -1840,7 +2057,9 @@ export default function CoffeeRecommender() {
 
 				{step === "stats" && (
 					<div className="recommender-stats">
-						<h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>Your Kafelot Stats 📊</h3>
+						<h3 style={{ margin: "0 0 12px 0", fontSize: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
+							Your Kafelot Stats <ChartBarIcon size={18} />
+						</h3>
 						<KafelotStats stats={stats} />
 						<KafelotUsage stats={stats} />
 						<div className="recommender-cta">
@@ -1861,7 +2080,7 @@ export default function CoffeeRecommender() {
 				onClick={() => setOpen((v) => !v)}
 				title="Kafelot - Your coffee pilot explorer"
 			>
-				<Image src="/Kafelot.svg" alt="Kafelot" width={24} height={24} priority />
+				<GithubCopilotIcon size={24} />
 			</button>
 			{mounted ? createPortal(dock, document.body) : null}
 			{selectedProduct && (

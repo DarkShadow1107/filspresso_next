@@ -1,15 +1,15 @@
 {
 	"folders": [
 		{
-			"path": "."
-		}
+			"path": ".",
+		},
 	],
 	"settings": {
 		"sqltools.connections": [
 			{
 				"mysqlOptions": {
 					"authProtocol": "default",
-					"enableSsl": "Disabled"
+					"enableSsl": "Disabled",
 				},
 				"ssh": "Disabled",
 				"previewLimit": 50,
@@ -19,8 +19,18 @@
 				"database": "filspresso",
 				"username": "filspresso_user",
 				"name": "Filspresso",
-				"password": "filspresso_secure_2024"
-			}
-		]
-	}
+				"password": "filspresso_secure_2024",
+			},
+			{
+				"ssh": "Disabled",
+				"server": "localhost",
+				"port": 5432,
+				"driver": "PostgreSQL",
+				"name": "FilspressoNext",
+				"password": "filspresso_secure_2024",
+				"username": "filspresso_user",
+				"database": "filspresso",
+			},
+		],
+	},
 }

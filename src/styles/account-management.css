@@ -92,6 +92,9 @@
 	font-weight: 500;
 	position: relative;
 	white-space: nowrap;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
 }
 .account-tabs button.active {
 	color: #ffdba8;
@@ -123,6 +126,9 @@
 	margin: 0;
 	font-size: 1.25rem;
 	color: rgba(255, 255, 255, 0.9);
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
 }
 .card-header button {
 	background: none;

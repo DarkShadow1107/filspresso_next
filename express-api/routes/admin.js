@@ -40,10 +40,6 @@ const isAllowedImage = (file) => {
 	return false;
 };
 
-// Admin credentials (hardcoded as per requirement)
-const ADMIN_USERNAME = "Admin";
-const ADMIN_PASSWORD = "FilspressoNext";
-
 // Simple session store for admin tokens (in production use Redis or similar)
 const adminSessions = new Map();
 
@@ -54,9 +50,7 @@ function generateAdminToken() {
 	return `admin_${Date.now()}_${Math.random().toString(36).substr(2, 16)}`;
 }
 
-/**
- * Admin authentication middleware
- */
+// Admin authentication middleware
 function authenticateAdmin(req, res, next) {
 	const authHeader = req.headers.authorization;
 	if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -221,21 +215,19 @@ router.post("/login", async (req, res) => {
 		}
 
 		client = await pool.connect();
-		const result = await client.query("SELECT * FROM accounts WHERE username = $1", [username]);
+		// Find an admin user record in the database
+		const result = await client.query("SELECT * FROM accounts WHERE username = $1 AND role = 'admin'", [username]);
 
 		if (result.rows.length === 0) {
 			return res.status(401).json({ error: "Invalid credentials" });
 		}
 
 		const user = result.rows[0];
-		const match = await bcrypt.compare(password, user.password_hash);
 
-		if (!match) {
+		// Compare password with database hash
+		const isValid = await bcrypt.compare(password, user.password_hash);
+		if (!isValid) {
 			return res.status(401).json({ error: "Invalid credentials" });
-		}
-
-		if (user.role !== "admin") {
-			return res.status(403).json({ error: "Access denied. Admin privileges required." });
 		}
 
 		const token = generateAdminToken();
@@ -248,7 +240,7 @@ router.post("/login", async (req, res) => {
 			expiresAt: expiresAt.getTime(),
 		});
 
-		// Record session in database
+		// Record session in database for auditing
 		await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at) VALUES ($1, $2, $3)", [
 			user.id,
 			token,

@@ -1,7 +1,21 @@
 "use client";
 
+import React from "react";
 import { CapsuleStats, TIER_BENEFITS, TIER_COLORS, TIER_THRESHOLDS, gradientTextStyle, ConsumptionHistory } from "./types";
 import ConsumptionGraph, { GraphTheme } from "./ConsumptionGraph";
+import {
+	RosetteDiscountCheckIcon,
+	SparklesIcon,
+	ChartBarIcon,
+	FileDescriptionIcon,
+	GearIcon,
+	ClockIcon,
+	PartyPopperIcon,
+	HistoryCircleIcon,
+	CoffeeIcon,
+	ShieldCheck,
+	SimpleCheckedIcon,
+} from "@/icons";
 
 type HoveredGraphPoint = {
 	x: number;
@@ -52,11 +66,21 @@ export function MemberStatusSection({
 		);
 	}
 
-	if (!capsuleStats) {
+	if (!capsuleStats || !capsuleStats.currentTier) {
 		return (
 			<div className="tab-pane fade-in">
 				<div className="card" style={{ textAlign: "center", padding: "3rem" }}>
-					<div style={{ fontSize: "3rem", marginBottom: "1rem" }}>🏆</div>
+					<div
+						style={{
+							fontSize: "3rem",
+							marginBottom: "1rem",
+							display: "flex",
+							justifyContent: "center",
+							color: "#888",
+						}}
+					>
+						<RosetteDiscountCheckIcon size={64} />
+					</div>
 					<p style={{ color: "#888", fontSize: "1.1rem", margin: "0 0 0.5rem 0" }}>Unable to load member status</p>
 					<p style={{ color: "#666", fontSize: "0.9rem", margin: 0 }}>Please try again later</p>
 				</div>
@@ -95,8 +119,12 @@ export function MemberStatusSection({
 					/>
 
 					{/* Tier Icon */}
-					<div style={{ fontSize: "4rem", marginBottom: "0.5rem" }}>
-						{TIER_BENEFITS[capsuleStats.currentTier.name]?.icon || "🌱"}
+					<div style={{ fontSize: "4rem", marginBottom: "0.5rem", display: "flex", justifyContent: "center" }}>
+						{TIER_BENEFITS[capsuleStats.currentTier.name]?.iconComponent ? (
+							React.createElement(TIER_BENEFITS[capsuleStats.currentTier.name].iconComponent, { size: 64 })
+						) : (
+							<CoffeeIcon size={64} />
+						)}
 					</div>
 
 					{/* Tier Name */}
@@ -188,12 +216,15 @@ export function MemberStatusSection({
 								border: "1px solid rgba(245, 158, 11, 0.3)",
 								borderRadius: "8px",
 								padding: "0.75rem 1.5rem",
-								display: "inline-block",
+								display: "inline-flex",
+								alignItems: "center",
+								gap: "0.5rem",
 								color: "#f59e0b",
 								fontWeight: 600,
 							}}
 						>
-							👑 You've reached the highest tier!
+							<ShieldCheck size={20} />
+							<span>You've reached the highest tier!</span>
 						</div>
 					)}
 
@@ -206,7 +237,9 @@ export function MemberStatusSection({
 
 			{/* Tier Progress Overview */}
 			<div className="card" style={{ marginBottom: "1.5rem" }}>
-				<h2 style={{ marginBottom: "1.5rem" }}>🏅 Tier Progression</h2>
+				<h2 style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+					<RosetteDiscountCheckIcon size={28} /> Tier Progression
+				</h2>
 				<div
 					style={{
 						display: "flex",
@@ -279,9 +312,12 @@ export function MemberStatusSection({
 										fontSize: isCurrent ? "1.5rem" : "1.25rem",
 										boxShadow: isCurrent ? `0 0 20px ${colors.primary}60` : "none",
 										transition: "all 0.3s ease",
+										color: isCurrentOrPast ? "#fff" : "#444",
 									}}
 								>
-									{tierInfo.icon}
+									{tierInfo.iconComponent
+										? React.createElement(tierInfo.iconComponent, { size: isCurrent ? 28 : 22 })
+										: tierInfo.icon}
 								</div>
 								<div
 									style={{
@@ -306,8 +342,11 @@ export function MemberStatusSection({
 
 			{/* Current Tier Benefits */}
 			<div className="card" style={{ marginBottom: "1.5rem" }}>
-				<h2 style={{ marginBottom: "1rem" }}>
-					{TIER_BENEFITS[capsuleStats.currentTier.name]?.icon} Your {capsuleStats.currentTier.name} Benefits
+				<h2 style={{ marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+					{TIER_BENEFITS[capsuleStats.currentTier.name]?.iconComponent
+						? React.createElement(TIER_BENEFITS[capsuleStats.currentTier.name].iconComponent, { size: 24 })
+						: TIER_BENEFITS[capsuleStats.currentTier.name]?.icon}
+					<span>Your {capsuleStats.currentTier.name} Benefits</span>
 				</h2>
 				<div
 					style={{
@@ -329,15 +368,15 @@ export function MemberStatusSection({
 								border: "1px solid #333",
 							}}
 						>
-							<span
+							<div
 								style={{
 									color: TIER_COLORS[capsuleStats.currentTier.name]?.primary || "#10b981",
-									fontSize: "1.1rem",
 									flexShrink: 0,
+									marginTop: "2px",
 								}}
 							>
-								✓
-							</span>
+								<SimpleCheckedIcon size={18} />
+							</div>
 							<span style={{ color: "#ccc", fontSize: "0.95rem" }}>{benefit}</span>
 						</div>
 					))}
@@ -346,7 +385,9 @@ export function MemberStatusSection({
 
 			{/* Stats Summary */}
 			<div className="card" style={{ marginBottom: "1.5rem" }}>
-				<h2 style={{ marginBottom: "1.5rem" }}>📊 Your Coffee Journey</h2>
+				<h2 style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+					<ChartBarIcon size={28} /> Your Coffee Journey
+				</h2>
 				<div
 					style={{
 						display: "grid",
@@ -363,9 +404,14 @@ export function MemberStatusSection({
 							padding: "1.5rem",
 							textAlign: "center",
 							animation: "pager-fade-slide 0.35s ease",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
 						}}
 					>
-						<div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🧾</div>
+						<div style={{ color: "#60a5fa", marginBottom: "0.75rem" }}>
+							<FileDescriptionIcon size={40} />
+						</div>
 						<div style={{ fontSize: "2rem", fontWeight: 700, color: "#60a5fa" }}>
 							{(capsuleStats.totalOrders ?? 0).toLocaleString()}
 						</div>
@@ -381,9 +427,14 @@ export function MemberStatusSection({
 							padding: "1.5rem",
 							textAlign: "center",
 							animation: "pager-fade-slide 0.35s ease",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
 						}}
 					>
-						<div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🔧</div>
+						<div style={{ color: "#34d399", marginBottom: "0.75rem" }}>
+							<GearIcon size={40} />
+						</div>
 						<div style={{ fontSize: "2rem", fontWeight: 700, color: "#34d399" }}>
 							{(capsuleStats.totalRepairs ?? 0).toLocaleString()}
 						</div>
@@ -397,9 +448,14 @@ export function MemberStatusSection({
 							borderRadius: "12px",
 							padding: "1.5rem",
 							textAlign: "center",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
 						}}
 					>
-						<div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>☕</div>
+						<div style={{ color: "#c4a77d", marginBottom: "0.75rem" }}>
+							<CoffeeIcon size={40} />
+						</div>
 						<div style={{ fontSize: "2rem", fontWeight: 700, ...gradientTextStyle }}>
 							{capsuleStats.totalCapsules.toLocaleString()}
 						</div>
@@ -414,9 +470,19 @@ export function MemberStatusSection({
 							borderRadius: "12px",
 							padding: "1.5rem",
 							textAlign: "center",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
 						}}
 					>
-						<div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📅</div>
+						<div
+							style={{
+								color: TIER_COLORS[capsuleStats.currentTier.name]?.primary || "#888",
+								marginBottom: "0.75rem",
+							}}
+						>
+							<ClockIcon size={40} />
+						</div>
 						<div
 							style={{
 								fontSize: "2rem",
@@ -437,12 +503,17 @@ export function MemberStatusSection({
 							borderRadius: "12px",
 							padding: "1.5rem",
 							textAlign: "center",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
 						}}
 					>
-						<div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🎂</div>
+						<div style={{ color: "#60a5fa", marginBottom: "0.75rem" }}>
+							<PartyPopperIcon size={40} />
+						</div>
 						<div style={{ fontSize: "2rem", fontWeight: 700, color: "#60a5fa" }}>
 							{new Date(capsuleStats.accountCreatedAt).toLocaleDateString("en-US", {
-								month: "short",
+								month: "long",
 								year: "numeric",
 							})}
 						</div>
@@ -457,9 +528,14 @@ export function MemberStatusSection({
 							borderRadius: "12px",
 							padding: "1.5rem",
 							textAlign: "center",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
 						}}
 					>
-						<div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🟤</div>
+						<div style={{ color: "#c4a77d", marginBottom: "0.75rem" }}>
+							<CoffeeIcon size={40} />
+						</div>
 						<div style={{ fontSize: "2rem", fontWeight: 700, color: "#c4a77d" }}>
 							{(capsuleStats.originalCapsules ?? 0).toLocaleString()}
 						</div>
@@ -474,9 +550,14 @@ export function MemberStatusSection({
 							borderRadius: "12px",
 							padding: "1.5rem",
 							textAlign: "center",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
 						}}
 					>
-						<div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🟣</div>
+						<div style={{ color: "#8b5cf6", marginBottom: "0.75rem" }}>
+							<CoffeeIcon size={40} />
+						</div>
 						<div style={{ fontSize: "2rem", fontWeight: 700, color: "#8b5cf6" }}>
 							{(capsuleStats.vertuoCapsules ?? 0).toLocaleString()}
 						</div>
@@ -516,7 +597,7 @@ export function MemberStatusSection({
 								fontWeight: 600,
 							}}
 						>
-							<span style={{ fontSize: "1.5rem" }}>📊</span>
+							<ChartBarIcon size={24} />
 							<span>Consumption Analytics</span>
 						</h2>
 						<p style={{ margin: "0.5rem 0 0 0", color: "#888", fontSize: "0.9rem" }}>Breakdown by system type</p>
@@ -620,7 +701,19 @@ export function MemberStatusSection({
 							marginBottom: "1rem",
 						}}
 					>
-						<div style={{ fontSize: "0.9rem", color: "#888", fontWeight: 500 }}>☕ Your Coffee System Preference</div>
+						<div
+							style={{
+								fontSize: "0.9rem",
+								color: "#888",
+								fontWeight: 500,
+								display: "flex",
+								alignItems: "center",
+								gap: "0.5rem",
+							}}
+						>
+							<CoffeeIcon size={18} />
+							<span>Your Coffee System Preference</span>
+						</div>
 						{(() => {
 							const originalCapsules = capsuleStats.originalCapsules ?? 0;
 							const vertuoCapsules = capsuleStats.vertuoCapsules ?? 0;
@@ -645,7 +738,7 @@ export function MemberStatusSection({
 											gap: "0.35rem",
 										}}
 									>
-										<span>🟤</span> Original Lover
+										<CoffeeIcon size={14} /> Original Lover
 									</div>
 								);
 							} else if (totalVertuo > totalOriginal * 1.2) {
@@ -664,7 +757,7 @@ export function MemberStatusSection({
 											gap: "0.35rem",
 										}}
 									>
-										<span>🟣</span> Vertuo Enthusiast
+										<CoffeeIcon size={14} /> Vertuo Enthusiast
 									</div>
 								);
 							} else {
@@ -684,7 +777,7 @@ export function MemberStatusSection({
 											gap: "0.35rem",
 										}}
 									>
-										<span>✨</span> Balanced Connoisseur
+										<SparklesIcon size={14} /> Balanced Connoisseur
 									</div>
 								);
 							}
@@ -716,11 +809,11 @@ export function MemberStatusSection({
 												display: "flex",
 												alignItems: "center",
 												justifyContent: "center",
-												fontSize: "0.9rem",
 												boxShadow: "0 0 12px rgba(196, 167, 125, 0.4)",
+												color: "#fff",
 											}}
 										>
-											🟤
+											<CoffeeIcon size={18} />
 										</div>
 										<span style={{ fontWeight: 700, color: "#c4a77d", fontSize: "1.1rem" }}>
 											{originalPct.toFixed(0)}%
@@ -823,11 +916,11 @@ export function MemberStatusSection({
 												display: "flex",
 												alignItems: "center",
 												justifyContent: "center",
-												fontSize: "0.9rem",
 												boxShadow: "0 0 12px rgba(139, 92, 246, 0.4)",
+												color: "#fff",
 											}}
 										>
-											🟣
+											<CoffeeIcon size={18} />
 										</div>
 									</div>
 								</div>
@@ -889,7 +982,9 @@ export function MemberStatusSection({
 			{/* Yearly History */}
 			{capsuleStats.yearlyHistory.length > 0 && (
 				<div className="card">
-					<h2 style={{ marginBottom: "1.5rem" }}>📜 Yearly Tier History</h2>
+					<h2 style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+						<HistoryCircleIcon size={28} /> Yearly Tier History
+					</h2>
 					<div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
 						{capsuleStats.yearlyHistory.map((yearData) => {
 							const tierColors = TIER_COLORS[yearData.tier];
@@ -918,10 +1013,14 @@ export function MemberStatusSection({
 												display: "flex",
 												alignItems: "center",
 												justifyContent: "center",
-												fontSize: "1.5rem",
+												color: tierColors?.primary || "#888",
 											}}
 										>
-											{TIER_BENEFITS[yearData.tier]?.icon || "🌱"}
+											{TIER_BENEFITS[yearData.tier]?.iconComponent ? (
+												React.createElement(TIER_BENEFITS[yearData.tier].iconComponent, { size: 24 })
+											) : (
+												<CoffeeIcon size={24} />
+											)}
 										</div>
 										<div>
 											<div style={{ fontWeight: 600, color: "#e5e5e5", fontSize: "1.1rem" }}>
@@ -942,13 +1041,41 @@ export function MemberStatusSection({
 													</span>
 												)}
 											</div>
-											<div style={{ fontSize: "0.85rem", color: "#888", marginTop: "0.25rem" }}>
-												{yearData.capsules.toLocaleString()} capsules • {yearData.orders} order
-												{yearData.orders !== 1 ? "s" : ""}
+											<div
+												style={{
+													fontSize: "0.85rem",
+													color: "#888",
+													marginTop: "0.25rem",
+													display: "flex",
+													alignItems: "center",
+													flexWrap: "wrap",
+													gap: "0.5rem",
+												}}
+											>
+												<span>
+													{yearData.capsules.toLocaleString()} capsules • {yearData.orders} order
+													{yearData.orders !== 1 ? "s" : ""}
+												</span>
 												{(yearData.originalCapsules > 0 || yearData.vertuoCapsules > 0) && (
-													<span style={{ marginLeft: "0.5rem", color: "#666" }}>
-														(🟤 {(yearData.originalCapsules ?? 0).toLocaleString()} • 🟣{" "}
-														{(yearData.vertuoCapsules ?? 0).toLocaleString()})
+													<span
+														style={{
+															display: "flex",
+															alignItems: "center",
+															gap: "0.5rem",
+															color: "#666",
+														}}
+													>
+														(
+														<span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+															<CoffeeIcon size={12} style={{ color: "#c4a77d" }} />
+															{(yearData.originalCapsules ?? 0).toLocaleString()}
+														</span>
+														<span>•</span>
+														<span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+															<CoffeeIcon size={12} style={{ color: "#8b5cf6" }} />
+															{(yearData.vertuoCapsules ?? 0).toLocaleString()}
+														</span>
+														)
 													</span>
 												)}
 											</div>

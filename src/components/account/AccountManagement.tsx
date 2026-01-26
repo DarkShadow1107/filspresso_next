@@ -22,6 +22,16 @@ import {
 	MaintenancePopup,
 } from "./sections";
 
+import {
+	UserCheckIcon as UserIcon,
+	RosetteDiscountIcon as StatusIcon,
+	ShieldCheck as SubscriptionIcon,
+	CoffeeIcon,
+	CreditCard as CreditCardIcon,
+	HistoryCircleIcon as HistoryIcon,
+	LogoutIcon,
+} from "@/icons";
+
 // Import shared types and utilities
 import {
 	AccountData,
@@ -76,7 +86,7 @@ export default function AccountManagement() {
 	const [account, setAccount] = useState<AccountData | null>(null);
 	const [accountId, setAccountId] = useState<number | null>(null);
 	const [activeTab, setActiveTab] = useState<"profile" | "status" | "subscriptions" | "machines" | "payments" | "history">(
-		"profile"
+		"profile",
 	);
 
 	// Profile State
@@ -137,7 +147,7 @@ export default function AccountManagement() {
 	const [mounted, setMounted] = useState(false);
 	const getCoffeeProductImage = useCallback(
 		(productId: string) => getProductImage(productId, coffeeProducts),
-		[coffeeProducts]
+		[coffeeProducts],
 	);
 
 	// Spending State
@@ -167,6 +177,7 @@ export default function AccountManagement() {
 					username: accountData.username,
 					email: accountData.email,
 					icon: accountData.icon,
+					created_at: accountData.created_at,
 				});
 				setEditFullName(accountData.full_name || "");
 				setEditEmail(accountData.email);
@@ -180,8 +191,13 @@ export default function AccountManagement() {
 				})
 					.then((res) => res.json())
 					.then((data) => {
-						if (data.user?.subscription) {
-							setSubscription(data.user.subscription.toLowerCase() as SubscriptionTier);
+						if (data.user) {
+							if (data.user.subscription) {
+								setSubscription(data.user.subscription.toLowerCase() as SubscriptionTier);
+							}
+							if (data.user.created_at) {
+								setAccount((prev) => (prev ? { ...prev, created_at: data.user.created_at } : null));
+							}
 						}
 						// Store account ID for graph theme saving
 						if (data.user?.id) {
@@ -326,7 +342,7 @@ export default function AccountManagement() {
 												lowerName.includes("machine") ||
 												lowerId.includes("machine") ||
 												machineCollections.some((c) =>
-													c.groups.some((g) => g.products.some((p) => p.id === item.product_id))
+													c.groups.some((g) => g.products.some((p) => p.id === item.product_id)),
 												);
 
 											if (isMachine || isForfait) {
@@ -391,7 +407,7 @@ export default function AccountManagement() {
 							if (ordersData.orders && Array.isArray(ordersData.orders)) {
 								ordersTotal = ordersData.orders.reduce(
 									(sum: number, o: Order) => sum + (Number(o.total) || 0),
-									0
+									0,
 								);
 							}
 							setTotalSpending({
@@ -491,7 +507,7 @@ export default function AccountManagement() {
 				setExpandedOrders((prev) => new Set(prev).add(orderId));
 			}
 		},
-		[expandedOrders, orders]
+		[expandedOrders, orders],
 	);
 
 	const handleSignOut = useCallback(() => {
@@ -525,7 +541,7 @@ export default function AccountManagement() {
 			}
 
 			const { token } = JSON.parse(session);
-			const res = await fetch("http://localhost:4000/api/accounts/update", {
+			const res = await fetch(`${API_BASE}/api/accounts/update`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -600,7 +616,7 @@ export default function AccountManagement() {
 				notify("Error removing card.", 3000, "error", "account");
 			}
 		},
-		[notify]
+		[notify],
 	);
 
 	const getStatusColor = (status: string) => {
@@ -662,10 +678,10 @@ export default function AccountManagement() {
 				const weatherMsg = data.isBadWeather ? " (Weather delay applied)" : "";
 
 				notify(
-					`Repair request submitted! Order #${data.orderNumber}. Est. duration: ${data.estimatedDuration} days${weatherMsg}`,
+					`Repair request submitted! Order #${data.orderNumber}. Estimated duration: ${data.estimatedDuration} days${weatherMsg}`,
 					8000,
 					"success",
-					"account"
+					"account",
 				);
 				setRepairPopup({ open: false, machine: null });
 				setSelectedRepairPaymentId(null);
@@ -701,32 +717,39 @@ export default function AccountManagement() {
 								? "Free Plan"
 								: `${subscription.charAt(0).toUpperCase() + subscription.slice(1)} Plan`}
 						</span>
-						<span className="badge outline">Member since 2025</span>
+						<span className="badge outline">
+							Member since{" "}
+							{account.created_at ? new Date(account.created_at).getFullYear() : new Date().getFullYear()}
+						</span>
 					</div>
 				</div>
-				<button className="sign-out-btn" onClick={handleSignOut}>
-					Sign Out
+				<button
+					className="sign-out-btn"
+					onClick={handleSignOut}
+					style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+				>
+					<LogoutIcon size={18} /> Log out
 				</button>
 			</div>
 
 			<div className="account-tabs">
 				<button className={activeTab === "profile" ? "active" : ""} onClick={() => setActiveTab("profile")}>
-					👤 Profile
+					<UserIcon size={18} /> Profile
 				</button>
 				<button className={activeTab === "status" ? "active" : ""} onClick={() => setActiveTab("status")}>
-					🏆 Member Status
+					<StatusIcon size={18} /> Member Status
 				</button>
 				<button className={activeTab === "subscriptions" ? "active" : ""} onClick={() => setActiveTab("subscriptions")}>
-					🎫 Subscription
+					<SubscriptionIcon size={18} /> Subscription
 				</button>
 				<button className={activeTab === "machines" ? "active" : ""} onClick={() => setActiveTab("machines")}>
-					☕ Machines
+					<CoffeeIcon size={18} /> Machines
 				</button>
 				<button className={activeTab === "payments" ? "active" : ""} onClick={() => setActiveTab("payments")}>
-					💳 Payments
+					<CreditCardIcon size={18} /> Payments
 				</button>
 				<button className={activeTab === "history" ? "active" : ""} onClick={() => setActiveTab("history")}>
-					📜 Chat History
+					<HistoryIcon size={18} /> Chat History
 				</button>
 			</div>
 

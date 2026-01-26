@@ -2,6 +2,17 @@
 
 import { createPortal } from "react-dom";
 import { UserMachine } from "./types";
+import {
+	CoffeeIcon,
+	HistoryCircleIcon as CalendarIcon,
+	SparklesIcon,
+	TrashIcon,
+	WashingMachineIcon as DropletsIcon,
+	ShieldCheck as ShieldCheckIcon,
+	TriangleAlertIcon,
+	SimpleCheckedIcon,
+	XIcon as CircleXIcon,
+} from "@/icons";
 
 interface MaintenancePopupProps {
 	isOpen: boolean;
@@ -66,13 +77,14 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 							background: "none",
 							border: "none",
 							color: "#888",
-							fontSize: "1.5rem",
 							cursor: "pointer",
 							padding: "0.25rem",
-							lineHeight: 1,
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
 						}}
 					>
-						×
+						<CircleXIcon size={24} />
 					</button>
 				</div>
 
@@ -80,7 +92,18 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 				<div style={{ padding: "1rem 1.25rem" }}>
 					{/* General Care Tips */}
 					<div style={{ marginBottom: "1.25rem" }}>
-						<h4 style={{ color: "#c4a77d", marginBottom: "0.75rem", fontSize: "0.9rem" }}>☕ Care Tips</h4>
+						<h4
+							style={{
+								color: "#c4a77d",
+								marginBottom: "0.75rem",
+								fontSize: "0.9rem",
+								display: "flex",
+								alignItems: "center",
+								gap: "0.5rem",
+							}}
+						>
+							<CoffeeIcon size={18} /> Care Tips
+						</h4>
 						<ul
 							style={{
 								listStyle: "none",
@@ -98,9 +121,12 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 									borderRadius: "6px",
 									color: "#ccc",
 									fontSize: "0.8rem",
+									display: "flex",
+									alignItems: "center",
+									gap: "0.5rem",
 								}}
 							>
-								✓ Empty the drip tray and capsule container daily
+								<SimpleCheckedIcon size={14} color="#10b981" /> Empty the drip tray and capsule container daily
 							</li>
 							<li
 								style={{
@@ -109,9 +135,12 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 									borderRadius: "6px",
 									color: "#ccc",
 									fontSize: "0.8rem",
+									display: "flex",
+									alignItems: "center",
+									gap: "0.5rem",
 								}}
 							>
-								✓ Clean the water tank weekly with fresh water
+								<SimpleCheckedIcon size={14} color="#10b981" /> Clean the water tank weekly with fresh water
 							</li>
 							<li
 								style={{
@@ -120,9 +149,12 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 									borderRadius: "6px",
 									color: "#ccc",
 									fontSize: "0.8rem",
+									display: "flex",
+									alignItems: "center",
+									gap: "0.5rem",
 								}}
 							>
-								✓ Wipe the machine exterior with a damp cloth
+								<SimpleCheckedIcon size={14} color="#10b981" /> Wipe the machine exterior with a damp cloth
 							</li>
 							<li
 								style={{
@@ -131,16 +163,30 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 									borderRadius: "6px",
 									color: "#ccc",
 									fontSize: "0.8rem",
+									display: "flex",
+									alignItems: "center",
+									gap: "0.5rem",
 								}}
 							>
-								✓ Store in a dry place away from direct sunlight
+								<SimpleCheckedIcon size={14} color="#10b981" /> Store in a dry place away from direct sunlight
 							</li>
 						</ul>
 					</div>
 
 					{/* Scheduled Maintenance */}
 					<div style={{ marginBottom: "1.25rem" }}>
-						<h4 style={{ color: "#c4a77d", marginBottom: "0.75rem", fontSize: "0.9rem" }}>📅 Scheduled Tasks</h4>
+						<h4
+							style={{
+								color: "#c4a77d",
+								marginBottom: "0.75rem",
+								fontSize: "0.9rem",
+								display: "flex",
+								alignItems: "center",
+								gap: "0.5rem",
+							}}
+						>
+							<CalendarIcon size={18} /> Scheduled Tasks
+						</h4>
 						<div
 							style={{
 								display: "grid",
@@ -165,7 +211,18 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 										marginBottom: "0.25rem",
 									}}
 								>
-									<span style={{ color: "#ffc107", fontWeight: 600, fontSize: "0.8rem" }}>🧴 Descaling</span>
+									<span
+										style={{
+											color: "#ffc107",
+											fontWeight: 600,
+											fontSize: "0.8rem",
+											display: "flex",
+											alignItems: "center",
+											gap: "0.4rem",
+										}}
+									>
+										<SparklesIcon size={14} /> Descaling
+									</span>
 								</div>
 								<span
 									style={{
@@ -194,7 +251,18 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 										marginBottom: "0.25rem",
 									}}
 								>
-									<span style={{ color: "#2196f3", fontWeight: 600, fontSize: "0.8rem" }}>🧹 Deep Clean</span>
+									<span
+										style={{
+											color: "#2196f3",
+											fontWeight: 600,
+											fontSize: "0.8rem",
+											display: "flex",
+											alignItems: "center",
+											gap: "0.4rem",
+										}}
+									>
+										<TrashIcon size={14} /> Deep Clean
+									</span>
 								</div>
 								<span
 									style={{
@@ -223,8 +291,17 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 										marginBottom: "0.25rem",
 									}}
 								>
-									<span style={{ color: "#4caf50", fontWeight: 600, fontSize: "0.8rem" }}>
-										💧 Filter Change
+									<span
+										style={{
+											color: "#4caf50",
+											fontWeight: 600,
+											fontSize: "0.8rem",
+											display: "flex",
+											alignItems: "center",
+											gap: "0.4rem",
+										}}
+									>
+										<DropletsIcon size={14} /> Filter Change
 									</span>
 								</div>
 								<span
@@ -257,7 +334,13 @@ export default function MaintenancePopup({ isOpen, machine, onClose }: Maintenan
 								gap: "0.5rem",
 							}}
 						>
-							<span style={{ fontSize: "1.2rem" }}>{machine.is_under_warranty ? "🛡️" : "⚠️"}</span>
+							<span style={{ fontSize: "1.2rem", display: "flex", alignItems: "center" }}>
+								{machine.is_under_warranty ? (
+									<ShieldCheckIcon size={24} color="#4caf50" />
+								) : (
+									<TriangleAlertIcon size={24} color="#f44336" />
+								)}
+							</span>
 							<div>
 								<div
 									style={{

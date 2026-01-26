@@ -9,6 +9,17 @@ import type { CoffeeProduct } from "@/data/coffee";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
 import type { WeatherData } from "@/lib/weather";
+import {
+	ShoppingCartIcon,
+	TrashIcon,
+	RocketIcon,
+	TriangleAlertIcon,
+	StarIcon,
+	CoffeeIcon,
+	SimpleCheckedIcon,
+	FlameIcon,
+	XIcon,
+} from "@/icons";
 
 type PopularProduct = {
 	product_id: string;
@@ -80,7 +91,7 @@ export default function Cart() {
 		const fetchWeather = async () => {
 			try {
 				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-				const res = await fetch(`${API_BASE}/api/weather`);
+				const res = await fetch(`${API_BASE}/api/weather`, { keepalive: true });
 				if (res.ok) {
 					const data = await res.json();
 					setWeather(data);
@@ -95,7 +106,7 @@ export default function Cart() {
 		const fetchPopular = async () => {
 			try {
 				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-				const res = await fetch(`${API_BASE}/api/orders/popular?limit=7`);
+				const res = await fetch(`${API_BASE}/api/orders/popular?limit=7`, { keepalive: true });
 				if (res.ok) {
 					const data = await res.json();
 					setPopularProducts(data.products || []);
@@ -110,7 +121,7 @@ export default function Cart() {
 		const fetchStock = async () => {
 			try {
 				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-				const res = await fetch(`${API_BASE}/api/products/coffee`);
+				const res = await fetch(`${API_BASE}/api/products/coffee`, { keepalive: true });
 				if (res.ok) {
 					const data = await res.json();
 					const map: Record<string, StockInfo> = {};
@@ -194,21 +205,13 @@ export default function Cart() {
 	const shippingFee = hasFreeShipping ? 0 : 24.99;
 	const finalTotal = currentSum + shippingFee;
 
-	// Tier icons for display
-	const tierIcons: Record<string, string> = {
-		None: "☕",
-		Connoisseur: "🎖️",
-		Expert: "⭐",
-		Master: "🏆",
-		Virtuoso: "💎",
-		Ambassador: "👑",
-	};
-
 	return (
 		<>
 			<div className="cart-container">
 				<div className="cart-summary-box">
-					<h2 className="cart-title">🛍️ Shopping Bag Summary</h2>
+					<h2 className="cart-title" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+						<ShoppingCartIcon size={24} /> Shopping Bag Summary
+					</h2>
 					<div className="cart-stats">
 						<div className="stat-item" suppressHydrationWarning>
 							<span className="stat-label">Items:</span>
@@ -231,7 +234,7 @@ export default function Cart() {
 								}}
 							>
 								<span className="stat-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-									<span>{tierIcons[memberDiscount.tier] || "🎖️"}</span>
+									<StarIcon size={16} />
 									<span>
 										{memberDiscount.tier} Discount ({memberDiscount.percent}%):
 									</span>
@@ -247,7 +250,12 @@ export default function Cart() {
 							<span className="stat-value shipping-info">
 								{shippingFee === 0 ? (
 									<>
-										<span className="free-shipping">FREE ✓</span>
+										<span
+											className="free-shipping"
+											style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
+										>
+											FREE <SimpleCheckedIcon size={14} />
+										</span>
 										{["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) &&
 											currentSum < 200 && (
 												<span className="shipping-note" style={{ color: "rgba(100, 255, 150, 0.8)" }}>
@@ -271,7 +279,7 @@ export default function Cart() {
 					</div>
 					{weather?.hourly && weather.hourly.precipitation_probability[0] > 50 && (
 						<div className="weather-shipping-warning">
-							<span className="weather-warning-icon">🌧️</span>
+							<TriangleAlertIcon size={18} />
 							<span className="weather-warning-text">
 								{weather.hourly.precipitation_probability[0] >= 80
 									? "Heavy rain expected – delivery may be delayed"
@@ -287,10 +295,18 @@ export default function Cart() {
 							onClick={handlePlaceOrder}
 							disabled={!hasItems}
 						>
-							{hasItems ? "🚀 Place Order" : "🛒 Bag is Empty"}
+							{hasItems ? (
+								<>
+									<RocketIcon size={22} /> <span>Place Order</span>
+								</>
+							) : (
+								<>
+									<ShoppingCartIcon size={22} /> <span>Bag is Empty</span>
+								</>
+							)}
 						</button>
 						<button id="resetButton" type="button" onClick={() => reset()} disabled={!hasItems}>
-							🗑️ Empty Bag
+							<TrashIcon size={22} /> <span>Empty Bag</span>
 						</button>
 					</div>
 				</div>
@@ -403,8 +419,9 @@ export default function Cart() {
 												onClick={() => removeItem(item.id)}
 												aria-label="Remove item"
 												title="Remove from bag"
+												style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
 											>
-												×
+												<XIcon size={18} />
 											</button>
 										</div>
 									</div>
@@ -414,8 +431,12 @@ export default function Cart() {
 					</div>
 				) : (
 					<div className="empty-cart-message">
-						<div className="empty-icon">🛒</div>
-						<p className="empty-text">Your shopping bag is empty</p>
+						<div className="empty-icon-row">
+							<div className="empty-icon">
+								<ShoppingCartIcon size={40} color="#ae8966" />
+							</div>
+							<p className="empty-text">Your shopping bag is empty</p>
+						</div>
 						<p className="empty-subtext">Add some delicious coffee capsules to get started!</p>
 					</div>
 				)}
@@ -423,7 +444,9 @@ export default function Cart() {
 				{/* Members Also Buy Section */}
 				{popularProducts.length > 0 && (
 					<div className="members-also-buy">
-						<h3 className="members-also-buy-title">☕ Members Also Buy</h3>
+						<h3 className="members-also-buy-title">
+							<CoffeeIcon size={24} /> Members Also Buy
+						</h3>
 						<div className="popular-products-carousel">
 							{popularProducts.map((pop) => {
 								const product = getProductDataById(pop.product_id);
@@ -448,15 +471,21 @@ export default function Cart() {
 												<div className="popular-product-price">{formatRon(product.priceRon)}</div>
 											)}
 											{stockBadge}
-											<div className="popular-product-orders">🔥 {pop.total_ordered} ordered</div>
+											<div
+												className="popular-product-orders"
+												style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}
+											>
+												<FlameIcon size={14} /> {pop.total_ordered} ordered
+											</div>
 										</div>
 										<button
 											className="popular-add-btn"
 											onClick={() => handleAddPopularItem(pop.product_id)}
 											disabled={alreadyInCart}
 											title={alreadyInCart ? "Already in bag" : "Add to bag"}
+											style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
 										>
-											{alreadyInCart ? "✓" : "+"}
+											{alreadyInCart ? <SimpleCheckedIcon size={16} /> : "+"}
 										</button>
 									</div>
 								);

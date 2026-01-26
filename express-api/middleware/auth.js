@@ -57,11 +57,11 @@ async function authenticate(req, res, next) {
 		}
 
 		// Get user from database
-		const conn = await pool.getConnection();
 		try {
-			const [user] = await conn.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = ?", [
+			const result = await pool.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = $1", [
 				decoded.id,
 			]);
+			const user = result.rows[0];
 
 			if (!user) {
 				return res.status(401).json({ error: "User not found" });
@@ -69,8 +69,9 @@ async function authenticate(req, res, next) {
 
 			req.user = user;
 			next();
-		} finally {
-			conn.release();
+		} catch (dbError) {
+			console.error("DB Auth error:", dbError);
+			return res.status(500).json({ error: "Database error during authentication" });
 		}
 	} catch (error) {
 		console.error("Auth error:", error);
@@ -98,14 +99,13 @@ async function optionalAuth(req, res, next) {
 			return next();
 		}
 
-		const conn = await pool.getConnection();
 		try {
-			const [user] = await conn.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = ?", [
+			const result = await pool.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = $1", [
 				decoded.id,
 			]);
-			req.user = user || null;
-		} finally {
-			conn.release();
+			req.user = result.rows[0] || null;
+		} catch (err) {
+			req.user = null;
 		}
 
 		next();

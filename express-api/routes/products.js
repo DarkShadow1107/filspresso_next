@@ -310,25 +310,37 @@ function mapMachineRow(row) {
 	const notes = parseNotes(row.notes);
 	const extraClass = parseNotes(row.extra_class);
 
+	// If the database already has a full path for the image, use it (ensuring leading slash)
+	// This avoids fragile directory reconstruction when we already have the correct path.
+	if (row.image && row.image.includes("/")) {
+		let imageUrl = row.image;
+		if (!imageUrl.startsWith("/")) imageUrl = "/" + imageUrl;
+		return {
+			productId: row.product_id,
+			productType: row.product_type,
+			category: row.category,
+			name: row.name,
+			description: row.description,
+			notes: Array.isArray(notes) ? notes : [],
+			image: imageUrl,
+			boxClass: row.box_class || null,
+			wrapperClass: row.wrapper_class || null,
+			unitLabel: row.unit_label || null,
+			priceClass: row.price_class || null,
+			priceText: row.price_text || null,
+			priceRon: row.price !== undefined ? row.price : 0,
+			stock: row.stock !== undefined ? row.stock : 0,
+			stockStatus: row.stock_status || "out_of_stock",
+			extraClass: Array.isArray(extraClass) ? extraClass : [],
+		};
+	}
+
 	const typeDir = resolveTypeDir(row.product_type, "Original");
 	const category = row.category || "Espresso Machines";
 	const categoryDir = resolveMachineCategoryFolder(row.product_type, category);
 
-	// Prefer a DB-provided image filename (or legacy imported image path) over product name.
-	let filename = row.image || row.name;
-	if (typeof filename === "string" && filename.includes("/")) {
-		filename = filename.split("/").pop();
-	}
-	// Extract extension from legacy image field if present
+	let filename = row.name;
 	let extFromImage = null;
-	if (typeof filename === "string" && filename.includes(".")) {
-		const parts = filename.split(".");
-		const extCandidate = parts[parts.length - 1].toLowerCase();
-		if (VALID_IMAGE_EXTENSIONS.has(extCandidate)) {
-			extFromImage = extCandidate;
-			filename = parts.slice(0, -1).join(".");
-		}
-	}
 
 	const subPath = path.join("Machines", typeDir, categoryDir);
 	const extension = resolveImageExtension(subPath, filename, row.image_extension || extFromImage || "avif");
@@ -516,7 +528,7 @@ router.get("/machines/:productId", async (req, res) => {
 				product: mapMachineRow(product),
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get machine product error:", error);

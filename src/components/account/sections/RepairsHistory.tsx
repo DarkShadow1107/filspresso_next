@@ -2,6 +2,19 @@
 
 import Image from "next/image";
 import { Repair, formatDate, gradientTextStyle, getCardTypeImage } from "./types";
+import {
+	ArrowNarrowLeftIcon,
+	ArrowNarrowRightIcon,
+	ClockIcon,
+	TruckElectricIcon,
+	MagnifierIcon,
+	GearIcon,
+	BulbSvg,
+	CheckedIcon,
+	PartyPopperIcon,
+	XIcon,
+} from "@/icons";
+import React from "react";
 
 type RepairsHistoryProps = {
 	repairs: Repair[];
@@ -26,17 +39,17 @@ export function RepairsHistory({ repairs, page = 1, totalPages = 1, onPageChange
 	};
 
 	const getRepairStatusIcon = (status: string) => {
-		const icons: Record<string, string> = {
-			pending: "⏳",
-			received: "📦",
-			diagnosing: "🔍",
-			repairing: "🔧",
-			testing: "🧪",
-			ready: "✅",
-			completed: "🎉",
-			cancelled: "❌",
+		const icons: Record<string, React.ElementType> = {
+			pending: ClockIcon,
+			received: TruckElectricIcon,
+			diagnosing: MagnifierIcon,
+			repairing: GearIcon,
+			testing: BulbSvg,
+			ready: CheckedIcon,
+			completed: PartyPopperIcon,
+			cancelled: XIcon,
 		};
-		return icons[status] || "🔧";
+		return icons[status] || GearIcon;
 	};
 
 	const getRepairTypeLabel = (type: string) => {
@@ -93,7 +106,7 @@ export function RepairsHistory({ repairs, page = 1, totalPages = 1, onPageChange
 						e.currentTarget.style.boxShadow = page === 1 ? "none" : "0 8px 16px rgba(166,124,82,0.35)";
 					}}
 				>
-					◀
+					<ArrowNarrowLeftIcon size={16} />
 				</button>
 				<span style={{ alignSelf: "center", color: "#aaa", fontSize: "0.9rem" }}>
 					Page {page} of {totalPages}
@@ -123,7 +136,7 @@ export function RepairsHistory({ repairs, page = 1, totalPages = 1, onPageChange
 						e.currentTarget.style.boxShadow = page === totalPages ? "none" : "0 8px 16px rgba(166,124,82,0.35)";
 					}}
 				>
-					▶
+					<ArrowNarrowRightIcon size={16} />
 				</button>
 			</div>
 		);
@@ -131,7 +144,9 @@ export function RepairsHistory({ repairs, page = 1, totalPages = 1, onPageChange
 
 	return (
 		<div className="card" style={{ marginBottom: "2rem" }}>
-			<h2>🔧 Repairs History</h2>
+			<h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+				<GearIcon size={24} /> Repairs History
+			</h2>
 			{repairs.length === 0 ? (
 				<p className="empty-state">No repair requests found. Submit a repair request from the Machines tab.</p>
 			) : (
@@ -180,7 +195,7 @@ export function RepairsHistory({ repairs, page = 1, totalPages = 1, onPageChange
 												fontSize: "1.5rem",
 											}}
 										>
-											{getRepairStatusIcon(repair.status)}
+											{React.createElement(getRepairStatusIcon(repair.status), { size: 24 })}
 										</div>
 
 										<div>
@@ -349,7 +364,7 @@ export function RepairsHistory({ repairs, page = 1, totalPages = 1, onPageChange
 											)}
 											{pickupDate && repair.status !== "completed" && repair.status !== "cancelled" && (
 												<div style={{ fontSize: "0.8rem", color: "#888", marginTop: "4px" }}>
-													Est. ready: {formatDate(pickupDate.toISOString())}
+													Estimated ready: {formatDate(pickupDate.toISOString())}
 												</div>
 											)}
 											{repair.completion_date && repair.status === "completed" && (

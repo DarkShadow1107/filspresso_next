@@ -28,6 +28,7 @@ const subscriptionsRoutes = require("./routes/subscriptions");
 const repairsRoutes = require("./routes/repairs");
 const adminRoutes = require("./routes/admin");
 const productsRoutes = require("./routes/products");
+const favoritesRoutes = require("./routes/favorites");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -36,9 +37,9 @@ const PORT = process.env.PORT || 4000;
 app.use(helmet());
 app.use(
 	cors({
-		origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+		origin: [process.env.CORS_ORIGIN || "http://localhost:3000", "http://127.0.0.1:3000"],
 		credentials: true,
-	})
+	}),
 );
 
 // Rate limiting
@@ -66,7 +67,7 @@ if (
 	process.env.DISABLE_RATE_LIMIT === "true"
 ) {
 	console.log(
-		"⚠️ Rate limiting disabled (development mode or DISABLE_RATE_LIMIT_FOR_DEV=true / DISABLE_RATE_LIMIT=true). Use route-specific rules for production."
+		"⚠️ Rate limiting disabled (development mode or DISABLE_RATE_LIMIT_FOR_DEV=true / DISABLE_RATE_LIMIT=true). Use route-specific rules for production.",
 	);
 } else {
 	app.use("/api/", limiter);
@@ -93,6 +94,7 @@ app.use("/api/subscriptions", subscriptionsRoutes);
 app.use("/api/repairs", repairsRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/products", productsRoutes);
+app.use("/api/favorites", favoritesRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

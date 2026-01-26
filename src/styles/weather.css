@@ -1,5 +1,10 @@
 /* Weather Widget Styles */
 
+.weather-widget svg {
+	overflow: visible !important;
+	cursor: pointer;
+}
+
 .weather-widget {
 	background: linear-gradient(135deg, rgba(196, 167, 125, 0.15) 0%, rgba(166, 124, 82, 0.08) 100%);
 	border: 1px solid rgba(196, 167, 125, 0.3);
@@ -8,14 +13,14 @@
 	backdrop-filter: blur(10px);
 	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 	color: #f8dccb;
-	max-width: 320px;
+	max-width: 353px;
 }
 
 .weather-widget--compact {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.5rem;
-	padding: 0.5rem 1rem;
+	padding: 0.5rem 1.05rem;
 	border-radius: 24px;
 	max-width: none;
 	background: rgba(30, 30, 30, 0.8);
@@ -56,11 +61,26 @@
 
 .weather-widget__icon {
 	font-size: 1.25rem;
+	cursor: pointer;
+}
+
+.weather-widget svg,
+.weather-chip svg,
+.weather-widget__icon svg,
+.weather-widget__icon-large svg,
+.weather-widget__rec-icon svg,
+.weather-widget__rec-icon-large svg,
+.weather-widget__shipping-icon svg,
+.coffee-weather-rec__icon svg,
+.shipping-weather-warning__icon svg,
+.weather-warning-icon svg {
+	overflow: visible !important;
 }
 
 .weather-widget__icon-large {
 	font-size: 3rem;
 	line-height: 1;
+	cursor: pointer;
 }
 
 .weather-widget__info {
@@ -96,6 +116,7 @@
 
 .weather-widget__rec-icon {
 	font-size: 1rem;
+	cursor: pointer;
 }
 
 .weather-widget__recommendation {
