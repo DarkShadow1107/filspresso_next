@@ -31,7 +31,7 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 							? `${subscriptionData.price_ron.toFixed(2)} RON`
 							: "Free"}
 						{subscriptionData?.price_ron && subscriptionData.price_ron > 0 && (
-							<span>/{subscriptionData?.billing_cycle === "annual" ? "year" : "month"}</span>
+							<span>/{subscriptionData?.billing_cycle === "yearly" ? "year" : "month"}</span>
 						)}
 					</div>
 				</div>
@@ -92,7 +92,7 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 								>
 									Billing cycle:{" "}
 									<span style={{ color: "#c4a77d", fontWeight: 500 }}>
-										{subscriptionData.billing_cycle === "annual" ? "Annual" : "Monthly"}
+										{subscriptionData.billing_cycle === "yearly" ? "Annual" : "Monthly"}
 									</span>
 									{subscriptionData.start_date && (
 										<>
@@ -156,17 +156,7 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 									<XIcon size={18} color="#ef4444" />
 								)}
 							</span>
-							<span style={{ fontSize: "0.95rem", color: "#ddd" }}>Access to Kafelot Villanelle</span>
-						</li>
-						<li style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
-							<span style={{ width: "24px", display: "flex", justifyContent: "center" }}>
-								{subscription === "ultimate" ? (
-									<CheckIcon size={18} color="#10b981" />
-								) : (
-									<XIcon size={18} color="#ef4444" />
-								)}
-							</span>
-							<span style={{ fontSize: "0.95rem", color: "#ddd" }}>Access to Kafelot Ode</span>
+							<span style={{ fontSize: "0.95rem", color: "#ddd" }}>Access to Kafelot AI</span>
 						</li>
 						<li style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
 							<span style={{ width: "24px", display: "flex", justifyContent: "center" }}>
@@ -185,7 +175,7 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 						className="btn-primary"
 						onClick={() =>
 							router.push(
-								subscription === "none" || subscription === "free" ? "/subscription" : "/manage-subscription"
+								subscription === "none" || subscription === "free" ? "/subscription" : "/manage-subscription",
 							)
 						}
 					>

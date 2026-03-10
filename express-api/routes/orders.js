@@ -65,7 +65,7 @@ async function getUserTier(client, accountId) {
         WHERE o.account_id = $1 
         AND o.status IN ('confirmed', 'shipped', 'delivered')
         AND oi.product_type = 'capsule'`,
-			[accountId]
+			[accountId],
 		);
 
 		const totalCapsules = Number(result.rows[0]?.total_capsules || 0) * 10; // sleeves * 10
@@ -164,7 +164,7 @@ router.get("/popular", async (req, res) => {
 
 		const client = await pool.connect();
 		try {
-			// Get most ordered capsule products
+			// Get most ordered capsule products from real order history
 			const result = await client.query(
 				`SELECT 
 					oi.product_id, 
@@ -177,7 +177,7 @@ router.get("/popular", async (req, res) => {
 				GROUP BY oi.product_id, oi.product_name, oi.product_image
 				ORDER BY total_ordered DESC
 				LIMIT $1`,
-				[limit]
+				[limit],
 			);
 
 			const products = serializeBigInt(result.rows);
@@ -250,7 +250,7 @@ router.get("/machines", authenticate, async (req, res) => {
 						OR oi.product_id LIKE 'forfait-%'
 					)
 				ORDER BY o.created_at DESC`,
-				[req.user.id]
+				[req.user.id],
 			);
 
 			const machines = serializeBigInt(result.rows);
@@ -282,7 +282,7 @@ router.get("/spending", authenticate, async (req, res) => {
 				`SELECT COALESCE(SUM(total), 0) as orders_total
 				FROM orders 
 				WHERE account_id = $1 AND status != 'cancelled'`,
-				[req.user.id]
+				[req.user.id],
 			);
 
 			// Get subscription spending (from order_items with product_type = 'subscription')
@@ -291,7 +291,7 @@ router.get("/spending", authenticate, async (req, res) => {
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
 				WHERE o.account_id = $1 AND oi.product_type = 'subscription' AND o.status != 'cancelled'`,
-				[req.user.id]
+				[req.user.id],
 			);
 
 			// Get machines AND forfaits spending
@@ -318,7 +318,7 @@ router.get("/spending", authenticate, async (req, res) => {
 						OR oi.product_id LIKE 'pack-%'
 						OR oi.product_id LIKE 'forfait-%'
 					)`,
-				[req.user.id]
+				[req.user.id],
 			);
 
 			// Get capsules/accessories spending (everything that's not a machine/forfait and not a subscription)
@@ -343,7 +343,7 @@ router.get("/spending", authenticate, async (req, res) => {
 					AND LOWER(oi.product_name) NOT LIKE '%inissia%'
 					AND oi.product_id NOT LIKE 'pack-%'
 					AND oi.product_id NOT LIKE 'forfait-%'`,
-				[req.user.id]
+				[req.user.id],
 			);
 
 			const ordersTotal = Number(ordersResult.rows[0].orders_total) || 0;
@@ -416,7 +416,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type = 'capsule'`,
-				[req.user.id]
+				[req.user.id],
 			);
 			const totalResult = totalResultRaw.rows[0];
 
@@ -427,13 +427,13 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 			// Total orders (non-cancelled, excluding repairs) and repairs (order_number starts with REP-)
 			const totalOrdersResultRaw = await client.query(
 				`SELECT COUNT(*) as total_orders FROM orders WHERE account_id = $1 AND status != 'cancelled' AND order_number NOT LIKE 'REP-%'`,
-				[req.user.id]
+				[req.user.id],
 			);
 			const totalOrdersResult = totalOrdersResultRaw.rows[0];
 
 			const totalRepairsResultRaw = await client.query(
 				`SELECT COUNT(*) as total_repairs FROM orders WHERE account_id = $1 AND status != 'cancelled' AND order_number LIKE 'REP-%'`,
-				[req.user.id]
+				[req.user.id],
 			);
 			const totalRepairsResult = totalRepairsResultRaw.rows[0];
 
@@ -459,7 +459,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 					AND EXTRACT(YEAR FROM o.created_at) >= $2
 				GROUP BY EXTRACT(YEAR FROM o.created_at)
 				ORDER BY year DESC`,
-				[req.user.id, accountYear]
+				[req.user.id, accountYear],
 			);
 			const yearlyStats = yearlyStatsResult.rows;
 
@@ -493,7 +493,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 					AND oi.product_type = 'capsule'
 					AND o.created_at >= $2
 					AND o.created_at < $3`,
-				[req.user.id, anniversaryStart.toISOString().split("T")[0], anniversaryEnd.toISOString().split("T")[0]]
+				[req.user.id, anniversaryStart.toISOString().split("T")[0], anniversaryEnd.toISOString().split("T")[0]],
 			);
 			const currentPeriodResult = currentPeriodResultRaw.rows[0];
 
@@ -592,7 +592,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						currentPeriodCapsules,
 						anniversaryStart.toISOString().split("T")[0],
 						currentTier?.name || null,
-					]
+					],
 				);
 
 				// Update yearly history in member_status_history
@@ -626,7 +626,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 								yearData.vertuoCapsules,
 								yearData.orders,
 								yearData.tier,
-							]
+							],
 						);
 					}
 				}
@@ -675,7 +675,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						OR LOWER(oi.product_name) LIKE '%creatista%'
 						OR LOWER(oi.product_name) LIKE '%inissia%'
 					)`,
-				[req.user.id]
+				[req.user.id],
 			);
 			const machineStats = machineStatsResult.rows[0];
 
@@ -797,7 +797,7 @@ router.get("/consumption-history", authenticate, async (req, res) => {
 					AND oi.product_type = 'capsule'
 				GROUP BY DATE(o.created_at)
 				ORDER BY date ASC`,
-				[req.user.id]
+				[req.user.id],
 			);
 
 			// Daily machine stats
@@ -842,7 +842,7 @@ router.get("/consumption-history", authenticate, async (req, res) => {
 					)
 				GROUP BY DATE(o.created_at)
 				ORDER BY date ASC`,
-				[req.user.id]
+				[req.user.id],
 			);
 
 			res.json({
@@ -875,7 +875,7 @@ router.get("/:id", authenticate, async (req, res) => {
         FROM orders o
         LEFT JOIN user_cards uc ON o.card_id = uc.id
         WHERE o.id = $1 AND o.account_id = $2`,
-				[orderId, req.user.id]
+				[orderId, req.user.id],
 			);
 			const order = result.rows[0];
 
@@ -888,7 +888,7 @@ router.get("/:id", authenticate, async (req, res) => {
 				`SELECT id, product_type, product_id, product_name, product_image,
                 quantity, unit_price, total_price
         FROM order_items WHERE order_id = $1`,
-				[orderId]
+				[orderId],
 			);
 
 			order.items = itemsResult.rows;
@@ -967,10 +967,10 @@ router.post("/", authenticate, async (req, res) => {
 			const finalShippingCost = isSubscription
 				? 0
 				: shippingCost !== undefined
-				? shippingCost
-				: tierBasedFreeShipping || subtotalAfterDiscount >= 200
-				? 0
-				: 24.99;
+					? shippingCost
+					: tierBasedFreeShipping || subtotalAfterDiscount >= 200
+						? 0
+						: 24.99;
 			// Use total from frontend, or calculate as discounted subtotal + shipping (VAT is included in prices)
 			const finalTotal = total !== undefined ? total : subtotalAfterDiscount + finalShippingCost;
 			// Tax is 21% of total (included in price, calculated for display purposes)
@@ -1008,7 +1008,7 @@ router.post("/", authenticate, async (req, res) => {
 					memberTier !== "None" ? memberTier : null, // discount_tier
 					discountPercent, // discount_percent
 					discountAmount, // discount_amount
-				]
+				],
 			);
 
 			const orderId = orderResult.rows[0].id;
@@ -1029,7 +1029,7 @@ router.post("/", authenticate, async (req, res) => {
 						item.quantity,
 						item.unitPrice,
 						item.unitPrice * item.quantity,
-					]
+					],
 				);
 
 				// Update stock in products table based on product type
@@ -1039,7 +1039,7 @@ router.post("/", authenticate, async (req, res) => {
 						`UPDATE coffee_products 
 						SET stock = GREATEST(0, stock - $1) 
 						WHERE product_id = $2`,
-						[item.quantity, item.productId]
+						[item.quantity, item.productId],
 					);
 				} else if (item.productType === "machine") {
 					// Update machine_products stock
@@ -1047,7 +1047,7 @@ router.post("/", authenticate, async (req, res) => {
 						`UPDATE machine_products 
 						SET stock = GREATEST(0, stock - $1) 
 						WHERE product_id = $2`,
-						[item.quantity, item.productId]
+						[item.quantity, item.productId],
 					);
 				}
 			}
@@ -1104,7 +1104,7 @@ router.put("/:id/cancel", authenticate, async (req, res) => {
 			// Restore stock for cancelled order items
 			const itemsResult = await client.query(
 				"SELECT product_type, product_id, quantity FROM order_items WHERE order_id = $1",
-				[orderId]
+				[orderId],
 			);
 			const orderItems = itemsResult.rows;
 
@@ -1114,14 +1114,14 @@ router.put("/:id/cancel", authenticate, async (req, res) => {
 						`UPDATE coffee_products 
 						SET stock = stock + $1 
 						WHERE product_id = $2`,
-						[item.quantity, item.product_id]
+						[item.quantity, item.product_id],
 					);
 				} else if (item.product_type === "machine") {
 					await client.query(
 						`UPDATE machine_products 
 						SET stock = stock + $1 
 						WHERE product_id = $2`,
-						[item.quantity, item.product_id]
+						[item.quantity, item.product_id],
 					);
 				}
 			}

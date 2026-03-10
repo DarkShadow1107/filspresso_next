@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { ChatHistory } from "./types";
 import {
@@ -8,8 +8,6 @@ import {
 	CoffeeIcon,
 	BulbSvg,
 	GithubCopilotIcon,
-	VinylIcon,
-	FlameIcon,
 	SparklesIcon,
 	ShoppingCartIcon,
 	FileDescriptionIcon,
@@ -140,8 +138,8 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 														chat.category === "chemistry"
 															? "rgba(139, 92, 246, 0.15)"
 															: chat.category === "coffee"
-															? "rgba(196, 167, 125, 0.15)"
-															: "rgba(59, 130, 246, 0.15)",
+																? "rgba(196, 167, 125, 0.15)"
+																: "rgba(59, 130, 246, 0.15)",
 													display: "flex",
 													alignItems: "center",
 													justifyContent: "center",
@@ -197,23 +195,9 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 										<div
 											style={{
 												background:
-													chat.model === "ode"
-														? "linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(124, 58, 237, 0.2) 100%)"
-														: chat.model === "villanelle"
-														? "linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.2) 100%)"
-														: "linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.2) 100%)",
-												border:
-													chat.model === "ode"
-														? "1px solid rgba(139, 92, 246, 0.4)"
-														: chat.model === "villanelle"
-														? "1px solid rgba(59, 130, 246, 0.4)"
-														: "1px solid rgba(16, 185, 129, 0.4)",
-												color:
-													chat.model === "ode"
-														? "#a78bfa"
-														: chat.model === "villanelle"
-														? "#60a5fa"
-														: "#34d399",
+													"linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.2) 100%)",
+												border: "1px solid rgba(16, 185, 129, 0.4)",
+												color: "#34d399",
 												padding: "4px 10px",
 												borderRadius: "6px",
 												fontSize: "0.75rem",
@@ -224,13 +208,7 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 												gap: "0.4rem",
 											}}
 										>
-											{chat.model === "ode" ? (
-												<VinylIcon size={14} />
-											) : chat.model === "villanelle" ? (
-												<FlameIcon size={14} />
-											) : (
-												<SparklesIcon size={14} />
-											)}
+											<SparklesIcon size={14} />
 											{chat.model}
 										</div>
 									</div>
@@ -287,8 +265,8 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 														chat.category === "chemistry"
 															? "#a78bfa"
 															: chat.category === "coffee"
-															? "#c4a77d"
-															: "#60a5fa",
+																? "#c4a77d"
+																: "#60a5fa",
 													textTransform: "capitalize",
 												}}
 											>

@@ -10,6 +10,8 @@ RUN npm install --production
 
 # Copy application code
 COPY express-api/ ./
+COPY src/data/coffee.generated.json ./bootstrap-data/coffee.generated.json
+COPY src/data/machines.generated.json ./bootstrap-data/machines.generated.json
 
 # Expose port
 EXPOSE 4000

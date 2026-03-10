@@ -271,7 +271,9 @@ export default function FavoritesPageContent() {
 							</StockContext.Provider>
 
 							{/* Machines Section */}
-							<MachineStockContext.Provider value={{ stockData: machineStock, isLoading: isLoadingStocks }}>
+							<MachineStockContext.Provider
+								value={{ stockData: machineStock, isLoading: isLoadingStocks, apiDown: false }}
+							>
 								{(organizedFavs.machines.Original.length > 0 || organizedFavs.machines.Vertuo.length > 0) && (
 									<section className="space-y-12">
 										<div className="flex items-center gap-4">

@@ -82,6 +82,7 @@ const PROTECTED_TABLES = ["accounts"];
 const ALLOWED_TABLES = [
 	"accounts",
 	"user_cards",
+	"favorites",
 	"orders",
 	"order_items",
 	"cart_items",
@@ -337,10 +338,10 @@ router.get("/tables", authenticateAdmin, async (req, res) => {
 	try {
 		const client = await pool.connect();
 		try {
-			const result = await client.query(
+			// Get table names and comments
+			const metaResult = await client.query(
 				`SELECT 
 					relname as name, 
-					reltuples as row_count,
 					obj_description(c.oid, 'pg_class') as comment
 				 FROM pg_class c
 				 JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -348,11 +349,26 @@ router.get("/tables", authenticateAdmin, async (req, res) => {
 				 ORDER BY relname`,
 			);
 
+			if (metaResult.rows.length === 0) {
+				return res.json({ status: "success", tables: [] });
+			}
+
+			// Build a single UNION ALL query for accurate row counts
+			const countQuery = metaResult.rows
+				.map((t) => `SELECT '${t.name}' as name, COUNT(*)::bigint as row_count FROM "${t.name}"`)
+				.join(" UNION ALL ");
+
+			const countResult = await client.query(countQuery);
+			const countMap = {};
+			for (const row of countResult.rows) {
+				countMap[row.name] = Number(row.row_count);
+			}
+
 			res.json({
 				status: "success",
-				tables: result.rows.map((t) => ({
+				tables: metaResult.rows.map((t) => ({
 					name: t.name,
-					rowCount: Number(t.row_count) || 0,
+					rowCount: countMap[t.name] ?? 0,
 					comment: t.comment || "",
 				})),
 			});

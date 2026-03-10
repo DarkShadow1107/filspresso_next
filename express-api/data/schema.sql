@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS user_cards (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     card_number_encrypted VARCHAR(512) NOT NULL,
     card_expiry_encrypted VARCHAR(128) NOT NULL,
+    card_cvv_encrypted VARCHAR(255),
     card_holder VARCHAR(255) NOT NULL,
     card_type VARCHAR(50) DEFAULT 'visa',
     card_last_four CHAR(4) NOT NULL,
@@ -65,6 +66,9 @@ CREATE TABLE IF NOT EXISTS orders (
     weather_condition VARCHAR(20) DEFAULT 'normal', -- clear, rain, snow, normal
     estimated_delivery VARCHAR(20) DEFAULT '1-2 days',
     expected_delivery_date DATE NULL,
+    discount_tier VARCHAR(50),
+    discount_percent DECIMAL(5,2) DEFAULT 0.00,
+    discount_amount DECIMAL(10,2) DEFAULT 0.00,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -100,7 +104,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     session_uuid VARCHAR(36) NOT NULL UNIQUE,
     title VARCHAR(255) DEFAULT 'New Chat',
-    model_type VARCHAR(20) NOT NULL DEFAULT 'tanka', -- tanka, villanelle, ode, chemistry
+    model_type VARCHAR(20) NOT NULL DEFAULT 'tanka_semantic', -- tanka_semantic, tanka_chemistry
     ai_enabled BOOLEAN DEFAULT TRUE,
     is_active BOOLEAN DEFAULT TRUE,
     message_count INTEGER DEFAULT 0,
@@ -296,9 +300,11 @@ CREATE TRIGGER update_subscriptions_updated_at BEFORE UPDATE ON subscriptions FO
 
 -- Insert default subscriptions
 INSERT INTO subscriptions (name, description, price_ron, features) VALUES
-('Free', 'Basic access to coffee and machines', 0, '["Standard support", "Basic dashboard"]'),
-('Gold', 'Premium benefits and discounts', 45, '["Free shipping", "Exclusive previews", "Priority support"]'),
-('Platinum', 'Ultimate coffee experience', 95, '["Free shipping", "20% discount on capsules", "VIP support", "Machine maintenance"]')
+('Basic', '10 capsules per month + Kafelot AI access', 55.99, '["10 capsules par mois", "Espressor Essenza Mini Piano Noir C30", "Kafelot Tanka - 50 prompts/month", "5-conversation memory"]'),
+('Plus', '30 capsules per month + enhanced AI', 109.99, '["30 capsules par mois", "Espressor Essenza Mini Piano Noir C30", "Kafelot Tanka - 100 prompts/month", "20-conversation memory"]'),
+('Pro', '60 capsules per month + CLIP image search', 169.99, '["60 capsules par mois", "Espressor Vertuo Next C Rouge Cerise", "Kafelot Tanka - 150 prompts/month", "50-conversation memory", "CLIP Image Search - 10 queries/month"]'),
+('Max', '120 capsules per month + premium AI', 279.99, '["120 capsules par mois", "Espressor Vertuo Next C Rouge Cerise", "Kafelot Tanka - 300 prompts/month", "100-conversation memory", "CLIP Image Search - 25 queries/month"]'),
+('Ultimate', '200 capsules per month + full AI suite', 599.99, '["200 capsules par mois", "Espressor Gran Lattissima Noir Élégant", "Kafelot Tanka - 1000 prompts/month", "200-conversation memory", "CLIP Image Search - 50 queries/month", "Molecule Helper (MolScribe AI)"]')
 ON CONFLICT DO NOTHING;
 
 -- =============================================================================

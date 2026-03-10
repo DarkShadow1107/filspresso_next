@@ -19,131 +19,207 @@ function generateComplexAvatar(seed: string): string {
 		return Math.abs(h);
 	}
 
-	// Generate primary color palette
+	// Derive stable IDs from seed (no Math.random for id generation to keep determinism)
+	const uid = hashCode(seed, 999).toString(36);
+
+	// Color palette inspired by the username
 	const hue = hashCode(seed, 0) % 360;
-	const saturation = (hashCode(seed, 1) % 35) + 65; // 65-100%
-	const lightness = (hashCode(seed, 2) % 15) + 50; // 50-65%
+	const hue2 = (hue + 40 + (hashCode(seed, 50) % 80)) % 360; // analogous hue
+	const hue3 = (hue + 180 + (hashCode(seed, 51) % 40) - 20) % 360; // near-complementary
+	const sat = (hashCode(seed, 1) % 30) + 70; // 70-100%
+	const lit = (hashCode(seed, 2) % 10) + 48; // 48-58%
+	const litDark = lit - 18;
+	const litBright = lit + 16;
 
-	const primaryColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-	const darkColor = `hsl(${hue}, ${saturation}%, ${lightness - 15}%)`;
-	const lightColorBg = `hsl(${hue}, ${saturation - 20}%, ${lightness + 10}%)`;
+	const c1 = `hsl(${hue}, ${sat}%, ${lit}%)`;
+	const c2 = `hsl(${hue2}, ${sat - 10}%, ${lit + 8}%)`;
+	const c3 = `hsl(${hue3}, ${sat - 5}%, ${litDark}%)`;
+	const cAccent = `hsl(${hue3}, ${sat}%, ${litBright}%)`;
+	const cFaint = `hsl(${hue2}, ${sat - 30}%, ${litBright + 10}%)`;
 
-	// Complementary and triadic colors
-	const accentHue1 = (hue + 120) % 360;
-	const accentHue2 = (hue + 240) % 360;
-	const accentColor1 = `hsl(${accentHue1}, ${saturation - 10}%, ${lightness + 5}%)`;
-	const accentColor2 = `hsl(${accentHue2}, ${saturation - 15}%, ${lightness}%)`;
+	// Pick background style: 0=diagonal gradient, 1=radial burst, 2=diagonal split
+	const bgStyle = hashCode(seed, 20) % 3;
 
-	const gradId1 = `grad1-${Math.random().toString(36).substr(2, 9)}`;
-	const gradId2 = `grad2-${Math.random().toString(36).substr(2, 9)}`;
-	const gradId3 = `grad3-${Math.random().toString(36).substr(2, 9)}`;
-	const filterShadow = `filter-${Math.random().toString(36).substr(2, 9)}`;
+	const g1 = `g1${uid}`,
+		g2 = `g2${uid}`,
+		g3 = `g3${uid}`,
+		g4 = `g4${uid}`;
+	const fShadow = `fs${uid}`,
+		fGlow = `fg${uid}`,
+		clip1 = `cl${uid}`;
 
-	// Create defs with multiple gradients and filters
+	// Defs section: gradients + filters + clipPath
 	const defs = `<defs>
-		<linearGradient id='${gradId1}' x1='0%' y1='0%' x2='100%' y2='100%'>
-			<stop offset='0%' style='stop-color:${primaryColor};stop-opacity:1' />
-			<stop offset='50%' style='stop-color:${lightColorBg};stop-opacity:0.9' />
-			<stop offset='100%' style='stop-color:${darkColor};stop-opacity:1' />
-		</linearGradient>
-		<radialGradient id='${gradId2}' cx='35%' cy='35%' r='65%'>
-			<stop offset='0%' style='stop-color:${lightColorBg};stop-opacity:0.4' />
-			<stop offset='100%' style='stop-color:${darkColor};stop-opacity:0.8' />
-		</radialGradient>
-		<linearGradient id='${gradId3}' x1='100%' y1='0%' x2='0%' y2='100%'>
-			<stop offset='0%' style='stop-color:${accentColor1};stop-opacity:0.6' />
-			<stop offset='100%' style='stop-color:${accentColor2};stop-opacity:0.4' />
-		</linearGradient>
-		<filter id='${filterShadow}' x='-50%' y='-50%' width='200%' height='200%'>
-			<feGaussianBlur in='SourceGraphic' stdDeviation='1.5'/>
-			<feDropShadow dx='0' dy='1' stdDeviation='1.5' flood-color='rgba(0,0,0,0.3)' flood-opacity='0.8'/>
-		</filter>
-	</defs>`;
+  <linearGradient id='${g1}' x1='0%' y1='0%' x2='100%' y2='100%'>
+    <stop offset='0%' stop-color='${c1}'/>
+    <stop offset='55%' stop-color='${c2}'/>
+    <stop offset='100%' stop-color='${c3}'/>
+  </linearGradient>
+  <radialGradient id='${g2}' cx='30%' cy='28%' r='70%'>
+    <stop offset='0%' stop-color='${cFaint}' stop-opacity='0.55'/>
+    <stop offset='100%' stop-color='${c3}' stop-opacity='0.85'/>
+  </radialGradient>
+  <linearGradient id='${g3}' x1='100%' y1='0%' x2='0%' y2='100%'>
+    <stop offset='0%' stop-color='${cAccent}' stop-opacity='0.7'/>
+    <stop offset='100%' stop-color='${c2}' stop-opacity='0.3'/>
+  </linearGradient>
+  <radialGradient id='${g4}' cx='70%' cy='70%' r='50%'>
+    <stop offset='0%' stop-color='${cFaint}' stop-opacity='0.4'/>
+    <stop offset='100%' stop-color='${c1}' stop-opacity='0'/>
+  </radialGradient>
+  <filter id='${fShadow}' x='-30%' y='-30%' width='160%' height='160%'>
+    <feDropShadow dx='0' dy='1' stdDeviation='1.2' flood-color='rgba(0,0,0,0.45)'/>
+  </filter>
+  <filter id='${fGlow}' x='-40%' y='-40%' width='180%' height='180%'>
+    <feGaussianBlur in='SourceGraphic' stdDeviation='2' result='blur'/>
+    <feComposite in='SourceGraphic' in2='blur' operator='over'/>
+  </filter>
+  <clipPath id='${clip1}'>
+    <rect width='50' height='50' rx='11'/>
+  </clipPath>
+</defs>`;
 
-	// Base background layers
-	let background = `<rect width='50' height='50' rx='9' fill='url(#${gradId1})' />
-		<rect width='50' height='50' rx='9' fill='url(#${gradId2})' />`;
+	// Background layers
+	let bg = `<rect width='50' height='50' rx='11' fill='url(#${g1})'/>`;
+	if (bgStyle === 1) {
+		bg = `<rect width='50' height='50' rx='11' fill='url(#${g2})'/>
+<rect width='50' height='50' rx='11' fill='url(#${g1})' opacity='0.7'/>`;
+	} else if (bgStyle === 2) {
+		const splitX = 12 + (hashCode(seed, 21) % 26);
+		bg = `<rect width='50' height='50' rx='11' fill='${c3}'/>
+<polygon points='0,0 ${splitX},0 0,50' fill='${c1}' clip-path='url(#${clip1})'/>
+<polygon points='50,50 ${50 - splitX},50 50,0' fill='${c2}' clip-path='url(#${clip1})' opacity='0.75'/>`;
+	}
 
-	// Generate complex pattern shapes
-	const shapeCount = (hashCode(seed, 3) % 5) + 5; // 5-9 shapes
-	let shapes = "";
-	let decorElements = "";
+	// Highlight layer (top-left shine)
+	const highlight = `<ellipse cx='14' cy='11' rx='13' ry='9' fill='white' opacity='0.09'/>`;
 
-	for (let i = 0; i < shapeCount; i++) {
-		const shapeType = hashCode(seed, 4 + i) % 5;
-		const x = (hashCode(seed, 5 + i) % 45) + 2.5;
-		const y = (hashCode(seed, 6 + i) % 45) + 2.5;
-		const size = (hashCode(seed, 7 + i) % 12) + 4;
-		const opacity = ((hashCode(seed, 8 + i) % 60) + 20) / 100;
-		const rotation = hashCode(seed, 9 + i) % 360;
-		const useAccent1 = hashCode(seed, 10 + i) % 2 === 0;
-		const fillColor = useAccent1 ? accentColor1 : accentColor2;
-
-		if (shapeType === 0) {
-			// Circle with glow effect
-			shapes += `<circle cx='${x}' cy='${y}' r='${size}' fill='${fillColor}' opacity='${opacity}' filter='url(#${filterShadow})' />`;
-			decorElements += `<circle cx='${x}' cy='${y}' r='${
-				size + 1
-			}' fill='none' stroke='${fillColor}' stroke-width='0.5' opacity='${opacity * 0.5}' />`;
-		} else if (shapeType === 1) {
-			// Rounded rectangle
-			const width = size * 2.5;
-			const height = size * 1.8;
-			shapes += `<rect x='${x - width / 2}' y='${y - height / 2}' width='${width}' height='${height}' rx='${
-				size * 0.4
-			}' fill='url(#${gradId3})' opacity='${opacity}' transform='rotate(${rotation} ${x} ${y})' filter='url(#${filterShadow})' />`;
-		} else if (shapeType === 2) {
-			// Star/polygon
-			const points: [number, number][] = [];
-			for (let j = 0; j < 6; j++) {
-				const angle = (j / 6) * Math.PI * 2 + (rotation * Math.PI) / 180;
-				const r = j % 2 === 0 ? size : size * 0.5;
-				points.push([x + Math.cos(angle) * r, y + Math.sin(angle) * r]);
-			}
-			shapes += `<polygon points='${points
-				.map((p) => p.join(","))
-				.join(" ")}' fill='${fillColor}' opacity='${opacity}' filter='url(#${filterShadow})' />`;
-		} else if (shapeType === 3) {
-			// Path-based organic shape
-			const offset = size * 0.6;
-			const paths = `M ${x} ${y - size} Q ${x + offset} ${y - offset} ${x + size} ${y} Q ${x + offset} ${y + offset} ${x} ${
-				y + size
-			} Q ${x - offset} ${y + offset} ${x - size} ${y} Q ${x - offset} ${y - offset} ${x} ${y - size}`;
-			shapes += `<path d='${paths}' fill='${fillColor}' opacity='${opacity}' filter='url(#${filterShadow})' />`;
-		} else {
-			// Diamond/rotated square
-			shapes += `<rect x='${x - size}' y='${y - size}' width='${size * 2}' height='${
-				size * 2
-			}' fill='${fillColor}' opacity='${opacity}' transform='rotate(45 ${x} ${y})' filter='url(#${filterShadow})' />`;
+	// Noise/texture layer - small dots pattern
+	let texture = "";
+	const dotRows = 5;
+	const dotCols = 5;
+	for (let r = 0; r < dotRows; r++) {
+		for (let c = 0; c < dotCols; c++) {
+			const tx = 4 + c * 10 + (hashCode(seed, 200 + r * dotCols + c) % 5) - 2;
+			const ty = 4 + r * 10 + (hashCode(seed, 300 + r * dotCols + c) % 5) - 2;
+			const opacity = ((hashCode(seed, 400 + r * dotCols + c) % 18) + 4) / 100;
+			texture += `<circle cx='${tx}' cy='${ty}' r='0.8' fill='white' opacity='${opacity}'/>`;
 		}
 	}
 
-	// Add decorative circles and arcs for extra complexity
-	for (let i = 0; i < 3; i++) {
-		const cx = (hashCode(seed, 100 + i) % 35) + 7.5;
-		const cy = (hashCode(seed, 101 + i) % 35) + 7.5;
-		const r = (hashCode(seed, 102 + i) % 8) + 3;
-		const arcOpacity = ((hashCode(seed, 103 + i) % 30) + 10) / 100;
-		decorElements += `<circle cx='${cx}' cy='${cy}' r='${r}' fill='none' stroke='${accentColor1}' stroke-width='0.8' opacity='${arcOpacity}' />`;
+	// Geometric midground shapes
+	const shapeCount = (hashCode(seed, 3) % 4) + 4; // 4-7 shapes
+	let shapes = "";
+	for (let i = 0; i < shapeCount; i++) {
+		const shapeType = hashCode(seed, 4 + i * 3) % 7;
+		const cx = (hashCode(seed, 5 + i * 3) % 42) + 4;
+		const cy = (hashCode(seed, 6 + i * 3) % 42) + 4;
+		const sz = (hashCode(seed, 7 + i * 3) % 10) + 4;
+		const op = ((hashCode(seed, 8 + i * 3) % 45) + 18) / 100;
+		const rot = hashCode(seed, 9 + i * 3) % 360;
+		const fill = hashCode(seed, 10 + i * 3) % 2 === 0 ? cAccent : cFaint;
+
+		if (shapeType === 0) {
+			// Glow circle
+			shapes += `<circle cx='${cx}' cy='${cy}' r='${sz}' fill='${fill}' opacity='${op}' filter='url(#${fGlow})'/>`;
+			shapes += `<circle cx='${cx}' cy='${cy}' r='${sz * 0.5}' fill='white' opacity='${op * 0.25}'/>`;
+		} else if (shapeType === 1) {
+			// Rounded rect with rotation
+			const w = sz * 2.2,
+				h = sz * 1.4;
+			shapes += `<rect x='${cx - w / 2}' y='${cy - h / 2}' width='${w}' height='${h}' rx='${sz * 0.45}' fill='url(#${g3})' opacity='${op}' transform='rotate(${rot} ${cx} ${cy})' filter='url(#${fShadow})'/>`;
+		} else if (shapeType === 2) {
+			// Hexagon
+			const pts = Array.from({ length: 6 }, (_, j) => {
+				const a = (j / 6) * Math.PI * 2 - Math.PI / 6 + (rot * Math.PI) / 180;
+				return `${(cx + Math.cos(a) * sz).toFixed(2)},${(cy + Math.sin(a) * sz).toFixed(2)}`;
+			}).join(" ");
+			shapes += `<polygon points='${pts}' fill='${fill}' opacity='${op}' filter='url(#${fShadow})'/>`;
+		} else if (shapeType === 3) {
+			// Organic blob (cubic bezier)
+			const r1 = sz,
+				r2 = sz * 0.7,
+				r3 = sz * 1.2,
+				r4 = sz * 0.85;
+			const d = `M ${cx} ${cy - r1} C ${cx + r3} ${cy - r2} ${cx + r2} ${cy + r3} ${cx} ${cy + r4} C ${cx - r2} ${cy + r3} ${cx - r3} ${cy - r2} ${cx} ${cy - r1} Z`;
+			shapes += `<path d='${d}' fill='${fill}' opacity='${op}' transform='rotate(${rot} ${cx} ${cy})' filter='url(#${fGlow})'/>`;
+		} else if (shapeType === 4) {
+			// Ring / donut
+			shapes += `<circle cx='${cx}' cy='${cy}' r='${sz}' fill='none' stroke='${fill}' stroke-width='${1.5 + (hashCode(seed, 11 + i) % 20) / 10}' opacity='${op}'/>`;
+		} else if (shapeType === 5) {
+			// Star (5-pointed)
+			const starPts = Array.from({ length: 10 }, (_, j) => {
+				const a = (j / 10) * Math.PI * 2 - Math.PI / 2 + (rot * Math.PI) / 180;
+				const r = j % 2 === 0 ? sz : sz * 0.42;
+				return `${(cx + Math.cos(a) * r).toFixed(2)},${(cy + Math.sin(a) * r).toFixed(2)}`;
+			}).join(" ");
+			shapes += `<polygon points='${starPts}' fill='${fill}' opacity='${op}' filter='url(#${fShadow})'/>`;
+		} else {
+			// Arrow / chevron
+			const hw = sz * 0.8;
+			const d = `M ${cx - hw} ${cy - sz * 0.4} L ${cx} ${cy - sz} L ${cx + hw} ${cy - sz * 0.4} L ${cx + hw * 0.5} ${cy - sz * 0.4} L ${cx + hw * 0.5} ${cy + sz} L ${cx - hw * 0.5} ${cy + sz} L ${cx - hw * 0.5} ${cy - sz * 0.4} Z`;
+			shapes += `<path d='${d}' fill='${fill}' opacity='${op * 0.7}' transform='rotate(${rot} ${cx} ${cy})'/>`;
+		}
 	}
 
-	// Overlay accent gradient
-	const overlay = `<rect width='50' height='50' rx='9' fill='url(#${gradId3})' opacity='0.15' />`;
+	// Decorative line strokes (Art Deco / geometric)
+	let strokes = "";
+	const lineCount = (hashCode(seed, 60) % 3) + 2;
+	for (let i = 0; i < lineCount; i++) {
+		const lx1 = hashCode(seed, 60 + i * 2) % 50;
+		const ly1 = hashCode(seed, 61 + i * 2) % 50;
+		const lx2 = (lx1 + 10 + (hashCode(seed, 62 + i * 2) % 25)) % 50;
+		const ly2 = (ly1 + 10 + (hashCode(seed, 63 + i * 2) % 25)) % 50;
+		const lop = ((hashCode(seed, 64 + i * 2) % 25) + 10) / 100;
+		strokes += `<line x1='${lx1}' y1='${ly1}' x2='${lx2}' y2='${ly2}' stroke='white' stroke-width='0.6' opacity='${lop}' stroke-linecap='round'/>`;
+	}
 
-	const initials = seed
-		.split(" ")
-		.map((p) => p[0])
-		.slice(0, 2)
-		.join("")
-		.toUpperCase();
+	// Corner accent arcs
+	const arcR = 6 + (hashCode(seed, 80) % 8);
+	const arcOp = ((hashCode(seed, 81) % 25) + 10) / 100;
+	const arcs = `<path d='M 2,${arcR + 2} A ${arcR} ${arcR} 0 0 1 ${arcR + 2},2' stroke='${cAccent}' stroke-width='1.5' fill='none' opacity='${arcOp}' stroke-linecap='round'/>
+<path d='M 48,${50 - arcR - 2} A ${arcR} ${arcR} 0 0 1 ${50 - arcR - 2},48' stroke='${cFaint}' stroke-width='1.5' fill='none' opacity='${arcOp}' stroke-linecap='round'/>`;
 
-	const svgText = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns='http://www.w3.org/2000/svg' width='50' height='50' viewBox='0 0 50 50'>
+	// Overlay tint
+	const overlay = `<rect width='50' height='50' rx='11' fill='url(#${g4})' opacity='0.35'/>`;
+
+	// Username initials — up to 2 characters
+	const initials =
+		seed
+			.replace(/[^a-zA-Z\s]/g, "")
+			.trim()
+			.split(/\s+/)
+			.map((p) => p[0] || "")
+			.slice(0, 2)
+			.join("")
+			.toUpperCase() || seed.slice(0, 1).toUpperCase();
+
+	// Choose text style variant
+	const textVariant = hashCode(seed, 90) % 3;
+	let textEl = "";
+	if (textVariant === 0) {
+		// Bold centered
+		textEl = `<text x='50%' y='53%' font-family='Inter, system-ui, sans-serif' font-size='18' fill='white' text-anchor='middle' dominant-baseline='middle' font-weight='900' letter-spacing='1' filter='url(#${fShadow})'>${initials}</text>`;
+	} else if (textVariant === 1) {
+		// Outlined + filled
+		textEl = `<text x='50%' y='53%' font-family='Inter, system-ui, sans-serif' font-size='17' fill='none' stroke='rgba(255,255,255,0.9)' stroke-width='1' text-anchor='middle' dominant-baseline='middle' font-weight='800' letter-spacing='1.5'>${initials}</text>
+<text x='50%' y='53%' font-family='Inter, system-ui, sans-serif' font-size='17' fill='white' text-anchor='middle' dominant-baseline='middle' font-weight='800' letter-spacing='1.5' opacity='0.75'>${initials}</text>`;
+	} else {
+		// Large single letter with shadow
+		const single = initials.slice(0, 1);
+		textEl = `<text x='50%' y='53%' font-family='Georgia, serif' font-size='26' fill='white' text-anchor='middle' dominant-baseline='middle' font-weight='700' filter='url(#${fShadow})' opacity='0.95'>${single}</text>`;
+	}
+
+	const svgText = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='0 0 50 50'>
 ${defs}
-${background}
+${bg}
+${texture}
 ${shapes}
-${decorElements}
+${strokes}
+${arcs}
+${highlight}
 ${overlay}
-<text x='50%' y='52%' font-family='Inter, Arial, sans-serif' font-size='17' fill='white' text-anchor='middle' dominant-baseline='middle' font-weight='800' letter-spacing='0.5'>${initials}</text>
+${textEl}
 </svg>`;
 
 	return svgText;
@@ -176,7 +252,7 @@ export default function AccountIconGenerator({ username = "user", onChange }: Pr
 			};
 			reader.readAsText(f);
 		},
-		[onChange]
+		[onChange],
 	);
 
 	const handleDownload = useCallback(() => {

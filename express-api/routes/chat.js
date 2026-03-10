@@ -102,10 +102,11 @@ router.get("/sessions/:uuid", authenticate, async (req, res) => {
  */
 router.post("/sessions", authenticate, async (req, res) => {
 	try {
-		const { title, modelType = "tanka", aiEnabled = true } = req.body;
+		const { title, modelType = "tanka_semantic", aiEnabled = true } = req.body;
 
-		if (!["tanka", "villanelle", "ode", "chemistry"].includes(modelType)) {
-			return res.status(400).json({ error: "Invalid model type" });
+		// Tanka with two modes: Semantic (natural language) or Chemistry
+		if (!["tanka_semantic", "tanka_chemistry"].includes(modelType)) {
+			return res.status(400).json({ error: "Invalid model type. Valid types: tanka_semantic, tanka_chemistry" });
 		}
 
 		const client = await pool.connect();
@@ -242,8 +243,8 @@ router.put("/sessions/:uuid", authenticate, async (req, res) => {
 				updates.push(`title = $${params.length}`);
 			}
 			if (modelType !== undefined) {
-				if (!["tanka", "villanelle", "ode", "chemistry"].includes(modelType)) {
-					return res.status(400).json({ error: "Invalid model type" });
+				if (!["tanka_semantic", "tanka_chemistry"].includes(modelType)) {
+					return res.status(400).json({ error: "Invalid model type. Valid types: tanka_semantic, tanka_chemistry" });
 				}
 				params.push(modelType);
 				updates.push(`model_type = $${params.length}`);

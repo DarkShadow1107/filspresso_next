@@ -29,6 +29,8 @@ export type WeatherData = {
 	longitude: number;
 	timezone: string;
 	timezone_abbreviation: string;
+	city: string | null;
+	country: string | null;
 	current: CurrentWeather | null;
 	hourly: HourlyWeather | null;
 	recommendation: WeatherRecommendation | null;

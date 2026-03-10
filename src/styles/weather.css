@@ -114,6 +114,11 @@
 	margin-top: 0.25rem;
 }
 
+.weather-widget__time {
+	opacity: 0.75;
+	font-variant-numeric: tabular-nums;
+}
+
 .weather-widget__rec-icon {
 	font-size: 1rem;
 	cursor: pointer;

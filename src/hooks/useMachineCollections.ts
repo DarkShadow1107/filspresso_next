@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { machineCollections, type MachineCollection } from "@/data/machines";
+import { machineCollections, type MachineCollection, type MachineProduct } from "@/data/machines";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 

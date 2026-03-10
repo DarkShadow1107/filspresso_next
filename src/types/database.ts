@@ -28,6 +28,7 @@ export interface DBUserCard {
 	account_id: number;
 	card_number_encrypted: string;
 	card_expiry_encrypted: string;
+	card_expiry?: string;
 	card_holder: string;
 	card_type: string;
 	card_last_four: string;
@@ -209,7 +210,7 @@ export interface DBChatSession {
 	account_id: number;
 	session_uuid: string;
 	title: string | null;
-	model_type: "tanka" | "villanelle" | "ode" | "chemistry";
+	model_type: "tanka" | "chemistry";
 	ai_enabled: boolean;
 	is_active: boolean;
 	message_count: number;

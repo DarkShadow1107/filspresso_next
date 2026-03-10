@@ -36,7 +36,7 @@ type ContextType = {
 		duration?: number,
 		variant?: Notification["variant"],
 		category?: string,
-		extras?: NotificationExtras
+		extras?: NotificationExtras,
 	) => string;
 	dismiss: (id: string) => void;
 };
@@ -66,7 +66,7 @@ export default function NotificationsProvider({ children }: { children: React.Re
 			clearTimer(id);
 			setNotifications((s) => s.filter((notification) => notification.id !== id));
 		},
-		[clearTimer]
+		[clearTimer],
 	);
 
 	const pathname = usePathname();
@@ -83,7 +83,7 @@ export default function NotificationsProvider({ children }: { children: React.Re
 			duration = 6000,
 			variant: Notification["variant"] = "info",
 			category = "generic",
-			extras: NotificationExtras = {}
+			extras: NotificationExtras = {},
 		) => {
 			const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 			const ts = Date.now();
@@ -107,7 +107,7 @@ export default function NotificationsProvider({ children }: { children: React.Re
 			]);
 			return id;
 		},
-		[routeKey]
+		[routeKey],
 	);
 
 	useEffect(() => {
@@ -159,13 +159,13 @@ export default function NotificationsProvider({ children }: { children: React.Re
 						return { ...notification, remaining: 0, isPaused: true };
 					}
 					return { ...notification, remaining, isPaused: true };
-				})
+				}),
 			);
 			if (shouldDismiss) {
 				dismiss(id);
 			}
 		},
-		[clearTimer, dismiss]
+		[clearTimer, dismiss],
 	);
 
 	const resumeNotification = useCallback(
@@ -181,13 +181,13 @@ export default function NotificationsProvider({ children }: { children: React.Re
 						return notification;
 					}
 					return { ...notification, isPaused: false };
-				})
+				}),
 			);
 			if (shouldDismiss) {
 				dismiss(id);
 			}
 		},
-		[dismiss]
+		[dismiss],
 	);
 
 	const value = useMemo(() => ({ notify, dismiss }), [notify, dismiss]);

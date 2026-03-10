@@ -4,7 +4,7 @@
 	min-height: 100vh;
 	display: flex;
 	flex-direction: column;
-	justify-content: center;
+	justify-content: flex-start;
 	align-items: center;
 	background-image: url("/images/nespresso-banner.jpg");
 	background-size: cover;
@@ -12,6 +12,7 @@
 	color: #ddd;
 	font-family: "Poppins", sans-serif !important;
 	padding-top: 6rem;
+	padding-bottom: 4rem;
 }
 
 .subscription-page::before {
@@ -150,26 +151,11 @@
 	margin: 0 auto;
 }
 
-/* Second row: 2 cards (Plus, Basic) centered - use grid positioning */
-.subscription-page .cards_inner > .card:nth-child(4) {
-	grid-column: 1 / 3;
-	grid-row: 2;
-}
-
-.subscription-page .cards_inner > .card:nth-child(5) {
-	grid-column: 2 / 4;
-	grid-row: 2;
-}
+/* Cards flow naturally in 3-column grid (3×2 with 6 plans) */
 
 @media (max-width: 1280px) {
 	.subscription-page .cards_inner {
 		grid-template-columns: repeat(2, minmax(min(20rem, 100%), 1fr));
-	}
-
-	.subscription-page .cards_inner > .card:nth-child(4),
-	.subscription-page .cards_inner > .card:nth-child(5) {
-		grid-column: auto;
-		grid-row: auto;
 	}
 }
 
@@ -234,6 +220,13 @@
 	--lightness: 50%;
 }
 
+.subscription-page .cards_inner > .card:nth-child(6) {
+	/* Free - Grey */
+	--hue: 210;
+	--saturation: 10%;
+	--lightness: 55%;
+}
+
 .subscription-page .cards_inner > .card:hover {
 	background-color: rgba(9, 9, 9, 0.525);
 	backdrop-filter: blur(15px);
@@ -242,25 +235,39 @@
 /* Max card (recommended) - subtle rotating rainbow border glow */
 @keyframes rainbow-border-glow {
 	0% {
-		box-shadow: 0 0 30px rgba(0, 128, 255, 0.35), 0 0 50px rgba(0, 128, 255, 0.15);
+		box-shadow:
+			0 0 30px rgba(0, 128, 255, 0.35),
+			0 0 50px rgba(0, 128, 255, 0.15);
 	}
 	16.66% {
-		box-shadow: 0 0 30px rgba(128, 0, 255, 0.35), 0 0 50px rgba(128, 0, 255, 0.15);
+		box-shadow:
+			0 0 30px rgba(128, 0, 255, 0.35),
+			0 0 50px rgba(128, 0, 255, 0.15);
 	}
 	33.33% {
-		box-shadow: 0 0 30px rgba(255, 0, 0, 0.35), 0 0 50px rgba(255, 0, 0, 0.15);
+		box-shadow:
+			0 0 30px rgba(255, 0, 0, 0.35),
+			0 0 50px rgba(255, 0, 0, 0.15);
 	}
 	50% {
-		box-shadow: 0 0 30px rgba(255, 255, 0, 0.35), 0 0 50px rgba(255, 255, 0, 0.15);
+		box-shadow:
+			0 0 30px rgba(255, 255, 0, 0.35),
+			0 0 50px rgba(255, 255, 0, 0.15);
 	}
 	66.66% {
-		box-shadow: 0 0 30px rgba(0, 255, 0, 0.35), 0 0 50px rgba(0, 255, 0, 0.15);
+		box-shadow:
+			0 0 30px rgba(0, 255, 0, 0.35),
+			0 0 50px rgba(0, 255, 0, 0.15);
 	}
 	83.33% {
-		box-shadow: 0 0 30px rgba(0, 255, 255, 0.35), 0 0 50px rgba(0, 255, 255, 0.15);
+		box-shadow:
+			0 0 30px rgba(0, 255, 255, 0.35),
+			0 0 50px rgba(0, 255, 255, 0.15);
 	}
 	100% {
-		box-shadow: 0 0 30px rgba(0, 128, 255, 0.35), 0 0 50px rgba(0, 128, 255, 0.15);
+		box-shadow:
+			0 0 30px rgba(0, 128, 255, 0.35),
+			0 0 50px rgba(0, 128, 255, 0.15);
 	}
 }
 
@@ -269,14 +276,19 @@
 	border: 1px solid rgba(128, 0, 255, 0.15);
 	position: relative;
 	overflow: visible;
-	animation: rainbow-border-glow 8s linear infinite, rotate 20s linear infinite;
+	animation:
+		rainbow-border-glow 8s linear infinite,
+		rotate 20s linear infinite;
 }
 
 /* Max card hover - refined enhanced glow */
 .subscription-page .cards_inner > .card:nth-child(2):hover {
 	background-color: hsla(270, 65%, 55%, 0.12);
 	border-color: rgba(128, 0, 255, 0.3);
-	box-shadow: 0 0 20px rgba(128, 0, 255, 0.4), 0 0 40px rgba(128, 0, 255, 0.25), 0 0 60px rgba(0, 128, 255, 0.15);
+	box-shadow:
+		0 0 20px rgba(128, 0, 255, 0.4),
+		0 0 40px rgba(128, 0, 255, 0.25),
+		0 0 60px rgba(0, 128, 255, 0.15);
 	backdrop-filter: blur(18px);
 }
 
@@ -345,7 +357,9 @@
 	border: 1px solid rgba(253, 202, 136, 0.095);
 	font-size: 1.15rem;
 	font-weight: 600;
-	transition: 0.35s background ease, 0.35s box-shadow ease;
+	transition:
+		0.35s background ease,
+		0.35s box-shadow ease;
 }
 
 .subscription-page .cta:hover,
@@ -368,7 +382,9 @@
 	opacity: var(--opacity);
 	mask: radial-gradient(25rem 25rem at var(--x) var(--y), #000 3%, transparent 55%);
 	-webkit-mask: radial-gradient(25rem 25rem at var(--x) var(--y), #000 3%, transparent 55%);
-	transition: 0.4s mask ease, 0.25s opacity ease;
+	transition:
+		0.4s mask ease,
+		0.25s opacity ease;
 	will-change: mask;
 	display: grid;
 	grid-template-columns: repeat(3, minmax(min(20rem, 100%), 1fr));
@@ -378,25 +394,9 @@
 	margin: 0 auto;
 }
 
-.subscription-page .overlay .card:nth-child(4) {
-	grid-column: 1 / 3;
-	grid-row: 2;
-}
-
-.subscription-page .overlay .card:nth-child(5) {
-	grid-column: 2 / 4;
-	grid-row: 2;
-}
-
 @media (max-width: 1280px) {
 	.subscription-page .overlay {
 		grid-template-columns: repeat(2, minmax(min(20rem, 100%), 1fr));
-	}
-
-	.subscription-page .overlay .card:nth-child(4),
-	.subscription-page .overlay .card:nth-child(5) {
-		grid-column: auto;
-		grid-row: auto;
 	}
 }
 
@@ -444,6 +444,11 @@
 .subscription-page .overlay .card:nth-child(5) {
 	/* Basic - Green */
 	--hsl: 140, 70%, 50%;
+}
+
+.subscription-page .overlay .card:nth-child(6) {
+	/* Free - Grey */
+	--hsl: 210, 10%, 55%;
 }
 
 @media (max-width: 640px) {

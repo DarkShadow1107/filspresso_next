@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { WeatherData } from "@/lib/weather";
+import type { WeatherData, WeatherRecommendation } from "@/lib/weather";
 import { getWeatherIcon, getWeatherDescription } from "@/lib/weather";
 import {
 	MoonIcon,
@@ -96,6 +96,24 @@ export default function WeatherWidget({
 	const description = getWeatherDescription(weather.current.weather_code);
 	const recommendation = weather.recommendation;
 
+	// Build location label: "City, Country", or parse the IANA timezone, or fall back to abbreviation
+	const locationLabel =
+		weather.city && weather.country
+			? `${weather.city}, ${weather.country}`
+			: weather.timezone
+				? (weather.timezone.split("/").pop()?.replace(/_/g, " ") ?? weather.timezone_abbreviation)
+				: weather.timezone_abbreviation;
+
+	// Local time formatted using the IANA timezone from Open-Meteo
+	const localTime = weather.timezone
+		? new Date().toLocaleTimeString("en-US", {
+				timeZone: weather.timezone,
+				hour: "2-digit",
+				minute: "2-digit",
+				hour12: false,
+			})
+		: null;
+
 	if (compact) {
 		return (
 			<div className={`weather-widget weather-widget--compact ${className}`}>
@@ -138,7 +156,10 @@ export default function WeatherWidget({
 				<div className="weather-widget__info">
 					<div className="weather-widget__temp-large">{temp}°C</div>
 					<div className="weather-widget__desc">{description}</div>
-					<div className="weather-widget__location">{weather.timezone_abbreviation}</div>
+					<div className="weather-widget__location">
+						{locationLabel}
+						{localTime && <span className="weather-widget__time"> · {localTime}</span>}
+					</div>
 				</div>
 			</div>
 

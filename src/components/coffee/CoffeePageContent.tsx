@@ -217,13 +217,28 @@ export function NotePills({ notes, productId }: { notes: string[]; productId: st
 		function updatePosition() {
 			const pill = plusRef.current;
 			const pop = popoverRef.current;
-			if (!pill || !pop) return;
+			const root = containerRef.current;
+			if (!pill || !pop || !root) return;
+
 			const pillRect = pill.getBoundingClientRect();
-			const parentRect = document.documentElement.getBoundingClientRect();
-			// position popover centered below the pill, with little offset
-			const left = pillRect.left - parentRect.left + pillRect.width / 2 - pop.offsetWidth / 2;
-			const top = pillRect.bottom - parentRect.top + 8; // 8px gap
-			setPopoverStyle({ left: Math.max(8, left) + "px", top: top + "px", position: "absolute" });
+			const rootRect = root.getBoundingClientRect();
+
+			// position popover centered below the pill, relative to the notes_row container
+			let left = pillRect.left - rootRect.left + pillRect.width / 2 - pop.offsetWidth / 2;
+			const top = pillRect.bottom - rootRect.top + 8; // 8px gap
+
+			// constraint to root bounds
+			if (left < 4) left = 4;
+			if (left + pop.offsetWidth > rootRect.width - 4) {
+				left = rootRect.width - pop.offsetWidth - 4;
+			}
+
+			setPopoverStyle({
+				left: left + "px",
+				top: top + "px",
+				position: "absolute",
+				zIndex: 2000,
+			});
 		}
 
 		if (open) {

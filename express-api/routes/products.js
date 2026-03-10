@@ -114,7 +114,7 @@ const resolveMachineCategoryFolder = (productType, category) => {
 };
 
 function resolveImageExtension(subPath, filename, preferredExt) {
-	// If DB has a specific extension, use it only if the file actually exists.
+	// 1. Try the extension stored in the DB first (fast path)
 	const preferred = (preferredExt || "").toString().trim().toLowerCase();
 	if (preferred && VALID_IMAGE_EXTENSIONS.has(preferred)) {
 		const fullPathPreferred = path.join(PUBLIC_IMAGES_PATH, subPath, `${filename}.${preferred}`);
@@ -123,7 +123,7 @@ function resolveImageExtension(subPath, filename, preferredExt) {
 		}
 	}
 
-	// Otherwise, check file system for existence (and also acts as fallback if preferred doesn't exist)
+	// 2. DB extension missing/wrong — scan the mounted images folder
 	const extensionsToCheck = ["avif", "webp", "png", "jpg", "jpeg"];
 	for (const ext of extensionsToCheck) {
 		const fullPath = path.join(PUBLIC_IMAGES_PATH, subPath, `${filename}.${ext}`);
@@ -132,7 +132,8 @@ function resolveImageExtension(subPath, filename, preferredExt) {
 		}
 	}
 
-	return "png"; // Default fallback
+	// 3. File not found — fall back to DB value or avif
+	return preferred && VALID_IMAGE_EXTENSIONS.has(preferred) ? preferred : "avif";
 }
 
 async function columnExists(client, table, column) {
@@ -143,7 +144,7 @@ async function columnExists(client, table, column) {
 		   AND table_name = $1
 		   AND column_name = $2
 		 LIMIT 1`,
-		[table, column]
+		[table, column],
 	);
 	return res.rows.length > 0;
 }
@@ -156,7 +157,7 @@ async function indexExists(client, table, indexName) {
 		   AND tablename = $1
 		   AND indexname = $2
 		 LIMIT 1`,
-		[table, indexName]
+		[table, indexName],
 	);
 	return res.rows.length > 0;
 }
@@ -367,6 +368,141 @@ function mapMachineRow(row) {
 	};
 }
 
+function getStaticJsonPath(filename) {
+	const candidatePaths = [
+		path.resolve(__dirname, `../../src/data/${filename}`),
+		path.resolve(__dirname, `../bootstrap-data/${filename}`),
+		path.resolve(process.cwd(), `bootstrap-data/${filename}`),
+	];
+
+	for (const candidatePath of candidatePaths) {
+		if (fs.existsSync(candidatePath)) {
+			return candidatePath;
+		}
+	}
+
+	const error = new Error(`${filename} not found in any known location: ${candidatePaths.join(", ")}`);
+	error.statusCode = 404;
+	throw error;
+}
+
+function getMachinesStaticJsonPath() {
+	return getStaticJsonPath("machines.generated.json");
+}
+
+function loadMachineCollectionsFromStaticJson() {
+	const jsonPath = getMachinesStaticJsonPath();
+	if (!fs.existsSync(jsonPath)) {
+		const error = new Error(`machines.generated.json not found at ${jsonPath}`);
+		error.statusCode = 404;
+		throw error;
+	}
+
+	const rawData = fs.readFileSync(jsonPath, "utf8");
+	return JSON.parse(rawData);
+}
+
+async function upsertMachineCollections(client, collections, options = {}) {
+	const { replaceExisting = false, defaultStock = 10 } = options;
+
+	await ensureMachineProductsSchema(client);
+	if (replaceExisting) {
+		await client.query("TRUNCATE machine_products RESTART IDENTITY");
+	}
+
+	let inserted = 0;
+	const errors = [];
+
+	for (const collection of collections) {
+		const productType = collection.id === "vertuo" ? "vertuo" : "original";
+
+		for (const group of collection.groups || []) {
+			const category = group.title || "General";
+
+			for (const product of group.products || []) {
+				try {
+					const productId = product.id || slugifyProductId(product.name);
+					const description = product.description || null;
+					const notes = Array.isArray(product.notes) ? product.notes : null;
+					const image = product.image ? product.image.replace(/^\/+/, "") : null;
+					const boxClass = product.boxClass || product.box_class || null;
+					const wrapperClass = product.wrapperClass || product.wrapper_class || null;
+					const unitLabel = product.unitLabel || product.unit_label || null;
+					const priceClass = product.priceClass || product.price_class || null;
+					const priceText = product.priceText || product.price_text || null;
+					const extraClass = Array.isArray(product.extraClass) ? product.extraClass : null;
+					const price =
+						typeof product.priceRon === "number"
+							? product.priceRon
+							: typeof product.price === "number"
+								? product.price
+								: 0;
+
+					await client.query(
+						`INSERT INTO machine_products 
+ (product_id, product_type, category, name, description, notes, image, box_class, wrapper_class, unit_label, price_class, price_text, extra_class, price, stock)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+ ON CONFLICT (product_id) DO UPDATE SET
+ product_type = EXCLUDED.product_type,
+ category = EXCLUDED.category,
+ name = EXCLUDED.name,
+ description = EXCLUDED.description,
+ notes = EXCLUDED.notes,
+ image = EXCLUDED.image,
+ box_class = EXCLUDED.box_class,
+ wrapper_class = EXCLUDED.wrapper_class,
+ unit_label = EXCLUDED.unit_label,
+ price_class = EXCLUDED.price_class,
+ price_text = EXCLUDED.price_text,
+ extra_class = EXCLUDED.extra_class,
+ price = EXCLUDED.price,
+ stock = CASE
+ 	WHEN machine_products.stock IS NULL OR machine_products.stock < 0 THEN EXCLUDED.stock
+ 	ELSE machine_products.stock
+ END`,
+						[
+							productId,
+							productType,
+							category,
+							product.name || productId,
+							description,
+							notes ? JSON.stringify(notes) : null,
+							image,
+							boxClass,
+							wrapperClass,
+							unitLabel,
+							priceClass,
+							priceText,
+							extraClass ? JSON.stringify(extraClass) : null,
+							price,
+							defaultStock,
+						],
+					);
+					inserted++;
+				} catch (err) {
+					errors.push({ product: product.name, error: err.message });
+				}
+			}
+		}
+	}
+
+	return { inserted, errors };
+}
+
+async function ensureMachineProductsSeeded(client) {
+	await ensureMachineProductsSchema(client);
+
+	const countResult = await client.query("SELECT COUNT(*)::int AS count FROM machine_products");
+	const productCount = Number(countResult.rows[0]?.count) || 0;
+	if (productCount > 0) {
+		return { seeded: false, count: productCount, inserted: 0, errors: [] };
+	}
+
+	const collections = loadMachineCollectionsFromStaticJson();
+	const { inserted, errors } = await upsertMachineCollections(client, collections, { defaultStock: 10 });
+	return { seeded: true, count: inserted, inserted, errors };
+}
+
 // Get all coffee products
 router.get("/coffee", async (req, res) => {
 	try {
@@ -380,7 +516,7 @@ router.get("/coffee", async (req, res) => {
             ELSE 'out_of_stock'
         END as stock_status
  FROM coffee_products
- ORDER BY name`
+ ORDER BY name`,
 			);
 
 			res.json({
@@ -411,7 +547,7 @@ router.get("/coffee/:productId", async (req, res) => {
         END as stock_status
  FROM coffee_products
  WHERE product_id = $1`,
-				[productId]
+				[productId],
 			);
 
 			const product = result.rows[0];
@@ -498,6 +634,16 @@ router.get("/machines", async (req, res) => {
 	try {
 		const client = await pool.connect();
 		try {
+			const seedResult = await ensureMachineProductsSeeded(client);
+			if (seedResult.seeded) {
+				console.log(
+					`[Products] Seeded ${seedResult.inserted} machine products from static JSON because machine_products was empty`,
+				);
+				if (seedResult.errors.length > 0) {
+					console.warn("[Products] Some machine products failed to seed:", seedResult.errors);
+				}
+			}
+
 			const products = await queryMachineProducts(client);
 			res.json({
 				status: "success",
@@ -518,6 +664,7 @@ router.get("/machines/:productId", async (req, res) => {
 		const { productId } = req.params;
 		const client = await pool.connect();
 		try {
+			await ensureMachineProductsSeeded(client);
 			const rows = await querySingleMachineProduct(client, productId);
 			const product = rows[0];
 
@@ -660,8 +807,8 @@ router.post("/sync", async (req, res) => {
 						typeof product.priceRon === "number"
 							? product.priceRon
 							: typeof product.price === "number"
-							? product.price
-							: 0;
+								? product.price
+								: 0;
 					const imageField = product.imageFilename || product.image || product.image_path;
 					const imageExtField =
 						product.imageExtension || product.image_extension || product.imageExt || product.image_format;
@@ -699,7 +846,7 @@ router.post("/sync", async (req, res) => {
 							extension,
 							imageStyle,
 							priceClass,
-						]
+						],
 					);
 					if (result.rowCount > 0) coffeeInserted++;
 				}
@@ -727,8 +874,8 @@ router.post("/sync", async (req, res) => {
 						typeof product.priceRon === "number"
 							? product.priceRon
 							: typeof product.price === "number"
-							? product.price
-							: 0;
+								? product.price
+								: 0;
 
 					const result = await client.query(
 						`INSERT INTO machine_products (product_id, product_type, category, name, description, notes, image, box_class, wrapper_class, unit_label, price_class, price_text, extra_class, price, stock)
@@ -762,7 +909,7 @@ router.post("/sync", async (req, res) => {
 							priceText,
 							extraClass ? JSON.stringify(extraClass) : null,
 							price,
-						]
+						],
 					);
 					if (result.rowCount > 0) machineInserted++;
 				}
@@ -786,11 +933,7 @@ router.post("/sync", async (req, res) => {
 // Reset coffee_products from static JSON
 router.post("/coffee/reset-static", async (req, res) => {
 	try {
-		const jsonPath = path.resolve(__dirname, "../../src/data/coffee.generated.json");
-
-		if (!fs.existsSync(jsonPath)) {
-			return res.status(404).json({ error: "coffee.generated.json not found", path: jsonPath });
-		}
+		const jsonPath = getStaticJsonPath("coffee.generated.json");
 
 		const rawData = fs.readFileSync(jsonPath, "utf8");
 		const collections = JSON.parse(rawData);
@@ -823,8 +966,8 @@ router.post("/coffee/reset-static", async (req, res) => {
 								typeof product.priceRon === "number"
 									? product.priceRon
 									: typeof product.price === "number"
-									? product.price
-									: 0;
+										? product.price
+										: 0;
 							const { filename, extension } = normalizeImageMeta(product.image, null);
 							const priceClass = product.priceClass || product.price_class || null;
 							const imageStyle = product.imageStyle || product.image_style || null;
@@ -860,7 +1003,7 @@ router.post("/coffee/reset-static", async (req, res) => {
 									extension,
 									imageStyle,
 									priceClass,
-								]
+								],
 							);
 							inserted++;
 						} catch (err) {
@@ -888,90 +1031,15 @@ router.post("/coffee/reset-static", async (req, res) => {
 // Reset machine_products from static JSON
 router.post("/machines/reset-static", async (req, res) => {
 	try {
-		const jsonPath = path.resolve(__dirname, "../../src/data/machines.generated.json");
-
-		if (!fs.existsSync(jsonPath)) {
-			return res.status(404).json({ error: "machines.generated.json not found", path: jsonPath });
-		}
-
-		const rawData = fs.readFileSync(jsonPath, "utf8");
-		const collections = JSON.parse(rawData);
+		const jsonPath = getMachinesStaticJsonPath();
+		const collections = loadMachineCollectionsFromStaticJson();
 
 		const client = await pool.connect();
 		try {
-			await ensureMachineProductsSchema(client);
-			await client.query("DELETE FROM machine_products");
-
-			let inserted = 0;
-			const errors = [];
-
-			for (const collection of collections) {
-				const productType = collection.id === "vertuo" ? "vertuo" : "original";
-
-				for (const group of collection.groups || []) {
-					const category = group.title || "General";
-
-					for (const product of group.products || []) {
-						try {
-							const productId = product.id || slugifyProductId(product.name);
-							const description = product.description || null;
-							const notes = Array.isArray(product.notes) ? product.notes : null;
-							const image = product.image ? product.image.replace(/^\/+/, "") : null;
-							const boxClass = product.boxClass || product.box_class || null;
-							const wrapperClass = product.wrapperClass || product.wrapper_class || null;
-							const unitLabel = product.unitLabel || product.unit_label || null;
-							const priceClass = product.priceClass || product.price_class || null;
-							const priceText = product.priceText || product.price_text || null;
-							const extraClass = Array.isArray(product.extraClass) ? product.extraClass : null;
-							const price =
-								typeof product.priceRon === "number"
-									? product.priceRon
-									: typeof product.price === "number"
-									? product.price
-									: 0;
-
-							await client.query(
-								`INSERT INTO machine_products 
- (product_id, product_type, category, name, description, notes, image, box_class, wrapper_class, unit_label, price_class, price_text, extra_class, price, stock)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 10)
- ON CONFLICT (product_id) DO UPDATE SET
- product_type = EXCLUDED.product_type,
- category = EXCLUDED.category,
- name = EXCLUDED.name,
- description = EXCLUDED.description,
- notes = EXCLUDED.notes,
- image = EXCLUDED.image,
- box_class = EXCLUDED.box_class,
- wrapper_class = EXCLUDED.wrapper_class,
- unit_label = EXCLUDED.unit_label,
- price_class = EXCLUDED.price_class,
- price_text = EXCLUDED.price_text,
- extra_class = EXCLUDED.extra_class,
- price = EXCLUDED.price`,
-								[
-									productId,
-									productType,
-									category,
-									product.name || productId,
-									description,
-									notes ? JSON.stringify(notes) : null,
-									image,
-									boxClass,
-									wrapperClass,
-									unitLabel,
-									priceClass,
-									priceText,
-									extraClass ? JSON.stringify(extraClass) : null,
-									price,
-								]
-							);
-							inserted++;
-						} catch (err) {
-							errors.push({ product: product.name, error: err.message });
-						}
-					}
-				}
-			}
+			const { inserted, errors } = await upsertMachineCollections(client, collections, {
+				replaceExisting: true,
+				defaultStock: 10,
+			});
 
 			res.json({
 				status: "success",

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-// @ts-expect-error: Global admin styles imported for the dashboard page
 import "../../styles/admin.css";
 import {
 	ArrowBigLeftDashIcon,
@@ -221,6 +220,34 @@ export default function AdminPage() {
 		[adminToken, pagination.page, pagination.limit, sortBy, sortOrder, searchQuery],
 	);
 
+	useEffect(() => {
+		if (!isAuthenticated || !adminToken) {
+			return;
+		}
+
+		const refreshAdminData = () => {
+			fetchTables();
+			if (selectedTable) {
+				fetchTableInfo(selectedTable);
+				fetchTableData(selectedTable);
+			}
+		};
+
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === "visible") {
+				refreshAdminData();
+			}
+		};
+
+		window.addEventListener("focus", refreshAdminData);
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+
+		return () => {
+			window.removeEventListener("focus", refreshAdminData);
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
+		};
+	}, [isAuthenticated, adminToken, selectedTable, fetchTableData]);
+
 	const handleSort = (column: string) => {
 		if (sortBy === column) {
 			setSortOrder(sortOrder === "asc" ? "desc" : "asc");
@@ -301,6 +328,7 @@ export default function AdminPage() {
 			setActionSuccess("Row updated successfully");
 			setEditingRow(null);
 			setEditedData({});
+			fetchTables();
 			fetchTableData(selectedTable);
 		} catch {
 			setActionError("Failed to save changes");
@@ -333,6 +361,7 @@ export default function AdminPage() {
 			}
 
 			setActionSuccess("Row deleted successfully");
+			fetchTables();
 			fetchTableData(selectedTable);
 		} catch {
 			setActionError("Failed to delete row");
@@ -381,6 +410,7 @@ export default function AdminPage() {
 			setActionSuccess(`Row inserted successfully (ID: ${data.insertId})`);
 			setIsAddingRow(false);
 			setNewRowData({});
+			fetchTables();
 			fetchTableData(selectedTable);
 		} catch {
 			setActionError("Failed to insert row");
@@ -1087,7 +1117,13 @@ export default function AdminPage() {
 									<button onClick={handleAddRow} className="add-row-button">
 										<UserPlusIcon size={16} /> Add Row
 									</button>
-									<button onClick={() => fetchTableData(selectedTable)} className="refresh-button">
+									<button
+										onClick={() => {
+											fetchTables();
+											fetchTableData(selectedTable);
+										}}
+										className="refresh-button"
+									>
 										<RefreshIcon size={16} /> Refresh
 									</button>
 								</div>

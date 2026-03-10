@@ -1,20 +1,20 @@
 [
   {
-    "id": "chat-1768671381900",
-    "timestamp": 1768671381900,
+    "id": "chat-1773151901694",
+    "timestamp": 1773152166020,
     "messages": [
       {
         "role": "user",
-        "content": "s"
+        "content": "what is green coffee?"
       },
       {
         "role": "assistant",
-        "content": "[Scientific Analysis via ResNET 18 & MiniLLM] Based on molecular patterns, here is your insight: The roasting process transforms green coffee beans into the aromatic brown beans we know through the Maillard reaction.",
+        "content": "Great question! The roasting process transforms green coffee beans into the aromatic brown beans we know through the Maillard reaction.\n\nAdditionally: Antioxidants in coffee — including chlorogenic acid and polyphenols — help protect cells from oxidative stress and inflammation.",
         "products": []
       }
     ],
-    "preview": "s",
-    "model": "ode",
+    "preview": "what is green coffee?",
+    "model": "tanka",
     "category": "coffee"
   }
 ]

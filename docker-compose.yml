@@ -1,10 +1,12 @@
 services:
-    # PostgreSQL database with pgvector and rdkit
+    # -------------------------------------------------------------------------
+    # 1. PostgreSQL  (pgvector + rdkit)
+    # -------------------------------------------------------------------------
     postgres:
         build:
             context: .
             dockerfile: Dockerfile.db
-        container_name: filspresso_next_postgres
+        container_name: filspresso_postgres
         restart: unless-stopped
         environment:
             POSTGRES_DB: ${DB_NAME:-filspresso}
@@ -21,6 +23,84 @@ services:
             timeout: 5s
             retries: 5
 
+    # -------------------------------------------------------------------------
+    # 2. Backend  (Express.js REST API)
+    # -------------------------------------------------------------------------
+    backend:
+        build:
+            context: .
+            dockerfile: Dockerfile.express
+        container_name: filspresso_backend
+        restart: unless-stopped
+        depends_on:
+            postgres:
+                condition: service_healthy
+        environment:
+            NODE_ENV: ${NODE_ENV:-production}
+            PORT: 4000
+            DB_HOST: postgres
+            DB_PORT: 5432
+            DB_NAME: ${DB_NAME:-filspresso}
+            DB_USER: ${DB_USER:-filspresso_user}
+            DB_PASSWORD: ${DB_PASSWORD:-filspresso_secure_2024}
+            JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-here!}
+            ENCRYPTION_KEY: ${ENCRYPTION_KEY:-your-32-character-encryption-key!}
+            CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+            PYTHON_AI_HOST: http://ai:5000
+        volumes:
+            # Mount product images so the backend can read/write images (admin uploads)
+            - ./public/images:/public/images
+        ports:
+            - "4000:4000"
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+            interval: 15s
+            timeout: 5s
+            retries: 3
+            start_period: 20s
+
+    # -------------------------------------------------------------------------
+    # 3. AI  (Tanka model — MiniLM / CLIP / MolScribe via Flask)
+    # -------------------------------------------------------------------------
+    ai:
+        build:
+            context: .
+            dockerfile: Dockerfile.ai
+        container_name: filspresso_ai
+        restart: unless-stopped
+        depends_on:
+            postgres:
+                condition: service_healthy
+        environment:
+            DB_HOST: postgres
+            DB_PORT: 5432
+            DB_NAME: ${DB_NAME:-filspresso}
+            DB_USER: ${DB_USER:-filspresso_user}
+            DB_PASSWORD: ${DB_PASSWORD:-filspresso_secure_2024}
+            PYTHON_AI_PORT: 5000
+        ports:
+            - "5000:5000"
+        volumes:
+            # MiniLM (sentence-transformers) model cache
+            - hf_cache:/root/.cache/huggingface
+            # CLIP ViT-B/32 model cache
+            - clip_cache:/root/.cache/clip
+            # MolScribe .pth weights (seeded from image on first run, then persisted)
+            - molscribe_model:/app/models/model
+            # Persist generated user icons
+            - ./public/images/icons:/app/public/images/icons
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:5000/api/health || exit 1"]
+            interval: 20s
+            timeout: 10s
+            retries: 5
+
 volumes:
     postgres_data:
+        driver: local
+    hf_cache:
+        driver: local
+    clip_cache:
+        driver: local
+    molscribe_model:
         driver: local

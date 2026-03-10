@@ -111,24 +111,28 @@ app.use((req, res) => {
 });
 
 /**
- * Start server with Docker container management
- * 1. Start MariaDB container (if not running)
- * 2. Setup shutdown handlers to stop container on exit
- * 3. Start Express server
+ * Start server.
+ * When running inside Docker (detected via /.dockerenv), postgres is already
+ * healthy thanks to compose depends_on — skip container management entirely.
+ * When running locally, dockerManager starts/stops the postgres container.
  */
+const RUNNING_IN_DOCKER = require("fs").existsSync("/.dockerenv");
+
 async function startServer() {
 	try {
-		// Start MariaDB container before starting the server
-		await dockerManager.startContainer();
-
-		// Setup handlers to stop container when server exits
-		dockerManager.setupShutdownHandlers();
+		if (RUNNING_IN_DOCKER) {
+			console.log("🐳 Running inside Docker — postgres managed by compose, skipping dockerManager");
+		} else {
+			// Local dev: start the postgres container if needed
+			await dockerManager.startContainer();
+			dockerManager.setupShutdownHandlers();
+		}
 
 		// Start Express server
 		app.listen(PORT, () => {
 			console.log(`🚀 Filspresso Express API running on port ${PORT}`);
 			console.log(`📊 Health check: http://localhost:${PORT}/health`);
-			console.log(`💡 Press Ctrl+C to stop server and MariaDB container`);
+			console.log(`💡 Press Ctrl+C to stop server`);
 		});
 	} catch (error) {
 		console.error("❌ Failed to start server:", error.message);

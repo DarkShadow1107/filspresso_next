@@ -25,6 +25,7 @@ import {
 	BrandGeminiIcon,
 	BrandOllamaIcon,
 	BrandGrokIcon,
+	PenIcon,
 } from "@/icons";
 
 type CurrentSubscription = {
@@ -52,7 +53,7 @@ const plans = [
 		title: "Ultimate",
 		priceRon: 599.99,
 		priceRonYearly: 6299.99,
-		kafelotModel: "ode" as const,
+		kafelotModel: "tanka" as const,
 		color: "red",
 		recommended: false,
 		tier: 5,
@@ -60,14 +61,11 @@ const plans = [
 			"200 capsules par mois",
 			"Espressor Gran Lattissima Noir Élégant",
 			"1x Suport capsules Mia Lume",
-			"🎼 Kafelot Ode - 50 prompts/month",
-			"⚡ Kafelot Villanelle - 100 prompts/month",
 			"🤖 Kafelot Tanka - 1000 prompts/month",
 			"💾 200-conversation memory",
-			"🧠 Expert-level deep analysis",
-			"🧬 Chemistry Mode - 10,000+ molecules visualization (ChEMBL)",
-			"🔬 2D/3D molecular visualization with RDKit & Py3Dmol",
-			"📊 Advanced molecular property analysis",
+			"📷 CLIP Image Search - 50 queries/month",
+			"🧬 Molecule Helper (MolScribe AI — 10,000+ molecules)",
+			"✏️ Edit prompt feature",
 		],
 	},
 	{
@@ -75,7 +73,7 @@ const plans = [
 		title: "Max",
 		priceRon: 279.99,
 		priceRonYearly: 2699.99,
-		kafelotModel: "villanelle" as const,
+		kafelotModel: "tanka" as const,
 		color: "purple",
 		recommended: true,
 		tier: 4,
@@ -83,9 +81,10 @@ const plans = [
 			"120 capsules par mois",
 			"Espressor Vertuo Next C Rouge Cerise",
 			"1x Suport des bonbons",
-			"⚡ Kafelot Villanelle - 20 prompts/month",
 			"🤖 Kafelot Tanka - 300 prompts/month",
 			"💾 100-conversation memory",
+			"📷 CLIP Image Search - 25 queries/month",
+			"✏️ Edit prompt feature",
 		],
 	},
 	{
@@ -103,6 +102,7 @@ const plans = [
 			"1x Suport des bonbons",
 			"🤖 Kafelot Tanka - 150 prompts/month",
 			"💾 50-conversation memory",
+			"📷 CLIP Image Search - 10 queries/month",
 		],
 	},
 	{
@@ -135,6 +135,20 @@ const plans = [
 			"Espressor Essenza Mini Piano Noir C30",
 			"🤖 Kafelot Tanka - 50 prompts/month",
 			"💾 5-conversation memory",
+		],
+	},
+	{
+		id: "free",
+		title: "Free",
+		priceRon: 0,
+		priceRonYearly: 0,
+		kafelotModel: "tanka" as const,
+		color: "grey",
+		recommended: false,
+		tier: 0,
+		benefits: [
+			"🤖 Kafelot Tanka - 15 prompts/month",
+			"Default for all accounts",
 		],
 	},
 ] as const;
@@ -210,7 +224,7 @@ export default function SubscriptionPageContent() {
 	// Get CTA button text based on plan status (shown normally)
 	const getButtonText = (plan: (typeof plans)[number]): string => {
 		const action = getPlanAction(plan);
-		if (action === "current") return "✓ Current Plan";
+		if (action === "current") return "Current Plan";
 		// For users without subscription, show "Get Started" for basic and "Get {Plan}" for others
 		if (!currentSubscription) {
 			return plan.id === "basic" ? "Get Started" : `Get ${plan.title}`;
@@ -223,7 +237,7 @@ export default function SubscriptionPageContent() {
 	// Get CTA hover text (shown in overlay on hover)
 	const getHoverText = (plan: (typeof plans)[number]): string => {
 		const action = getPlanAction(plan);
-		if (action === "current") return "✓ Current Plan";
+		if (action === "current") return "Current Plan";
 		if (!currentSubscription) {
 			return plan.id === "basic" ? "Get Started" : `Get ${plan.title}`;
 		}
@@ -681,12 +695,19 @@ export default function SubscriptionPageContent() {
 										<span className="card_savings-badge">Save {savings}%</span>
 									)}
 									<h2 className="card_heading">{plan.title}</h2>
-									<p className="card_price">{formatRon(currentPrice)}</p>
-									{billingPeriod === "yearly" && (
+							<p className="card_price">{plan.priceRon === 0 ? "Free" : formatRon(currentPrice)}</p>
+							{billingPeriod === "yearly" && plan.priceRon > 0 && (
 										<p className="card_price-breakdown">{formatRon(currentPrice / 12)}/month</p>
 									)}
 									<ul className="card_bullets" style={{ padding: 0, listStyle: "none" }}>
-										{plan.benefits.map((benefit) => {
+										{(plan.id === "free"
+											? [
+												"Kafelot Tanka - 5 prompts/month (anonymous)",
+												"Kafelot Tanka - 15 prompts/month (with account)",
+													"Default for all accounts",
+											  ]
+											: (plan.benefits as readonly string[])
+										).map((benefit) => {
 											const getIcon = () => {
 												const iconSize = 20;
 												const iconColor = "#ae8966";
@@ -698,26 +719,27 @@ export default function SubscriptionPageContent() {
 													return <BrandGeminiIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("💾"))
 													return <HistoryCircleIcon size={iconSize} color={iconColor} />;
-												if (benefit.includes("🧠"))
-													return <BrandGeminiIcon size={iconSize} color={iconColor} />;
+												// CLIP Image Search → Ollama icon
+												if (benefit.includes("📷"))
+													return <BrandOllamaIcon size={iconSize} color={iconColor} />;
+												// Molecule Helper (MolScribe) → Grok icon
 												if (benefit.includes("🧬"))
-													return <SparklesIcon size={iconSize} color={iconColor} />;
-												if (benefit.includes("🔬"))
-													return <SparklesIcon size={iconSize} color={iconColor} />;
+													return <BrandGrokIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("📊"))
 													return <ChartBarIcon size={iconSize} color={iconColor} />;
-
-												// Default mappings for standard benefits
-												if (benefit.toLowerCase().includes("capsules"))
-													return <CoffeeIcon size={iconSize} color={iconColor} />;
-												if (benefit.toLowerCase().includes("espressor"))
-													return <SparklesIcon size={iconSize} color={iconColor} />;
-												if (benefit.toLowerCase().includes("suport"))
-													return <SimpleCheckedIcon size={iconSize} color={iconColor} />;
-
+										if (benefit.includes("✏️"))
+											return <PenIcon size={iconSize} color={iconColor} />;
+										if (benefit.toLowerCase().includes("kafelot") || benefit.toLowerCase().includes("prompts"))
+											return <BrandGeminiIcon size={iconSize} color={iconColor} />;
+										if (benefit.toLowerCase().includes("suport"))
+											return <SimpleCheckedIcon size={iconSize} color={iconColor} />;
+										if (benefit.toLowerCase().includes("capsules"))
+											return <CoffeeIcon size={iconSize} color={iconColor} />;
+										if (benefit.toLowerCase().includes("espressor"))
+											return <SparklesIcon size={iconSize} color={iconColor} />;
 												return <SimpleCheckedIcon size={iconSize} color={iconColor} />;
 											};
-											const cleanBenefit = benefit.replace(/[🎼⚡🤖💾🧠🧬🔬📊]\s*/g, "");
+											const cleanBenefit = benefit.replace(/[🎼⚡🤖💾📷🧬📊✏️]\s*/g, "");
 											return (
 												<li
 													key={benefit}

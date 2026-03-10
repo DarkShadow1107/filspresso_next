@@ -23,9 +23,14 @@ export type MachineStockInfo = {
 export type MachineStockContextType = {
 	stockData: Map<string, MachineStockInfo>;
 	isLoading: boolean;
+	apiDown: boolean;
 };
 
-export const MachineStockContext = createContext<MachineStockContextType>({ stockData: new Map(), isLoading: true });
+export const MachineStockContext = createContext<MachineStockContextType>({
+	stockData: new Map(),
+	isLoading: true,
+	apiDown: false,
+});
 
 function useMachineStock() {
 	return useContext(MachineStockContext);
@@ -87,7 +92,7 @@ export function MachineProductCard({ product, category }: { product: MachineProd
 	const { addItem } = useCart();
 	const { isFavorite, toggleFavorite } = useFavorites();
 	const { notify } = useMachineNotifications();
-	const { stockData, isLoading: stockLoading } = useMachineStock();
+	const { stockData, isLoading: stockLoading, apiDown } = useMachineStock();
 	const [isInView, setIsInView] = useState(false);
 	const [scrollDir, setScrollDir] = useState<"up" | "down">("down");
 	const lastScrollY = React.useRef(0);
@@ -104,9 +109,10 @@ export function MachineProductCard({ product, category }: { product: MachineProd
 
 	// Get stock info for this product
 	const stockInfo = stockData.get(product.id);
-	const stock = stockInfo?.stock ?? 10; // Default to 10 if not loaded
+	// Only use a default when the API responded (apiDown = false); never fabricate "In Stock" when DB is unreachable
+	const stock = stockInfo?.stock ?? (apiDown ? null : null);
 	const isOutOfStock = stock === 0;
-	const isLowStock = stock > 0 && stock < 4;
+	const isLowStock = stock !== null && stock > 0 && stock < 4;
 
 	const handleAddToBag = () => {
 		if (isOutOfStock) return;
@@ -125,6 +131,8 @@ export function MachineProductCard({ product, category }: { product: MachineProd
 	// Stock status display
 	const getStockDisplay = () => {
 		if (stockLoading) return null;
+		// API is down or product not found in DB — show nothing rather than a false "In Stock"
+		if (stock === null) return null;
 		if (isOutOfStock) {
 			return <div className="stock-badge out-of-stock">Out of Stock</div>;
 		}
@@ -254,8 +262,9 @@ function MachineCollectionSection({ collection }: { collection: MachineCollectio
 export default function MachinesPageContent() {
 	const { collections, loading } = useMachineCollections();
 	const machineCollections = collections ?? [];
-	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
+	const [stockData, setStockData] = useState<Map<string, MachineStockInfo>>(new Map());
 	const [isLoading, setIsLoading] = useState(true);
+	const [apiDown, setApiDown] = useState(false);
 
 	// Fetch stock data on mount
 	useEffect(() => {
@@ -264,7 +273,7 @@ export default function MachinesPageContent() {
 				const res = await fetch(`${API_BASE}/api/products/machines`);
 				if (res.ok) {
 					const data = await res.json();
-					const stockMap = new Map<string, StockInfo>();
+					const stockMap = new Map<string, MachineStockInfo>();
 					for (const product of data.products || []) {
 						stockMap.set(product.productId, {
 							productId: product.productId,
@@ -273,9 +282,13 @@ export default function MachinesPageContent() {
 						});
 					}
 					setStockData(stockMap);
+				} else {
+					// API responded but with an error status (e.g. DB connection failure on backend)
+					setApiDown(true);
 				}
 			} catch (error) {
 				console.error("Failed to fetch machine stock data:", error);
+				setApiDown(true);
 			} finally {
 				setIsLoading(false);
 			}
@@ -284,7 +297,7 @@ export default function MachinesPageContent() {
 	}, []);
 
 	return (
-		<MachineStockContext.Provider value={{ stockData, isLoading }}>
+		<MachineStockContext.Provider value={{ stockData, isLoading, apiDown }}>
 			<MachineNotificationsProvider>
 				<main>
 					<div className="coffee_pres">

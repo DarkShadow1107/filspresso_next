@@ -1,0 +1,39 @@
+# Filspresso AI Backend - Python Requirements
+
+# Web framework
+Flask==3.0.0
+Flask-CORS==4.0.0
+waitress==2.1.2
+
+# Tanka [Semantic] - MiniLM
+sentence-transformers>=2.2.0
+
+# Tanka [Image] - CLIP + MolScribe (see models/requirements.txt)
+torch==2.7.1
+torchvision
+Pillow>=10.0.0
+
+# Vector search
+faiss-cpu>=1.7.4
+
+# Database
+psycopg2-binary
+SQLAlchemy==2.0.19
+
+# Utilities
+numpy>=1.25,<2.0
+python-dotenv==1.0.0
+requests==2.31.0
+
+# MiniLM fine-tuning (optional, run train.py --train)
+transformers>=4.35.0
+datasets>=2.14.0
+accelerate>=0.25.0
+
+# Chemistry data sources
+chembl-webresource-client>=0.10.9
+rdkit>=2023.9.1
+py3Dmol>=2.0.4
+
+# RAG PDF parsing (legacy data ingestion)
+PyPDF2>=3.0.0

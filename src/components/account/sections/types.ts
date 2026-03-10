@@ -347,7 +347,7 @@ export const getCardTypeImage = (cardType: string): string => {
 	return imageMap[type] || "/images/Payment/Visa.png";
 };
 
-export const formatDate = (dateString: string | number) => {
+export const formatDate = (dateString: string | number | Date) => {
 	try {
 		const date = new Date(dateString);
 		if (isNaN(date.getTime())) return "Date unavailable";

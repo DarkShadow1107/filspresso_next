@@ -359,11 +359,14 @@ export default function AccountManagement() {
 													product_image: item.product_image,
 													unit_price: item.unit_price,
 													quantity: item.quantity || 1,
-													purchase_date: order.created_at,
+													purchase_date:
+														order.created_at instanceof Date
+															? order.created_at.toISOString()
+															: String(order.created_at),
 													warranty_end_date: warrantyEnd.toISOString(),
 													is_under_warranty: new Date() < warrantyEnd,
 													is_forfait: isForfait,
-												});
+												} as UserMachine);
 											}
 										});
 									}

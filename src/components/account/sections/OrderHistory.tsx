@@ -245,7 +245,12 @@ export function OrderHistory({
 														gap: "0.4rem",
 													}}
 												>
-													<ClockIcon size={14} /> {formatDate(order.created_at)}
+													<ClockIcon size={14} />{" "}
+													{formatDate(
+														order.created_at instanceof Date
+															? order.created_at.toISOString()
+															: order.created_at,
+													)}
 												</span>
 												<span>•</span>
 												<span>{order.item_count || 0} items</span>
@@ -258,8 +263,8 @@ export function OrderHistory({
 																	order.weather_condition === "snow"
 																		? "#87CEEB"
 																		: order.weather_condition === "rain"
-																		? "#6BB3F8"
-																		: "#4ade80",
+																			? "#6BB3F8"
+																			: "#4ade80",
 																fontWeight: 500,
 																display: "flex",
 																alignItems: "center",

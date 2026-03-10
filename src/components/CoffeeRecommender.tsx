@@ -38,13 +38,39 @@ import {
 	ArrowNarrowDownIcon,
 	ShoppingCartIcon,
 	CoffeeIcon,
-	BrandGeminiIcon,
 	BrandGrokIcon,
 	BrandOllamaIcon,
 	BrandAnthropicIcon,
 	LogoutIcon,
 	XIcon,
+	CameraIcon,
+	SendHorizontalIcon,
+	PenIcon,
 } from "@/icons";
+
+// Parse **bold** and *italic* markdown in chat messages
+function formatMarkdown(text: string): React.ReactNode[] {
+	const parts: React.ReactNode[] = [];
+	// Match **bold** or *italic* patterns
+	const regex = /\*\*(.+?)\*\*|\*([^*]+?)\*/g;
+	let lastIndex = 0;
+	let match: RegExpExecArray | null;
+	while ((match = regex.exec(text)) !== null) {
+		if (match.index > lastIndex) {
+			parts.push(text.slice(lastIndex, match.index));
+		}
+		if (match[1] !== undefined) {
+			parts.push(<em key={match.index}>{match[1]}</em>);
+		} else if (match[2] !== undefined) {
+			parts.push(<em key={match.index}>{match[2]}</em>);
+		}
+		lastIndex = match.index + match[0].length;
+	}
+	if (lastIndex < text.length) {
+		parts.push(text.slice(lastIndex));
+	}
+	return parts;
+}
 
 // Memoize product flattening for performance
 function useAllProducts(): CoffeeProduct[] {
@@ -55,13 +81,13 @@ function useAllProducts(): CoffeeProduct[] {
 // Stock data type
 type StockData = Record<string, { price: number; stock: number; stockStatus?: "in_stock" | "low_stock" | "out_of_stock" }>;
 
-type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[] };
+type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[]; image?: string };
 type ChatHistory = {
 	id: string;
 	timestamp: number;
 	messages: Message[];
 	preview: string;
-	model: "tanka" | "villanelle" | "ode";
+	model: "tanka";
 	category: "coffee" | "chemistry" | "general";
 };
 
@@ -107,7 +133,7 @@ export default function CoffeeRecommender() {
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 	const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
 	const [chatMode, setChatMode] = useState<"coffee" | "general">("coffee");
-	const [selectedModel, setSelectedModel] = useState<"tanka" | "villanelle" | "ode">("tanka");
+	const [selectedModel, setSelectedModel] = useState<"tanka">("tanka");
 	const [chemistryMode, setChemistryMode] = useState(false);
 	const [useTankaModel, setUseTankaModel] = useState(false); // Toggle Tanka model ON/OFF in chemistry mode
 	const [visualizationMode, setVisualizationMode] = useState<"text" | "2d" | "3d" | "both">("both");
@@ -120,10 +146,18 @@ export default function CoffeeRecommender() {
 	} | null>(null);
 	const [smarterAIAvailable, setSmarterAIAvailable] = useState(false);
 	const [isLoggedIn, setIsLoggedIn] = useState(false); // User login state
-	const [userSubscription, setUserSubscription] = useState<"none" | "basic" | "plus" | "pro" | "max" | "ultimate">("none");
+	const [userSubscription, setUserSubscription] = useState<"none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate">(
+		"free",
+	);
 	const [isTyping, setIsTyping] = useState(false);
 	const abortControllerRef = useRef<AbortController | null>(null);
 	const currentRequestIdRef = useRef<string | null>(null);
+	const [chatImage, setChatImage] = useState<File | null>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const recommenderRef = useRef<HTMLDivElement>(null);
+	const editingMessageIdxRef = useRef<number | null>(null);
+	const [editingMessageIdx, setEditingMessageIdx] = useState<number | null>(null);
 	const { addItem } = useCart();
 	const { notify } = useNotifications();
 
@@ -138,21 +172,18 @@ export default function CoffeeRecommender() {
 
 	const stats = useMemo(() => {
 		const categoryCounts = { coffee: 0, chemistry: 0, general: 0 };
-		const modelCounts = { tanka: 0, villanelle: 0, ode: 0 };
+		const modelCounts = { tanka: 0 };
 		const total = chatHistory.length;
 
 		chatHistory.forEach((chat) => {
 			if (chat.category) categoryCounts[chat.category]++;
 			else categoryCounts.general++;
 
-			if (chat.model) modelCounts[chat.model]++;
-			else modelCounts.tanka++;
+			modelCounts.tanka++;
 		});
 
 		const modelPercentages = {
-			tanka: total ? Math.round((modelCounts.tanka / total) * 100) : 0,
-			villanelle: total ? Math.round((modelCounts.villanelle / total) * 100) : 0,
-			ode: total ? Math.round((modelCounts.ode / total) * 100) : 0,
+			tanka: total ? 100 : 0,
 		};
 
 		return { categoryCounts, modelCounts, modelPercentages, total };
@@ -185,7 +216,7 @@ export default function CoffeeRecommender() {
 							if (base !== pid && !stockMap[base]) {
 								stockMap[base] = entry;
 							}
-						}
+						},
 					);
 					setStockData(stockMap);
 				}
@@ -212,17 +243,11 @@ export default function CoffeeRecommender() {
 						})
 							.then((res) => res.json())
 							.then((data) => {
-								const tier = data.subscription?.tier?.toLowerCase() || "none";
-								setUserSubscription(tier as "none" | "basic" | "plus" | "pro" | "max" | "ultimate");
+								const tier = data.subscription?.tier?.toLowerCase() || "free";
+								setUserSubscription(tier as "none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate");
 
-								// Auto-select model based on subscription tier from DB
-								if (tier === "ultimate") {
-									setSelectedModel("ode");
-								} else if (tier === "max") {
-									setSelectedModel("villanelle");
-								} else {
-									setSelectedModel("tanka");
-								}
+								// All tiers use Kafelot Tanka exclusively
+								setSelectedModel("tanka");
 							})
 							.catch(() => {
 								// Fallback to /api/auth/me if subscriptions API fails
@@ -233,14 +258,8 @@ export default function CoffeeRecommender() {
 									.then((data) => {
 										const sub = data.user?.subscription_name?.toLowerCase() || "none";
 										setUserSubscription(sub as "none" | "basic" | "plus" | "pro" | "max" | "ultimate");
-
-										if (sub === "ultimate") {
-											setSelectedModel("ode");
-										} else if (sub === "max") {
-											setSelectedModel("villanelle");
-										} else {
-											setSelectedModel("tanka");
-										}
+										// All tiers use Kafelot Tanka exclusively
+										setSelectedModel("tanka");
 									})
 									.catch(() => {
 										setUserSubscription("none");
@@ -361,9 +380,61 @@ export default function CoffeeRecommender() {
 		return () => document.body.classList.remove(cls);
 	}, [open]);
 
+	// Isolate wheel/scroll events inside the recommender window — momentum-based smooth scrolling
+	useEffect(() => {
+		const el = recommenderRef.current;
+		if (!el) return;
+		let velocity = 0;
+		let rafId: number | null = null;
+		let scrollEl: HTMLElement | null = null;
+		const tick = () => {
+			if (!scrollEl || Math.abs(velocity) < 0.5) {
+				velocity = 0;
+				rafId = null;
+				return;
+			}
+			scrollEl.scrollTop += velocity;
+			velocity *= 0.92; // friction for smooth deceleration
+			rafId = requestAnimationFrame(tick);
+		};
+		const handleWheel = (e: WheelEvent) => {
+			e.preventDefault();
+			let target = e.target as HTMLElement | null;
+			let found: HTMLElement | null = null;
+			while (target && target !== el) {
+				const { overflowY } = window.getComputedStyle(target);
+				if ((overflowY === "auto" || overflowY === "scroll") && target.scrollHeight > target.clientHeight) {
+					found = target;
+					break;
+				}
+				target = target.parentElement;
+			}
+			if (!found) found = el.querySelector(".recommender-body") as HTMLElement | null;
+			if (!found) return;
+			if (found !== scrollEl) {
+				velocity = 0;
+				scrollEl = found;
+			}
+			velocity += e.deltaY * 0.6;
+			if (!rafId) rafId = requestAnimationFrame(tick);
+		};
+		el.addEventListener("wheel", handleWheel, { passive: false });
+		return () => {
+			el.removeEventListener("wheel", handleWheel);
+			if (rafId) cancelAnimationFrame(rafId);
+		};
+	}, [open]);
+
 	const toggleNote = useCallback((note: string) => {
 		setSelected((s) => (s.includes(note) ? s.filter((x) => x !== note) : [...s, note]));
 	}, []);
+
+	// Reset textarea height when input is cleared (after send)
+	useEffect(() => {
+		if (chatInput === "" && textareaRef.current) {
+			textareaRef.current.style.height = "auto";
+		}
+	}, [chatInput]);
 
 	const recommend = useCallback(() => {
 		// Filter by collection first (Original vs Vertuo)
@@ -519,7 +590,7 @@ export default function CoffeeRecommender() {
 			setCurrentChatId(chat.id);
 			setStep("chat");
 		},
-		[chatHistory]
+		[chatHistory],
 	);
 
 	// Delete a chat from history
@@ -529,7 +600,7 @@ export default function CoffeeRecommender() {
 			setChatHistory(updated);
 			saveChatHistory(updated);
 		},
-		[chatHistory]
+		[chatHistory],
 	);
 
 	const handleConfirmCapsules = useCallback(
@@ -549,13 +620,13 @@ export default function CoffeeRecommender() {
 					`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${selectedProduct.name} to bag!`,
 					6000,
 					"success",
-					"coffee"
+					"coffee",
 				);
 			}
 			setPopupOpen(false);
 			setSelectedProduct(null);
 		},
-		[selectedProduct, addItem, notify]
+		[selectedProduct, addItem, notify],
 	);
 
 	// Fallback response generation for offline/error scenarios
@@ -584,8 +655,8 @@ export default function CoffeeRecommender() {
 				const sweet = allProducts
 					.filter((p) =>
 						p.notes?.some((n) =>
-							["chocolate", "caramel", "sweet", "honey"].some((kw) => n.toLowerCase().includes(kw))
-						)
+							["chocolate", "caramel", "sweet", "honey"].some((kw) => n.toLowerCase().includes(kw)),
+						),
 					)
 					.slice(0, 4);
 				response = "For sweet, chocolatey flavors, Kafelot suggests these:";
@@ -593,7 +664,7 @@ export default function CoffeeRecommender() {
 			} else if (input.includes("fruity") || input.includes("citrus") || input.includes("floral")) {
 				const fruity = allProducts
 					.filter((p) =>
-						p.notes?.some((n) => ["citrus", "floral", "fruity", "berry"].some((kw) => n.toLowerCase().includes(kw)))
+						p.notes?.some((n) => ["citrus", "floral", "fruity", "berry"].some((kw) => n.toLowerCase().includes(kw))),
 					)
 					.slice(0, 4);
 				response = "For bright, fruity notes, Kafelot recommends these great choices:";
@@ -602,7 +673,7 @@ export default function CoffeeRecommender() {
 				const tokens = input.split(/\s+/).filter((w) => w.length > 3);
 				const matches = allProducts
 					.filter((p) =>
-						tokens.some((t) => p.name.toLowerCase().includes(t) || p.description?.toLowerCase().includes(t))
+						tokens.some((t) => p.name.toLowerCase().includes(t) || p.description?.toLowerCase().includes(t)),
 					)
 					.slice(0, 4);
 				if (matches.length > 0) {
@@ -670,16 +741,40 @@ export default function CoffeeRecommender() {
 				return null;
 			}
 		},
-		[visualizationMode, notify]
+		[visualizationMode, notify],
 	);
 
 	// Smart AI-like chat handler
 	const handleChatSubmit = useCallback(async () => {
 		const prompt = chatInput.trim();
-		if (!prompt) return;
-		const userMsg: Message = { role: "user", content: prompt };
-		setChatMessages((m) => [...m, userMsg]);
+		if (!prompt && !chatImage) return;
+		const imageDataUrl = await new Promise<string | null>((resolve) => {
+			if (!chatImage) {
+				resolve(null);
+				return;
+			}
+			const reader = new FileReader();
+			reader.onloadend = () => resolve(reader.result as string);
+			reader.onerror = () => resolve(null);
+			reader.readAsDataURL(chatImage);
+		});
+		const userMsg: Message = {
+			role: "user",
+			content: prompt || (imageDataUrl ? "" : "[Image attached]"),
+			...(imageDataUrl ? { image: imageDataUrl } : {}),
+		};
+		const editIdx = editingMessageIdxRef.current;
+		const messagesForApi = editIdx !== null ? chatMessages.slice(0, editIdx) : chatMessages;
+		if (editIdx !== null) {
+			setChatMessages((m) => [...m.slice(0, editIdx), userMsg]);
+			editingMessageIdxRef.current = null;
+			setEditingMessageIdx(null);
+		} else {
+			setChatMessages((m) => [...m, userMsg]);
+		}
 		setChatInput("");
+		const imageToSend = chatImage;
+		setChatImage(null);
 		setIsTyping(true);
 
 		const lowerPrompt = prompt.toLowerCase();
@@ -728,7 +823,7 @@ export default function CoffeeRecommender() {
 				} else {
 					// Search by name
 					const nameMatch = prompt.match(
-						/(?:show|display|find|search)\s+(?:me\s+)?(?:the\s+)?(?:molecule\s+)?(.+?)(?:\s+molecule|\s+structure)?$/i
+						/(?:show|display|find|search)\s+(?:me\s+)?(?:the\s+)?(?:molecule\s+)?(.+?)(?:\s+molecule|\s+structure)?$/i,
 					);
 					if (nameMatch) {
 						const moleculeName = nameMatch[1].trim();
@@ -782,21 +877,40 @@ export default function CoffeeRecommender() {
 			const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 			currentRequestIdRef.current = requestId;
 
-			// Use Python chat endpoint for all models (MiniLM / ResNet-18)
+			// Use Python chat endpoint for all models (MiniLM / CLIP / MolScribe)
 			const shouldUsePython = smarterAIAvailable && (chemistryMode ? useTankaModel : true);
 			const endpoint = shouldUsePython ? "/api/python-chat" : "/api/chat";
-			const response = await fetch(endpoint, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					messages: [...chatMessages, userMsg],
+
+			let fetchBody: BodyInit;
+			let fetchHeaders: Record<string, string> = {};
+
+			if (imageToSend && shouldUsePython) {
+				const fd = new FormData();
+				fd.append("messages", JSON.stringify([...messagesForApi, userMsg]));
+				fd.append("mode", chatMode);
+				fd.append("model", selectedModel);
+				fd.append("subscription", userSubscription || "");
+				fd.append("chemistry_mode", String(chemistryMode && useTankaModel));
+				fd.append("request_id", requestId);
+				fd.append("image", imageToSend);
+				fetchBody = fd;
+			} else {
+				fetchHeaders = { "Content-Type": "application/json" };
+				fetchBody = JSON.stringify({
+					messages: [...messagesForApi, userMsg],
 					mode: chatMode,
 					model: selectedModel,
 					subscription: userSubscription,
 					chemistry_mode: chemistryMode && useTankaModel,
 					context: { products: allProducts },
 					request_id: requestId,
-				}),
+				});
+			}
+
+			const response = await fetch(endpoint, {
+				method: "POST",
+				headers: fetchHeaders,
+				body: fetchBody,
 				signal: abortControllerRef.current.signal,
 			});
 
@@ -840,6 +954,7 @@ export default function CoffeeRecommender() {
 		}
 	}, [
 		chatInput,
+		chatImage,
 		chatMessages,
 		chatMode,
 		selectedModel,
@@ -883,11 +998,11 @@ export default function CoffeeRecommender() {
 				handleChatSubmit();
 			}
 		},
-		[handleChatSubmit]
+		[handleChatSubmit],
 	);
 
 	const dock = (
-		<div className={`recommender-window ${open ? "open" : "closed"}`} role="dialog" aria-hidden={!open}>
+		<div ref={recommenderRef} className={`recommender-window ${open ? "open" : "closed"}`} role="dialog" aria-hidden={!open}>
 			<div className="recommender-header">
 				<div className="recommender-header-meta">
 					<strong>Kafelot</strong>
@@ -937,8 +1052,8 @@ export default function CoffeeRecommender() {
 								>
 									<BulbSvg className="recommender-inline-icon" />{" "}
 									<div>
-										<strong>Tip:</strong> Log in to unlock chat history and access Kafelot Villanelle and
-										Kafelot Ode models with your subscription!
+										<strong>Tip:</strong> Log in to unlock chat history and the Molecule Helper (Ultimate
+										subscription)!
 									</div>
 								</div>
 							</div>
@@ -963,7 +1078,7 @@ export default function CoffeeRecommender() {
 												// Map API products to CoffeeProduct objects
 												const popular = data.products
 													.map((p: { product_id: string }) =>
-														allProducts.find((prod) => prod.id === p.product_id)
+														allProducts.find((prod) => prod.id === p.product_id),
 													)
 													.filter(Boolean) as CoffeeProduct[];
 												if (popular.length > 0) {
@@ -1017,11 +1132,11 @@ export default function CoffeeRecommender() {
 													full_name: "Demo Max User",
 													email: "demo_max@test.com",
 													token: "demo_token_max",
-												})
+												}),
 											);
 											setIsLoggedIn(true);
 											setUserSubscription("max");
-											setSelectedModel("villanelle");
+											setSelectedModel("tanka");
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
 									>
@@ -1037,11 +1152,11 @@ export default function CoffeeRecommender() {
 													full_name: "Demo Ultimate User",
 													email: "demo_ultimate@test.com",
 													token: "demo_token_ultimate",
-												})
+												}),
 											);
 											setIsLoggedIn(true);
 											setUserSubscription("ultimate");
-											setSelectedModel("ode");
+											setSelectedModel("tanka");
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
 									>
@@ -1057,7 +1172,7 @@ export default function CoffeeRecommender() {
 													full_name: "Demo Basic User",
 													email: "demo_basic@test.com",
 													token: "demo_token_basic",
-												})
+												}),
 											);
 											setIsLoggedIn(true);
 											setUserSubscription("basic");
@@ -1179,7 +1294,7 @@ export default function CoffeeRecommender() {
 												const percentage = ((newIntensity - 1) / (13 - 1)) * 100;
 												(e.currentTarget as HTMLInputElement).style.setProperty(
 													"--value",
-													`${percentage}%`
+													`${percentage}%`,
 												);
 											}}
 											disabled={!intensityEnabled}
@@ -1260,16 +1375,16 @@ export default function CoffeeRecommender() {
 														backgroundColor: isOutOfStock
 															? "rgba(231, 76, 60, 0.2)"
 															: isLowStock
-															? "rgba(243, 156, 18, 0.2)"
-															: "rgba(46, 204, 113, 0.2)",
+																? "rgba(243, 156, 18, 0.2)"
+																: "rgba(46, 204, 113, 0.2)",
 														color: isOutOfStock ? "#e74c3c" : isLowStock ? "#f39c12" : "#2ecc71",
 													}}
 												>
 													{isOutOfStock
 														? "Out of stock"
 														: isLowStock
-														? `${stock} sleeves left`
-														: "In Stock"}
+															? `${stock} sleeves left`
+															: "In Stock"}
 												</div>
 												<div className="result-actions">
 													<button
@@ -1330,48 +1445,35 @@ export default function CoffeeRecommender() {
 							>
 								<CoffeeIcon size={16} /> Coffee Helper
 							</button>
-							<button
-								className={chatMode === "general" ? "active" : ""}
-								onClick={() => {
-									setChatMode("general");
-									setChemistryMode(false);
-								}}
-								title="Specialized AI Mode - Chat about anything, JS fallback available"
-							>
-								<GithubCopilotIcon size={16} /> Specialized AI
-							</button>
+
 							<button
 								className={chemistryMode ? "active chemistry-mode" : "chemistry-mode"}
 								onClick={() => {
-									// Only allow toggle if Tanka + Ultimate
-									if (selectedModel === "tanka" && isLoggedIn && userSubscription === "ultimate") {
+									// Molecule Helper requires login + Ultimate subscription
+									if (isLoggedIn && userSubscription === "ultimate") {
 										setChatMode("general");
 										setChemistryMode(!chemistryMode);
-										// Automatically switch to Tanka when enabling chemistry mode
-										if (!chemistryMode) {
-											setSelectedModel("tanka");
-										}
 									}
 								}}
-								disabled={selectedModel !== "tanka" || !isLoggedIn || userSubscription !== "ultimate"}
+								disabled={!isLoggedIn || userSubscription !== "ultimate"}
 								title={
 									!isLoggedIn
-										? "Chemistry Mode - Login required"
+										? "Molecule Helper - Login required"
 										: userSubscription !== "ultimate"
-										? "Chemistry Mode - Ultimate subscription required 🔒"
-										: selectedModel !== "tanka"
-										? "Chemistry Mode - Switch to Tanka model first 🔒"
-										: "Chemistry Mode - Molecule visualization (Tanka + Ultimate)"
+											? "Molecule Helper - Ultimate subscription required 🔒"
+											: "Molecule Helper - MolScribe AI molecule visualization (Ultimate)"
 								}
 							>
-								<SparklesIcon size={16} /> Chemistry Mode{" "}
-								{(selectedModel !== "tanka" || !isLoggedIn || userSubscription !== "ultimate") && (
-									<span style={{ marginLeft: "4px" }}><LockIcon size={14} /></span>
+								<BrandGrokIcon size={16} /> Molecule Helper{" "}
+								{(!isLoggedIn || userSubscription !== "ultimate") && (
+									<span style={{ marginLeft: "4px" }}>
+										<LockIcon size={14} />
+									</span>
 								)}
 							</button>
 						</div>
 
-						{chatMode === "general" && (
+						{chemistryMode && (
 							<>
 								<div className="subscription-info-box">
 									{!isLoggedIn ? (
@@ -1398,7 +1500,7 @@ export default function CoffeeRecommender() {
 													color: "rgba(250, 204, 144, 0.6)",
 												}}
 											>
-												Log in to access Villanelle and Ode models
+												Log in to unlock CLIP image search and Molecule Helper
 											</p>
 										</div>
 									) : (
@@ -1423,7 +1525,7 @@ export default function CoffeeRecommender() {
 											</p>
 											{userSubscription === "none" ||
 											userSubscription === "basic" ||
-											userSubscription === "pro" ? (
+											userSubscription === "plus" ? (
 												<p
 													style={{
 														margin: "0.25rem 0 0 0",
@@ -1431,7 +1533,7 @@ export default function CoffeeRecommender() {
 														color: "rgba(250, 204, 144, 0.6)",
 													}}
 												>
-													Upgrade to Max for Villanelle or Ultimate for Ode
+													Upgrade to Pro or above for CLIP image search
 												</p>
 											) : null}
 										</div>
@@ -1443,64 +1545,13 @@ export default function CoffeeRecommender() {
 										<CpuIcon size={16} /> AI Model:
 									</label>
 									<button
-										className={selectedModel === "tanka" ? "active" : ""}
-										onClick={() => setSelectedModel("tanka")}
-										title="Tanka - Lightweight & Fast (~30M params) - Coffee-focused recommendations, quick responses, perfect for quick searches"
+										className="active"
+										title="Kafelot Tanka - Lightweight & Fast. Coffee-focused recommendations with instant responses."
 									>
 										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-											<BrandGeminiIcon size={16} />
+											<BrandAnthropicIcon size={16} />
 										</span>
-										Tanka
-									</button>
-									<button
-										className={selectedModel === "villanelle" ? "active" : ""}
-										onClick={() => setSelectedModel("villanelle")}
-										title={
-											chemistryMode
-												? "Villanelle - Not available in Chemistry Mode (Tanka only)"
-												: isLoggedIn && (userSubscription === "max" || userSubscription === "ultimate")
-												? "Villanelle - Balanced & Smart (~60M params) - Deep flavor analysis, personalized insights, nuanced recommendations"
-												: "Villanelle - Requires Max or Ultimate subscription (locked)"
-										}
-										disabled={
-											chemistryMode ||
-											!isLoggedIn ||
-											(userSubscription !== "max" && userSubscription !== "ultimate")
-										}
-									>
-										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-											<BrandOllamaIcon size={16} />
-										</span>
-										Villanelle{" "}
-										{(chemistryMode ||
-											!isLoggedIn ||
-											(userSubscription !== "max" && userSubscription !== "ultimate")) && (
-											<span style={{ marginLeft: "4px", display: "inline-flex", alignItems: "center" }}>
-												<LockIcon size={14} />
-											</span>
-										)}
-									</button>
-									<button
-										className={selectedModel === "ode" ? "active" : ""}
-										onClick={() => setSelectedModel("ode")}
-										title={
-											chemistryMode
-												? "Ode - Not available in Chemistry Mode (Tanka only)"
-												: isLoggedIn && userSubscription === "ultimate"
-												? "Ode - Expert & Deep (~90M params) - Advanced flavor profiling, comprehensive analysis, literary flair"
-												: "Ode - Requires Ultimate subscription (locked)"
-										}
-										disabled={chemistryMode || !isLoggedIn || userSubscription !== "ultimate"}
-									>
-										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-											<BrandGrokIcon size={16} />
-										</span>
-										Ode{" "}
-										{(chemistryMode || !isLoggedIn || userSubscription !== "ultimate") && (
-											<span style={{ marginLeft: "4px", display: "inline-flex", alignItems: "center" }}>
-												<LockIcon size={14} />
-											</span>
-										)}
+										Kafelot Tanka
 									</button>
 								</div>
 
@@ -1573,10 +1624,10 @@ export default function CoffeeRecommender() {
 												!isLoggedIn
 													? "Use Tanka Model - Login required"
 													: userSubscription !== "ultimate"
-													? "Use Tanka Model - Ultimate subscription required 🔒"
-													: useTankaModel
-													? "Tanka Model ON - Chemistry chat with AI"
-													: "Tanka Model OFF - Pure molecule visualization only"
+														? "Use Tanka Model - Ultimate subscription required 🔒"
+														: useTankaModel
+															? "Tanka Model ON - Chemistry chat with AI"
+															: "Tanka Model OFF - Pure molecule visualization only"
 											}
 											style={{
 												padding: "0.5rem 1rem",
@@ -1615,20 +1666,6 @@ export default function CoffeeRecommender() {
 									</div>
 								)}
 
-								{(selectedModel === "villanelle" || selectedModel === "ode") && (
-									<p
-										className="gemma-status"
-										style={{
-											marginTop: "0.75rem",
-											fontSize: "0.85rem",
-											color: "rgba(250, 204, 144, 0.7)",
-										}}
-										aria-live="polite"
-									>
-										{smarterAIAvailable ? "AI Status: Online" : "AI Status: Offline"}
-									</p>
-								)}
-
 								{/* Model descriptions below buttons */}
 								<div className="model-description">
 									{selectedModel === "tanka" && (
@@ -1642,49 +1679,11 @@ export default function CoffeeRecommender() {
 													marginBottom: "0.25rem",
 												}}
 											>
-												<BrandGeminiIcon size={16} /> Kafelot Tanka
+												<BrandAnthropicIcon size={16} /> Kafelot Tanka
 											</div>
 											<p>
 												Lightweight &amp; Fast. Perfect for quick coffee searches. Focuses on Nespresso
 												capsule recommendations with instant responses.
-											</p>
-										</div>
-									)}
-									{selectedModel === "villanelle" && (
-										<div className="description-content">
-											<div
-												style={{
-													fontWeight: 700,
-													display: "flex",
-													alignItems: "center",
-													gap: "0.5rem",
-													marginBottom: "0.25rem",
-												}}
-											>
-												<BrandOllamaIcon size={16} /> Kafelot Villanelle
-											</div>
-											<p>
-												Balanced &amp; Smart. Provides deeper flavor analysis and personalized insights
-												based on your preferences. Great for discovering new favorites.
-											</p>
-										</div>
-									)}
-									{selectedModel === "ode" && (
-										<div className="description-content">
-											<div
-												style={{
-													fontWeight: 700,
-													display: "flex",
-													alignItems: "center",
-													gap: "0.5rem",
-													marginBottom: "0.25rem",
-												}}
-											>
-												<BrandGrokIcon size={16} /> Kafelot Ode
-											</div>
-											<p>
-												Expert &amp; Deep. Advanced flavor profiling with comprehensive analysis. Crafts
-												poetic and detailed recommendations for the true coffee connoisseur.
 											</p>
 										</div>
 									)}
@@ -1713,8 +1712,11 @@ export default function CoffeeRecommender() {
 									) : chemistryMode ? (
 										<>
 											<div style={{ fontWeight: 600 }}>
-												<SparklesIcon size={16} className="inline mr-1" /> <strong>Chemistry Mode</strong>{" "}
-												<span style={{ color: "rgba(250, 204, 144, 0.6)" }}>(Tanka + Ultimate)</span>
+												<BrandGrokIcon size={16} className="inline mr-1" />{" "}
+												<strong>Molecule Helper</strong>{" "}
+												<span style={{ color: "rgba(250, 204, 144, 0.6)" }}>
+													(MolScribe AI — Ultimate)
+												</span>
 											</div>
 											<p>Explore molecular structures with 2D/3D visualizations! Try asking:</p>
 											<ul>
@@ -1728,12 +1730,10 @@ export default function CoffeeRecommender() {
 									) : (
 										<>
 											<div style={{ fontWeight: 600 }}>
-												<GithubCopilotIcon size={16} className="inline mr-1" />{" "}
-												<strong>Specialized AI Mode</strong>
+												<CoffeeIcon size={16} className="inline mr-1" />{" "}
+												<strong>Coffee Helper Mode</strong>
 											</div>
-											<p>
-												I can chat about coffee topics, brewing techniques, origins, and more. Try asking:
-											</p>
+											<p>Ask me anything about coffee topics, brewing techniques, and more. Try asking:</p>
 											<ul>
 												<li>&quot;How do different brewing methods affect flavor?&quot;</li>
 												<li>&quot;Tell me about single-origin vs blends&quot;</li>
@@ -1747,14 +1747,44 @@ export default function CoffeeRecommender() {
 							)}
 							{chatMessages.map((msg, idx) => (
 								<div key={idx} className={`chat-message ${msg.role}`}>
-									<div className="chat-bubble">
-										{msg.content.split("\n").map((line, i) => (
-											<React.Fragment key={i}>
-												{line}
-												{i < msg.content.split("\n").length - 1 && <br />}
-											</React.Fragment>
-										))}
-									</div>
+									{msg.role === "assistant" && (
+										<div className="chat-avatar">
+											<GithubCopilotIcon size={20} />
+										</div>
+									)}
+									{msg.role === "user" && msg.image && (
+										<div className="chat-bubble-image">
+											<img src={msg.image} alt="Attached image" />
+										</div>
+									)}
+									{msg.content && (
+										<>
+											<div className="chat-bubble-row">
+												{msg.role === "user" &&
+													(userSubscription === "max" || userSubscription === "ultimate") && (
+														<button
+															className="chat-msg-edit-btn"
+															onClick={() => {
+																setEditingMessageIdx(idx);
+																editingMessageIdxRef.current = idx;
+																setChatInput(msg.content);
+															}}
+															title="Edit message"
+														>
+															<PenIcon size={15} />
+														</button>
+													)}
+												<div className="chat-bubble">
+													{msg.content.split("\n").map((line, i) => (
+														<React.Fragment key={i}>
+															{formatMarkdown(line)}
+															{i < msg.content.split("\n").length - 1 && <br />}
+														</React.Fragment>
+													))}
+												</div>
+											</div>
+										</>
+									)}
 									{msg.products && msg.products.length > 0 && (
 										<div className="chat-products">
 											{msg.products.map((p) => {
@@ -1960,24 +1990,94 @@ export default function CoffeeRecommender() {
 							)}
 						</div>
 						<div className="chat-input-area">
-							<textarea
-								value={chatInput}
-								onChange={(e) => setChatInput(e.target.value)}
-								onKeyDown={handleChatKeyDown}
-								placeholder={
-									chatMode === "coffee"
-										? "Ask about coffee capsules, flavors, or brewing..."
-										: "Ask me anything - coffee, tech, science, or just chat..."
-								}
-								rows={2}
+							{chatImage && (
+								<div className="chat-image-preview">
+									<img
+										src={URL.createObjectURL(chatImage)}
+										alt="Selected image"
+										style={{ maxHeight: "80px", borderRadius: "6px", objectFit: "contain" }}
+									/>
+									<button onClick={() => setChatImage(null)} className="chat-image-clear" title="Remove image">
+										×
+									</button>
+								</div>
+							)}
+							{editingMessageIdx !== null && (
+								<div className="chat-editing-indicator">
+									<PenIcon size={12} />
+									<span>Editing message</span>
+									<button
+										onClick={() => {
+											setEditingMessageIdx(null);
+											editingMessageIdxRef.current = null;
+											setChatInput("");
+										}}
+									>
+										<XIcon size={12} /> Cancel
+									</button>
+								</div>
+							)}
+							<div className="chat-input-row">
+								{!["none", "free", "basic", "plus"].includes(userSubscription) && (
+									<button
+										className="camera-btn"
+										onClick={() => fileInputRef.current?.click()}
+										title="Attach image"
+										aria-label="Attach image"
+										style={{ color: chatImage ? "var(--accent-gold, #f5c842)" : "currentColor" }}
+									>
+										<CameraIcon size={20} />
+									</button>
+								)}
+								<textarea
+									ref={textareaRef}
+									value={chatInput}
+									onChange={(e) => {
+										setChatInput(e.target.value);
+										e.target.style.height = "auto";
+										e.target.style.height = e.target.scrollHeight + "px";
+									}}
+									onKeyDown={handleChatKeyDown}
+									placeholder={
+										chatMode === "coffee"
+											? "Ask about coffee capsules, flavors, or brewing..."
+											: "Ask me anything - coffee, tech, science, or just chat..."
+									}
+									rows={1}
+								/>
+								<button
+									onClick={isTyping ? handleStopGeneration : handleChatSubmit}
+									disabled={!isTyping && !chatInput.trim() && !chatImage}
+									className={`send-btn${isTyping ? " stop-btn" : ""}`}
+									title={isTyping ? "Stop generation" : "Send message"}
+									aria-label={isTyping ? "Stop generation" : "Send message"}
+								>
+									{isTyping ? (
+										<span
+											style={{
+												display: "inline-block",
+												width: 14,
+												height: 14,
+												background: "currentColor",
+												borderRadius: 2,
+											}}
+										/>
+									) : (
+										<SendHorizontalIcon size={18} />
+									)}
+								</button>
+							</div>
+							<input
+								ref={fileInputRef}
+								type="file"
+								accept="image/*"
+								style={{ display: "none" }}
+								onChange={(e) => {
+									const file = e.target.files?.[0];
+									if (file) setChatImage(file);
+									e.target.value = "";
+								}}
 							/>
-							<button
-								onClick={isTyping ? handleStopGeneration : handleChatSubmit}
-								disabled={!isTyping && !chatInput.trim()}
-								className={isTyping ? "stop-btn" : ""}
-							>
-								{isTyping ? "Stop" : "Send"}
-							</button>
 						</div>
 						<div className="recommender-cta">
 							<button onClick={startNewChat}>

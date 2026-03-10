@@ -2,13 +2,33 @@ node_modules
 express-api/node_modules
 python_ai/venv
 **/__pycache__
+**/*.pyc
 *.log
 .env
-*.pyc
+.env.local
 .vscode
 dist
 build
+.next
 npm-debug.log
 Dockerfile*
 docker-compose*.yml
 *.sqlite
+
+# Frontend source — not needed in any Docker image
+src/
+public/
+scripts/
+tailwind.config.cjs
+postcss.config.mjs
+eslint.config.mjs
+next.config.ts
+tsconfig.json
+next-env.d.ts
+global.d.ts
+package.json
+package-lock.json
+
+# Git / misc
+.git/
+*.md

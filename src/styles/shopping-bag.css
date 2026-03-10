@@ -274,8 +274,10 @@
 
 .cart-item-name {
 	color: rgb(250, 204, 144);
-	font-size: 1.1rem;
-	font-weight: 600;
+	font-family: "LucidaCustom", serif;
+	font-size: 1.2rem;
+	letter-spacing: -1px;
+	font-weight: 400;
 	margin-bottom: 0.25rem;
 	overflow: hidden;
 	text-overflow: ellipsis;

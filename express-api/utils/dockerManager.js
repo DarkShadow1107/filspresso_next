@@ -6,7 +6,7 @@
 const { exec, spawn } = require("child_process");
 const path = require("path");
 
-const CONTAINER_NAME = "filspresso_next_postgres";
+const CONTAINER_NAME = "filspresso_postgres";
 const COMPOSE_FILE = path.resolve(__dirname, "../../docker-compose.yml");
 
 /**
@@ -54,7 +54,7 @@ async function containerExists() {
 async function isContainerRunning() {
 	try {
 		const result = await execAsync(
-			`docker ps --filter "name=${CONTAINER_NAME}" --filter "status=running" --format "{{.Names}}"`
+			`docker ps --filter "name=${CONTAINER_NAME}" --filter "status=running" --format "{{.Names}}"`,
 		);
 		return result.includes(CONTAINER_NAME);
 	} catch {
