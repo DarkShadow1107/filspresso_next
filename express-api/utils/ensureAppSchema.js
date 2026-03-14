@@ -1,0 +1,101 @@
+const pool = require("../db/connection");
+
+async function ensureAppSchema() {
+	const client = await pool.connect();
+
+	try {
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS kafelot_anonymous_users (
+				id SERIAL PRIMARY KEY,
+				fingerprint VARCHAR(64) NOT NULL UNIQUE,
+				ip_address VARCHAR(64),
+				user_agent TEXT,
+				system_info JSONB DEFAULT '{}'::jsonb,
+				prompts_used INTEGER DEFAULT 0,
+				prompts_limit INTEGER DEFAULT 5,
+				reset_date DATE NOT NULL DEFAULT (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::DATE,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)
+		`);
+
+		await client.query(`ALTER TABLE kafelot_anonymous_users ALTER COLUMN ip_address TYPE VARCHAR(64)`);
+		await client.query(`ALTER TABLE kafelot_anonymous_users ALTER COLUMN prompts_limit SET DEFAULT 5`);
+		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_anon_fingerprint ON kafelot_anonymous_users(fingerprint)`);
+		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_anon_reset ON kafelot_anonymous_users(reset_date)`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS kafelot_prompt_usage (
+				id SERIAL PRIMARY KEY,
+				account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				month_year VARCHAR(7) NOT NULL,
+				prompts_used INTEGER DEFAULT 0,
+				prompts_limit INTEGER DEFAULT 15,
+				subscription_tier VARCHAR(50) DEFAULT 'free',
+				reset_date DATE NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE (account_id, month_year)
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS service_health_incidents (
+				id BIGSERIAL PRIMARY KEY,
+				service_key VARCHAR(64) NOT NULL,
+				service_name VARCHAR(128) NOT NULL,
+				status VARCHAR(8) NOT NULL CHECK (status IN ('up', 'down')),
+				reason TEXT,
+				occurred_at TIMESTAMP NOT NULL,
+				source VARCHAR(32) NOT NULL DEFAULT 'backend',
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)
+		`);
+
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_service_health_incidents_occurred_at ON service_health_incidents(occurred_at DESC)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_service_health_incidents_service ON service_health_incidents(service_key, occurred_at DESC)`,
+		);
+
+		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_account ON kafelot_prompt_usage(account_id)`);
+		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_month ON kafelot_prompt_usage(month_year)`);
+
+		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency_code VARCHAR(3) NOT NULL DEFAULT 'RON'`);
+		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000`);
+		await client.query(
+			`ALTER TABLE orders ADD COLUMN IF NOT EXISTS conversion_fee_percent DECIMAL(5,2) NOT NULL DEFAULT 0.00`,
+		);
+		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS charged_subtotal DECIMAL(10,2) DEFAULT 0.00`);
+		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS charged_shipping_cost DECIMAL(10,2) DEFAULT 0.00`);
+		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS charged_tax DECIMAL(10,2) DEFAULT 0.00`);
+		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS charged_total DECIMAL(10,2) DEFAULT 0.00`);
+		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS destination_country VARCHAR(100)`);
+
+		await client.query(`
+			DO $$
+			BEGIN
+				IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at_column') THEN
+					IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_kafelot_anonymous_users_updated_at') THEN
+						CREATE TRIGGER update_kafelot_anonymous_users_updated_at
+						BEFORE UPDATE ON kafelot_anonymous_users
+						FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+					END IF;
+
+					IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_kafelot_prompt_usage_updated_at') THEN
+						CREATE TRIGGER update_kafelot_prompt_usage_updated_at
+						BEFORE UPDATE ON kafelot_prompt_usage
+						FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+					END IF;
+				END IF;
+			END $$;
+		`);
+	} finally {
+		client.release();
+	}
+}
+
+module.exports = {
+	ensureAppSchema,
+};

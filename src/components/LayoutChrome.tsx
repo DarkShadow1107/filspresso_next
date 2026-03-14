@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type PropsWithChildren } from "react";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
 
@@ -14,7 +15,13 @@ export default function LayoutChrome({ children }: PropsWithChildren) {
 	}, []);
 
 	const hideNavbar =
-		typeof pathname === "string" && (pathname.startsWith("/manage-subscription") || pathname.startsWith("/admin"));
+		typeof pathname === "string" &&
+		(pathname.startsWith("/manage-subscription") ||
+			pathname.startsWith("/admin") ||
+			pathname.startsWith("/kafelot-privacy") ||
+			pathname.startsWith("/privacy-policy") ||
+			pathname.startsWith("/terms-of-use") ||
+			pathname.startsWith("/sales-refunds"));
 
 	const isFavorites = pathname === "/favorites";
 
@@ -32,6 +39,20 @@ export default function LayoutChrome({ children }: PropsWithChildren) {
 			<main style={{ flex: 1 }}>{children}</main>
 			<footer className="main-footer">
 				<span>Copyright © 2026 Filspresso. All rights reserved.</span>
+				<div className="main-footer-links">
+					<Link href="/services" target="_blank" rel="noopener noreferrer">
+						Services
+					</Link>
+					<Link href="/privacy-policy" target="_blank" rel="noopener noreferrer">
+						Privacy Policy
+					</Link>
+					<Link href="/terms-of-use" target="_blank" rel="noopener noreferrer">
+						Terms of Use
+					</Link>
+					<Link href="/sales-refunds" target="_blank" rel="noopener noreferrer">
+						Sales &amp; Refunds
+					</Link>
+				</div>
 			</footer>
 			{mounted && (
 				<div id="scroll-to-top-portal">

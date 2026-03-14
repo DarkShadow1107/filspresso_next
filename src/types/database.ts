@@ -107,6 +107,14 @@ export interface DBOrder {
 	weather_condition: string;
 	estimated_delivery: string;
 	expected_delivery_date: string | null;
+	currency_code: string;
+	exchange_rate: number;
+	conversion_fee_percent: number;
+	charged_subtotal: number;
+	charged_shipping_cost: number;
+	charged_tax: number;
+	charged_total: number;
+	destination_country: string | null;
 	created_at: Timestamp;
 	updated_at: Timestamp;
 }

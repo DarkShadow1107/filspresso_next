@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='0 0 50 50'>
+<defs>
+  <linearGradient id='g1mcgfe0' x1='0%' y1='0%' x2='100%' y2='100%'>
+    <stop offset='0%' stop-color='hsl(272, 74%, 48%)'/>
+    <stop offset='55%' stop-color='hsl(24, 64%, 56%)'/>
+    <stop offset='100%' stop-color='hsl(72, 69%, 30%)'/>
+  </linearGradient>
+  <radialGradient id='g2mcgfe0' cx='30%' cy='28%' r='70%'>
+    <stop offset='0%' stop-color='hsl(24, 44%, 74%)' stop-opacity='0.55'/>
+    <stop offset='100%' stop-color='hsl(72, 69%, 30%)' stop-opacity='0.85'/>
+  </radialGradient>
+  <linearGradient id='g3mcgfe0' x1='100%' y1='0%' x2='0%' y2='100%'>
+    <stop offset='0%' stop-color='hsl(72, 74%, 64%)' stop-opacity='0.7'/>
+    <stop offset='100%' stop-color='hsl(24, 64%, 56%)' stop-opacity='0.3'/>
+  </linearGradient>
+  <radialGradient id='g4mcgfe0' cx='70%' cy='70%' r='50%'>
+    <stop offset='0%' stop-color='hsl(24, 44%, 74%)' stop-opacity='0.4'/>
+    <stop offset='100%' stop-color='hsl(272, 74%, 48%)' stop-opacity='0'/>
+  </radialGradient>
+  <filter id='fsmcgfe0' x='-30%' y='-30%' width='160%' height='160%'>
+    <feDropShadow dx='0' dy='1' stdDeviation='1.2' flood-color='rgba(0,0,0,0.45)'/>
+  </filter>
+  <filter id='fgmcgfe0' x='-40%' y='-40%' width='180%' height='180%'>
+    <feGaussianBlur in='SourceGraphic' stdDeviation='2' result='blur'/>
+    <feComposite in='SourceGraphic' in2='blur' operator='over'/>
+  </filter>
+  <clipPath id='clmcgfe0'>
+    <rect width='50' height='50' rx='11'/>
+  </clipPath>
+</defs>
+<rect width='50' height='50' rx='11' fill='url(#g2mcgfe0)'/>
+<rect width='50' height='50' rx='11' fill='url(#g1mcgfe0)' opacity='0.7'/>
+<circle cx='4' cy='6' r='0.8' fill='white' opacity='0.08'/><circle cx='14' cy='3' r='0.8' fill='white' opacity='0.06'/><circle cx='22' cy='5' r='0.8' fill='white' opacity='0.04'/><circle cx='35' cy='3' r='0.8' fill='white' opacity='0.06'/><circle cx='46' cy='6' r='0.8' fill='white' opacity='0.08'/><circle cx='3' cy='14' r='0.8' fill='white' opacity='0.2'/><circle cx='15' cy='12' r='0.8' fill='white' opacity='0.18'/><circle cx='23' cy='14' r='0.8' fill='white' opacity='0.16'/><circle cx='36' cy='16' r='0.8' fill='white' opacity='0.12'/><circle cx='45' cy='12' r='0.8' fill='white' opacity='0.14'/><circle cx='2' cy='25' r='0.8' fill='white' opacity='0.16'/><circle cx='14' cy='26' r='0.8' fill='white' opacity='0.12'/><circle cx='24' cy='23' r='0.8' fill='white' opacity='0.1'/><circle cx='32' cy='25' r='0.8' fill='white' opacity='0.08'/><circle cx='45' cy='23' r='0.8' fill='white' opacity='0.2'/><circle cx='6' cy='36' r='0.8' fill='white' opacity='0.04'/><circle cx='13' cy='34' r='0.8' fill='white' opacity='0.06'/><circle cx='25' cy='32' r='0.8' fill='white' opacity='0.04'/><circle cx='33' cy='34' r='0.8' fill='white' opacity='0.2'/><circle cx='46' cy='36' r='0.8' fill='white' opacity='0.08'/><circle cx='4' cy='42' r='0.8' fill='white' opacity='0.1'/><circle cx='12' cy='45' r='0.8' fill='white' opacity='0.12'/><circle cx='24' cy='43' r='0.8' fill='white' opacity='0.16'/><circle cx='36' cy='43' r='0.8' fill='white' opacity='0.14'/><circle cx='42' cy='45' r='0.8' fill='white' opacity='0.12'/>
+<polygon points='3.03,17.32 5.65,18.36 7.63,16.35 7.45,19.16 9.98,20.42 7.25,21.12 6.83,23.91 5.32,21.53 2.54,22.00 4.33,19.82' fill='hsl(72, 74%, 64%)' opacity='0.62' filter='url(#fsmcgfe0)'/><polygon points='4.37,37.65 2.02,34.42 3.65,30.76 7.63,30.35 9.98,33.58 8.35,37.24' fill='hsl(72, 74%, 64%)' opacity='0.25' filter='url(#fsmcgfe0)'/><polygon points='53.70,13.58 50.95,23.19 41.24,25.61 34.30,18.42 37.05,8.81 46.76,6.39' fill='hsl(72, 74%, 64%)' opacity='0.36' filter='url(#fsmcgfe0)'/><polygon points='17.88,36.61 13.02,39.47 13.76,45.06 9.53,41.33 4.44,43.75 6.69,38.58 2.81,34.49 8.42,35.03 11.11,30.08 12.33,35.58' fill='hsl(72, 74%, 64%)' opacity='0.51' filter='url(#fsmcgfe0)'/>
+<line x1='4' y1='22' x2='24' y2='49' stroke='white' stroke-width='0.6' opacity='0.34' stroke-linecap='round'/><line x1='10' y1='42' x2='44' y2='17' stroke='white' stroke-width='0.6' opacity='0.18' stroke-linecap='round'/>
+<path d='M 2,8 A 6 6 0 0 1 8,2' stroke='hsl(72, 74%, 64%)' stroke-width='1.5' fill='none' opacity='0.15' stroke-linecap='round'/>
+<path d='M 48,42 A 6 6 0 0 1 42,48' stroke='hsl(24, 44%, 74%)' stroke-width='1.5' fill='none' opacity='0.15' stroke-linecap='round'/>
+<ellipse cx='14' cy='11' rx='13' ry='9' fill='white' opacity='0.09'/>
+<rect width='50' height='50' rx='11' fill='url(#g4mcgfe0)' opacity='0.35'/>
+<text x='50%' y='53%' font-family='Inter, system-ui, sans-serif' font-size='17' fill='none' stroke='rgba(255,255,255,0.9)' stroke-width='1' text-anchor='middle' dominant-baseline='middle' font-weight='800' letter-spacing='1.5'>H</text>
+<text x='50%' y='53%' font-family='Inter, system-ui, sans-serif' font-size='17' fill='white' text-anchor='middle' dominant-baseline='middle' font-weight='800' letter-spacing='1.5' opacity='0.75'>H</text>
+</svg>

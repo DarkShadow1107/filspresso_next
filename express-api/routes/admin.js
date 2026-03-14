@@ -17,6 +17,7 @@ const bcrypt = require("bcrypt");
 const pool = require("../db/connection");
 
 const router = express.Router();
+const ADMIN_SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 const VALID_IMAGE_EXTENSIONS = new Set(["png", "avif", "webp", "jpg", "jpeg", "svg"]);
 
@@ -66,40 +67,105 @@ function authenticateAdmin(req, res, next) {
 	}
 
 	// Extend session on activity
-	session.expiresAt = Date.now() + 3600000; // 1 hour
+	session.expiresAt = Date.now() + ADMIN_SESSION_TIMEOUT_MS;
 	req.adminSession = session;
 	next();
 }
 
-/**
- * Tables that are protected from dangerous operations
- */
-const PROTECTED_TABLES = ["accounts"];
+async function getPublicTables(client) {
+	const result = await client.query(
+		`SELECT relname AS name
+		 FROM pg_class c
+		 JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = 'public' AND c.relkind = 'r'
+		 ORDER BY relname`,
+	);
 
-/**
- * Allowed tables for CRUD operations
- */
-const ALLOWED_TABLES = [
-	"accounts",
-	"user_cards",
-	"favorites",
-	"orders",
-	"order_items",
-	"cart_items",
-	"chat_sessions",
-	"chat_messages",
-	"user_sessions",
-	"iot_commands",
-	"member_status",
-	"member_status_history",
-	"repairs",
-	"weather_cache",
-	"coffee_facts",
-	"coffee_products",
-	"machine_products",
-	"molecules",
-	"user_subscriptions",
-];
+	return result.rows.map((row) => row.name);
+}
+
+async function assertPublicTable(client, table) {
+	const result = await client.query(
+		`SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = $1
+		) AS exists`,
+		[table],
+	);
+
+	return Boolean(result.rows[0]?.exists);
+}
+
+async function getTableColumns(client, table) {
+	const result = await client.query(
+		`SELECT
+			c.column_name AS name,
+			c.data_type AS type,
+			c.is_nullable AS nullable,
+			c.column_default AS default_value,
+			c.character_maximum_length AS max_length,
+			CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS key_type,
+			CASE WHEN c.column_default LIKE 'nextval%' OR c.is_identity = 'YES' THEN true ELSE false END AS is_auto_increment
+		 FROM information_schema.columns c
+		 LEFT JOIN (
+			SELECT ku.column_name, ku.table_name, ku.table_schema
+			FROM information_schema.table_constraints tc
+			JOIN information_schema.key_column_usage ku
+			  ON tc.constraint_name = ku.constraint_name
+			  AND tc.table_schema = ku.table_schema
+			WHERE tc.constraint_type = 'PRIMARY KEY'
+		 ) pk ON pk.column_name = c.column_name
+		   AND pk.table_name = c.table_name
+		   AND pk.table_schema = c.table_schema
+		 WHERE c.table_schema = 'public' AND c.table_name = $1
+		 ORDER BY c.ordinal_position`,
+		[table],
+	);
+
+	return result.rows.map((column) => ({
+		name: column.name,
+		type: column.type,
+		nullable: column.nullable === "YES",
+		isPrimary: column.key_type === "PRI",
+		isAutoIncrement: column.is_auto_increment,
+		defaultValue: column.default_value,
+		maxLength: column.max_length ? Number(column.max_length) : null,
+	}));
+}
+
+async function getPrimaryKey(client, table) {
+	const result = await client.query(
+		`SELECT ku.column_name AS name
+		 FROM information_schema.table_constraints tc
+		 JOIN information_schema.key_column_usage ku
+		   ON tc.constraint_name = ku.constraint_name
+		   AND tc.table_schema = ku.table_schema
+		 WHERE tc.constraint_type = 'PRIMARY KEY'
+		   AND tc.table_name = $1
+		   AND tc.table_schema = 'public'
+		 ORDER BY ku.ordinal_position`,
+		[table],
+	);
+
+	return result.rows[0]?.name || "id";
+}
+
+function sanitizeRowData(data, columns) {
+	const editableColumns = new Map(columns.filter((column) => !column.isAutoIncrement).map((column) => [column.name, column]));
+
+	const sanitized = {};
+	for (const [key, value] of Object.entries(data || {})) {
+		if (editableColumns.has(key)) {
+			sanitized[key] = value;
+		}
+	}
+
+	delete sanitized.created_at;
+	delete sanitized.updated_at;
+
+	return sanitized;
+}
 
 const CATEGORY_FOLDER_MAP = {
 	original: {
@@ -232,7 +298,7 @@ router.post("/login", async (req, res) => {
 		}
 
 		const token = generateAdminToken();
-		const expiresAt = new Date(Date.now() + 3600000); // 1 hour
+		const expiresAt = new Date(Date.now() + ADMIN_SESSION_TIMEOUT_MS);
 
 		adminSessions.set(token, {
 			username: user.username,
@@ -252,7 +318,7 @@ router.post("/login", async (req, res) => {
 			status: "success",
 			message: "Admin login successful",
 			token,
-			expiresIn: 3600,
+			expiresIn: Math.floor(ADMIN_SESSION_TIMEOUT_MS / 1000),
 		});
 	} catch (error) {
 		console.error("Admin login error:", error);
@@ -388,13 +454,13 @@ router.get("/table-info/:table", authenticateAdmin, async (req, res) => {
 	try {
 		const { table } = req.params;
 
-		// Validate table name
-		if (!ALLOWED_TABLES.includes(table)) {
-			return res.status(403).json({ error: "Access to this table is not allowed" });
-		}
-
 		const client = await pool.connect();
 		try {
+			const tableExists = await assertPublicTable(client, table);
+			if (!tableExists) {
+				return res.status(404).json({ error: "Table not found" });
+			}
+
 			const columnsResult = await client.query(
 				`SELECT 
 					c.column_name as name,
@@ -471,17 +537,21 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 		const page = parseInt(req.query.page) || 1;
 		const limit = Math.min(parseInt(req.query.limit) || 50, 200);
 		const offset = (page - 1) * limit;
-		const sortBy = req.query.sortBy || "id";
+		const requestedSortBy = req.query.sortBy || "id";
 		const sortOrder = req.query.sortOrder === "desc" ? "DESC" : "ASC";
 		const search = req.query.search || "";
 
-		// Validate table name
-		if (!ALLOWED_TABLES.includes(table)) {
-			return res.status(403).json({ error: "Access to this table is not allowed" });
-		}
-
 		const client = await pool.connect();
 		try {
+			const tableExists = await assertPublicTable(client, table);
+			if (!tableExists) {
+				return res.status(404).json({ error: "Table not found" });
+			}
+
+			const tableColumns = await getTableColumns(client, table);
+			const columnNames = new Set(tableColumns.map((column) => column.name));
+			const sortBy = columnNames.has(requestedSortBy) ? requestedSortBy : await getPrimaryKey(client, table);
+
 			// Get total count
 			let countQuery = `SELECT COUNT(*) as total FROM "${table}"`;
 			let dataQuery = `SELECT * FROM "${table}"`;
@@ -544,40 +614,39 @@ router.post("/tables/:table", authenticateAdmin, async (req, res) => {
 	try {
 		const { table } = req.params;
 		const data = req.body;
-		// Strip system fields on insert; DB will set defaults
-		const sanitized = { ...data };
-		delete sanitized.id;
-		delete sanitized.created_at;
-		delete sanitized.updated_at;
-
-		if (!ALLOWED_TABLES.includes(table)) {
-			return res.status(403).json({ error: "Access to this table is not allowed" });
-		}
-
-		if (!sanitized || Object.keys(sanitized).length === 0) {
-			return res.status(400).json({ error: "No data provided" });
-		}
-
-		// Special handling for accounts table password hashing
-		if (table === "accounts" && sanitized.password_hash) {
-			sanitized.password_hash = await bcrypt.hash(sanitized.password_hash, 10);
-		}
 
 		const client = await pool.connect();
 		try {
+			const tableExists = await assertPublicTable(client, table);
+			if (!tableExists) {
+				return res.status(404).json({ error: "Table not found" });
+			}
+
+			const tableColumns = await getTableColumns(client, table);
+			const sanitized = sanitizeRowData(data, tableColumns);
+
+			if (!sanitized || Object.keys(sanitized).length === 0) {
+				return res.status(400).json({ error: "No editable data provided" });
+			}
+
+			if (table === "accounts" && sanitized.password_hash) {
+				sanitized.password_hash = await bcrypt.hash(sanitized.password_hash, 10);
+			}
+
+			const primaryKey = await getPrimaryKey(client, table);
 			const columns = Object.keys(sanitized);
 			const values = Object.values(sanitized);
 			const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
 
 			const result = await client.query(
-				`INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${placeholders}) RETURNING id`,
+				`INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${placeholders}) RETURNING "${primaryKey}"`,
 				values,
 			);
 
 			res.json({
 				status: "success",
 				message: "Row inserted successfully",
-				insertId: Number(result.rows[0].id),
+				insertId: result.rows[0]?.[primaryKey] ?? null,
 			});
 		} finally {
 			client.release();
@@ -595,26 +664,21 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 	try {
 		const { table, id } = req.params;
 		const data = req.body;
-		// Strip system fields to avoid datetime format issues / PK overwrite
-		const sanitized = { ...data };
-		delete sanitized.id;
-		delete sanitized.created_at;
-		delete sanitized.updated_at;
-
-		console.log("[Update] Table:", table, "ID:", id);
-		console.log("[Update] Data received:", JSON.stringify(data, null, 2));
-		console.log("[Update] Sanitized data:", JSON.stringify(sanitized, null, 2));
-
-		if (!ALLOWED_TABLES.includes(table)) {
-			return res.status(403).json({ error: "Access to this table is not allowed" });
-		}
-
-		if (!sanitized || Object.keys(sanitized).length === 0) {
-			return res.status(400).json({ error: "No data provided" });
-		}
 
 		const client = await pool.connect();
 		try {
+			const tableExists = await assertPublicTable(client, table);
+			if (!tableExists) {
+				return res.status(404).json({ error: "Table not found" });
+			}
+
+			const tableColumns = await getTableColumns(client, table);
+			const sanitized = sanitizeRowData(data, tableColumns);
+
+			if (!sanitized || Object.keys(sanitized).length === 0) {
+				return res.status(400).json({ error: "No editable data provided" });
+			}
+
 			// Special handling for accounts table password hashing
 			if (table === "accounts" && sanitized.password_hash) {
 				// Get current password hash
@@ -629,27 +693,11 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 				}
 			}
 
-			// Get primary key column name
-			const pkResult = await client.query(
-				`SELECT ku.column_name as name
-				 FROM information_schema.table_constraints tc
-				 JOIN information_schema.key_column_usage ku 
-				   ON tc.constraint_name = ku.constraint_name 
-				   AND tc.table_schema = ku.table_schema
-				 WHERE tc.constraint_type = 'PRIMARY KEY' 
-				   AND tc.table_name = $1 
-				   AND tc.table_schema = 'public'`,
-				[table],
-			);
-
-			const primaryKey = pkResult.rows.length > 0 ? pkResult.rows[0].name : "id";
+			const primaryKey = await getPrimaryKey(client, table);
 
 			const columns = Object.keys(sanitized);
 			const values = Object.values(sanitized);
 			const setClause = columns.map((c, i) => `"${c}" = $${i + 1}`).join(", ");
-
-			console.log("[Update] SQL:", `UPDATE "${table}" SET ${setClause} WHERE "${primaryKey}" = $${columns.length + 1}`);
-			console.log("[Update] Values:", values);
 
 			const result = await client.query(
 				`UPDATE "${table}" SET ${setClause} WHERE "${primaryKey}" = $${columns.length + 1}`,
@@ -681,26 +729,14 @@ router.delete("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 	try {
 		const { table, id } = req.params;
 
-		if (!ALLOWED_TABLES.includes(table)) {
-			return res.status(403).json({ error: "Access to this table is not allowed" });
-		}
-
 		const client = await pool.connect();
 		try {
-			// Get primary key column name
-			const pkResult = await client.query(
-				`SELECT ku.column_name as name
-				 FROM information_schema.table_constraints tc
-				 JOIN information_schema.key_column_usage ku 
-				   ON tc.constraint_name = ku.constraint_name 
-				   AND tc.table_schema = ku.table_schema
-				 WHERE tc.constraint_type = 'PRIMARY KEY' 
-				   AND tc.table_name = $1 
-				   AND tc.table_schema = 'public'`,
-				[table],
-			);
+			const tableExists = await assertPublicTable(client, table);
+			if (!tableExists) {
+				return res.status(404).json({ error: "Table not found" });
+			}
 
-			const primaryKey = pkResult.rows.length > 0 ? pkResult.rows[0].name : "id";
+			const primaryKey = await getPrimaryKey(client, table);
 
 			const result = await client.query(`DELETE FROM "${table}" WHERE "${primaryKey}" = $1`, [id]);
 

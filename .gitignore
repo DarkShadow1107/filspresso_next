@@ -48,3 +48,6 @@ next-env.d.ts
 
 # AI models
 *.pth
+
+# runtime logs
+logs/

@@ -908,8 +908,25 @@ router.get("/:id", authenticate, async (req, res) => {
  */
 router.post("/", authenticate, async (req, res) => {
 	try {
-		const { items, shippingAddress, billingAddress, paymentMethod, cardId, notes, shippingCost, total, isSubscription } =
-			req.body;
+		const {
+			items,
+			shippingAddress,
+			billingAddress,
+			paymentMethod,
+			cardId,
+			notes,
+			shippingCost,
+			total,
+			isSubscription,
+			currencyCode,
+			exchangeRate,
+			conversionFeePercent,
+			chargedSubtotal,
+			chargedShippingCost,
+			chargedTax,
+			chargedTotal,
+			destinationCountry,
+		} = req.body;
 
 		if (!items || items.length === 0) {
 			return res.status(400).json({ error: "Order must contain at least one item" });
@@ -971,10 +988,23 @@ router.post("/", authenticate, async (req, res) => {
 					: tierBasedFreeShipping || subtotalAfterDiscount >= 200
 						? 0
 						: 24.99;
-			// Use total from frontend, or calculate as discounted subtotal + shipping (VAT is included in prices)
-			const finalTotal = total !== undefined ? total : subtotalAfterDiscount + finalShippingCost;
-			// Tax is 21% of total (included in price, calculated for display purposes)
-			const tax = Math.round(finalTotal * 0.21 * 100) / 100;
+			const normalizedCurrencyCode =
+				typeof currencyCode === "string" && currencyCode.length === 3 ? currencyCode.toUpperCase() : "RON";
+			const normalizedExchangeRate = Number(exchangeRate) > 0 ? Number(exchangeRate) : 1;
+			const normalizedFeePercent = Number(conversionFeePercent) > 0 ? Number(conversionFeePercent) : 0;
+			const normalizedChargedSubtotal = Number(chargedSubtotal) > 0 ? Number(chargedSubtotal) : subtotalAfterDiscount;
+			const normalizedChargedShippingCost =
+				Number(chargedShippingCost) >= 0 ? Number(chargedShippingCost) : finalShippingCost;
+			const normalizedChargedTax = Number(chargedTax) > 0 ? Number(chargedTax) : 0;
+			const normalizedChargedTotal =
+				Number(chargedTotal) > 0
+					? Number(chargedTotal)
+					: normalizedChargedSubtotal + normalizedChargedShippingCost + normalizedChargedTax;
+
+			const tax =
+				normalizedCurrencyCode === "RON" ? 0 : Math.round((normalizedChargedTax / normalizedExchangeRate) * 100) / 100;
+			const calculatedRonTotal = Math.round((subtotalAfterDiscount + finalShippingCost + tax) * 100) / 100;
+			const finalTotal = total !== undefined ? Number(total) : calculatedRonTotal;
 
 			// Generate order number - use SUB prefix for subscriptions
 			const orderPrefix = isSubscription ? "SUB" : "ORD";
@@ -986,8 +1016,10 @@ router.post("/", authenticate, async (req, res) => {
         (account_id, order_number, status, subtotal, shipping_cost, tax, total,
         shipping_address, billing_address, payment_method, card_id, notes,
         weather_condition, estimated_delivery, expected_delivery_date,
-        discount_tier, discount_percent, discount_amount)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		discount_tier, discount_percent, discount_amount, currency_code, exchange_rate,
+		conversion_fee_percent, charged_subtotal, charged_shipping_cost, charged_tax,
+		charged_total, destination_country)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
         RETURNING id`,
 				[
 					req.user.id,
@@ -1008,6 +1040,14 @@ router.post("/", authenticate, async (req, res) => {
 					memberTier !== "None" ? memberTier : null, // discount_tier
 					discountPercent, // discount_percent
 					discountAmount, // discount_amount
+					normalizedCurrencyCode,
+					normalizedExchangeRate,
+					normalizedFeePercent,
+					normalizedChargedSubtotal,
+					normalizedChargedShippingCost,
+					normalizedChargedTax,
+					normalizedChargedTotal,
+					destinationCountry || shippingAddress?.country || null,
 				],
 			);
 
@@ -1062,8 +1102,10 @@ router.post("/", authenticate, async (req, res) => {
 				order: {
 					id: orderId,
 					orderNumber,
-					status: "pending",
-					total,
+					status: orderStatus,
+					total: finalTotal,
+					currencyCode: normalizedCurrencyCode,
+					chargedTotal: normalizedChargedTotal,
 				},
 			});
 		} catch (error) {

@@ -17,6 +17,10 @@ docker-compose*.yml
 
 # Frontend source — not needed in any Docker image
 src/
+!src/
+!src/data/
+!src/data/coffee.generated.json
+!src/data/machines.generated.json
 public/
 scripts/
 tailwind.config.cjs

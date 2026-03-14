@@ -1,0 +1,315 @@
+/* =============================================================================
+   Shared Legal Pages Styles
+   Privacy Policy · Terms of Use · Sales & Refunds
+   Design language: dark bg, warm coffee tones, Poppins
+   ============================================================================= */
+
+.legal-page {
+	min-height: 100vh;
+	background: #000;
+	color: #f8dccb;
+	font-family: "Poppins", sans-serif;
+}
+
+/* ── Hero ─────────────────────────────────────────────────────────────────── */
+.lp-hero {
+	background: linear-gradient(135deg, rgba(30, 15, 5, 0.95) 0%, rgba(15, 5, 0, 0.98) 100%);
+	border-bottom: 1px solid rgba(255, 219, 168, 0.1);
+	padding: 4rem 2rem 3rem;
+	text-align: center;
+	position: relative;
+	overflow: hidden;
+}
+
+.lp-hero::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: radial-gradient(ellipse 60% 60% at 50% 0%, rgba(245, 200, 66, 0.06) 0%, transparent 70%);
+	pointer-events: none;
+}
+
+.lp-hero-inner {
+	position: relative;
+	max-width: 720px;
+	margin: 0 auto;
+}
+
+.lp-hero-badge {
+	display: inline-block;
+	background: rgba(245, 200, 66, 0.12);
+	color: rgba(245, 200, 66, 0.9);
+	border: 1px solid rgba(245, 200, 66, 0.25);
+	border-radius: 999px;
+	padding: 0.3rem 1rem;
+	font-size: 0.8rem;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	margin-bottom: 1.2rem;
+}
+
+.lp-hero-title {
+	font-size: clamp(1.8rem, 5vw, 2.8rem);
+	font-weight: 700;
+	color: #ffdba8;
+	margin: 0 0 1rem;
+	line-height: 1.2;
+}
+
+.lp-hero-subtitle {
+	font-size: 1.05rem;
+	color: rgba(248, 220, 203, 0.65);
+	line-height: 1.7;
+	margin: 0;
+}
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+.lp-layout {
+	width: 100%;
+	padding: 3rem clamp(1.5rem, 3vw, 3rem) 5rem;
+	display: grid;
+	grid-template-columns: 260px 1fr 260px;
+	gap: 0 3rem;
+	align-items: start;
+}
+
+/* ── Table of Contents ────────────────────────────────────────────────────── */
+.lp-toc {
+	background: rgba(255, 255, 255, 0.03);
+	border: 1px solid rgba(255, 219, 168, 0.1);
+	border-radius: 14px;
+	padding: 1.6rem 1.4rem;
+	text-align: center;
+	position: sticky;
+	top: 5rem;
+	margin: 0 auto;
+	width: 100%;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	justify-content: center;
+}
+
+.lp-toc-label {
+	font-size: 0.72rem;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: rgba(245, 200, 66, 0.7);
+	margin: 0 0 1rem;
+	text-align: center;
+}
+
+.lp-toc-list {
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.45rem;
+	width: min(100%, 270px);
+}
+
+.lp-toc-link {
+	display: block;
+	width: 100%;
+	box-sizing: border-box;
+	padding: 0.45rem 0.8rem;
+	border-radius: 8px;
+	border: 1px solid rgba(255, 219, 168, 0.1);
+	background: rgba(255, 255, 255, 0.02);
+	font-size: 0.82rem;
+	color: rgba(248, 220, 203, 0.7);
+	text-decoration: none;
+	text-align: center;
+	transition:
+		background 0.18s ease,
+		color 0.18s ease,
+		border-color 0.18s ease,
+		transform 0.18s ease,
+		box-shadow 0.18s ease;
+	line-height: 1.5;
+	transform-origin: center center;
+}
+
+.lp-toc-link:hover {
+	background: rgba(20, 10, 2, 0.9);
+	border-color: rgba(245, 200, 66, 0.45);
+	color: #f5c842;
+	transform: scale(1.012);
+	box-shadow:
+		0 0 10px rgba(245, 200, 66, 0.2),
+		0 0 4px rgba(245, 200, 66, 0.1);
+}
+
+@media (max-width: 768px) {
+	.lp-layout {
+		grid-template-columns: 1fr;
+	}
+
+	.lp-toc {
+		position: relative;
+		top: 0;
+	}
+
+	.lp-content {
+		grid-column: 1;
+	}
+}
+
+/* ── Content ──────────────────────────────────────────────────────────────── */
+.lp-content {
+	min-width: 0;
+	max-width: 780px;
+	margin: 0 auto;
+}
+
+.lp-section {
+	margin-bottom: 3rem;
+	scroll-margin-top: 4rem;
+}
+
+.lp-section-title {
+	font-size: 1.25rem;
+	font-weight: 700;
+	color: #ffdba8;
+	margin: 0 0 1rem;
+	padding-bottom: 0.5rem;
+	border-bottom: 1px solid rgba(255, 219, 168, 0.12);
+}
+
+.lp-section-body p {
+	color: rgba(248, 220, 203, 0.82);
+	line-height: 1.8;
+	margin: 0 0 0.9rem;
+	font-size: 0.95rem;
+}
+
+.lp-section-body p:last-child {
+	margin-bottom: 0;
+}
+
+.lp-section-body ul {
+	list-style: none;
+	margin: 0 0 0.9rem;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.lp-section-body ul li {
+	padding-left: 1.4rem;
+	position: relative;
+	color: rgba(248, 220, 203, 0.82);
+	line-height: 1.7;
+	font-size: 0.95rem;
+}
+
+.lp-section-body ul li::before {
+	content: "›";
+	position: absolute;
+	left: 0.3rem;
+	color: rgba(245, 200, 66, 0.6);
+	font-weight: 700;
+}
+
+.lp-section-body strong {
+	color: #ffdba8;
+	font-weight: 600;
+}
+
+.lp-section-body em {
+	color: rgba(248, 220, 203, 0.6);
+	font-style: italic;
+}
+
+.lp-section-body code {
+	background: rgba(255, 255, 255, 0.07);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 4px;
+	padding: 0.1em 0.45em;
+	font-size: 0.88em;
+	color: #ffdba8;
+	font-family: "Fira Code", "Consolas", monospace;
+}
+
+.lp-section-body a {
+	color: rgba(245, 200, 66, 0.85);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	transition: color 0.15s;
+}
+
+.lp-section-body a:hover {
+	color: #f5c842;
+}
+
+/* ── Table ────────────────────────────────────────────────────────────────── */
+.lp-table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 1rem 0;
+	font-size: 0.9rem;
+}
+
+.lp-table th,
+.lp-table td {
+	padding: 0.65rem 1rem;
+	text-align: left;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.lp-table th {
+	background: rgba(245, 200, 66, 0.08);
+	color: rgba(245, 200, 66, 0.9);
+	font-weight: 600;
+	font-size: 0.82rem;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.lp-table td {
+	color: rgba(248, 220, 203, 0.82);
+}
+
+.lp-table tr:last-child td {
+	border-bottom: none;
+}
+
+.lp-table tr:nth-child(even) td {
+	background: rgba(255, 255, 255, 0.02);
+}
+
+/* ── Highlight box ────────────────────────────────────────────────────────── */
+.lp-note {
+	background: rgba(245, 200, 66, 0.06);
+	border-left: 3px solid rgba(245, 200, 66, 0.4);
+	border-radius: 0 8px 8px 0;
+	padding: 0.9rem 1.2rem;
+	margin: 1rem 0;
+}
+
+.lp-note p {
+	margin: 0 !important;
+	font-size: 0.9rem !important;
+}
+
+/* ── Back link ────────────────────────────────────────────────────────────── */
+.lp-back-link {
+	margin-top: 3rem;
+	padding-top: 1.5rem;
+	border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.lp-back-link a {
+	color: rgba(245, 200, 66, 0.75);
+	text-decoration: none;
+	font-size: 0.9rem;
+	transition: color 0.15s;
+}
+
+.lp-back-link a:hover {
+	color: #f5c842;
+}

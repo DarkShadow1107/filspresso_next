@@ -5,6 +5,8 @@
 @import "../styles/globals.css";
 @import "../styles/account-management.css";
 @import "../styles/weather.css";
+@import "../styles/kafelot-privacy.css";
+@import "../styles/legal-pages.css";
 
 :root {
 	--background: #000000;

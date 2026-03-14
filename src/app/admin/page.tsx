@@ -24,6 +24,7 @@ import {
 } from "@/icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const ADMIN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 
 type Column = {
 	name: string;
@@ -63,6 +64,7 @@ export default function AdminPage() {
 	const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
 	const [pendingUploadMode, setPendingUploadMode] = useState<"new" | "edit" | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// Table state
 	const [tables, setTables] = useState<TableInfo[]>([]);
@@ -92,12 +94,104 @@ export default function AdminPage() {
 		}
 	}, []);
 
+	const clearInactivityTimer = useCallback(() => {
+		if (inactivityTimerRef.current) {
+			clearTimeout(inactivityTimerRef.current);
+			inactivityTimerRef.current = null;
+		}
+	}, []);
+
+	const handleLogout = useCallback(
+		async (reason = "", notifyServer = true) => {
+			clearInactivityTimer();
+			if (notifyServer && adminToken) {
+				try {
+					await fetch(`${API_BASE}/api/admin/logout`, {
+						method: "POST",
+						headers: { Authorization: `Bearer ${adminToken}` },
+					});
+				} catch {
+					// Ignore logout errors
+				}
+			}
+			sessionStorage.removeItem("admin_token");
+			setAdminToken(null);
+			setIsAuthenticated(false);
+			setSelectedTable(null);
+			setTables([]);
+			setColumns([]);
+			setTableData([]);
+			setEditingRow(null);
+			setEditedData({});
+			setIsAddingRow(false);
+			setNewRowData({});
+			setPendingUploadFile(null);
+			setPendingUploadMode(null);
+			setActionError("");
+			setActionSuccess("");
+			setLoginError(reason);
+		},
+		[adminToken, clearInactivityTimer],
+	);
+
+	const authenticatedAdminFetch = useCallback(
+		async (input: string, init: RequestInit = {}) => {
+			if (!adminToken) {
+				return null;
+			}
+
+			const headers = new Headers(init.headers || {});
+			headers.set("Authorization", `Bearer ${adminToken}`);
+
+			const response = await fetch(input, {
+				...init,
+				headers,
+			});
+
+			if (response.status === 401) {
+				await handleLogout("Admin session expired. Please log in again.", false);
+				return null;
+			}
+
+			return response;
+		},
+		[adminToken, handleLogout],
+	);
+
 	// Fetch tables when authenticated
 	useEffect(() => {
 		if (isAuthenticated && adminToken) {
 			fetchTables();
 		}
 	}, [isAuthenticated, adminToken]);
+
+	useEffect(() => {
+		if (!isAuthenticated || !adminToken) {
+			clearInactivityTimer();
+			return;
+		}
+
+		const resetInactivityTimer = () => {
+			clearInactivityTimer();
+			inactivityTimerRef.current = setTimeout(() => {
+				handleLogout("Logged out after 5 minutes of inactivity.", false);
+			}, ADMIN_INACTIVITY_TIMEOUT_MS);
+		};
+
+		const activityEvents: Array<keyof WindowEventMap> = ["click", "keydown", "mousemove", "scroll", "touchstart"];
+		activityEvents.forEach((eventName) => {
+			window.addEventListener(eventName, resetInactivityTimer, { passive: true });
+		});
+
+		resetInactivityTimer();
+
+		return () => {
+			activityEvents.forEach((eventName) => {
+				window.removeEventListener(eventName, resetInactivityTimer);
+			});
+			clearInactivityTimer();
+		};
+	}, [isAuthenticated, adminToken, clearInactivityTimer, handleLogout]);
 
 	// Fetch table data when table is selected
 	useEffect(() => {
@@ -129,6 +223,7 @@ export default function AdminPage() {
 			setAdminToken(data.token);
 			sessionStorage.setItem("admin_token", data.token);
 			setIsAuthenticated(true);
+			setLoginError("");
 			setPassword("");
 		} catch {
 			setLoginError("Failed to connect to server");
@@ -137,35 +232,10 @@ export default function AdminPage() {
 		}
 	};
 
-	const handleLogout = async () => {
-		try {
-			await fetch(`${API_BASE}/api/admin/logout`, {
-				method: "POST",
-				headers: { Authorization: `Bearer ${adminToken}` },
-			});
-		} catch {
-			// Ignore logout errors
-		}
-		sessionStorage.removeItem("admin_token");
-		setAdminToken(null);
-		setIsAuthenticated(false);
-		setSelectedTable(null);
-		setTables([]);
-	};
-
 	const fetchTables = async () => {
 		try {
-			const res = await fetch(`${API_BASE}/api/admin/tables`, {
-				headers: { Authorization: `Bearer ${adminToken}` },
-			});
-
-			// Handle expired/invalid token
-			if (res.status === 401) {
-				sessionStorage.removeItem("admin_token");
-				setAdminToken(null);
-				setIsAuthenticated(false);
-				return;
-			}
+			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables`);
+			if (!res) return;
 
 			const data = await res.json();
 			if (data.tables) {
@@ -178,9 +248,8 @@ export default function AdminPage() {
 
 	const fetchTableInfo = async (table: string) => {
 		try {
-			const res = await fetch(`${API_BASE}/api/admin/table-info/${table}`, {
-				headers: { Authorization: `Bearer ${adminToken}` },
-			});
+			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/table-info/${table}`);
+			if (!res) return;
 			const data = await res.json();
 			if (data.columns) {
 				setColumns(data.columns);
@@ -203,9 +272,8 @@ export default function AdminPage() {
 					...(searchQuery && { search: searchQuery }),
 				});
 
-				const res = await fetch(`${API_BASE}/api/admin/tables/${table}?${params}`, {
-					headers: { Authorization: `Bearer ${adminToken}` },
-				});
+				const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${table}?${params}`);
+				if (!res) return;
 				const data = await res.json();
 				if (data.data) {
 					setTableData(data.data);
@@ -217,7 +285,7 @@ export default function AdminPage() {
 				setIsLoading(false);
 			}
 		},
-		[adminToken, pagination.page, pagination.limit, sortBy, sortOrder, searchQuery],
+		[authenticatedAdminFetch, pagination.page, pagination.limit, sortBy, sortOrder, searchQuery],
 	);
 
 	useEffect(() => {
@@ -310,14 +378,14 @@ export default function AdminPage() {
 
 			const rowId = editingRow[primaryKey];
 			const dataToSend = prepareDataForSave(editedData);
-			const res = await fetch(`${API_BASE}/api/admin/tables/${selectedTable}/${rowId}`, {
+			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${selectedTable}/${rowId}`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${adminToken}`,
 				},
 				body: JSON.stringify(dataToSend),
 			});
+			if (!res) return;
 
 			const data = await res.json();
 			if (!res.ok) {
@@ -349,10 +417,10 @@ export default function AdminPage() {
 		setIsLoading(true);
 
 		try {
-			const res = await fetch(`${API_BASE}/api/admin/tables/${selectedTable}/${rowId}`, {
+			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${selectedTable}/${rowId}`, {
 				method: "DELETE",
-				headers: { Authorization: `Bearer ${adminToken}` },
 			});
+			if (!res) return;
 
 			const data = await res.json();
 			if (!res.ok) {
@@ -392,14 +460,14 @@ export default function AdminPage() {
 			if (!readyForSave) return;
 
 			const dataToSend = prepareDataForSave(newRowData);
-			const res = await fetch(`${API_BASE}/api/admin/tables/${selectedTable}`, {
+			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${selectedTable}`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${adminToken}`,
 				},
 				body: JSON.stringify(dataToSend),
 			});
+			if (!res) return;
 
 			const data = await res.json();
 			if (!res.ok) {
@@ -508,11 +576,11 @@ export default function AdminPage() {
 		setActionSuccess("");
 
 		try {
-			const res = await fetch(`${API_BASE}/api/admin/upload/coffee-image`, {
+			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/upload/coffee-image`, {
 				method: "POST",
-				headers: { Authorization: `Bearer ${adminToken}` },
 				body: formData,
 			});
+			if (!res) return false;
 
 			const data = await res.json();
 			if (!res.ok) {
@@ -942,13 +1010,14 @@ export default function AdminPage() {
 			<div className="admin-login-container">
 				<div className="admin-login-card">
 					<div className="admin-login-header">
+						<span className="admin-login-kicker">Filspresso Control Room</span>
 						<h1 className="admin-login-title">
 							<span className="admin-icon admin-icon--lg">
 								<LockIcon size={18} />
 							</span>
 							Admin Panel
 						</h1>
-						<p>Filspresso Database Management</p>
+						<p className="admin-login-copy">Filspresso database management with the same coffee-house visual system as the main app.</p>
 					</div>
 					<form onSubmit={handleLogin} className="admin-login-form">
 						<div className="form-group">
@@ -965,7 +1034,7 @@ export default function AdminPage() {
 						</div>
 						<div className="form-group">
 							<label htmlFor="password">Password</label>
-							<div className="password-input-wrapper" style={{ position: "relative" }}>
+							<div className="password-input-wrapper">
 								<input
 									id="password"
 									type={showPassword ? "text" : "password"}
@@ -974,27 +1043,13 @@ export default function AdminPage() {
 									placeholder="Admin password"
 									autoComplete="current-password"
 									required
-									style={{ width: "100%", paddingRight: "50px" }}
+									className="admin-password-input"
 								/>
 								<button
 									type="button"
 									onClick={() => setShowPassword(!showPassword)}
 									className="password-toggle-btn"
 									title={showPassword ? "Hide password" : "Show password"}
-									style={{
-										position: "absolute",
-										right: "10px",
-										top: "50%",
-										transform: "translateY(-50%)",
-										background: "none",
-										border: "none",
-										color: "rgba(250, 204, 144, 0.6)",
-										cursor: "pointer",
-										display: "flex",
-										alignItems: "center",
-										justifyContent: "center",
-										padding: "5px",
-									}}
 								>
 									{showPassword ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}
 								</button>
@@ -1005,19 +1060,12 @@ export default function AdminPage() {
 							type="submit"
 							className="login-button"
 							disabled={isLoading}
-							style={{
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-								gap: "0.5rem",
-								width: "100%",
-							}}
 						>
 							{isLoading ? (
 								"Logging in..."
 							) : (
 								<>
-									<UserCheckIcon size={20} /> <span style={{ paddingBottom: "1px" }}>Login</span>
+									<UserCheckIcon size={20} /> <span className="login-button-label">Login</span>
 								</>
 							)}
 						</button>
@@ -1033,15 +1081,19 @@ export default function AdminPage() {
 			{/* Header */}
 			<header className="admin-header">
 				<div className="admin-header-left">
-					<h1>
-						<span className="admin-icon admin-icon--lg">
-							<GearIcon size={18} />
-						</span>
-						Filspresso Admin
-					</h1>
+					<div>
+						<span className="admin-kicker">Filspresso Operations</span>
+						<h1>
+							<span className="admin-icon admin-icon--lg">
+								<GearIcon size={18} />
+							</span>
+							Filspresso Admin
+						</h1>
+					</div>
 					<span className="admin-subtitle">Database Management</span>
 				</div>
 				<div className="admin-header-right">
+					<span className="admin-status-pill">Live workspace</span>
 					<span className="admin-user">
 						<span className="admin-icon">
 							<UserCheckIcon size={16} />
@@ -1057,12 +1109,15 @@ export default function AdminPage() {
 			<div className="admin-main">
 				{/* Sidebar - Table List */}
 				<aside className="admin-sidebar">
-					<h2>
-						<span className="admin-icon">
-							<ChartBarIcon size={16} />
-						</span>
-						Tables
-					</h2>
+					<div className="admin-sidebar-header">
+						<h2>
+							<span className="admin-icon">
+								<ChartBarIcon size={16} />
+							</span>
+							Tables
+						</h2>
+						<p>Browse and manage the live tables used by the storefront and account flows.</p>
+					</div>
 					<ul className="table-list">
 						{tables.map((table) => (
 							<li
@@ -1086,6 +1141,7 @@ export default function AdminPage() {
 					{!selectedTable ? (
 						<div className="no-table-selected">
 							<div className="empty-state">
+								<span className="empty-kicker">Database overview</span>
 								<span className="empty-icon">
 									<FileDescriptionIcon size={48} />
 								</span>
@@ -1094,7 +1150,7 @@ export default function AdminPage() {
 							</div>
 						</div>
 					) : (
-						<>
+							<section className="admin-panel">
 							{/* Table Header */}
 							<div className="table-header">
 								<div className="table-title">
@@ -1339,7 +1395,7 @@ export default function AdminPage() {
 									</tbody>
 								</table>
 							</details>
-						</>
+							</section>
 					)}
 				</main>
 			</div>

@@ -1,7 +1,47 @@
 import { NextResponse } from "next/server";
 
+async function checkPromptLimit(request: Request): Promise<{ allowed: boolean; errorResponse?: Response }> {
+	try {
+		const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+		const headers: Record<string, string> = { "Content-Type": "application/json" };
+		const authHeader = request.headers.get("authorization");
+		if (authHeader) headers["authorization"] = authHeader;
+		const fingerprint = request.headers.get("x-kafelot-fingerprint");
+		if (fingerprint) headers["x-kafelot-fingerprint"] = fingerprint;
+		const forwarded = request.headers.get("x-forwarded-for");
+		if (forwarded) headers["x-forwarded-for"] = forwarded;
+
+		const res = await fetch(`${API_BASE}/api/kafelot/check-and-use`, {
+			method: "POST",
+			headers,
+			body: JSON.stringify({}),
+		});
+
+		if (res.status === 429) {
+			const data = (await res.json()) as { reset_date?: string; prompts_limit?: number };
+			return {
+				allowed: false,
+				errorResponse: new Response(
+					JSON.stringify({
+						error: "PROMPT_LIMIT_REACHED",
+						reset_date: data.reset_date,
+						prompts_limit: data.prompts_limit,
+					}),
+					{ status: 429, headers: { "Content-Type": "application/json" } },
+				),
+			};
+		}
+		return { allowed: true };
+	} catch {
+		return { allowed: true };
+	}
+}
+
 export async function POST(request: Request) {
 	try {
+		const limitCheck = await checkPromptLimit(request);
+		if (!limitCheck.allowed) return limitCheck.errorResponse!;
+
 		const PY_HOST = process.env.PYTHON_AI_HOST || "http://localhost:5000";
 		const contentType = request.headers.get("content-type") || "";
 

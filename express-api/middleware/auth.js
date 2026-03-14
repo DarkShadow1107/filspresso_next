@@ -21,7 +21,7 @@ function generateToken(user) {
 			username: user.username,
 		},
 		JWT_SECRET,
-		{ expiresIn: JWT_EXPIRES_IN }
+		{ expiresIn: JWT_EXPIRES_IN },
 	);
 }
 
@@ -58,9 +58,10 @@ async function authenticate(req, res, next) {
 
 		// Get user from database
 		try {
-			const result = await pool.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = $1", [
-				decoded.id,
-			]);
+			const result = await pool.query(
+				"SELECT id, username, email, name, icon, subscription, role FROM accounts WHERE id = $1",
+				[decoded.id],
+			);
 			const user = result.rows[0];
 
 			if (!user) {
@@ -100,9 +101,10 @@ async function optionalAuth(req, res, next) {
 		}
 
 		try {
-			const result = await pool.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = $1", [
-				decoded.id,
-			]);
+			const result = await pool.query(
+				"SELECT id, username, email, name, icon, subscription, role FROM accounts WHERE id = $1",
+				[decoded.id],
+			);
 			req.user = result.rows[0] || null;
 		} catch (err) {
 			req.user = null;

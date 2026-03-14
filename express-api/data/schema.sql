@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS orders (
     discount_tier VARCHAR(50),
     discount_percent DECIMAL(5,2) DEFAULT 0.00,
     discount_amount DECIMAL(10,2) DEFAULT 0.00,
+    currency_code VARCHAR(3) NOT NULL DEFAULT 'RON',
+    exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000,
+    conversion_fee_percent DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+    charged_subtotal DECIMAL(10,2) DEFAULT 0.00,
+    charged_shipping_cost DECIMAL(10,2) DEFAULT 0.00,
+    charged_tax DECIMAL(10,2) DEFAULT 0.00,
+    charged_total DECIMAL(10,2) DEFAULT 0.00,
+    destination_country VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -420,6 +428,56 @@ CREATE TRIGGER update_machine_products_updated_at BEFORE UPDATE ON machine_produ
 CREATE TRIGGER update_member_status_updated_at BEFORE UPDATE ON member_status FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_member_status_history_updated_at BEFORE UPDATE ON member_status_history FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_repairs_updated_at BEFORE UPDATE ON repairs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- =============================================================================
+-- KAFELOT ANONYMOUS USERS TABLE
+-- Tracks anonymous visitors (no login) and their monthly AI prompt usage.
+-- Admin can update prompts_limit or prompts_used directly via the admin panel.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS kafelot_anonymous_users (
+    id SERIAL PRIMARY KEY,
+    fingerprint VARCHAR(64) NOT NULL UNIQUE,  -- random UUID stored in localStorage
+    ip_address VARCHAR(64),
+    user_agent TEXT,
+    system_info JSONB DEFAULT '{}',           -- { platform, language, screen }
+    prompts_used INTEGER DEFAULT 0,
+    prompts_limit INTEGER DEFAULT 5,
+    reset_date DATE NOT NULL DEFAULT (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_kafelot_anon_fingerprint ON kafelot_anonymous_users(fingerprint);
+CREATE INDEX idx_kafelot_anon_reset ON kafelot_anonymous_users(reset_date);
+
+CREATE TRIGGER update_kafelot_anonymous_users_updated_at
+BEFORE UPDATE ON kafelot_anonymous_users
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- =============================================================================
+-- KAFELOT PROMPT USAGE TABLE
+-- Tracks monthly AI prompt usage for authenticated users per subscription tier.
+-- Admin can update prompts_limit or prompts_used directly via the admin panel.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS kafelot_prompt_usage (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    month_year VARCHAR(7) NOT NULL,           -- e.g. "2026-03"
+    prompts_used INTEGER DEFAULT 0,
+    prompts_limit INTEGER DEFAULT 15,
+    subscription_tier VARCHAR(50) DEFAULT 'free',
+    reset_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (account_id, month_year)
+);
+
+CREATE INDEX idx_kafelot_prompt_usage_account ON kafelot_prompt_usage(account_id);
+CREATE INDEX idx_kafelot_prompt_usage_month ON kafelot_prompt_usage(month_year);
+
+CREATE TRIGGER update_kafelot_prompt_usage_updated_at
+BEFORE UPDATE ON kafelot_prompt_usage
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =============================================================================
 -- INITIAL DATA

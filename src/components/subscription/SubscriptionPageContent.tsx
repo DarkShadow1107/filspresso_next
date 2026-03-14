@@ -147,7 +147,8 @@ const plans = [
 		recommended: false,
 		tier: 0,
 		benefits: [
-			"🤖 Kafelot Tanka - 15 prompts/month",
+			"🤖 Kafelot Tanka - 5 prompts/month (anonymous)",
+			"🤖 Kafelot Tanka - 15 prompts/month (with account)",
 			"Default for all accounts",
 		],
 	},
@@ -705,7 +706,7 @@ export default function SubscriptionPageContent() {
 												"Kafelot Tanka - 5 prompts/month (anonymous)",
 												"Kafelot Tanka - 15 prompts/month (with account)",
 													"Default for all accounts",
-											  ]
+											]
 											: (plan.benefits as readonly string[])
 										).map((benefit) => {
 											const getIcon = () => {

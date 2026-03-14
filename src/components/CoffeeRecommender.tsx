@@ -153,6 +153,13 @@ export default function CoffeeRecommender() {
 	const abortControllerRef = useRef<AbortController | null>(null);
 	const currentRequestIdRef = useRef<string | null>(null);
 	const [chatImage, setChatImage] = useState<File | null>(null);
+
+	// Prompt limit tracking
+	const [promptsRemaining, setPromptsRemaining] = useState<number | null>(null);
+	const [promptsLimit, setPromptsLimit] = useState<number | null>(null);
+	const [promptResetDate, setPromptResetDate] = useState<string | null>(null);
+	const [limitReached, setLimitReached] = useState(false);
+	const fingerprintRef = useRef<string>("");
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const recommenderRef = useRef<HTMLDivElement>(null);
@@ -188,6 +195,38 @@ export default function CoffeeRecommender() {
 
 		return { categoryCounts, modelCounts, modelPercentages, total };
 	}, [chatHistory]);
+
+	// ── Fingerprint (anonymous identity for prompt tracking) ──────────────────
+	// Stored in localStorage so it persists across sessions without login.
+	function getOrCreateFingerprint(): string {
+		if (typeof window === "undefined") return "";
+		let fp = localStorage.getItem("kafelot_fp");
+		if (!fp) {
+			fp = crypto.randomUUID ? crypto.randomUUID() : `fp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			localStorage.setItem("kafelot_fp", fp);
+		}
+		return fp;
+	}
+
+	async function fetchPromptStatus(token?: string) {
+		try {
+			const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+			const fp = getOrCreateFingerprint();
+			fingerprintRef.current = fp;
+			const headers: Record<string, string> = { "x-kafelot-fingerprint": fp };
+			if (token) headers["authorization"] = `Bearer ${token}`;
+			const res = await fetch(`${API_BASE}/api/kafelot/status`, { headers });
+			if (res.ok) {
+				const data = (await res.json()) as { prompts_remaining: number; prompts_limit: number; reset_date?: string };
+				setPromptsRemaining(data.prompts_remaining);
+				setPromptsLimit(data.prompts_limit);
+				setPromptResetDate(data.reset_date ?? null);
+				setLimitReached(data.prompts_remaining <= 0);
+			}
+		} catch {
+			// Silently ignore – limits won't block usage on infra failure
+		}
+	}
 
 	// Fix hydration: only render portal after mount
 	useEffect(() => {
@@ -237,6 +276,8 @@ export default function CoffeeRecommender() {
 				if (session) {
 					const { token } = JSON.parse(session);
 					if (token) {
+						// Fetch prompt status with the user's token
+						fetchPromptStatus(token);
 						// Primary: Fetch subscription tier from subscriptions API (database)
 						fetch("http://localhost:4000/api/subscriptions", {
 							headers: { Authorization: `Bearer ${token}` },
@@ -270,6 +311,11 @@ export default function CoffeeRecommender() {
 				}
 			} catch {
 				// ignore errors
+			}
+			// Load prompt status for anonymous users (no session)
+			const sessionForFp = sessionStorage.getItem("account_session");
+			if (!sessionForFp) {
+				fetchPromptStatus();
 			}
 			// Load chat history only if logged in
 			const session = sessionStorage.getItem("account_session");
@@ -748,6 +794,20 @@ export default function CoffeeRecommender() {
 	const handleChatSubmit = useCallback(async () => {
 		const prompt = chatInput.trim();
 		if (!prompt && !chatImage) return;
+
+		// Check prompt limit before sending
+		if (limitReached) {
+			const resetText = promptResetDate
+				? ` Your limit resets on ${new Date(promptResetDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`
+				: " Your limit resets next month.";
+			const limitMsg: Message = {
+				role: "assistant",
+				content: `⚠️ You have reached your prompt limit for this month.${resetText} Please upgrade your subscription or wait for the reset.`,
+			};
+			setChatMessages((m) => [...m, limitMsg]);
+			return;
+		}
+
 		const imageDataUrl = await new Promise<string | null>((resolve) => {
 			if (!chatImage) {
 				resolve(null);
@@ -884,6 +944,22 @@ export default function CoffeeRecommender() {
 			let fetchBody: BodyInit;
 			let fetchHeaders: Record<string, string> = {};
 
+			// Always include fingerprint for prompt tracking
+			const fp = fingerprintRef.current || getOrCreateFingerprint();
+			fingerprintRef.current = fp;
+
+			// Include auth token if logged in
+			const sessionRaw = typeof window !== "undefined" ? sessionStorage.getItem("account_session") : null;
+			const sessionToken = sessionRaw
+				? (() => {
+						try {
+							return JSON.parse(sessionRaw).token as string | undefined;
+						} catch {
+							return undefined;
+						}
+					})()
+				: undefined;
+
 			if (imageToSend && shouldUsePython) {
 				const fd = new FormData();
 				fd.append("messages", JSON.stringify([...messagesForApi, userMsg]));
@@ -894,8 +970,12 @@ export default function CoffeeRecommender() {
 				fd.append("request_id", requestId);
 				fd.append("image", imageToSend);
 				fetchBody = fd;
+				if (fp) fetchHeaders["x-kafelot-fingerprint"] = fp;
+				if (sessionToken) fetchHeaders["authorization"] = `Bearer ${sessionToken}`;
 			} else {
 				fetchHeaders = { "Content-Type": "application/json" };
+				if (fp) fetchHeaders["x-kafelot-fingerprint"] = fp;
+				if (sessionToken) fetchHeaders["authorization"] = `Bearer ${sessionToken}`;
 				fetchBody = JSON.stringify({
 					messages: [...messagesForApi, userMsg],
 					mode: chatMode,
@@ -915,7 +995,20 @@ export default function CoffeeRecommender() {
 			});
 
 			if (!response.ok) {
-				const errorData = await response.json().catch(() => ({}));
+				const errorData = await response.json().catch(() => ({}) as { error?: string; reset_date?: string });
+				if (response.status === 429 || errorData.error === "PROMPT_LIMIT_REACHED") {
+					setLimitReached(true);
+					setPromptsRemaining(0);
+					const resetText = errorData.reset_date
+						? ` Your limit resets on ${new Date(errorData.reset_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`
+						: " Your limit resets next month.";
+					const limitMsg: Message = {
+						role: "assistant",
+						content: `⚠️ You have reached your prompt limit for this month.${resetText} Please upgrade your subscription or wait for the reset.`,
+					};
+					setChatMessages((m) => [...m, limitMsg]);
+					return;
+				}
 				throw new Error(errorData.error || `Failed to get response (Status: ${response.status})`);
 			}
 
@@ -925,6 +1018,14 @@ export default function CoffeeRecommender() {
 			if (data.cancelled) {
 				return; // Silently exit, user cancelled
 			}
+
+			// Decrement local prompt count after a successful AI response
+			setPromptsRemaining((prev) => {
+				if (prev === null) return prev;
+				const next = Math.max(0, prev - 1);
+				if (next <= 0) setLimitReached(true);
+				return next;
+			});
 
 			const assistantMsg: Message = {
 				role: "assistant",
@@ -964,6 +1065,8 @@ export default function CoffeeRecommender() {
 		chemistryMode,
 		visualizationMode,
 		fetchMoleculeData,
+		limitReached,
+		promptResetDate,
 	]);
 
 	// Stop generation handler
@@ -2092,6 +2195,35 @@ export default function CoffeeRecommender() {
 								<HistoryCircleIcon size={16} /> History
 							</button>
 							<button onClick={() => setStep("greeting")}>Back</button>
+						</div>
+
+						{/* Prompt usage counter */}
+						{promptsLimit !== null && (
+							<div className="kafelot-prompt-counter">
+								{promptsRemaining !== null && promptsRemaining > 0 ? (
+									<span>
+										{promptsRemaining} / {promptsLimit} prompts remaining this month
+									</span>
+								) : (
+									<span className="limit-hit">
+										Prompt limit reached — resets{" "}
+										{promptResetDate
+											? new Date(promptResetDate).toLocaleDateString("en-US", {
+													month: "long",
+													day: "numeric",
+												})
+											: "next month"}
+									</span>
+								)}
+							</div>
+						)}
+
+						{/* Disclaimer */}
+						<div className="kafelot-disclaimer">
+							Kafelot is AI and can make mistakes, including about people.{" "}
+							<a href="/kafelot-privacy" target="_blank" rel="noopener noreferrer">
+								Your privacy &amp; Kafelot
+							</a>
 						</div>
 					</div>
 				)}

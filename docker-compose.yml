@@ -47,6 +47,8 @@ services:
             ENCRYPTION_KEY: ${ENCRYPTION_KEY:-your-32-character-encryption-key!}
             CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
             PYTHON_AI_HOST: http://ai:5000
+            SERVICE_METRICS_STRICT_DB_ONLY: ${SERVICE_METRICS_STRICT_DB_ONLY:-false}
+            ADMIN_HEALTH_URL: ${ADMIN_HEALTH_URL:-}
         volumes:
             # Mount product images so the backend can read/write images (admin uploads)
             - ./public/images:/public/images
