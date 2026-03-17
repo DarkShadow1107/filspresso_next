@@ -39,6 +39,19 @@ const TIER_THRESHOLDS = [
 const FREE_SHIPPING_TIERS = ["Master", "Virtuoso", "Ambassador"];
 const FREE_SHIPPING_THRESHOLD_TIERS = { Expert: 150 };
 
+function resolveInventoryTable(productType) {
+	if (productType === "capsule") return "coffee_products";
+	if (productType === "machine" || productType === "accessory") return "machine_products";
+	return null;
+}
+
+function createHttpError(status, message, details) {
+	const error = new Error(message);
+	error.status = status;
+	error.details = details;
+	return error;
+}
+
 /**
  * Get user's member tier
  */
@@ -285,6 +298,13 @@ router.get("/spending", authenticate, async (req, res) => {
 				[req.user.id],
 			);
 
+			const taxesResult = await client.query(
+				`SELECT COALESCE(SUM(tax), 0) as taxes_total
+				FROM orders
+				WHERE account_id = $1 AND status != 'cancelled'`,
+				[req.user.id],
+			);
+
 			// Get subscription spending (from order_items with product_type = 'subscription')
 			const subscriptionResult = await client.query(
 				`SELECT COALESCE(SUM(oi.total_price), 0) as subscriptions_total
@@ -346,10 +366,49 @@ router.get("/spending", authenticate, async (req, res) => {
 				[req.user.id],
 			);
 
+			const currencyUsageResult = await client.query(
+				`SELECT
+					UPPER(COALESCE(currency_code, 'RON')) as currency_code,
+					COUNT(*)::int as order_count,
+					COALESCE(SUM(charged_total), 0) as charged_total,
+					COALESCE(SUM(total), 0) as ron_equivalent_total,
+					COALESCE(SUM(tax), 0) as conversion_taxes_ron
+				FROM orders
+				WHERE account_id = $1 AND status != 'cancelled'
+				GROUP BY UPPER(COALESCE(currency_code, 'RON'))
+				ORDER BY ron_equivalent_total DESC, charged_total DESC`,
+				[req.user.id],
+			);
+
 			const ordersTotal = Number(ordersResult.rows[0].orders_total) || 0;
+			const taxesTotal = Number(taxesResult.rows[0].taxes_total) || 0;
 			const subscriptionsTotal = Number(subscriptionResult.rows[0].subscriptions_total) || 0;
 			const machinesTotal = Number(machinesResult.rows[0].machines_total) || 0;
 			const productsTotal = Number(productsResult.rows[0].products_total) || 0;
+			const totalCurrencyOrders = currencyUsageResult.rows.reduce((sum, row) => sum + (Number(row.order_count) || 0), 0);
+			const totalRonEquivalentAcrossCurrencies = currencyUsageResult.rows.reduce(
+				(sum, row) => sum + (Number(row.ron_equivalent_total) || 0),
+				0,
+			);
+
+			const currencyUsage = currencyUsageResult.rows.map((row) => {
+				const orderCount = Number(row.order_count) || 0;
+				const ronEquivalentTotal = Number(row.ron_equivalent_total) || 0;
+				const percentage =
+					totalRonEquivalentAcrossCurrencies > 0
+						? Math.round((ronEquivalentTotal / totalRonEquivalentAcrossCurrencies) * 10000) / 100
+						: 0;
+				return {
+					currencyCode: row.currency_code,
+					orderCount,
+					chargedTotal: Number(row.charged_total) || 0,
+					ronEquivalentTotal,
+					conversionTaxesRon: Number(row.conversion_taxes_ron) || 0,
+					percentage,
+				};
+			});
+
+			const preferredCurrency = currencyUsage[0]?.currencyCode || "RON";
 
 			res.json({
 				spending: {
@@ -357,7 +416,14 @@ router.get("/spending", authenticate, async (req, res) => {
 					subscriptions: subscriptionsTotal,
 					machines: machinesTotal,
 					products: productsTotal,
+					taxes: taxesTotal,
 					total: ordersTotal,
+				},
+				currency: {
+					preferredCurrency,
+					totalOrders: totalCurrencyOrders,
+					multiCurrency: currencyUsage.length > 1,
+					usage: currencyUsage,
 				},
 			});
 		} finally {
@@ -726,6 +792,9 @@ router.get("/", authenticate, async (req, res) => {
                 o.tax, o.total, o.created_at, o.weather_condition, o.estimated_delivery,
                 o.expected_delivery_date,
                 o.discount_tier, o.discount_percent, o.discount_amount,
+		o.currency_code, o.exchange_rate, o.conversion_fee_percent,
+		o.charged_subtotal, o.charged_shipping_cost, o.charged_tax, o.charged_total,
+		o.destination_country,
                 uc.card_type, uc.card_last_four,
                 (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
         FROM orders o
@@ -955,6 +1024,58 @@ router.post("/", authenticate, async (req, res) => {
 		try {
 			await client.query("BEGIN");
 
+			const mergedItemsByProduct = new Map();
+			for (const item of items) {
+				const quantity = Number.parseInt(item.quantity, 10);
+				const unitPrice = Number(item.unitPrice);
+				if (!item.productType || !item.productId || !item.productName || !Number.isInteger(quantity) || quantity < 1) {
+					throw createHttpError(400, "Order contains invalid item payload");
+				}
+				if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+					throw createHttpError(400, "Order contains invalid item price");
+				}
+
+				const key = `${item.productType}::${item.productId}`;
+				const existing = mergedItemsByProduct.get(key);
+				if (existing) {
+					existing.quantity += quantity;
+				} else {
+					mergedItemsByProduct.set(key, {
+						productType: item.productType,
+						productId: item.productId,
+						productName: item.productName,
+						quantity,
+					});
+				}
+			}
+
+			for (const mergedItem of mergedItemsByProduct.values()) {
+				const inventoryTable = resolveInventoryTable(mergedItem.productType);
+				if (!inventoryTable) continue;
+
+				const stockResult = await client.query(
+					`SELECT stock
+					 FROM ${inventoryTable}
+					 WHERE product_id = $1
+					 FOR UPDATE`,
+					[mergedItem.productId],
+				);
+
+				if (stockResult.rows.length === 0) {
+					throw createHttpError(404, `Product ${mergedItem.productId} was not found in inventory`);
+				}
+
+				const stock = Number(stockResult.rows[0].stock) || 0;
+				if (stock < mergedItem.quantity) {
+					throw createHttpError(409, `Insufficient stock for ${mergedItem.productName}`, {
+						productId: mergedItem.productId,
+						productName: mergedItem.productName,
+						requestedQuantity: mergedItem.quantity,
+						availableQuantity: stock,
+					});
+				}
+			}
+
 			// Get user's member tier for discount calculation
 			const memberTier = await getUserTier(client, req.user.id);
 			const discountPercent = TIER_DISCOUNTS[memberTier] || 0;
@@ -1055,6 +1176,8 @@ router.post("/", authenticate, async (req, res) => {
 
 			// Create order items and update stock
 			for (const item of items) {
+				const normalizedQuantity = Number.parseInt(item.quantity, 10);
+				const normalizedUnitPrice = Number(item.unitPrice);
 				await client.query(
 					`INSERT INTO order_items 
             (order_id, product_type, product_id, product_name, product_image, 
@@ -1066,29 +1189,37 @@ router.post("/", authenticate, async (req, res) => {
 						item.productId,
 						item.productName,
 						item.productImage || null,
-						item.quantity,
-						item.unitPrice,
-						item.unitPrice * item.quantity,
+						normalizedQuantity,
+						normalizedUnitPrice,
+						normalizedUnitPrice * normalizedQuantity,
 					],
 				);
 
 				// Update stock in products table based on product type
 				if (item.productType === "capsule") {
 					// Update coffee_products stock
-					await client.query(
+					const stockUpdateResult = await client.query(
 						`UPDATE coffee_products 
-						SET stock = GREATEST(0, stock - $1) 
-						WHERE product_id = $2`,
-						[item.quantity, item.productId],
+						SET stock = stock - $1
+						WHERE product_id = $2
+						  AND stock >= $1`,
+						[normalizedQuantity, item.productId],
 					);
-				} else if (item.productType === "machine") {
-					// Update machine_products stock
-					await client.query(
+					if (stockUpdateResult.rowCount === 0) {
+						throw createHttpError(409, `Insufficient stock for ${item.productName}`);
+					}
+				} else if (item.productType === "machine" || item.productType === "accessory") {
+					// Update machine/accessory stock
+					const stockUpdateResult = await client.query(
 						`UPDATE machine_products 
-						SET stock = GREATEST(0, stock - $1) 
-						WHERE product_id = $2`,
-						[item.quantity, item.productId],
+						SET stock = stock - $1
+						WHERE product_id = $2
+						  AND stock >= $1`,
+						[normalizedQuantity, item.productId],
 					);
+					if (stockUpdateResult.rowCount === 0) {
+						throw createHttpError(409, `Insufficient stock for ${item.productName}`);
+					}
 				}
 			}
 
@@ -1116,6 +1247,12 @@ router.post("/", authenticate, async (req, res) => {
 		}
 	} catch (error) {
 		console.error("Create order error:", error);
+		if (error?.status) {
+			return res.status(error.status).json({
+				error: error.message,
+				...(error.details ? { details: error.details } : {}),
+			});
+		}
 		res.status(500).json({ error: "Failed to create order" });
 	}
 });

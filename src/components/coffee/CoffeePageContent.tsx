@@ -20,6 +20,10 @@ export type StockInfo = {
 	stockStatus: "in_stock" | "low_stock" | "out_of_stock";
 };
 
+type CapsuleVariant = "original" | "vertuo";
+
+const buildVariantStockKey = (productId: string, variant: CapsuleVariant) => `${productId}::${variant}`;
+
 export type StockContextType = {
 	stockData: Map<string, StockInfo>;
 	isLoading: boolean;
@@ -335,19 +339,20 @@ export function CoffeeProductCard({ product, category }: { product: CoffeeProduc
 		return () => window.removeEventListener("scroll", updateScrollDir);
 	}, []);
 
-	const getStockInfoFor = (id: string): StockInfo => {
-		const direct = stockData.get(id);
-		const base = stockData.get(id.replace(/-(original|vertuo|vl)$/i, ""));
-		const withOriginal = stockData.get(`${id}-original`);
-		const withVertuo = stockData.get(`${id}-vertuo`);
-		const withVl = stockData.get(`${id}-vl`); // Database uses -vl for vertuo
-		const info = direct || base || withOriginal || withVertuo || withVl;
+	const getStockInfoFor = (id: string, variant: CapsuleVariant): StockInfo => {
+		const baseId = id.replace(/-(original|vertuo|vl)$/i, "");
+		const info =
+			stockData.get(buildVariantStockKey(id, variant)) ||
+			stockData.get(buildVariantStockKey(baseId, variant)) ||
+			stockData.get(buildVariantStockKey(`${baseId}-${variant === "vertuo" ? "vertuo" : "original"}`, variant)) ||
+			stockData.get(buildVariantStockKey(`${baseId}-vl`, variant));
 		if (info) return info;
 		return { productId: id, stock: 0, stockStatus: "out_of_stock" };
 	};
 
 	// Get stock info for this product (with suffix fallbacks)
-	const stockInfo = getStockInfoFor(product.id);
+	const variant: CapsuleVariant = category.toLowerCase().includes("vertuo") ? "vertuo" : "original";
+	const stockInfo = getStockInfoFor(product.id, variant);
 	const stock = stockInfo.stock ?? 0;
 	const isOutOfStock = stockInfo.stockStatus === "out_of_stock" || stock <= 0;
 	const isLowStock = stockInfo.stockStatus === "low_stock" || (stock > 0 && stock < 40);
@@ -364,17 +369,26 @@ export function CoffeeProductCard({ product, category }: { product: CoffeeProduc
 		}, 0);
 	};
 
-	const handleConfirmCapsules = (capsules: number) => {
+	const handleConfirmCapsules = async (capsules: number) => {
 		if (capsules >= 10) {
 			const sleeves = Math.floor(capsules / 10);
 			const itemName = `${product.name} - ${formatRon(product.priceRon)}`;
-			addItem({ id: product.id, name: itemName, price: product.priceRon, qty: sleeves, image: product.image });
-			notify(
-				`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${product.name} to bag!`,
-				6000,
-				"success",
-				"coffee",
-			);
+			const cartProductId = stockInfo.productId || product.id;
+			const added = await addItem({
+				id: cartProductId,
+				name: itemName,
+				price: product.priceRon,
+				qty: sleeves,
+				image: product.image,
+			});
+			if (added) {
+				notify(
+					`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${product.name} to bag!`,
+					6000,
+					"success",
+					"coffee",
+				);
+			}
 		}
 		closePopup();
 	};
@@ -545,18 +559,17 @@ export default function CoffeePageContent() {
 
 					for (const product of data.products || []) {
 						const pid: string = product.productId;
-						addEntry(pid, product);
-						// Also add a base key without collection suffix so UI ids match
-						// Database uses -vl for vertuo products, not -vertuo
+						const variant: CapsuleVariant = product.productType === "vertuo" ? "vertuo" : "original";
+						addEntry(buildVariantStockKey(pid, variant), product);
 						const base = pid.replace(/-(original|vertuo|vl)$/i, "");
-						if (base !== pid && !stockMap.has(base)) {
-							addEntry(base, product);
+						if (base !== pid) {
+							addEntry(buildVariantStockKey(base, variant), product);
 						}
 					}
 					setStockData(stockMap);
 				}
 			} catch (error) {
-				console.error("Failed to fetch stock data:", error);
+				console.warn("Stock API unavailable, using fallback stock behavior.");
 			} finally {
 				setIsLoading(false);
 			}

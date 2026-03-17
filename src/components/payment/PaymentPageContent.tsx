@@ -648,7 +648,7 @@ export default function PaymentPageContent() {
 
 						// Show subscription-specific notification (no delivery, confirmed immediately)
 						notify(
-							`🎉 Subscription confirmed! Your ${
+							`Subscription confirmed! Your ${
 								subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)
 							} plan is now active. Next renewal: ${renewalDate}`,
 							6000,

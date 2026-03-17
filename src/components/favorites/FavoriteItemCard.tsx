@@ -46,7 +46,7 @@ export default function FavoriteItemCard({ product, type, category, stockInfo, s
 	const isOutOfStock = stockInfo?.stockStatus === "out_of_stock" || stock <= 0;
 	const isLowStock = stockInfo?.stockStatus === "low_stock" || (stock > 0 && stock < isLowStockLimit);
 
-	const handleAction = (e: React.MouseEvent) => {
+	const handleAction = async (e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (isOutOfStock) return;
@@ -55,35 +55,40 @@ export default function FavoriteItemCard({ product, type, category, stockInfo, s
 			setPopupOpen(true);
 		} else {
 			const itemName = `${product.name} - ${product.priceRon.toFixed(2).replace(".", ",")} RON`;
-			addItem({
+			const added = await addItem({
 				id: product.id,
 				name: itemName,
 				price: product.priceRon,
 				image: product.image,
 				productType: "machine",
 			});
-			notify(`Added ${product.name} to bag!`, 6000, "success", "machine");
+			if (added) {
+				notify(`Added ${product.name} to bag!`, 6000, "success", "machine");
+			}
 		}
 	};
 
-	const handleConfirmCapsules = (capsules: number) => {
+	const handleConfirmCapsules = async (capsules: number) => {
 		if (capsules >= 10) {
 			const sleeves = Math.floor(capsules / 10);
 			const itemName = `${product.name} - ${product.priceRon.toFixed(2).replace(".", ",")} RON`;
-			addItem({
-				id: product.id,
+			const cartProductId = stockInfo?.productId || product.id;
+			const added = await addItem({
+				id: cartProductId,
 				name: itemName,
 				price: product.priceRon,
 				qty: sleeves,
 				image: product.image,
 				productType: "capsule",
 			});
-			notify(
-				`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${product.name} to bag!`,
-				6000,
-				"success",
-				"coffee",
-			);
+			if (added) {
+				notify(
+					`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${product.name} to bag!`,
+					6000,
+					"success",
+					"coffee",
+				);
+			}
 		}
 		setPopupOpen(false);
 	};

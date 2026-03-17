@@ -81,6 +81,28 @@ function useAllProducts(): CoffeeProduct[] {
 // Stock data type
 type StockData = Record<string, { price: number; stock: number; stockStatus?: "in_stock" | "low_stock" | "out_of_stock" }>;
 
+type CapsuleVariant = "original" | "vertuo";
+
+const buildVariantStockKey = (productId: string, variant: CapsuleVariant) => `${productId}::${variant}`;
+
+const detectVariantFromImageOrId = (image?: string | null, productId?: string | null): CapsuleVariant => {
+	const img = (image || "").toLowerCase();
+	const pid = (productId || "").toLowerCase();
+	if (img.includes("/vertuo/") || /-(vertuo|vl)$/.test(pid)) return "vertuo";
+	return "original";
+};
+
+const getVariantStock = (stockData: StockData, productId: string, image?: string | null, forcedVariant?: CapsuleVariant) => {
+	const variant = forcedVariant || detectVariantFromImageOrId(image, productId);
+	const baseId = productId.replace(/-(original|vertuo|vl)$/i, "");
+	return (
+		stockData[buildVariantStockKey(productId, variant)] ||
+		stockData[buildVariantStockKey(baseId, variant)] ||
+		stockData[buildVariantStockKey(`${baseId}-${variant === "vertuo" ? "vertuo" : "original"}`, variant)] ||
+		stockData[buildVariantStockKey(`${baseId}-vl`, variant)]
+	);
+};
+
 type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[]; image?: string };
 type ChatHistory = {
 	id: string;
@@ -241,7 +263,14 @@ export default function CoffeeRecommender() {
 					const data = await res.json();
 					const stockMap: StockData = {};
 					data.products?.forEach(
-						(p: { productId?: string; product_id?: string; price: number; stock: number; stockStatus?: string }) => {
+						(p: {
+							productId?: string;
+							product_id?: string;
+							productType?: string;
+							price: number;
+							stock: number;
+							stockStatus?: string;
+						}) => {
 							const pid = p.productId || p.product_id;
 							if (!pid) return;
 							const entry = {
@@ -249,18 +278,18 @@ export default function CoffeeRecommender() {
 								stock: p.stock,
 								stockStatus: p.stockStatus as StockData[string]["stockStatus"],
 							};
-							// Database uses -vl for vertuo products, not -vertuo
+							const variant: CapsuleVariant = p.productType === "vertuo" ? "vertuo" : "original";
 							const base = pid.replace(/-(original|vertuo|vl)$/i, "");
-							stockMap[pid] = entry;
-							if (base !== pid && !stockMap[base]) {
-								stockMap[base] = entry;
+							stockMap[buildVariantStockKey(pid, variant)] = entry;
+							if (base !== pid) {
+								stockMap[buildVariantStockKey(base, variant)] = entry;
 							}
 						},
 					);
 					setStockData(stockMap);
 				}
 			} catch (error) {
-				console.error("Failed to fetch stock data:", error);
+				console.warn("Coffee stock endpoint unavailable for recommender.");
 			}
 		};
 		fetchStockData();
@@ -1440,10 +1469,10 @@ export default function CoffeeRecommender() {
 						) : (
 							<div className="results-list">
 								{results.map((r) => {
-									const pidWithSuffix = stockData[r.id] ? r.id : `${r.id}-original`;
-									const productStock =
-										stockData[r.id] || stockData[pidWithSuffix] || stockData[`${r.id}-vertuo`];
-									const stock = productStock?.stock ?? 0; // Default to 0 if not loaded
+									const forcedVariant =
+										collectionFilter === "all" ? undefined : (collectionFilter as CapsuleVariant);
+									const productStock = getVariantStock(stockData, r.id, r.image, forcedVariant);
+									const stock = productStock?.stock ?? 100; // fallback avoids false out-of-stock when API is unavailable
 									const isOutOfStock = productStock?.stockStatus === "out_of_stock" || stock <= 0;
 									const isLowStock = productStock?.stockStatus === "low_stock" || (stock > 0 && stock < 40);
 
@@ -1892,14 +1921,7 @@ export default function CoffeeRecommender() {
 										<div className="chat-products">
 											{msg.products.map((p) => {
 												if (!p || !p.id) return null;
-												// Database uses -vl for vertuo products
-												const baseId = p.id.replace(/-(original|vertuo|vl)$/i, "");
-												const productStock =
-													stockData[p.id] ||
-													stockData[baseId] ||
-													stockData[`${baseId}-original`] ||
-													stockData[`${baseId}-vertuo`] ||
-													stockData[`${baseId}-vl`];
+												const productStock = getVariantStock(stockData, p.id, p.image);
 												const stock = productStock?.stock ?? 100;
 												const isOutOfStock = stock === 0;
 

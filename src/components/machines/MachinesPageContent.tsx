@@ -114,12 +114,20 @@ export function MachineProductCard({ product, category }: { product: MachineProd
 	const isOutOfStock = stock === 0;
 	const isLowStock = stock !== null && stock > 0 && stock < 4;
 
-	const handleAddToBag = () => {
+	const handleAddToBag = async () => {
 		if (isOutOfStock) return;
 		const itemName = `${product.name} - ${formatRon(product.priceRon)}`;
-		addItem({ id: product.id, name: itemName, price: product.priceRon, image: product.image, productType: "machine" });
-		// machine-scoped notify
-		notify(`Added ${product.name} to bag!`, 6000);
+		const added = await addItem({
+			id: product.id,
+			name: itemName,
+			price: product.priceRon,
+			image: product.image,
+			productType: "machine",
+		});
+		if (added) {
+			// machine-scoped notify
+			notify(`Added ${product.name} to bag!`, 6000);
+		}
 	};
 
 	const baseWrapperClass = product.wrapperClass ?? "machine_groups_models";
@@ -306,6 +314,7 @@ export default function MachinesPageContent() {
 							alt="Machines background"
 							width={1920}
 							height={1080}
+							loading="eager"
 						/>
 					</div>
 					<div className="nav_machine_type">

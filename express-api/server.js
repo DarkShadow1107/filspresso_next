@@ -195,9 +195,26 @@ async function pruneOldServiceIncidents() {
 
 // Security middleware
 app.use(helmet());
+
+const configuredOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000")
+	.split(",")
+	.map((origin) => origin.trim())
+	.filter(Boolean);
+
+const allowLocalhostOrigin = (origin) => {
+	if (!origin) return false;
+	return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+};
+
 app.use(
 	cors({
-		origin: [process.env.CORS_ORIGIN || "http://localhost:3000", "http://127.0.0.1:3000"],
+		origin: (origin, callback) => {
+			if (!origin) return callback(null, true);
+			if (configuredOrigins.includes(origin) || allowLocalhostOrigin(origin)) {
+				return callback(null, true);
+			}
+			return callback(new Error("Not allowed by CORS"));
+		},
 		credentials: true,
 	}),
 );

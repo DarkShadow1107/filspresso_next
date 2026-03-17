@@ -108,7 +108,7 @@ export default function useCart() {
 				setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
 			}
 		} catch (error) {
-			console.error("Failed to fetch cart:", error);
+			console.warn("Cart API unavailable. Retrying automatically.");
 		} finally {
 			setLoading(false);
 		}
@@ -266,7 +266,7 @@ export default function useCart() {
 					],
 					persist: true,
 				});
-				return;
+				return false;
 			}
 
 			const qty = item.qty ?? 1;
@@ -293,13 +293,16 @@ export default function useCart() {
 				if (res.ok) {
 					// Refresh cart from server to get proper discounted total
 					await fetchCart();
+					return true;
 				} else {
 					const data = await res.json();
 					notify(data.error || "Failed to add item to cart.", 5000, "error", "bag");
+					return false;
 				}
 			} catch (error) {
 				console.error("Failed to add to cart:", error);
 				notify("Failed to add item to cart.", 5000, "error", "bag");
+				return false;
 			}
 		},
 		[notify, router, fetchCart],
@@ -364,7 +367,7 @@ export default function useCart() {
 					const dbItem = cartData.items.find((item: { productId: string; id: number }) => item.productId === id);
 
 					if (dbItem) {
-						await fetch(`${API_BASE}/cart/${dbItem.id}`, {
+						const updateRes = await fetch(`${API_BASE}/cart/${dbItem.id}`, {
 							method: "PUT",
 							headers: {
 								"Content-Type": "application/json",
@@ -373,6 +376,19 @@ export default function useCart() {
 							body: JSON.stringify({ quantity: newQty }),
 							keepalive: true,
 						});
+
+						if (!updateRes.ok) {
+							let message = "Failed to update cart.";
+							try {
+								const data = await updateRes.json();
+								if (data?.error) {
+									message = data.error;
+								}
+							} catch {
+								// Ignore malformed/non-JSON error payloads
+							}
+							notify(message, 5000, "error", "bag");
+						}
 					}
 				}
 

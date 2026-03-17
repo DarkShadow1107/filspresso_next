@@ -16,7 +16,18 @@ type ProfileSectionProps = {
 		subscriptions: number;
 		machines: number;
 		products: number;
+		taxes: number;
 		total: number;
+		preferredCurrency: string;
+		totalOrders: number;
+		currencyUsage: Array<{
+			currencyCode: string;
+			orderCount: number;
+			chargedTotal: number;
+			ronEquivalentTotal: number;
+			conversionTaxesRon: number;
+			percentage: number;
+		}>;
 	};
 	setIsEditing: (val: boolean) => void;
 	setEditFullName: (val: string) => void;
@@ -45,6 +56,8 @@ export function ProfileSection({
 	handleSaveProfile,
 	handleChangePassword,
 }: ProfileSectionProps) {
+	const isMultiCurrencyUser = totalSpending.currencyUsage.length > 1;
+
 	return (
 		<div className="tab-pane fade-in">
 			<div className="card">
@@ -134,6 +147,9 @@ export function ProfileSection({
 					<h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
 						<ChartBarIcon size={24} /> Spending Analytics
 					</h2>
+					<span style={{ color: "#aaa", fontSize: "0.9rem" }}>
+						Preferred currency: {totalSpending.preferredCurrency}
+					</span>
 				</div>
 				<div
 					style={{
@@ -172,7 +188,7 @@ export function ProfileSection({
 					<div
 						style={{
 							display: "grid",
-							gridTemplateColumns: "repeat(3, 1fr)",
+							gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
 							gap: "1rem",
 							paddingTop: "1rem",
 							borderTop: "1px solid rgba(196, 167, 125, 0.2)",
@@ -235,7 +251,70 @@ export function ProfileSection({
 								{totalSpending.machines.toFixed(2)} RON
 							</div>
 						</div>
+						<div
+							style={{
+								background: "#1a1a1a",
+								borderRadius: "12px",
+								padding: "1rem",
+								display: "flex",
+								flexDirection: "column",
+								alignItems: "center",
+								gap: "0.5rem",
+							}}
+						>
+							<div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+								<ChartBarIcon size={20} color="#ae8966" />
+								<span style={{ fontSize: "0.8rem", color: "#888" }}>Conversion taxes</span>
+							</div>
+							<div style={{ fontSize: "1.1rem", fontWeight: 600, ...gradientTextStyle }}>
+								{totalSpending.taxes.toFixed(2)} RON
+							</div>
+						</div>
 					</div>
+
+					{isMultiCurrencyUser && (
+						<div
+							style={{
+								marginTop: "1.25rem",
+								paddingTop: "1.1rem",
+								borderTop: "1px solid rgba(196, 167, 125, 0.2)",
+							}}
+						>
+							<div style={{ fontSize: "0.9rem", color: "#aaa", marginBottom: "0.75rem" }}>
+								Currency usage by RON equivalent spending
+							</div>
+							<div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+								{totalSpending.currencyUsage.map((entry) => (
+									<div
+										key={entry.currencyCode}
+										style={{ display: "grid", gridTemplateColumns: "86px 1fr auto", gap: "0.6rem" }}
+									>
+										<span style={{ color: "#ddd", fontWeight: 600 }}>{entry.currencyCode}</span>
+										<div
+											style={{
+												height: "10px",
+												borderRadius: "999px",
+												background: "#1f1f1f",
+												overflow: "hidden",
+												border: "1px solid #2e2e2e",
+											}}
+										>
+											<div
+												style={{
+													height: "100%",
+													width: `${Math.max(4, Math.min(100, entry.percentage))}%`,
+													background: "linear-gradient(90deg, #c4a77d 0%, #a67c52 100%)",
+												}}
+											/>
+										</div>
+										<span style={{ color: "#bbb", fontSize: "0.85rem" }}>
+											{entry.ronEquivalentTotal.toFixed(2)} RON ({entry.percentage.toFixed(2)}%)
+										</span>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
 
 					{/* Thank you message */}
 					<div

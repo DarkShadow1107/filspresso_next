@@ -156,13 +156,28 @@ export default function AccountManagement() {
 		subscriptions: number;
 		machines: number;
 		products: number;
+		taxes: number;
 		total: number;
+		preferredCurrency: string;
+		totalOrders: number;
+		currencyUsage: Array<{
+			currencyCode: string;
+			orderCount: number;
+			chargedTotal: number;
+			ronEquivalentTotal: number;
+			conversionTaxesRon: number;
+			percentage: number;
+		}>;
 	}>({
 		orders: 0,
 		subscriptions: 0,
 		machines: 0,
 		products: 0,
+		taxes: 0,
 		total: 0,
+		preferredCurrency: "RON",
+		totalOrders: 0,
+		currencyUsage: [],
 	});
 
 	// Load account from sessionStorage on mount
@@ -394,7 +409,11 @@ export default function AccountManagement() {
 							subscriptions: data.spending.subscriptions || 0,
 							machines: data.spending.machines || 0,
 							products: data.spending.products || 0,
+							taxes: data.spending.taxes || 0,
 							total: data.spending.total || 0,
+							preferredCurrency: data.currency?.preferredCurrency || "RON",
+							totalOrders: data.currency?.totalOrders || 0,
+							currencyUsage: Array.isArray(data.currency?.usage) ? data.currency.usage : [],
 						});
 					}
 				})
@@ -418,7 +437,11 @@ export default function AccountManagement() {
 								subscriptions: 0,
 								machines: 0,
 								products: 0,
+								taxes: 0,
 								total: ordersTotal,
+								preferredCurrency: "RON",
+								totalOrders: 0,
+								currencyUsage: [],
 							});
 						})
 						.catch(() => {});

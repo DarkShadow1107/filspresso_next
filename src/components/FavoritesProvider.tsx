@@ -64,7 +64,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 				setFavorites(data.favorites || []);
 			}
 		} catch (error) {
-			console.error("Failed to fetch favorites", error);
+			console.warn("Favorites API unavailable. Using local favorites cache.");
 		}
 	}, []);
 

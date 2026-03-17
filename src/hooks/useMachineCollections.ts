@@ -24,6 +24,7 @@ type ApiMachineProduct = {
 	priceText?: string | null;
 	extraClass?: string[] | null;
 	price?: number;
+	priceRon?: number;
 	stock?: number;
 	stockStatus?: string;
 };
@@ -36,6 +37,11 @@ const normalizeKey = (value: string) =>
 		.normalize("NFD")
 		.replace(/[^a-z0-9\s]/g, "")
 		.trim();
+
+const normalizeCollectionType = (value: string) => {
+	const key = normalizeKey(value);
+	return key.includes("vertuo") ? "vertuo" : "original";
+};
 
 // Hook now hydrates collections from API, falling back to static data
 export function useMachineCollections(): UseMachineCollectionsResult {
@@ -66,13 +72,14 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 					image: p.image ? `/${p.image.replace(/^\/+/, "")}` : "/images/placeholder-machine.png",
 					boxClass: p.boxClass || "machine_box",
 					wrapperClass: p.wrapperClass || "machine_groups_models",
-					priceRon: typeof p.price === "number" ? p.price : 0,
+					priceRon: typeof p.price === "number" ? p.price : typeof p.priceRon === "number" ? p.priceRon : 0,
 					unitLabel: p.unitLabel || "Machine",
 					priceClass: p.priceClass || "bag_group",
 					extraClass: Array.isArray(p.extraClass) && p.extraClass.length ? p.extraClass : undefined,
 				});
 
 				const merged = machineCollections.map((collection) => {
+					const collectionType = normalizeCollectionType(collection.id);
 					const groups = collection.groups.map((group) => {
 						const groupProducts = group.products.map((product) => {
 							const match = productMap.get(product.id);
@@ -87,7 +94,12 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 								image: match.image ? `/${match.image.replace(/^\/+/, "")}` : product.image,
 								boxClass: match.boxClass || product.boxClass,
 								wrapperClass: match.wrapperClass || product.wrapperClass,
-								priceRon: typeof match.price === "number" ? match.price : product.priceRon,
+								priceRon:
+									typeof match.price === "number"
+										? match.price
+										: typeof match.priceRon === "number"
+											? match.priceRon
+											: product.priceRon,
 								unitLabel: match.unitLabel || product.unitLabel,
 								priceClass: match.priceClass || product.priceClass,
 								extraClass:
@@ -99,7 +111,10 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 
 						// Add products from API that match this group title but weren't in static list
 						const extraInGroup = products.filter(
-							(p) => !matchedIds.has(p.productId) && normalizeKey(p.category) === normalizeKey(group.title),
+							(p) =>
+								!matchedIds.has(p.productId) &&
+								normalizeCollectionType(p.productType) === collectionType &&
+								normalizeKey(p.category) === normalizeKey(group.title),
 						);
 
 						for (const p of extraInGroup) {
@@ -118,7 +133,9 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 				if (orphans.length > 0) {
 					// Group orphans by productType (original/vertuo)
 					for (const p of orphans) {
-						const targetCollection = merged.find((c) => c.id === p.productType);
+						const targetCollection = merged.find(
+							(c) => normalizeCollectionType(c.id) === normalizeCollectionType(p.productType),
+						);
 						if (targetCollection) {
 							let targetGroup = targetCollection.groups.find(
 								(g) => normalizeKey(g.title) === normalizeKey(p.category),

@@ -13,6 +13,9 @@ const { authenticate } = require("../middleware/auth");
 
 const router = express.Router();
 
+const ACTIVE_CART_RESERVATION_MINUTES = Math.max(1, Number.parseInt(process.env.CART_RESERVATION_MINUTES || "20", 10));
+const CART_STOCK_BUFFER_UNITS = Math.max(0, Number.parseInt(process.env.CART_STOCK_BUFFER_UNITS || "0", 10));
+
 // Tier discount percentages
 const TIER_DISCOUNTS = {
 	None: 0,
@@ -22,6 +25,59 @@ const TIER_DISCOUNTS = {
 	Virtuoso: 18,
 	Ambassador: 20,
 };
+
+function resolveInventoryTable(productType) {
+	if (productType === "capsule") return "coffee_products";
+	if (productType === "machine" || productType === "accessory") return "machine_products";
+	return null;
+}
+
+async function getStockAvailability(client, { accountId, productType, productId, lockRow = false }) {
+	const inventoryTable = resolveInventoryTable(productType);
+	if (!inventoryTable) {
+		return {
+			tracked: false,
+			availableQuantity: Number.POSITIVE_INFINITY,
+		};
+	}
+
+	const stockResult = await client.query(
+		`SELECT stock
+		 FROM ${inventoryTable}
+		 WHERE product_id = $1${lockRow ? " FOR UPDATE" : ""}`,
+		[productId],
+	);
+
+	if (stockResult.rows.length === 0) {
+		return {
+			tracked: true,
+			missingProduct: true,
+			availableQuantity: 0,
+		};
+	}
+
+	const stock = Number(stockResult.rows[0].stock) || 0;
+	const reservedByOthersResult = await client.query(
+		`SELECT COALESCE(SUM(quantity), 0) AS reserved_qty
+		 FROM cart_items
+		 WHERE product_type = $1
+		   AND product_id = $2
+		   AND account_id != $3
+		   AND updated_at >= NOW() - (($4)::text || ' minutes')::interval`,
+		[productType, productId, accountId, ACTIVE_CART_RESERVATION_MINUTES],
+	);
+
+	const reservedByOthers = Number(reservedByOthersResult.rows[0]?.reserved_qty) || 0;
+	const availableQuantity = Math.max(0, stock - reservedByOthers - CART_STOCK_BUFFER_UNITS);
+
+	return {
+		tracked: true,
+		stock,
+		reservedByOthers,
+		bufferUnits: CART_STOCK_BUFFER_UNITS,
+		availableQuantity,
+	};
+}
 
 // Function to get user's current tier
 async function getUserTier(client, accountId) {
@@ -70,7 +126,7 @@ async function getUserTier(client, accountId) {
 			WHERE o.account_id = $1
 			AND o.created_at >= $2
 			AND oi.product_type = 'capsule'`,
-			[accountId, periodStart.toISOString()]
+			[accountId, periodStart.toISOString()],
 		);
 
 		const totalCapsules = (Number(capsuleResult.rows[0]?.total_sleeves) || 0) * 10;
@@ -100,7 +156,7 @@ router.get("/", authenticate, async (req, res) => {
         FROM cart_items
         WHERE account_id = $1
         ORDER BY created_at DESC`,
-				[req.user.id]
+				[req.user.id],
 			);
 			const cartItems = result.rows;
 
@@ -149,6 +205,7 @@ router.get("/", authenticate, async (req, res) => {
 router.post("/", authenticate, async (req, res) => {
 	try {
 		const { productType, productId, productName, productImage, unitPrice, quantity = 1 } = req.body;
+		const normalizedQuantity = Number.parseInt(quantity, 10);
 
 		if (!productType || !productId || !productName || unitPrice === undefined) {
 			return res.status(400).json({ error: "Product type, ID, name and price are required" });
@@ -158,33 +215,69 @@ router.post("/", authenticate, async (req, res) => {
 			return res.status(400).json({ error: "Invalid product type" });
 		}
 
+		if (!Number.isInteger(normalizedQuantity) || normalizedQuantity < 1) {
+			return res.status(400).json({ error: "Quantity must be an integer of at least 1" });
+		}
+
 		const client = await pool.connect();
 		try {
+			await client.query("BEGIN");
+
 			// Check if item already in cart
 			const result = await client.query(
 				`SELECT id, quantity FROM cart_items 
         WHERE account_id = $1 AND product_type = $2 AND product_id = $3`,
-				[req.user.id, productType, productId]
+				[req.user.id, productType, productId],
 			);
 			const existing = result.rows[0];
+			const targetQuantity = existing ? existing.quantity + normalizedQuantity : normalizedQuantity;
+
+			const availability = await getStockAvailability(client, {
+				accountId: req.user.id,
+				productType,
+				productId,
+				lockRow: true,
+			});
+
+			if (availability.missingProduct) {
+				await client.query("ROLLBACK");
+				return res.status(404).json({ error: "Product not found in stock inventory" });
+			}
+
+			if (availability.tracked && targetQuantity > availability.availableQuantity) {
+				await client.query("ROLLBACK");
+				return res.status(409).json({
+					error: `Only ${availability.availableQuantity} units currently available to reserve for this item.`,
+					availableQuantity: availability.availableQuantity,
+					requestedQuantity: targetQuantity,
+					stock: availability.stock,
+					reservedByOthers: availability.reservedByOthers,
+					bufferUnits: availability.bufferUnits,
+				});
+			}
 
 			if (existing) {
 				// Update quantity
-				const newQuantity = existing.quantity + quantity;
+				const newQuantity = targetQuantity;
 				await client.query("UPDATE cart_items SET quantity = $1, updated_at = NOW() WHERE id = $2", [
 					newQuantity,
 					existing.id,
 				]);
+				await client.query("COMMIT");
 				res.json({ message: "Cart updated", quantity: newQuantity });
 			} else {
 				// Insert new item with product details
 				await client.query(
 					`INSERT INTO cart_items (account_id, product_type, product_id, product_name, product_image, unit_price, quantity)
             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-					[req.user.id, productType, productId, productName, productImage || null, unitPrice, quantity]
+					[req.user.id, productType, productId, productName, productImage || null, unitPrice, normalizedQuantity],
 				);
+				await client.query("COMMIT");
 				res.status(201).json({ message: "Item added to cart" });
 			}
+		} catch (error) {
+			await client.query("ROLLBACK");
+			throw error;
 		} finally {
 			client.release();
 		}
@@ -201,26 +294,61 @@ router.put("/:id", authenticate, async (req, res) => {
 	try {
 		const itemId = parseInt(req.params.id);
 		const { quantity } = req.body;
+		const normalizedQuantity = Number.parseInt(quantity, 10);
 
-		if (!quantity || quantity < 1) {
-			return res.status(400).json({ error: "Quantity must be at least 1" });
+		if (!Number.isInteger(normalizedQuantity) || normalizedQuantity < 1) {
+			return res.status(400).json({ error: "Quantity must be an integer of at least 1" });
 		}
 
 		const client = await pool.connect();
 		try {
-			const result = await client.query("SELECT id FROM cart_items WHERE id = $1 AND account_id = $2", [
-				itemId,
-				req.user.id,
-			]);
+			await client.query("BEGIN");
+
+			const result = await client.query(
+				"SELECT id, product_type, product_id FROM cart_items WHERE id = $1 AND account_id = $2",
+				[itemId, req.user.id],
+			);
 			const item = result.rows[0];
 
 			if (!item) {
+				await client.query("ROLLBACK");
 				return res.status(404).json({ error: "Cart item not found" });
 			}
 
-			await client.query("UPDATE cart_items SET quantity = $1, updated_at = NOW() WHERE id = $2", [quantity, itemId]);
+			const availability = await getStockAvailability(client, {
+				accountId: req.user.id,
+				productType: item.product_type,
+				productId: item.product_id,
+				lockRow: true,
+			});
+
+			if (availability.missingProduct) {
+				await client.query("ROLLBACK");
+				return res.status(404).json({ error: "Product not found in stock inventory" });
+			}
+
+			if (availability.tracked && normalizedQuantity > availability.availableQuantity) {
+				await client.query("ROLLBACK");
+				return res.status(409).json({
+					error: `Only ${availability.availableQuantity} units currently available to reserve for this item.`,
+					availableQuantity: availability.availableQuantity,
+					requestedQuantity: normalizedQuantity,
+					stock: availability.stock,
+					reservedByOthers: availability.reservedByOthers,
+					bufferUnits: availability.bufferUnits,
+				});
+			}
+
+			await client.query("UPDATE cart_items SET quantity = $1, updated_at = NOW() WHERE id = $2", [
+				normalizedQuantity,
+				itemId,
+			]);
+			await client.query("COMMIT");
 
 			res.json({ message: "Cart updated" });
+		} catch (error) {
+			await client.query("ROLLBACK");
+			throw error;
 		} finally {
 			client.release();
 		}
