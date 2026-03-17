@@ -1,5 +1,23 @@
 [
   {
+    "id": "chat-1773780407173",
+    "timestamp": 1773780529474,
+    "messages": [
+      {
+        "role": "user",
+        "content": "What are the arabica beans?"
+      },
+      {
+        "role": "assistant",
+        "content": "Arabica beans are generally considered higher quality and have a sweeter, softer taste with tones of sugar, fruit, and berries.\n\nAlso worth knowing: Robusta beans contain roughly twice the caffeine of Arabica beans — around 2.7% vs 1.5% by weight.",
+        "products": []
+      }
+    ],
+    "preview": "What are the arabica beans?",
+    "model": "tanka",
+    "category": "coffee"
+  },
+  {
     "id": "chat-1773397854249",
     "timestamp": 1773397857833,
     "messages": [
