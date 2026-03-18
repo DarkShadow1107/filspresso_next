@@ -15,8 +15,16 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const pool = require("../db/connection");
+const { authenticate } = require("../middleware/auth");
 
 const router = express.Router();
+
+function adminOnly(req, res, next) {
+	if (!req.user || req.user.role !== "admin") {
+		return res.status(403).json({ error: "Admin access required" });
+	}
+	next();
+}
 
 const VALID_IMAGE_EXTENSIONS = new Set(["png", "avif", "webp", "jpg", "jpeg"]);
 const PUBLIC_IMAGES_PATH = path.join(__dirname, "../../public/images");
@@ -684,7 +692,7 @@ router.get("/machines/:productId", async (req, res) => {
 });
 
 // Update coffee stock (admin)
-router.put("/coffee/:productId/stock", async (req, res) => {
+router.put("/coffee/:productId/stock", authenticate, adminOnly, async (req, res) => {
 	const { productId } = req.params;
 	const { stock } = req.body || {};
 	if (typeof stock !== "number" || Number.isNaN(stock)) {
@@ -707,7 +715,7 @@ router.put("/coffee/:productId/stock", async (req, res) => {
 });
 
 // Update machine stock (admin)
-router.put("/machines/:productId/stock", async (req, res) => {
+router.put("/machines/:productId/stock", authenticate, adminOnly, async (req, res) => {
 	const { productId } = req.params;
 	const { stock } = req.body || {};
 	if (typeof stock !== "number" || Number.isNaN(stock)) {
@@ -730,7 +738,7 @@ router.put("/machines/:productId/stock", async (req, res) => {
 });
 
 // Decrease stock for order items
-router.post("/decrease-stock", async (req, res) => {
+router.post("/decrease-stock", authenticate, adminOnly, async (req, res) => {
 	try {
 		const { items } = req.body;
 		if (!items || !Array.isArray(items)) return res.status(400).json({ error: "Items array is required" });
@@ -741,6 +749,10 @@ router.post("/decrease-stock", async (req, res) => {
 
 			for (const item of items) {
 				const { productId, quantity, type } = item;
+				if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
+					await client.query("ROLLBACK");
+					return res.status(400).json({ error: "Each item must include productId and a positive integer quantity" });
+				}
 				const table = type === "machine" ? "machine_products" : "coffee_products";
 
 				const result = await client.query(`SELECT stock FROM ${table} WHERE product_id = $1`, [productId]);
@@ -775,7 +787,7 @@ router.post("/decrease-stock", async (req, res) => {
 });
 
 // Sync products from JSON payload
-router.post("/sync", async (req, res) => {
+router.post("/sync", authenticate, adminOnly, async (req, res) => {
 	try {
 		const { coffeeProducts, machineProducts } = req.body || {};
 		const client = await pool.connect();
@@ -931,7 +943,7 @@ router.post("/sync", async (req, res) => {
 });
 
 // Reset coffee_products from static JSON
-router.post("/coffee/reset-static", async (req, res) => {
+router.post("/coffee/reset-static", authenticate, adminOnly, async (req, res) => {
 	try {
 		const jsonPath = getStaticJsonPath("coffee.generated.json");
 
@@ -1029,7 +1041,7 @@ router.post("/coffee/reset-static", async (req, res) => {
 });
 
 // Reset machine_products from static JSON
-router.post("/machines/reset-static", async (req, res) => {
+router.post("/machines/reset-static", authenticate, adminOnly, async (req, res) => {
 	try {
 		const jsonPath = getMachinesStaticJsonPath();
 		const collections = loadMachineCollectionsFromStaticJson();

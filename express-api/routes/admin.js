@@ -12,14 +12,31 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
+const rateLimit = require("express-rate-limit");
 const multer = require("multer");
 const bcrypt = require("bcrypt");
 const pool = require("../db/connection");
 
 const router = express.Router();
 const ADMIN_SESSION_TIMEOUT_MS = 5 * 60 * 1000;
+const ADMIN_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 const VALID_IMAGE_EXTENSIONS = new Set(["png", "avif", "webp", "jpg", "jpeg", "svg"]);
+
+const ADMIN_LOGIN_WINDOW_MS = Math.max(60_000, Number.parseInt(process.env.ADMIN_LOGIN_RATE_LIMIT_WINDOW_MS || "900000", 10));
+const ADMIN_LOGIN_MAX_ATTEMPTS = Math.max(3, Number.parseInt(process.env.ADMIN_LOGIN_RATE_LIMIT_MAX || "15", 10));
+const ADMIN_QUERY_MAX_LENGTH = Math.max(64, Number.parseInt(process.env.ADMIN_QUERY_MAX_LENGTH || "5000", 10));
+const ADMIN_QUERY_TIMEOUT_MS = Math.max(1000, Number.parseInt(process.env.ADMIN_QUERY_TIMEOUT_MS || "4000", 10));
+
+const adminLoginLimiter = rateLimit({
+	windowMs: ADMIN_LOGIN_WINDOW_MS,
+	max: ADMIN_LOGIN_MAX_ATTEMPTS,
+	standardHeaders: true,
+	legacyHeaders: false,
+	skipSuccessfulRequests: true,
+	message: { error: "Too many admin login attempts. Please try again later." },
+});
 
 const isAllowedImage = (file) => {
 	const ext = path
@@ -41,35 +58,86 @@ const isAllowedImage = (file) => {
 	return false;
 };
 
-// Simple session store for admin tokens (in production use Redis or similar)
-const adminSessions = new Map();
-
 /**
  * Generate a simple admin token
  */
 function generateAdminToken() {
-	return `admin_${Date.now()}_${Math.random().toString(36).substr(2, 16)}`;
+	return `admin_${crypto.randomBytes(32).toString("hex")}`;
+}
+
+function isSafeReadOnlyAdminQuery(sql) {
+	const normalized = String(sql || "").trim();
+	if (!normalized) return false;
+	if (normalized.length > ADMIN_QUERY_MAX_LENGTH) return false;
+
+	// Block stacked queries and SQL comments.
+	if (normalized.includes(";") || /--|\/\*/.test(normalized)) {
+		return false;
+	}
+
+	const upper = normalized.toUpperCase();
+	if (!(upper.startsWith("SELECT") || upper.startsWith("WITH") || upper.startsWith("SHOW") || upper.startsWith("DESCRIBE"))) {
+		return false;
+	}
+
+	// Block mutating/privileged operations even if embedded in CTEs.
+	if (/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|MERGE|CALL|COPY|DO|EXECUTE)\b/.test(upper)) {
+		return false;
+	}
+
+	return true;
+}
+
+function isSafeSqlIdentifier(value) {
+	return ADMIN_IDENTIFIER_PATTERN.test(String(value || ""));
 }
 
 // Admin authentication middleware
-function authenticateAdmin(req, res, next) {
+async function authenticateAdmin(req, res, next) {
 	const authHeader = req.headers.authorization;
 	if (!authHeader || !authHeader.startsWith("Bearer ")) {
 		return res.status(401).json({ error: "Admin authentication required" });
 	}
 
-	const token = authHeader.substring(7);
-	const session = adminSessions.get(token);
-
-	if (!session || session.expiresAt < Date.now()) {
-		adminSessions.delete(token);
+	const token = authHeader.substring(7).trim();
+	if (!token) {
 		return res.status(401).json({ error: "Invalid or expired admin session" });
 	}
 
-	// Extend session on activity
-	session.expiresAt = Date.now() + ADMIN_SESSION_TIMEOUT_MS;
-	req.adminSession = session;
-	next();
+	let client;
+	try {
+		client = await pool.connect();
+		const sessionResult = await client.query(
+			`SELECT s.account_id, a.username
+			 FROM user_sessions s
+			 JOIN accounts a ON a.id = s.account_id
+			 WHERE s.session_token = $1
+			   AND s.expires_at > NOW()
+			   AND a.role = 'admin'
+			 LIMIT 1`,
+			[token],
+		);
+
+		const session = sessionResult.rows[0];
+		if (!session) {
+			return res.status(401).json({ error: "Invalid or expired admin session" });
+		}
+
+		const expiresAt = new Date(Date.now() + ADMIN_SESSION_TIMEOUT_MS);
+		await client.query("UPDATE user_sessions SET expires_at = $1 WHERE session_token = $2", [expiresAt, token]);
+
+		req.adminSession = {
+			username: session.username,
+			userId: session.account_id,
+			expiresAt: expiresAt.getTime(),
+		};
+		next();
+	} catch (error) {
+		console.error("Admin auth error:", error);
+		return res.status(500).json({ error: "Admin authentication failed" });
+	} finally {
+		if (client) client.release();
+	}
 }
 
 async function getPublicTables(client) {
@@ -272,18 +340,22 @@ const upload = multer({
 /**
  * Admin Login
  */
-router.post("/login", async (req, res) => {
+router.post("/login", adminLoginLimiter, async (req, res) => {
 	let client;
 	try {
-		const { username, password } = req.body;
+		const username = String(req.body?.username || "")
+			.trim()
+			.toLowerCase()
+			.slice(0, 64);
+		const password = typeof req.body?.password === "string" ? req.body.password : "";
 
-		if (!username || !password) {
+		if (!username || !password || password.length > 128) {
 			return res.status(400).json({ error: "Username and password are required" });
 		}
 
 		client = await pool.connect();
 		// Find an admin user record in the database
-		const result = await client.query("SELECT * FROM accounts WHERE username = $1 AND role = 'admin'", [username]);
+		const result = await client.query("SELECT * FROM accounts WHERE LOWER(username) = $1 AND role = 'admin'", [username]);
 
 		if (result.rows.length === 0) {
 			return res.status(401).json({ error: "Invalid credentials" });
@@ -299,13 +371,6 @@ router.post("/login", async (req, res) => {
 
 		const token = generateAdminToken();
 		const expiresAt = new Date(Date.now() + ADMIN_SESSION_TIMEOUT_MS);
-
-		adminSessions.set(token, {
-			username: user.username,
-			userId: user.id,
-			loginAt: Date.now(),
-			expiresAt: expiresAt.getTime(),
-		});
 
 		// Record session in database for auditing
 		await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at) VALUES ($1, $2, $3)", [
@@ -334,7 +399,6 @@ router.post("/login", async (req, res) => {
 router.post("/logout", authenticateAdmin, async (req, res) => {
 	const authHeader = req.headers.authorization;
 	const token = authHeader.substring(7);
-	adminSessions.delete(token);
 
 	let client;
 	try {
@@ -453,6 +517,9 @@ router.get("/tables", authenticateAdmin, async (req, res) => {
 router.get("/table-info/:table", authenticateAdmin, async (req, res) => {
 	try {
 		const { table } = req.params;
+		if (!isSafeSqlIdentifier(table)) {
+			return res.status(400).json({ error: "Invalid table name" });
+		}
 
 		const client = await pool.connect();
 		try {
@@ -534,10 +601,16 @@ router.get("/table-info/:table", authenticateAdmin, async (req, res) => {
 router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 	try {
 		const { table } = req.params;
+		if (!isSafeSqlIdentifier(table)) {
+			return res.status(400).json({ error: "Invalid table name" });
+		}
 		const page = parseInt(req.query.page) || 1;
 		const limit = Math.min(parseInt(req.query.limit) || 50, 200);
 		const offset = (page - 1) * limit;
 		const requestedSortBy = req.query.sortBy || "id";
+		if (!isSafeSqlIdentifier(requestedSortBy)) {
+			return res.status(400).json({ error: "Invalid sort column" });
+		}
 		const sortOrder = req.query.sortOrder === "desc" ? "DESC" : "ASC";
 		const search = req.query.search || "";
 
@@ -613,6 +686,9 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 router.post("/tables/:table", authenticateAdmin, async (req, res) => {
 	try {
 		const { table } = req.params;
+		if (!isSafeSqlIdentifier(table)) {
+			return res.status(400).json({ error: "Invalid table name" });
+		}
 		const data = req.body;
 
 		const client = await pool.connect();
@@ -663,6 +739,9 @@ router.post("/tables/:table", authenticateAdmin, async (req, res) => {
 router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 	try {
 		const { table, id } = req.params;
+		if (!isSafeSqlIdentifier(table)) {
+			return res.status(400).json({ error: "Invalid table name" });
+		}
 		const data = req.body;
 
 		const client = await pool.connect();
@@ -728,6 +807,9 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 router.delete("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 	try {
 		const { table, id } = req.params;
+		if (!isSafeSqlIdentifier(table)) {
+			return res.status(400).json({ error: "Invalid table name" });
+		}
 
 		const client = await pool.connect();
 		try {
@@ -769,28 +851,164 @@ router.post("/query", authenticateAdmin, async (req, res) => {
 			return res.status(400).json({ error: "SQL query is required" });
 		}
 
-		// Only allow SELECT queries for safety
-		const trimmedSql = sql.trim().toUpperCase();
-		if (!trimmedSql.startsWith("SELECT") && !trimmedSql.startsWith("SHOW") && !trimmedSql.startsWith("DESCRIBE")) {
+		if (!isSafeReadOnlyAdminQuery(sql)) {
 			return res.status(403).json({
-				error: "Only SELECT, SHOW, and DESCRIBE queries are allowed for safety. Use the CRUD endpoints for modifications.",
+				error: "Only single-statement read-only queries are allowed (SELECT/WITH/SHOW/DESCRIBE).",
 			});
 		}
 
 		const client = await pool.connect();
 		try {
+			await client.query("BEGIN");
+			await client.query(`SET LOCAL statement_timeout = ${ADMIN_QUERY_TIMEOUT_MS}`);
+			await client.query("SET TRANSACTION READ ONLY");
 			const result = await client.query(sql);
+			await client.query("ROLLBACK");
 			res.json({
 				status: "success",
 				data: result.rows,
 				rowCount: result.rowCount,
 			});
+		} catch (queryError) {
+			await client.query("ROLLBACK");
+			throw queryError;
 		} finally {
 			client.release();
 		}
 	} catch (error) {
 		console.error("Query error:", error);
 		res.status(500).json({ error: `Query failed: ${error.message}` });
+	}
+});
+
+/**
+ * Security telemetry summary for auth/lockout monitoring
+ */
+router.get("/security/telemetry", authenticateAdmin, async (req, res) => {
+	const rawWindowHours = Number.parseInt(String(req.query.windowHours || "24"), 10);
+	const windowHours = Number.isFinite(rawWindowHours) ? Math.min(Math.max(rawWindowHours, 1), 24 * 30) : 24;
+
+	let client;
+	try {
+		client = await pool.connect();
+		const summaryResult = await client.query(
+			`SELECT
+				COUNT(*) FILTER (WHERE event_type = 'login_failed') AS failed_logins,
+				COUNT(*) FILTER (WHERE event_type = 'login_locked') AS lock_events,
+				COUNT(*) FILTER (WHERE event_type = 'login_success') AS successful_logins,
+				COUNT(DISTINCT ip_address) FILTER (WHERE event_type IN ('login_failed', 'login_locked')) AS distinct_source_ips
+			 FROM auth_security_events
+			 WHERE created_at >= NOW() - (($1)::text || ' hours')::interval`,
+			[windowHours],
+		);
+
+		const lockedAccountsResult = await client.query(
+			`SELECT login_key, failed_attempts, lock_until, last_failed_at
+			 FROM auth_login_attempts
+			 WHERE lock_until IS NOT NULL
+			   AND lock_until > NOW()
+			 ORDER BY lock_until DESC
+			 LIMIT 200`,
+		);
+
+		const topSourcesResult = await client.query(
+			`SELECT ip_address, COUNT(*)::int AS attempts
+			 FROM auth_security_events
+			 WHERE created_at >= NOW() - (($1)::text || ' hours')::interval
+			   AND event_type IN ('login_failed', 'login_locked')
+			   AND ip_address IS NOT NULL
+			 GROUP BY ip_address
+			 ORDER BY attempts DESC
+			 LIMIT 20`,
+			[windowHours],
+		);
+
+		const summary = summaryResult.rows[0] || {};
+		res.json({
+			status: "success",
+			windowHours,
+			summary: {
+				failedLogins: Number(summary.failed_logins || 0),
+				lockEvents: Number(summary.lock_events || 0),
+				successfulLogins: Number(summary.successful_logins || 0),
+				distinctSourceIps: Number(summary.distinct_source_ips || 0),
+			},
+			lockedLoginKeys: lockedAccountsResult.rows,
+			topSources: topSourcesResult.rows,
+		});
+	} catch (error) {
+		console.error("Security telemetry error:", error);
+		res.status(500).json({ error: "Failed to fetch security telemetry" });
+	} finally {
+		if (client) client.release();
+	}
+});
+
+/**
+ * Recent auth security events for investigation and incident response
+ */
+router.get("/security/events", authenticateAdmin, async (req, res) => {
+	const rawLimit = Number.parseInt(String(req.query.limit || "200"), 10);
+	const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 200;
+
+	let client;
+	try {
+		client = await pool.connect();
+		const eventsResult = await client.query(
+			`SELECT id, event_type, login_key, account_id, ip_address, user_agent, details, created_at
+			 FROM auth_security_events
+			 ORDER BY created_at DESC
+			 LIMIT $1`,
+			[limit],
+		);
+
+		res.json({
+			status: "success",
+			count: eventsResult.rows.length,
+			events: eventsResult.rows,
+		});
+	} catch (error) {
+		console.error("Security events error:", error);
+		res.status(500).json({ error: "Failed to fetch security events" });
+	} finally {
+		if (client) client.release();
+	}
+});
+
+/**
+ * Clear lockout state for a specific login identifier (admin incident response)
+ */
+router.delete("/security/lockouts/:loginKey", authenticateAdmin, async (req, res) => {
+	const loginKey = String(req.params.loginKey || "")
+		.trim()
+		.toLowerCase()
+		.slice(0, 254);
+	if (!loginKey) {
+		return res.status(400).json({ error: "loginKey is required" });
+	}
+
+	let client;
+	try {
+		client = await pool.connect();
+		const result = await client.query("DELETE FROM auth_login_attempts WHERE login_key = $1", [loginKey]);
+		await client.query(
+			`INSERT INTO auth_security_events (event_type, login_key, account_id, ip_address, user_agent, details)
+			 VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+			[
+				"lockout_cleared_admin",
+				loginKey,
+				req.adminSession?.userId || null,
+				null,
+				null,
+				JSON.stringify({ clearedBy: req.adminSession?.username || "unknown" }),
+			],
+		);
+		res.json({ status: "success", removed: Number(result.rowCount || 0) });
+	} catch (error) {
+		console.error("Lockout clear error:", error);
+		res.status(500).json({ error: "Failed to clear lockout" });
+	} finally {
+		if (client) client.release();
 	}
 });
 

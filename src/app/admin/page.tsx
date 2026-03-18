@@ -1017,7 +1017,9 @@ export default function AdminPage() {
 							</span>
 							Admin Panel
 						</h1>
-						<p className="admin-login-copy">Filspresso database management with the same coffee-house visual system as the main app.</p>
+						<p className="admin-login-copy">
+							Filspresso database management with the same coffee-house visual system as the main app.
+						</p>
 					</div>
 					<form onSubmit={handleLogin} className="admin-login-form">
 						<div className="form-group">
@@ -1056,11 +1058,7 @@ export default function AdminPage() {
 							</div>
 						</div>
 						{loginError && <div className="error-message">{loginError}</div>}
-						<button
-							type="submit"
-							className="login-button"
-							disabled={isLoading}
-						>
+						<button type="submit" className="login-button" disabled={isLoading}>
 							{isLoading ? (
 								"Logging in..."
 							) : (
@@ -1100,7 +1098,7 @@ export default function AdminPage() {
 						</span>
 						Admin
 					</span>
-					<button onClick={handleLogout} className="logout-button">
+					<button onClick={() => handleLogout()} className="logout-button">
 						Logout
 					</button>
 				</div>
@@ -1150,7 +1148,7 @@ export default function AdminPage() {
 							</div>
 						</div>
 					) : (
-							<section className="admin-panel">
+						<section className="admin-panel">
 							{/* Table Header */}
 							<div className="table-header">
 								<div className="table-title">
@@ -1395,7 +1393,7 @@ export default function AdminPage() {
 									</tbody>
 								</table>
 							</details>
-							</section>
+						</section>
 					)}
 				</main>
 			</div>

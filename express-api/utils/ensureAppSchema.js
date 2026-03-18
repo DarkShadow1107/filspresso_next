@@ -52,6 +52,46 @@ async function ensureAppSchema() {
 			)
 		`);
 
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS auth_login_attempts (
+				id BIGSERIAL PRIMARY KEY,
+				login_key VARCHAR(254) NOT NULL UNIQUE,
+				failed_attempts INTEGER NOT NULL DEFAULT 0,
+				first_failed_at TIMESTAMP,
+				last_failed_at TIMESTAMP,
+				lock_until TIMESTAMP,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS auth_security_events (
+				id BIGSERIAL PRIMARY KEY,
+				event_type VARCHAR(64) NOT NULL,
+				login_key VARCHAR(254),
+				account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+				ip_address VARCHAR(64),
+				user_agent TEXT,
+				details JSONB DEFAULT '{}'::jsonb,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)
+		`);
+
+		await client.query(`CREATE INDEX IF NOT EXISTS idx_auth_login_attempts_lock_until ON auth_login_attempts(lock_until)`);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_auth_login_attempts_last_failed ON auth_login_attempts(last_failed_at)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_auth_security_events_created_at ON auth_security_events(created_at DESC)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_auth_security_events_type ON auth_security_events(event_type, created_at DESC)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_auth_security_events_login_key ON auth_security_events(login_key, created_at DESC)`,
+		);
+
 		await client.query(
 			`CREATE INDEX IF NOT EXISTS idx_service_health_incidents_occurred_at ON service_health_incidents(occurred_at DESC)`,
 		);

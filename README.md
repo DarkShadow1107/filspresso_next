@@ -723,21 +723,146 @@ This application is designed to avoid overselling.
 
 ## 15. Security Model
 
-Implemented safeguards include:
+This section documents how Filspresso is currently secured, how security is monitored, and how to maintain a strong security posture over time.
 
-- helmet security headers
-- origin-controlled CORS strategy
-- request rate limiting with clear development toggles
-- JWT support for authenticated routes
-- password hashing with bcrypt
+### Security objectives
 
-Recommended production hardening:
+- prevent unauthorized data access
+- reduce account takeover risk
+- block common web attacks (injection, brute force, abuse)
+- preserve service availability under abusive traffic
+- provide operational visibility for suspicious authentication behavior
 
-- strict secret rotation policy
-- transport-level TLS termination
-- route-specific rate limits on auth/checkout
-- centralized secret manager
-- audit logging and anomaly alerts
+### Active controls in the current backend
+
+#### Transport and HTTP layer
+
+- security headers are enforced through `helmet`
+- strict CORS origin checks are enabled with credential support
+- express identifies no implementation details via disabled `x-powered-by`
+- strict JSON parsing is enabled to reject malformed payloads
+
+#### Authentication and session model
+
+- JWT tokens are verified with explicit HS256 algorithm constraints
+- JWT authentication requires a matching active server-side session record
+- admin authentication is session-backed and refreshed with bounded session lifetimes
+- logout removes server-side session entries
+- password change invalidates all other active sessions for that account
+
+#### Password and credential security
+
+- passwords are hashed with bcrypt (cost factor 12)
+- login input is normalized and size-bounded
+- dummy-hash comparison is used for unknown users to reduce timing-based account enumeration
+
+#### Brute-force and lockout protections
+
+- global API rate limiting is enabled by default
+- route-level auth rate limits protect register/login/admin login paths
+- failed authentication attempts are persisted in `auth_login_attempts`
+- lockout with exponential backoff is applied per normalized login key (username/email)
+- lock state returns `429` with retry hints (`Retry-After` header and `retryAfterSeconds` response field)
+
+#### SQL injection and query safety
+
+- application queries use parameterized statements for user-supplied values
+- dynamic SQL identifiers are validated with allowlisted identifier patterns
+- admin raw SQL endpoint only allows single-statement read-only queries
+- admin raw SQL executes in read-only transactions with statement timeout guardrails
+
+#### Secrets and configuration hardening
+
+- sensitive values are required from environment (no hardcoded runtime fallback secrets)
+- docker compose now requires explicit values for:
+    - `DB_PASSWORD`
+    - `JWT_SECRET`
+    - `ENCRYPTION_KEY`
+    - `SERVICE_EVENTS_API_KEY`
+- service event ingestion is protected by dedicated API key validation
+
+#### CI security gates
+
+- GitHub Actions workflow `.github/workflows/security-ci.yml` runs on push and PR
+- checks include:
+    - frontend lint and build
+    - frontend dependency audit (`npm audit --audit-level=high`)
+    - backend dependency audit (`npm audit --audit-level=high`)
+    - Python dependency audit (`pip-audit` for both requirements files)
+
+### Security telemetry and monitoring
+
+Authentication telemetry is persisted to `auth_security_events` and lockout state to `auth_login_attempts`.
+
+Admin-only telemetry endpoints:
+
+- `GET /api/admin/security/telemetry`
+    - purpose: summary metrics for failed logins, lock events, source IP concentration, and currently locked identifiers
+    - query: `windowHours` (1 to 720)
+- `GET /api/admin/security/events`
+    - purpose: retrieve recent authentication security events for investigations
+    - query: `limit` (1 to 1000)
+- `DELETE /api/admin/security/lockouts/:loginKey`
+    - purpose: operational unlock for a specific login key during support incidents
+    - action is logged as `lockout_cleared_admin`
+
+### Secrets rotation runbook
+
+The project uses active rotation for authentication and data-access secrets.
+
+#### Rotate these values together
+
+- `JWT_SECRET`
+- `ENCRYPTION_KEY`
+- `SERVICE_EVENTS_API_KEY`
+- `DB_PASSWORD`
+
+#### Rotation procedure
+
+1. Generate new cryptographically strong random values.
+2. Update both environment files used in local/docker workflows:
+    - `.env`
+    - `express-api/.env`
+3. Apply database password rotation at the PostgreSQL role level.
+4. Recreate backend and dependent services so new environment values are loaded.
+5. Invalidate active sessions where appropriate (for JWT secret rotation, clear old sessions).
+6. Verify health endpoints and login behavior.
+
+#### Rotation cadence
+
+- standard cadence: every 60 to 90 days
+- immediate rotation: after suspected exposure, unauthorized access, or leaked logs/artifacts
+
+### Operational maintenance checklist
+
+Run this checklist for each release:
+
+1. Ensure security CI jobs are green.
+2. Verify rate-limit toggles are not disabling protections in production.
+3. Confirm CORS origins are restricted to approved domains.
+4. Confirm required secrets are present and not using placeholder values.
+5. Review authentication telemetry for unusual failed-login spikes.
+6. Review lockout telemetry and top source IPs for abuse indicators.
+7. Confirm incident retention settings match policy.
+
+### Incident response guidance (auth attacks)
+
+When suspicious login abuse is detected:
+
+1. Inspect `GET /api/admin/security/telemetry` for current lockout and source-IP concentration.
+2. Query `GET /api/admin/security/events` for recent attack patterns.
+3. If needed, clear accidental lockouts with `DELETE /api/admin/security/lockouts/:loginKey`.
+4. Increase auth lockout strictness (`AUTH_LOCK_THRESHOLD`, `AUTH_LOCK_BASE_SECONDS`, `AUTH_LOCK_MAX_SECONDS`) and redeploy.
+5. Rotate security secrets if compromise is suspected.
+
+### Security limits and ongoing work
+
+No application can be permanently “fully secure”; security is a continuous program. Current controls significantly improve resilience, but ongoing improvement remains required:
+
+- enforce TLS at ingress/load balancer in all environments
+- add alerting integrations for telemetry thresholds
+- add periodic penetration testing and threat modeling updates
+- keep dependencies patched and re-audited continuously
 
 ---
 

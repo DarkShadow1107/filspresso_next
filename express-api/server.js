@@ -38,8 +38,19 @@ const PORT = process.env.PORT || 4000;
 const AI_HEALTH_HOST = process.env.PYTHON_AI_HOST || process.env.NEXT_PUBLIC_AI_URL || "http://localhost:5000";
 const ADMIN_HEALTH_URL = process.env.ADMIN_HEALTH_URL || "";
 const STRICT_DB_ONLY_METRICS = process.env.SERVICE_METRICS_STRICT_DB_ONLY === "true";
+const SERVICE_EVENTS_API_KEY = process.env.SERVICE_EVENTS_API_KEY || "";
 const INCIDENT_RETENTION_DAYS = Number.parseInt(process.env.SERVICE_INCIDENT_RETENTION_DAYS || "180", 10);
 const RETENTION_JOB_INTERVAL_MS = Number.parseInt(process.env.SERVICE_INCIDENT_RETENTION_JOB_MS || "21600000", 10);
+
+const TRUST_PROXY_RAW = process.env.TRUST_PROXY;
+if (TRUST_PROXY_RAW === "true") {
+	app.set("trust proxy", true);
+} else if (TRUST_PROXY_RAW === "false" || TRUST_PROXY_RAW === "0") {
+	app.set("trust proxy", false);
+} else if (TRUST_PROXY_RAW && !Number.isNaN(Number.parseInt(TRUST_PROXY_RAW, 10))) {
+	app.set("trust proxy", Number.parseInt(TRUST_PROXY_RAW, 10));
+}
+app.disable("x-powered-by");
 
 const serviceHealthState = {
 	backend: {
@@ -193,6 +204,27 @@ async function pruneOldServiceIncidents() {
 	}
 }
 
+function requireServiceEventsApiKey(req, res, next) {
+	if (!SERVICE_EVENTS_API_KEY) {
+		return res.status(503).json({ error: "Service events ingestion is disabled" });
+	}
+
+	const headerKey = String(req.headers["x-service-events-key"] || "").trim();
+	if (headerKey && headerKey === SERVICE_EVENTS_API_KEY) {
+		return next();
+	}
+
+	const authHeader = String(req.headers.authorization || "");
+	if (authHeader.startsWith("Bearer ")) {
+		const bearerKey = authHeader.slice(7).trim();
+		if (bearerKey === SERVICE_EVENTS_API_KEY) {
+			return next();
+		}
+	}
+
+	return res.status(401).json({ error: "Unauthorized service events request" });
+}
+
 // Security middleware
 app.use(helmet());
 
@@ -220,10 +252,16 @@ app.use(
 );
 
 // Rate limiting
+const API_RATE_LIMIT_WINDOW_MS = Math.max(60_000, Number.parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || "900000", 10));
+const API_RATE_LIMIT_MAX = Math.max(100, Number.parseInt(process.env.API_RATE_LIMIT_MAX || "1200", 10));
 const limiter = rateLimit({
-	windowMs: 15 * 60 * 1000, // 15 minutes
-	max: 100, // limit each IP to 100 requests per windowMs
+	windowMs: API_RATE_LIMIT_WINDOW_MS,
+	max: API_RATE_LIMIT_MAX,
+	standardHeaders: true,
+	legacyHeaders: false,
 	message: { error: "Too many requests, please try again later." },
+	// /api/auth/login, /api/auth/register, and /api/admin/login already use dedicated strict limiters.
+	skip: (req) => req.path === "/auth/login" || req.path === "/auth/register" || req.path === "/admin/login",
 });
 
 // Development-friendly behavior: allow disabling the rate-limiter while
@@ -238,20 +276,22 @@ const limiter = rateLimit({
 // - NODE_ENV === 'development' (already covered)
 // - DISABLE_RATE_LIMIT_FOR_DEV === 'true' (legacy developer toggle)
 // - DISABLE_RATE_LIMIT === 'true' (new explicit toggle used during testing)
-if (
-	process.env.NODE_ENV === "development" ||
-	process.env.DISABLE_RATE_LIMIT_FOR_DEV === "true" ||
-	process.env.DISABLE_RATE_LIMIT === "true"
-) {
+const shouldEnableGlobalRateLimit =
+	process.env.ENABLE_RATE_LIMIT === "true" ||
+	(process.env.NODE_ENV === "production" &&
+		process.env.DISABLE_RATE_LIMIT_FOR_DEV !== "true" &&
+		process.env.DISABLE_RATE_LIMIT !== "true");
+
+if (!shouldEnableGlobalRateLimit) {
 	console.log(
-		"⚠️ Rate limiting disabled (development mode or DISABLE_RATE_LIMIT_FOR_DEV=true / DISABLE_RATE_LIMIT=true). Use route-specific rules for production.",
+		"⚠️ Global API rate limiting disabled (non-production mode or explicit disable). Route-specific auth/admin limiters remain active.",
 	);
 } else {
 	app.use("/api/", limiter);
 }
 
 // Body parsing
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "10mb", strict: true }));
 app.use(express.urlencoded({ extended: true }));
 
 // Health check
@@ -336,7 +376,7 @@ app.get("/health/services/events", async (req, res) => {
 	}
 });
 
-app.post("/health/services/events/bulk", async (req, res) => {
+app.post("/health/services/events/bulk", requireServiceEventsApiKey, async (req, res) => {
 	const events = Array.isArray(req.body?.events) ? req.body.events : [];
 	if (events.length === 0) {
 		return res.json({ inserted: 0 });

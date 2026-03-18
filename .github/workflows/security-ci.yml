@@ -1,0 +1,80 @@
+name: Security CI
+
+on:
+    push:
+        branches:
+            - "**"
+    pull_request:
+
+permissions:
+    contents: read
+
+jobs:
+    frontend-security:
+        name: Frontend Security Checks
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: npm
+
+            - name: Install frontend dependencies
+              run: npm ci
+
+            - name: Lint frontend
+              run: npm run lint
+
+            - name: Build frontend
+              run: npm run build
+
+            - name: Audit frontend dependencies (high+)
+              run: npm audit --audit-level=high
+
+    backend-security:
+        name: Backend Security Checks
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: express-api
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: npm
+                  cache-dependency-path: express-api/package-lock.json
+
+            - name: Install backend dependencies
+              run: npm ci
+
+            - name: Audit backend dependencies (high+)
+              run: npm audit --audit-level=high
+
+    python-security:
+        name: Python Dependency Audit
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+
+            - name: Install pip-audit
+              run: python -m pip install --upgrade pip pip-audit
+
+            - name: Audit root Python dependencies
+              run: pip-audit -r requirements.txt
+
+            - name: Audit model Python dependencies
+              run: pip-audit -r models/requirements.txt

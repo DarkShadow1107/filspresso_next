@@ -13,7 +13,7 @@ async function updateAdmin() {
 	let client;
 	try {
 		// Default credentials if not in env - but the goal is to store them in DB
-		const username = process.env.ADMIN_USERNAME || "Admin";
+		const username = (process.env.ADMIN_USERNAME || "admin").toLowerCase();
 		const password = process.env.ADMIN_PASSWORD || "FilspressoNext";
 		const email = "admin@filspresso.com";
 		const hash = await bcrypt.hash(password, 10);

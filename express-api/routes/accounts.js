@@ -33,7 +33,7 @@ router.get("/:id", authenticate, async (req, res) => {
         FROM accounts a
         LEFT JOIN subscriptions s ON a.subscription_id = s.id
         WHERE a.id = $1`,
-				[accountId]
+				[accountId],
 			);
 
 			const account = result.rows[0];
@@ -107,7 +107,7 @@ router.put("/:id", authenticate, async (req, res) => {
 			// Get updated account
 			const result = await client.query(
 				"SELECT id, username, email, name, icon, subscription_id FROM accounts WHERE id = $1",
-				[accountId]
+				[accountId],
 			);
 			const account = result.rows[0];
 
@@ -189,13 +189,10 @@ router.put("/:id/subscription", authenticate, async (req, res) => {
 /**
  * Update account preferences (graph theme, etc.)
  */
-router.put("/preferences", async (req, res) => {
+router.put("/preferences", authenticate, async (req, res) => {
 	try {
-		const { accountId, graph_theme } = req.body;
-
-		if (!accountId) {
-			return res.status(400).json({ error: "Account ID is required" });
-		}
+		const { graph_theme } = req.body;
+		const accountId = req.user.id;
 
 		// Validate theme
 		const validThemes = ["classic", "neon", "minimal", "gradient", "monochrome"];
@@ -235,9 +232,13 @@ router.put("/preferences", async (req, res) => {
 /**
  * Get account preferences
  */
-router.get("/preferences/:id", async (req, res) => {
+router.get("/preferences/:id", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
+
+		if (!Number.isInteger(accountId) || accountId !== req.user.id) {
+			return res.status(403).json({ error: "Access denied" });
+		}
 
 		const client = await pool.connect();
 		try {
