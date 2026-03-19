@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="620" viewBox="0 0 1460 620" role="img" aria-labelledby="title desc">
+  <title id="title">Coffee Stock Read Path</title>
+  <desc id="desc">Sequence-style diagram for coffee stock loading from UI hook to API and database.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef4fb"/>
+      <stop offset="100%" stop-color="#e3ecf7"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#355b86"/>
+    </marker>
+    <style>
+      .lane { fill: #ffffffaa; stroke: #9bb6d2; stroke-width: 1.6; }
+      .laneTitle { font: 700 16px Segoe UI, Arial, sans-serif; fill: #1d3c62; }
+      .event { fill: #ffffff; stroke: #6e93ba; stroke-width: 1.6; rx: 10; }
+      .txt { font: 600 13px Segoe UI, Arial, sans-serif; fill: #1f3a5b; }
+      .line { stroke: #355b86; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .title { font: 700 30px Segoe UI, Arial, sans-serif; fill: #193454; }
+      .sub { font: 400 14px Segoe UI, Arial, sans-serif; fill: #345c88; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1460" height="620" fill="url(#bg)"/>
+  <text x="50" y="58" class="title">Coffee Stock Read Path</text>
+  <text x="50" y="84" class="sub">Latency-sensitive flow from page render to stock badge display</text>
+
+  <rect class="lane" x="70" y="120" width="300" height="440"/>
+  <text x="110" y="152" class="laneTitle">CoffeePageContent (UI)</text>
+
+  <rect class="lane" x="410" y="120" width="300" height="440"/>
+  <text x="468" y="152" class="laneTitle">useCoffeeCollections</text>
+
+  <rect class="lane" x="750" y="120" width="300" height="440"/>
+  <text x="792" y="152" class="laneTitle">GET /api/products/coffee</text>
+
+  <rect class="lane" x="1090" y="120" width="300" height="440"/>
+  <text x="1170" y="152" class="laneTitle">coffee_products (DB)</text>
+
+  <rect class="event" x="100" y="190" width="240" height="56"/>
+  <text x="118" y="224" class="txt">Request collections + stock</text>
+
+  <rect class="event" x="440" y="270" width="240" height="56"/>
+  <text x="472" y="304" class="txt">Single shared fetch</text>
+
+  <rect class="event" x="780" y="350" width="240" height="56"/>
+  <text x="806" y="384" class="txt">Query products + stock_status</text>
+
+  <rect class="event" x="1120" y="430" width="240" height="56"/>
+  <text x="1185" y="464" class="txt">Return rows</text>
+
+  <rect class="event" x="780" y="430" width="240" height="56"/>
+  <text x="835" y="464" class="txt">Build payload</text>
+
+  <rect class="event" x="440" y="430" width="240" height="56"/>
+  <text x="464" y="464" class="txt">Merge collections + stockMap</text>
+
+  <rect class="event" x="100" y="430" width="240" height="56"/>
+  <text x="122" y="464" class="txt">Render cards + stock badge</text>
+
+  <path class="line" d="M340 218 L440 298"/>
+  <path class="line" d="M680 298 L780 378"/>
+  <path class="line" d="M1020 378 L1120 458"/>
+  <path class="line" d="M1120 458 L1020 458"/>
+  <path class="line" d="M780 458 L680 458"/>
+  <path class="line" d="M440 458 L340 458"/>
+</svg>

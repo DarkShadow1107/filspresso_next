@@ -179,7 +179,7 @@ export function MemberStatusSection({
 							>
 								{(() => {
 									const currentThreshold = TIER_THRESHOLDS.find(
-										(t) => t.tier === capsuleStats.currentTier.name
+										(t) => t.tier === capsuleStats.currentTier.name,
 									);
 									const nextThreshold = TIER_THRESHOLDS.find((t) => t.tier === capsuleStats.nextTier?.name);
 									if (!currentThreshold || !nextThreshold) return null;
@@ -986,13 +986,13 @@ export function MemberStatusSection({
 						<HistoryCircleIcon size={28} /> Yearly Tier History
 					</h2>
 					<div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-						{capsuleStats.yearlyHistory.map((yearData) => {
+						{capsuleStats.yearlyHistory.map((yearData, index) => {
 							const tierColors = TIER_COLORS[yearData.tier];
 							const isCurrentYear = yearData.year === new Date().getFullYear();
 
 							return (
 								<div
-									key={yearData.year}
+									key={`${yearData.year}-${yearData.tierLevel}-${index}`}
 									style={{
 										display: "flex",
 										alignItems: "center",

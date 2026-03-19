@@ -5,6 +5,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 export type UseMachineCollectionsResult = {
 	collections: MachineCollection[];
+	stockData: Map<string, { productId: string; stock: number; stockStatus: "in_stock" | "low_stock" | "out_of_stock" }>;
+	apiDown: boolean;
 	loading: boolean;
 	error: string | null;
 };
@@ -31,6 +33,21 @@ type ApiMachineProduct = {
 
 type ProductMap = Map<string, ApiMachineProduct>;
 
+type MachineStockInfo = {
+	productId: string;
+	stock: number;
+	stockStatus: "in_stock" | "low_stock" | "out_of_stock";
+};
+
+type SharedMachineData = {
+	products: ApiMachineProduct[];
+	error: string | null;
+	apiDown: boolean;
+};
+
+let sharedMachineDataPromise: Promise<SharedMachineData> | null = null;
+let sharedMachineDataSnapshot: SharedMachineData | null = null;
+
 const normalizeKey = (value: string) =>
 	(value || "")
 		.toLowerCase()
@@ -43,9 +60,71 @@ const normalizeCollectionType = (value: string) => {
 	return key.includes("vertuo") ? "vertuo" : "original";
 };
 
+const normalizeStockStatus = (status: unknown, stock: number): MachineStockInfo["stockStatus"] => {
+	if (status === "in_stock" || status === "low_stock" || status === "out_of_stock") return status;
+	if (stock <= 0) return "out_of_stock";
+	if (stock < 4) return "low_stock";
+	return "in_stock";
+};
+
+const buildMachineStockMap = (products: ApiMachineProduct[]) => {
+	const stockMap = new Map<string, MachineStockInfo>();
+	for (const product of products) {
+		if (!product.productId) continue;
+		const stock = Math.max(0, Number(product.stock) || 0);
+		stockMap.set(product.productId, {
+			productId: product.productId,
+			stock,
+			stockStatus: normalizeStockStatus(product.stockStatus, stock),
+		});
+	}
+	return stockMap;
+};
+
+const fetchSharedMachineData = async (): Promise<SharedMachineData> => {
+	if (sharedMachineDataSnapshot) {
+		return sharedMachineDataSnapshot;
+	}
+	if (!sharedMachineDataPromise) {
+		sharedMachineDataPromise = (async () => {
+			try {
+				const res = await fetch(`${API_BASE}/api/products/machines`);
+				if (!res.ok) {
+					const snapshot: SharedMachineData = {
+						products: [],
+						error: `API responded with ${res.status}`,
+						apiDown: true,
+					};
+					sharedMachineDataSnapshot = snapshot;
+					return snapshot;
+				}
+				const data = await res.json();
+				const snapshot: SharedMachineData = {
+					products: Array.isArray(data.products) ? data.products : [],
+					error: null,
+					apiDown: false,
+				};
+				sharedMachineDataSnapshot = snapshot;
+				return snapshot;
+			} catch (err: any) {
+				const snapshot: SharedMachineData = {
+					products: [],
+					error: err?.message ?? "Failed to load machine collections",
+					apiDown: true,
+				};
+				sharedMachineDataSnapshot = snapshot;
+				return snapshot;
+			}
+		})();
+	}
+	return sharedMachineDataPromise;
+};
+
 // Hook now hydrates collections from API, falling back to static data
 export function useMachineCollections(): UseMachineCollectionsResult {
 	const [collections, setCollections] = useState<MachineCollection[]>(machineCollections);
+	const [stockData, setStockData] = useState<Map<string, MachineStockInfo>>(new Map());
+	const [apiDown, setApiDown] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
@@ -53,10 +132,8 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 		let cancelled = false;
 		async function fetchFromApi() {
 			try {
-				const res = await fetch(`${API_BASE}/api/products/machines`);
-				if (!res.ok) throw new Error(`API responded with ${res.status}`);
-				const data = await res.json();
-				const products: ApiMachineProduct[] = Array.isArray(data.products) ? data.products : [];
+				const data = await fetchSharedMachineData();
+				const products: ApiMachineProduct[] = data.products;
 
 				const productMap: ProductMap = new Map();
 				const matchedIds = new Set<string>();
@@ -153,10 +230,18 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 					}
 				}
 
-				if (!cancelled) setCollections(merged);
-				if (!cancelled) setError(null);
+				if (!cancelled) {
+					setCollections(merged);
+					setStockData(buildMachineStockMap(products));
+					setApiDown(data.apiDown);
+					setError(data.error);
+				}
 			} catch (err: any) {
-				if (!cancelled) setError(err?.message ?? "Failed to load machine collections");
+				if (!cancelled) {
+					setError(err?.message ?? "Failed to load machine collections");
+					setApiDown(true);
+					setStockData(new Map());
+				}
 			} finally {
 				if (!cancelled) setLoading(false);
 			}
@@ -169,5 +254,6 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 	}, []);
 
 	const memoCollections = useMemo(() => collections, [collections]);
-	return { collections: memoCollections, loading, error };
+	const memoStockData = useMemo(() => stockData, [stockData]);
+	return { collections: memoCollections, stockData: memoStockData, apiDown, loading, error };
 }

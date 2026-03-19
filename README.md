@@ -54,6 +54,7 @@ npm run dev
 
 - [1. Product Overview](#1-product-overview)
 - [2. Architecture At A Glance](#2-architecture-at-a-glance)
+- [2.1 Full App UML (Component, Deployment, Domain)](#21-full-app-uml-component-deployment-domain)
 - [3. Technology Stack](#3-technology-stack)
 - [4. Monorepo Structure](#4-monorepo-structure)
 - [5. Runtime Topology And Ports](#5-runtime-topology-and-ports)
@@ -157,6 +158,26 @@ flowchart TD
     I -- Yes --> K[Decrement stock + create order]
     K --> L[Commit transaction]
 ```
+
+### 2.1 Full App UML (Component, Deployment, Domain)
+
+The following UML set covers the full platform from code modules to runtime containers and core data entities.
+
+#### UML component diagram
+
+![Full App UML Component Diagram](docs/uml/full-app-component-diagram.svg)
+
+#### UML deployment diagram
+
+![Full App UML Deployment Diagram](docs/uml/full-app-deployment-diagram.svg)
+
+#### UML domain model (high-level)
+
+![Full App UML Domain Model](docs/uml/full-app-domain-model.svg)
+
+#### Coffee stock-read path (latency-sensitive)
+
+![Coffee Stock Read Path](docs/uml/coffee-stock-read-path.svg)
 
 ---
 
@@ -1181,38 +1202,129 @@ You can automate capture with Playwright/Cypress in CI and export to docs/screen
 
 ## 19. Testing, Validation, And Quality Gates
 
-### Frontend checks
+This repository currently ships one GitHub Actions workflow that acts as the CI quality gate:
+
+- `.github/workflows/security-ci.yml`
+
+It focuses on build integrity and dependency security for frontend, backend, and Python layers.
+
+### CI workflow summary
+
+Workflow name:
+
+- `Security CI`
+
+Triggers:
+
+- push to any branch
+- pull request events
+- manual run from GitHub Actions UI (`workflow_dispatch`)
+
+Execution platform:
+
+- `ubuntu-latest`
+
+### CI jobs and checks (what runs in GitHub)
+
+1. Frontend Security Checks
+
+- install dependencies with `npm ci` (root)
+- run `npm run lint`
+- run `npm run build`
+- run `npm audit --audit-level=high`
+
+2. Backend Security Checks
+
+- working directory: `express-api`
+- install dependencies with `npm ci`
+- run `npm audit --audit-level=high`
+
+3. Python Dependency Audit
+
+- install `pip-audit`
+- run `pip-audit -r requirements.txt`
+- run `pip-audit -r models/requirements.txt`
+
+### How to run CI from GitHub UI
+
+1. Open the repository on GitHub.
+2. Go to the `Actions` tab.
+3. Select `Security CI` in the left panel.
+4. Click `Run workflow`.
+5. Choose branch and confirm `Run workflow`.
+6. Open the run to inspect per-job logs and failures.
+
+### How to run the same checks locally (CI parity)
+
+Run these commands before pushing to reduce CI failures.
+
+Frontend (repo root):
 
 ```bash
+npm ci
 npm run lint
 npm run build
+npm audit --audit-level=high
 ```
 
-### Express checks
+Backend (`express-api`):
 
 ```bash
 cd express-api
-npm install
-npm run dev
+npm ci
+npm audit --audit-level=high
 ```
 
-### Python checks
+Python audits (repo root):
 
 ```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-pip install -r requirements.txt
-pip install -r models/requirements.txt
-python app.py
+python -m pip install --upgrade pip pip-audit
+pip-audit -r requirements.txt
+pip-audit -r models/requirements.txt
 ```
 
-### Recommended test expansion
+Windows note:
 
-- API contract tests for route payload stability
-- integration race-condition tests for stock reservation and checkout
-- E2E tests for cart/account/payment flows
-- snapshot coverage for legal and policy pages
+- If `pip-audit` is not recognized, run with `python -m pip_audit -r requirements.txt`.
+
+### Pass/fail policy
+
+The workflow fails when any of the following happen:
+
+- frontend lint or build fails
+- high severity npm vulnerabilities are detected in frontend or backend
+- `pip-audit` reports unresolved vulnerable Python dependencies
+
+### Fast troubleshooting for CI failures
+
+1. If frontend lint fails:
+
+- run `npm run lint` locally and fix exact file-level errors first
+
+2. If frontend build fails:
+
+- run `npm run build` locally
+- verify environment-dependent code paths and API URL configuration
+
+3. If npm audit fails:
+
+- run `npm audit --audit-level=high`
+- update vulnerable packages with targeted upgrades
+- re-run lint/build after upgrades
+
+4. If pip-audit fails:
+
+- inspect vulnerable package/version in output
+- update `requirements.txt` and/or `models/requirements.txt`
+- rerun both `pip-audit` commands
+
+### Recommended CI expansion (next step)
+
+- add unit/integration tests for Express routes
+- add Next.js component/page tests
+- add E2E smoke tests (login, browse, cart, checkout)
+- add DB migration validation job for schema safety
+- add a status badge for CI visibility in this README
 
 ---
 
@@ -1263,6 +1375,14 @@ python app.py
 - expected when request exceeds reservable stock
 - inspect reservation window and stock buffer settings
 - ensure variant IDs are canonical and not cross-mapped
+
+### Coffee page stock feels slow
+
+- verify browser network tab only shows one GET /api/products/coffee call on initial coffee page load
+- if two calls appear, ensure stock data is sourced from useCoffeeCollections instead of a separate stock fetch
+- in backend, verify coffee image metadata is populated (image_filename/image_extension) to avoid expensive runtime fallback logic
+- check database indexes for coffee_products(product_id), coffee_products(product_type), and coffee_products(category)
+- if needed, preload or cache product payloads at app startup for high-traffic environments
 
 ### Docker stack unhealthy
 

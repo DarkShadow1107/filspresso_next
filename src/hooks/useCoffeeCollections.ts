@@ -5,6 +5,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 export type UseCoffeeCollectionsResult = {
 	collections: CoffeeCollection[];
+	stockData: Map<string, { productId: string; stock: number; stockStatus: "in_stock" | "low_stock" | "out_of_stock" }>;
 	loading: boolean;
 	error: string | null;
 };
@@ -12,6 +13,8 @@ export type UseCoffeeCollectionsResult = {
 type ApiProduct = {
 	productId: string;
 	productType: string;
+	stock?: number;
+	stockStatus?: "in_stock" | "low_stock" | "out_of_stock";
 	category: string;
 	name: string;
 	description?: string;
@@ -27,6 +30,20 @@ type ApiProduct = {
 };
 
 type ProductMap = Map<string, ApiProduct>;
+
+type StockInfo = {
+	productId: string;
+	stock: number;
+	stockStatus: "in_stock" | "low_stock" | "out_of_stock";
+};
+
+type SharedCoffeeData = {
+	products: ApiProduct[];
+	error: string | null;
+};
+
+let sharedCoffeeDataPromise: Promise<SharedCoffeeData> | null = null;
+let sharedCoffeeDataSnapshot: SharedCoffeeData | null = null;
 
 // Map user-facing category to folder name (mirrors admin uploader logic)
 const CATEGORY_FOLDER_MAP: Record<string, Record<string, string>> = {
@@ -111,6 +128,71 @@ const buildImagePath = (product: ApiProduct) => {
 	return `/images/Capsules/${typeDir}/${categoryDir}/${baseFilename}`;
 };
 
+const normalizeStockStatus = (status: unknown, stock: number): StockInfo["stockStatus"] => {
+	if (status === "in_stock" || status === "low_stock" || status === "out_of_stock") return status;
+	if (stock <= 0) return "out_of_stock";
+	if (stock < 40) return "low_stock";
+	return "in_stock";
+};
+
+const buildStockMap = (products: ApiProduct[]) => {
+	const stockMap = new Map<string, StockInfo>();
+	for (const product of products) {
+		const productId = product.productId || "";
+		if (!productId) continue;
+		const variant = product.productType === "vertuo" ? "vertuo" : "original";
+		const stock = Math.max(0, Number(product.stock) || 0);
+		const stockStatus = normalizeStockStatus(product.stockStatus, stock);
+		const info: StockInfo = { productId, stock, stockStatus };
+
+		const baseId = productId.replace(/-(original|vertuo|vl)$/i, "");
+		const keys = new Set<string>([`${productId}::${variant}`]);
+		if (baseId && baseId !== productId) {
+			keys.add(`${baseId}::${variant}`);
+		}
+		if (productId.endsWith("-vertuo")) {
+			keys.add(`${productId.replace(/-vertuo$/i, "-vl")}::${variant}`);
+		}
+		if (productId.endsWith("-vl")) {
+			keys.add(`${productId.replace(/-vl$/i, "-vertuo")}::${variant}`);
+		}
+
+		for (const key of keys) {
+			stockMap.set(key, info);
+		}
+	}
+	return stockMap;
+};
+
+const fetchSharedCoffeeData = async (): Promise<SharedCoffeeData> => {
+	if (sharedCoffeeDataSnapshot) {
+		return sharedCoffeeDataSnapshot;
+	}
+	if (!sharedCoffeeDataPromise) {
+		sharedCoffeeDataPromise = (async () => {
+			try {
+				const res = await fetch(`${API_BASE}/api/products/coffee`);
+				if (!res.ok) throw new Error(`API responded with ${res.status}`);
+				const data = await res.json();
+				const snapshot: SharedCoffeeData = {
+					products: Array.isArray(data.products) ? data.products : [],
+					error: null,
+				};
+				sharedCoffeeDataSnapshot = snapshot;
+				return snapshot;
+			} catch (err: any) {
+				const snapshot: SharedCoffeeData = {
+					products: [],
+					error: err?.message ?? "Failed to load coffee collections",
+				};
+				sharedCoffeeDataSnapshot = snapshot;
+				return snapshot;
+			}
+		})();
+	}
+	return sharedCoffeeDataPromise;
+};
+
 const addProductKeys = (map: ProductMap, product: ApiProduct) => {
 	const id = product.productId;
 	const baseId = (id || "").replace(/-(original|vertuo|vl)$/i, "");
@@ -151,6 +233,7 @@ const convertToCoffeeProduct = (product: ApiProduct) => {
 // Hook now hydrates collections from API, falling back to static data
 export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 	const [collections, setCollections] = useState<CoffeeCollection[]>(coffeeCollections);
+	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
@@ -158,10 +241,8 @@ export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 		let cancelled = false;
 		async function fetchFromApi() {
 			try {
-				const res = await fetch(`${API_BASE}/api/products/coffee`);
-				if (!res.ok) throw new Error(`API responded with ${res.status}`);
-				const data = await res.json();
-				const products: ApiProduct[] = Array.isArray(data.products) ? data.products : [];
+				const data = await fetchSharedCoffeeData();
+				const products: ApiProduct[] = data.products;
 
 				const productMaps: Record<"original" | "vertuo", ProductMap> = {
 					original: new Map(),
@@ -259,10 +340,16 @@ export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 					return { ...collection, groups };
 				});
 
-				if (!cancelled) setCollections(merged);
-				if (!cancelled) setError(null);
+				if (!cancelled) {
+					setCollections(merged);
+					setStockData(buildStockMap(products));
+					setError(data.error);
+				}
 			} catch (err: any) {
-				if (!cancelled) setError(err?.message ?? "Failed to load coffee collections");
+				if (!cancelled) {
+					setError(err?.message ?? "Failed to load coffee collections");
+					setStockData(new Map());
+				}
 			} finally {
 				if (!cancelled) setLoading(false);
 			}
@@ -276,5 +363,6 @@ export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 
 	// keep memo for stable reference in consumers
 	const memoCollections = useMemo(() => collections, [collections]);
-	return { collections: memoCollections, loading, error };
+	const memoStockData = useMemo(() => stockData, [stockData]);
+	return { collections: memoCollections, stockData: memoStockData, loading, error };
 }

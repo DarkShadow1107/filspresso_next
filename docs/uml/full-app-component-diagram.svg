@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Filspresso Full App Component Diagram</title>
+  <desc id="desc">Component diagram showing frontend, backend, AI service, database, and IoT relationships.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f4f1ea"/>
+      <stop offset="100%" stop-color="#efe7db"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a4b3c"/>
+    </marker>
+    <style>
+      .group { fill: #ffffffcc; stroke: #cdb89e; stroke-width: 2; rx: 18; }
+      .title { font: 700 20px Segoe UI, Arial, sans-serif; fill: #3a2f24; }
+      .box { fill: #fffdf8; stroke: #ab8e6d; stroke-width: 1.8; rx: 10; }
+      .label { font: 600 14px Segoe UI, Arial, sans-serif; fill: #2f261d; }
+      .arrow { stroke: #5a4b3c; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .caption { font: 700 30px Segoe UI, Arial, sans-serif; fill: #2e241b; }
+      .sub { font: 400 14px Segoe UI, Arial, sans-serif; fill: #5f5448; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="860" fill="url(#bg)"/>
+  <text x="60" y="64" class="caption">Filspresso Full App Component Diagram</text>
+  <text x="60" y="90" class="sub">Frontend, backend, AI, data, and IoT service boundaries</text>
+
+  <rect class="group" x="60" y="130" width="380" height="360"/>
+  <text x="80" y="164" class="title">Next.js Frontend (src)</text>
+
+  <rect class="box" x="90" y="190" width="320" height="56"/>
+  <text x="110" y="223" class="label">App Router Pages</text>
+
+  <rect class="box" x="90" y="262" width="320" height="56"/>
+  <text x="110" y="295" class="label">UI Components</text>
+
+  <rect class="box" x="90" y="334" width="320" height="56"/>
+  <text x="110" y="367" class="label">Hooks (cart, coffee, machines)</text>
+
+  <rect class="box" x="90" y="406" width="320" height="56"/>
+  <text x="110" y="439" class="label">Route Handlers (src/app/api)</text>
+
+  <rect class="group" x="500" y="130" width="380" height="360"/>
+  <text x="520" y="164" class="title">Express API (express-api)</text>
+
+  <rect class="box" x="530" y="190" width="320" height="56"/>
+  <text x="550" y="223" class="label">Route Modules</text>
+
+  <rect class="box" x="530" y="262" width="320" height="56"/>
+  <text x="550" y="295" class="label">Auth Middleware + JWT</text>
+
+  <rect class="box" x="530" y="334" width="320" height="56"/>
+  <text x="550" y="367" class="label">Schema + Encryption Utilities</text>
+
+  <rect class="group" x="940" y="130" width="400" height="360"/>
+  <text x="960" y="164" class="title">Python AI Service (app.py + models)</text>
+
+  <rect class="box" x="970" y="190" width="340" height="56"/>
+  <text x="990" y="223" class="label">Chat / Recommendation Endpoints</text>
+
+  <rect class="box" x="970" y="262" width="340" height="56"/>
+  <text x="990" y="295" class="label">Tanka + Embeddings + CLIP</text>
+
+  <rect class="group" x="500" y="540" width="380" height="230"/>
+  <text x="520" y="574" class="title">PostgreSQL Data Layer</text>
+
+  <rect class="box" x="530" y="610" width="320" height="56"/>
+  <text x="550" y="643" class="label">Commerce Tables + pgvector + rdkit</text>
+
+  <rect class="group" x="940" y="540" width="400" height="230"/>
+  <text x="960" y="574" class="title">IoT Clients</text>
+
+  <rect class="box" x="970" y="610" width="340" height="56"/>
+  <text x="990" y="643" class="label">ESP32 / Machine Integrations</text>
+
+  <path class="arrow" d="M250 246 L250 262"/>
+  <path class="arrow" d="M250 318 L250 334"/>
+  <path class="arrow" d="M250 390 L250 406"/>
+  <path class="arrow" d="M410 434 L530 218"/>
+  <path class="arrow" d="M410 434 L970 218"/>
+  <path class="arrow" d="M690 246 L690 262"/>
+  <path class="arrow" d="M690 318 L690 334"/>
+  <path class="arrow" d="M690 390 L690 610"/>
+  <path class="arrow" d="M1140 318 L1140 610"/>
+  <path class="arrow" d="M1140 638 L1140 318"/>
+</svg>

@@ -535,53 +535,21 @@ function CoffeeCollectionSection({ collection }: { collection: CoffeeCollection 
 }
 
 export default function CoffeePageContent() {
-	const { collections, loading } = useCoffeeCollections();
+	const { collections, stockData, loading } = useCoffeeCollections();
 	const coffeeCollections = collections ?? [];
-	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
-	const [isLoading, setIsLoading] = useState(true);
-
-	// Fetch stock data on mount
-	useEffect(() => {
-		async function fetchStock() {
-			try {
-				const res = await fetch(`${API_BASE}/api/products/coffee`);
-				if (res.ok) {
-					const data = await res.json();
-					const stockMap = new Map<string, StockInfo>();
-
-					const addEntry = (key: string, product: any) => {
-						stockMap.set(key, {
-							productId: product.productId,
-							stock: product.stock,
-							stockStatus: product.stockStatus,
-						});
-					};
-
-					for (const product of data.products || []) {
-						const pid: string = product.productId;
-						const variant: CapsuleVariant = product.productType === "vertuo" ? "vertuo" : "original";
-						addEntry(buildVariantStockKey(pid, variant), product);
-						const base = pid.replace(/-(original|vertuo|vl)$/i, "");
-						if (base !== pid) {
-							addEntry(buildVariantStockKey(base, variant), product);
-						}
-					}
-					setStockData(stockMap);
-				}
-			} catch (error) {
-				console.warn("Stock API unavailable, using fallback stock behavior.");
-			} finally {
-				setIsLoading(false);
-			}
-		}
-		fetchStock();
-	}, []);
+	const isLoading = loading;
 
 	return (
 		<StockContext.Provider value={{ stockData, isLoading }}>
 			<main>
 				<div className="coffee_pres">
-					<Image src="/images/coffee_background_subheader.png" alt="Coffee background" width={1920} height={1080} />
+					<Image
+						src="/images/coffee_background_subheader.png"
+						alt="Coffee background"
+						width={1920}
+						height={1080}
+						priority
+					/>
 				</div>
 				<div className="nav_coffee_type">
 					<div className="glass_morph coffee_type">

@@ -305,64 +305,64 @@ router.get("/spending", authenticate, async (req, res) => {
 				[req.user.id],
 			);
 
-			// Get subscription spending (from order_items with product_type = 'subscription')
-			const subscriptionResult = await client.query(
-				`SELECT COALESCE(SUM(oi.total_price), 0) as subscriptions_total
-				FROM order_items oi
-				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = $1 AND oi.product_type = 'subscription' AND o.status != 'cancelled'`,
-				[req.user.id],
-			);
-
-			// Get machines AND forfaits spending
-			// Same patterns as /machines endpoint
-			const machinesResult = await client.query(
-				`SELECT COALESCE(SUM(oi.total_price), 0) as machines_total
-				FROM order_items oi
-				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = $1 
-					AND o.status != 'cancelled'
-					AND (
-						oi.product_type = 'machine'
-						OR LOWER(oi.product_name) LIKE '%machine%'
-						OR LOWER(oi.product_name) LIKE '%forfait%'
-						OR LOWER(oi.product_name) LIKE '%vertuo next%'
-						OR LOWER(oi.product_name) LIKE '%vertuo pop%'
-						OR LOWER(oi.product_name) LIKE '%vertuo plus%'
-						OR LOWER(oi.product_name) LIKE '%essenza%'
-						OR LOWER(oi.product_name) LIKE '%pixie%'
-						OR LOWER(oi.product_name) LIKE '%citiz%'
-						OR LOWER(oi.product_name) LIKE '%lattissima%'
-						OR LOWER(oi.product_name) LIKE '%creatista%'
-						OR LOWER(oi.product_name) LIKE '%inissia%'
-						OR oi.product_id LIKE 'pack-%'
-						OR oi.product_id LIKE 'forfait-%'
-					)`,
-				[req.user.id],
-			);
-
-			// Get capsules/accessories spending (everything that's not a machine/forfait and not a subscription)
-			const productsResult = await client.query(
-				`SELECT COALESCE(SUM(oi.total_price), 0) as products_total
-				FROM order_items oi
-				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = $1 
-					AND o.status != 'cancelled'
-					AND oi.product_type != 'subscription'
-					AND oi.product_type != 'machine'
-					AND LOWER(oi.product_name) NOT LIKE '%machine%'
-					AND LOWER(oi.product_name) NOT LIKE '%forfait%'
-					AND LOWER(oi.product_name) NOT LIKE '%vertuo next%'
-					AND LOWER(oi.product_name) NOT LIKE '%vertuo pop%'
-					AND LOWER(oi.product_name) NOT LIKE '%vertuo plus%'
-					AND LOWER(oi.product_name) NOT LIKE '%essenza%'
-					AND LOWER(oi.product_name) NOT LIKE '%pixie%'
-					AND LOWER(oi.product_name) NOT LIKE '%citiz%'
-					AND LOWER(oi.product_name) NOT LIKE '%lattissima%'
-					AND LOWER(oi.product_name) NOT LIKE '%creatista%'
-					AND LOWER(oi.product_name) NOT LIKE '%inissia%'
-					AND oi.product_id NOT LIKE 'pack-%'
-					AND oi.product_id NOT LIKE 'forfait-%'`,
+			// Category totals should reflect actual paid item value after order-level discounts.
+			const categorySpendingResult = await client.query(
+				`WITH categorized_items AS (
+					SELECT
+						oi.product_type,
+						COALESCE(LOWER(oi.product_name), '') as product_name,
+						oi.product_id,
+						CASE
+							WHEN COALESCE(o.subtotal, 0) > 0 THEN
+								oi.total_price * GREATEST((o.subtotal - COALESCE(o.discount_amount, 0)) / o.subtotal, 0)
+							ELSE oi.total_price
+						END as adjusted_total
+					FROM order_items oi
+					JOIN orders o ON oi.order_id = o.id
+					WHERE o.account_id = $1
+						AND o.status != 'cancelled'
+				)
+				SELECT
+					COALESCE(SUM(CASE WHEN product_type = 'subscription' THEN adjusted_total ELSE 0 END), 0) as subscriptions_total,
+					COALESCE(SUM(CASE
+						WHEN (
+							product_type = 'machine'
+							OR product_name LIKE '%machine%'
+							OR product_name LIKE '%forfait%'
+							OR product_name LIKE '%vertuo next%'
+							OR product_name LIKE '%vertuo pop%'
+							OR product_name LIKE '%vertuo plus%'
+							OR product_name LIKE '%essenza%'
+							OR product_name LIKE '%pixie%'
+							OR product_name LIKE '%citiz%'
+							OR product_name LIKE '%lattissima%'
+							OR product_name LIKE '%creatista%'
+							OR product_name LIKE '%inissia%'
+							OR product_id LIKE 'pack-%'
+							OR product_id LIKE 'forfait-%'
+						) THEN adjusted_total
+						ELSE 0
+					END), 0) as machines_total,
+					COALESCE(SUM(CASE
+						WHEN product_type != 'subscription'
+							AND product_type != 'machine'
+							AND product_name NOT LIKE '%machine%'
+							AND product_name NOT LIKE '%forfait%'
+							AND product_name NOT LIKE '%vertuo next%'
+							AND product_name NOT LIKE '%vertuo pop%'
+							AND product_name NOT LIKE '%vertuo plus%'
+							AND product_name NOT LIKE '%essenza%'
+							AND product_name NOT LIKE '%pixie%'
+							AND product_name NOT LIKE '%citiz%'
+							AND product_name NOT LIKE '%lattissima%'
+							AND product_name NOT LIKE '%creatista%'
+							AND product_name NOT LIKE '%inissia%'
+							AND product_id NOT LIKE 'pack-%'
+							AND product_id NOT LIKE 'forfait-%'
+						THEN adjusted_total
+						ELSE 0
+					END), 0) as products_total
+				FROM categorized_items`,
 				[req.user.id],
 			);
 
@@ -382,9 +382,9 @@ router.get("/spending", authenticate, async (req, res) => {
 
 			const ordersTotal = Number(ordersResult.rows[0].orders_total) || 0;
 			const taxesTotal = Number(taxesResult.rows[0].taxes_total) || 0;
-			const subscriptionsTotal = Number(subscriptionResult.rows[0].subscriptions_total) || 0;
-			const machinesTotal = Number(machinesResult.rows[0].machines_total) || 0;
-			const productsTotal = Number(productsResult.rows[0].products_total) || 0;
+			const subscriptionsTotal = Number(categorySpendingResult.rows[0].subscriptions_total) || 0;
+			const machinesTotal = Number(categorySpendingResult.rows[0].machines_total) || 0;
+			const productsTotal = Number(categorySpendingResult.rows[0].products_total) || 0;
 			const totalCurrencyOrders = currencyUsageResult.rows.reduce((sum, row) => sum + (Number(row.order_count) || 0), 0);
 			const totalRonEquivalentAcrossCurrencies = currencyUsageResult.rows.reduce(
 				(sum, row) => sum + (Number(row.ron_equivalent_total) || 0),
@@ -592,18 +592,41 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 			// Build yearly history with highest tier achieved each year
 			const yearlyHistory = [];
 			for (const yearData of serializeBigInt(yearlyStats)) {
-				const capsules = yearData.sleeves_ordered * CAPSULES_PER_SLEEVE;
+				const normalizedYear = Number(yearData.year);
+				const sleevesOrdered = Number(yearData.sleeves_ordered) || 0;
+				const originalSleeves = Number(yearData.original_sleeves) || 0;
+				const vertuoSleeves = Number(yearData.vertuo_sleeves) || 0;
+				const orderCount = Number(yearData.order_count) || 0;
+				const capsules = sleevesOrdered * CAPSULES_PER_SLEEVE;
 				const tier = getTier(capsules);
 				yearlyHistory.push({
-					year: yearData.year,
+					year: normalizedYear,
 					capsules: capsules,
-					originalCapsules: yearData.original_sleeves * CAPSULES_PER_SLEEVE,
-					vertuoCapsules: yearData.vertuo_sleeves * CAPSULES_PER_SLEEVE,
-					orders: yearData.order_count,
+					originalCapsules: originalSleeves * CAPSULES_PER_SLEEVE,
+					vertuoCapsules: vertuoSleeves * CAPSULES_PER_SLEEVE,
+					orders: orderCount,
 					tier: tier?.name || null,
 					tierLevel: tier?.level || 0,
 				});
 			}
+
+			// Some DB adapters return duplicate yearly rows or mixed year types; keep only the strongest row per year.
+			const yearlyHistoryByYear = new Map();
+			for (const yearData of yearlyHistory) {
+				const existing = yearlyHistoryByYear.get(yearData.year);
+				if (
+					!existing ||
+					yearData.capsules > existing.capsules ||
+					(yearData.capsules === existing.capsules && yearData.tierLevel > existing.tierLevel) ||
+					(yearData.capsules === existing.capsules &&
+						yearData.tierLevel === existing.tierLevel &&
+						yearData.orders > existing.orders)
+				) {
+					yearlyHistoryByYear.set(yearData.year, yearData);
+				}
+			}
+			yearlyHistory.length = 0;
+			yearlyHistory.push(...yearlyHistoryByYear.values());
 
 			// Fill in missing years with 0 capsules (no tier)
 			for (let year = accountYear; year <= currentYear; year++) {

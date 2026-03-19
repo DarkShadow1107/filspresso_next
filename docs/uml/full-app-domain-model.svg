@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">Filspresso Domain Model Diagram</title>
+  <desc id="desc">High-level domain entities and relationships for account, orders, cart, products, subscriptions and repairs.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff9f1"/>
+      <stop offset="100%" stop-color="#f4ece1"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6c5238"/>
+    </marker>
+    <style>
+      .entity { fill: #fffefb; stroke: #b69167; stroke-width: 2; rx: 12; }
+      .name { font: 700 16px Segoe UI, Arial, sans-serif; fill: #3d2d1d; }
+      .field { font: 500 13px Segoe UI, Arial, sans-serif; fill: #5a4632; }
+      .title { font: 700 30px Segoe UI, Arial, sans-serif; fill: #3a2a1b; }
+      .sub { font: 400 14px Segoe UI, Arial, sans-serif; fill: #665340; }
+      .rel { stroke: #6c5238; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .card { font: 600 12px Segoe UI, Arial, sans-serif; fill: #4b3826; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="980" fill="url(#bg)"/>
+  <text x="50" y="60" class="title">Filspresso Domain Model (High Level)</text>
+  <text x="50" y="86" class="sub">Primary commerce entities and ownership/reference relationships</text>
+
+  <rect class="entity" x="60" y="140" width="240" height="150"/>
+  <text x="80" y="172" class="name">Account</text>
+  <text x="80" y="198" class="field">id</text>
+  <text x="80" y="220" class="field">username</text>
+  <text x="80" y="242" class="field">email</text>
+  <text x="80" y="264" class="field">role</text>
+
+  <rect class="entity" x="390" y="130" width="280" height="190"/>
+  <text x="410" y="162" class="name">Order</text>
+  <text x="410" y="188" class="field">id, order_number, status</text>
+  <text x="410" y="210" class="field">subtotal, discount_amount</text>
+  <text x="410" y="232" class="field">total, charged_total</text>
+
+  <rect class="entity" x="760" y="120" width="300" height="210"/>
+  <text x="780" y="152" class="name">OrderItem</text>
+  <text x="780" y="178" class="field">id, product_type, product_id</text>
+  <text x="780" y="200" class="field">quantity, unit_price, total_price</text>
+
+  <rect class="entity" x="1140" y="90" width="360" height="170"/>
+  <text x="1160" y="122" class="name">CoffeeProduct</text>
+  <text x="1160" y="148" class="field">product_id, product_type, category</text>
+  <text x="1160" y="170" class="field">price, stock, stock_status</text>
+
+  <rect class="entity" x="1140" y="300" width="360" height="170"/>
+  <text x="1160" y="332" class="name">MachineProduct</text>
+  <text x="1160" y="358" class="field">product_id, product_type, category</text>
+  <text x="1160" y="380" class="field">price, stock, stock_status</text>
+
+  <rect class="entity" x="390" y="420" width="280" height="150"/>
+  <text x="410" y="452" class="name">Cart</text>
+  <text x="410" y="478" class="field">id, account_id, expires_at</text>
+
+  <rect class="entity" x="760" y="410" width="300" height="170"/>
+  <text x="780" y="442" class="name">CartItem</text>
+  <text x="780" y="468" class="field">id, cart_id, product_type</text>
+  <text x="780" y="490" class="field">product_id, quantity</text>
+
+  <rect class="entity" x="60" y="420" width="240" height="150"/>
+  <text x="80" y="452" class="name">UserSubscription</text>
+  <text x="80" y="478" class="field">id, account_id</text>
+  <text x="80" y="500" class="field">subscription_tier, is_active</text>
+
+  <rect class="entity" x="390" y="700" width="280" height="150"/>
+  <text x="410" y="732" class="name">Repair</text>
+  <text x="410" y="758" class="field">id, order_id, machine_name</text>
+  <text x="410" y="780" class="field">repair_type, status</text>
+
+  <path class="rel" d="M300 205 L390 205"/>
+  <text x="330" y="192" class="card">1..*</text>
+
+  <path class="rel" d="M670 205 L760 205"/>
+  <text x="700" y="192" class="card">1..*</text>
+
+  <path class="rel" d="M300 490 L390 490"/>
+  <text x="332" y="476" class="card">1..1</text>
+
+  <path class="rel" d="M670 490 L760 490"/>
+  <text x="702" y="476" class="card">1..*</text>
+
+  <path class="rel" d="M960 230 L1140 175"/>
+  <text x="1010" y="186" class="card">ref by product_id</text>
+
+  <path class="rel" d="M960 250 L1140 345"/>
+  <text x="1010" y="320" class="card">ref by product_id</text>
+
+  <path class="rel" d="M300 235 L60 470"/>
+  <text x="165" y="360" class="card">1..*</text>
+
+  <path class="rel" d="M530 320 L530 700"/>
+  <text x="542" y="540" class="card">0..1 to many</text>
+</svg>

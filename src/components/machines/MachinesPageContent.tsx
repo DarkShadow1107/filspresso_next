@@ -12,8 +12,6 @@ import { useMachineCollections } from "@/hooks/useMachineCollections";
 import React from "react";
 import CoffeeRecommender from "@/components/CoffeeRecommender";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
 export type MachineStockInfo = {
 	productId: string;
 	stock: number;
@@ -268,41 +266,9 @@ function MachineCollectionSection({ collection }: { collection: MachineCollectio
 }
 
 export default function MachinesPageContent() {
-	const { collections, loading } = useMachineCollections();
+	const { collections, stockData, apiDown, loading } = useMachineCollections();
 	const machineCollections = collections ?? [];
-	const [stockData, setStockData] = useState<Map<string, MachineStockInfo>>(new Map());
-	const [isLoading, setIsLoading] = useState(true);
-	const [apiDown, setApiDown] = useState(false);
-
-	// Fetch stock data on mount
-	useEffect(() => {
-		async function fetchStock() {
-			try {
-				const res = await fetch(`${API_BASE}/api/products/machines`);
-				if (res.ok) {
-					const data = await res.json();
-					const stockMap = new Map<string, MachineStockInfo>();
-					for (const product of data.products || []) {
-						stockMap.set(product.productId, {
-							productId: product.productId,
-							stock: product.stock,
-							stockStatus: product.stockStatus,
-						});
-					}
-					setStockData(stockMap);
-				} else {
-					// API responded but with an error status (e.g. DB connection failure on backend)
-					setApiDown(true);
-				}
-			} catch (error) {
-				console.error("Failed to fetch machine stock data:", error);
-				setApiDown(true);
-			} finally {
-				setIsLoading(false);
-			}
-		}
-		fetchStock();
-	}, []);
+	const isLoading = loading;
 
 	return (
 		<MachineStockContext.Provider value={{ stockData, isLoading, apiDown }}>
