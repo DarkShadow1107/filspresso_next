@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
-import { Order, formatDate, gradientTextStyle, getCardTypeImage } from "./types";
+import { API_BASE, Order, formatDate, getAuthToken, gradientTextStyle, getCardTypeImage } from "./types";
+import { useNotifications } from "@/components/NotificationsProvider";
 import {
 	ArrowNarrowLeftIcon,
 	ArrowNarrowRightIcon,
@@ -37,8 +39,66 @@ export function OrderHistory({
 	toggleOrderExpand,
 	getProductImage,
 }: OrderHistoryProps) {
+	const [downloadingOrderId, setDownloadingOrderId] = useState<number | null>(null);
+	const { notify } = useNotifications();
+
 	const formatAmount = (value: number, currencyCode: string) => {
 		return `${value.toFixed(2)} ${currencyCode.toUpperCase()}`;
+	};
+
+	const handleInvoiceDownload = async (orderId: number, orderNumber: string) => {
+		const token = getAuthToken();
+		if (!token) {
+			notify("Please sign in to download your invoice.", 5000, "error", "account");
+			return;
+		}
+
+		setDownloadingOrderId(orderId);
+		try {
+			const response = await fetch(`${API_BASE}/api/orders/${orderId}/invoice`, {
+				method: "GET",
+				headers: {
+					Authorization: `Bearer ${token}`,
+				},
+			});
+
+			if (!response.ok) {
+				let detail = "Unknown error";
+				try {
+					const contentType = response.headers.get("content-type") || "";
+					if (contentType.includes("application/json")) {
+						const body = await response.json();
+						detail = body?.error || body?.message || detail;
+					} else {
+						detail = (await response.text()) || detail;
+					}
+				} catch {
+					// Keep fallback detail if parsing fails.
+				}
+				throw new Error(`Invoice download failed (${response.status}): ${detail}`);
+			}
+
+			const contentType = response.headers.get("content-type") || "";
+			if (!contentType.includes("application/pdf")) {
+				const body = await response.text().catch(() => "");
+				throw new Error(`Invoice response was not a PDF. ${body}`.trim());
+			}
+
+			const blob = await response.blob();
+			const url = window.URL.createObjectURL(blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = `filspresso-invoice-${orderNumber}.pdf`;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			window.URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error("Invoice download error:", error);
+			notify(error instanceof Error ? error.message : "Invoice download failed", 7000, "error", "account");
+		} finally {
+			setDownloadingOrderId(null);
+		}
 	};
 
 	const getStatusColor = (status: string) => {
@@ -698,6 +758,36 @@ export function OrderHistory({
 																	</span>
 																</div>
 															)}
+															<div
+																style={{
+																	display: "flex",
+																	justifyContent: "flex-end",
+																	marginTop: "1rem",
+																}}
+															>
+																<button
+																	onClick={() =>
+																		handleInvoiceDownload(order.id, order.order_number)
+																	}
+																	disabled={downloadingOrderId === order.id}
+																	style={{
+																		padding: "10px 14px",
+																		borderRadius: "10px",
+																		border: "1px solid rgba(196, 167, 125, 0.4)",
+																		background:
+																			"linear-gradient(135deg, rgba(196,167,125,0.18), rgba(166,124,82,0.22))",
+																		color: "#e6d4bc",
+																		fontWeight: 700,
+																		cursor:
+																			downloadingOrderId === order.id ? "wait" : "pointer",
+																		opacity: downloadingOrderId === order.id ? 0.75 : 1,
+																	}}
+																>
+																	{downloadingOrderId === order.id
+																		? "Generating Invoice..."
+																		: "Download Invoice"}
+																</button>
+															</div>
 														</div>
 													</div>
 												</div>

@@ -416,8 +416,10 @@ export default function Cart() {
 								// Get image from item or look up from product data
 								const itemImage = item.image || getProductImageForId(item.id);
 
+								const cartRowKey = `${item.id}::${normalizePath(item.image)}::${index}`;
+
 								return (
-									<div key={item.id} className="cart-item-card">
+									<div key={cartRowKey} className="cart-item-card">
 										{itemImage && (
 											<div className="cart-item-image">
 												<img
@@ -495,7 +497,7 @@ export default function Cart() {
 							<CoffeeIcon size={24} /> Members Also Buy
 						</h3>
 						<div className="popular-products-carousel">
-							{popularProducts.map((pop) => {
+							{popularProducts.map((pop, index) => {
 								const product = getProductDataByIdAndImage(pop.product_id, pop.product_image, coffeeData);
 								const parsed = parsePopularNameAndPrice(pop.product_name);
 								const img = pop.product_image || product?.image || getProductImageForId(pop.product_id);
@@ -506,9 +508,10 @@ export default function Cart() {
 								const displayName = product?.name || parsed.name;
 								const displayPrice = product?.priceRon ?? parsed.priceRon;
 								const stockBadge = renderStockBadge(pop.product_id, pop.product_image);
+								const popularKey = `${pop.product_id}::${normalizePath(pop.product_image || img)}::${index}`;
 
 								return (
-									<div key={pop.product_id} className="popular-product-card">
+									<div key={popularKey} className="popular-product-card">
 										{img && (
 											<div className="popular-product-image">
 												<img src={img} alt={displayName} />

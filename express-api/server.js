@@ -32,6 +32,8 @@ const adminRoutes = require("./routes/admin");
 const productsRoutes = require("./routes/products");
 const favoritesRoutes = require("./routes/favorites");
 const kafelotRoutes = require("./routes/kafelot");
+const operationsRoutes = require("./routes/operations");
+const subscriptionsEngineRoutes = require("./routes/subscriptions_engine");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -434,6 +436,8 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/favorites", favoritesRoutes);
 app.use("/api/kafelot", kafelotRoutes);
+app.use("/api/operations", operationsRoutes);
+app.use("/api/subscriptions-engine", subscriptionsEngineRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

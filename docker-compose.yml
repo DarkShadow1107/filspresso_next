@@ -35,6 +35,12 @@ services:
         depends_on:
             postgres:
                 condition: service_healthy
+            invoice_java:
+                condition: service_started
+            go_ops:
+                condition: service_started
+            kotlin_subscriptions:
+                condition: service_started
         environment:
             NODE_ENV: ${NODE_ENV:-production}
             PORT: 4000
@@ -48,6 +54,10 @@ services:
             SERVICE_EVENTS_API_KEY: ${SERVICE_EVENTS_API_KEY:?SERVICE_EVENTS_API_KEY is required}
             CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
             PYTHON_AI_HOST: http://ai:5000
+            INVOICE_SERVICE_URL: http://invoice-java:8082
+            GO_OPS_URL: http://go_ops:8083
+            GO_OPS_API_KEY: ${GO_OPS_API_KEY:-filspresso-ops-key}
+            KOTLIN_SUBSCRIPTIONS_URL: http://kotlin-subscriptions:8084
             SERVICE_METRICS_STRICT_DB_ONLY: ${SERVICE_METRICS_STRICT_DB_ONLY:-false}
             ADMIN_HEALTH_URL: ${ADMIN_HEALTH_URL:-}
         volumes:
@@ -63,7 +73,82 @@ services:
             start_period: 20s
 
     # -------------------------------------------------------------------------
-    # 3. AI  (Tanka model — MiniLM / CLIP / MolScribe via Flask)
+    # 3. Java Invoice Service  (PDF generation)
+    # -------------------------------------------------------------------------
+    invoice_java:
+        build:
+            context: ./java-invoice-service
+            dockerfile: Dockerfile
+        container_name: filspresso_invoice_java
+        restart: unless-stopped
+        ports:
+            - "8082:8082"
+        networks:
+            default:
+                aliases:
+                    - invoice-java
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:8082/api/invoices/health || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 5
+
+    # -------------------------------------------------------------------------
+    # 4. Go Operations Service  (events/webhooks/telemetry)
+    # -------------------------------------------------------------------------
+    go_ops:
+        build:
+            context: ./go-ops-service
+            dockerfile: Dockerfile
+        container_name: filspresso_go_ops
+        restart: unless-stopped
+        environment:
+            PORT: 8083
+            OPS_API_KEY: ${GO_OPS_API_KEY:-filspresso-ops-key}
+        ports:
+            - "8083:8083"
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 5
+
+    # -------------------------------------------------------------------------
+    # 5. Kotlin Subscription Service  (pricing/reconciliation)
+    # -------------------------------------------------------------------------
+    kotlin_subscriptions:
+        build:
+            context: ./kotlin-subscription-service
+            dockerfile: Dockerfile
+        container_name: filspresso_kotlin_subscriptions
+        restart: unless-stopped
+        ports:
+            - "8084:8084"
+        networks:
+            default:
+                aliases:
+                    - kotlin-subscriptions
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:8084/api/subscriptions/health || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 5
+
+    # -------------------------------------------------------------------------
+    # 6. C++/Wasm Build Container  (on-demand artifact generation)
+    # -------------------------------------------------------------------------
+    wasm_builder:
+        build:
+            context: ./cpp-wasm
+            dockerfile: Dockerfile
+        container_name: filspresso_wasm_builder
+        profiles: ["build"]
+        volumes:
+            - ./public/wasm:/out
+        restart: "no"
+
+    # -------------------------------------------------------------------------
+    # 7. AI  (Tanka model — MiniLM / CLIP / MolScribe via Flask)
     # -------------------------------------------------------------------------
     ai:
         build:

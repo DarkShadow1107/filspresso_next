@@ -2,7 +2,18 @@
 
 Filspresso Next is a full-stack coffee commerce platform that combines e-commerce, AI assistance, and IoT-ready machine orchestration.
 
-It is built with Next.js (App Router), Express, PostgreSQL, and a Python AI service (Flask + Tanka model stack).
+It is built with Next.js (App Router), Express, PostgreSQL, a Python AI service (Flask + Tanka model stack), and polyglot domain services in Java, Kotlin, Go, and C++/WebAssembly.
+
+## 0. Architecture Decision Snapshot
+
+This section is a quick ADR-style summary for new contributors.
+
+- Keep Express as the orchestration and commerce core (auth, cart, checkout, account, products).
+- Use Java for invoice PDF rendering where mature JVM document tooling gives stable output quality.
+- Use Kotlin for subscription pricing and reconciliation rules where null-safety and concise rule code reduce maintenance risk.
+- Use Go for operational event ingestion and lightweight service endpoints where startup speed and memory efficiency matter.
+- Use C++/WebAssembly in browser-side compute paths (image preprocessing, QR candidate scoring, vector ranking) where deterministic numeric performance is needed.
+- Keep PostgreSQL as the primary database because current architecture depends on transaction-heavy commerce flows plus extension-oriented AI/chemistry capabilities.
 
 ## Quick Start For New Contributors (5 Minutes)
 
@@ -23,10 +34,11 @@ cd filspresso_next
 npm install
 ```
 
-### 3) Start backend services with Docker
+### 3) Build and start the full container stack
 
 ```bash
-docker compose up --build -d postgres backend ai
+docker compose --profile build build
+docker compose up --build -d
 ```
 
 ### 4) Run the Next.js frontend
@@ -40,18 +52,25 @@ npm run dev
 - Frontend: http://localhost:3000
 - Express API health: http://localhost:4000/health
 - Python AI health: http://localhost:5000/api/health
+- Java Invoice health: http://localhost:8082/api/invoices/health
+- Go Ops health: http://localhost:8083/health
+- Kotlin Subscriptions health: http://localhost:8084/api/subscriptions/health
 
 ### Quick verification checklist
 
-- `docker compose ps` shows `postgres`, `backend`, and `ai` as running
+- `docker compose ps` shows `postgres`, `backend`, `ai`, `invoice_java`, `go_ops`, and `kotlin_subscriptions` as running
 - `GET /health` on port 4000 returns status ok
 - `GET /api/health` on port 5000 returns status ok
+- `GET /api/invoices/health` on port 8082 returns status ok
+- `GET /health` on port 8083 returns status ok
+- `GET /api/subscriptions/health` on port 8084 returns status ok
 - Home page loads at port 3000 and can navigate between pages
 
 ---
 
 ## Table Of Contents
 
+- [0. Architecture Decision Snapshot](#0-architecture-decision-snapshot)
 - [1. Product Overview](#1-product-overview)
 - [2. Architecture At A Glance](#2-architecture-at-a-glance)
 - [2.1 Full App UML (Component, Deployment, Domain)](#21-full-app-uml-component-deployment-domain)
@@ -78,6 +97,8 @@ npm run dev
 - [23. Operational Runbook](#23-operational-runbook)
 - [24. Known Gaps And Suggested Next Improvements](#24-known-gaps-and-suggested-next-improvements)
 - [25. Image Assets And Media Pipeline](#25-image-assets-and-media-pipeline)
+- [26. Why These New Languages And Where](#26-why-these-new-languages-and-where)
+- [27. Why PostgreSQL Over MySQL Or MariaDB Here](#27-why-postgresql-over-mysql-or-mariadb-here)
 - [Appendix A. Command Reference](#appendix-a-command-reference)
 - [Appendix B. Important Files](#appendix-b-important-files)
 - [Appendix C. Source File Index (Snapshot)](#appendix-c-source-file-index-snapshot)
@@ -198,6 +219,13 @@ The following UML set covers the full platform from code modules to runtime cont
 - Express 4.18
 - PostgreSQL access via pg
 - Security and middleware: helmet, cors, jsonwebtoken, bcrypt, express-rate-limit, multer
+
+### Polyglot service layer
+
+- Java 17 + Spring Boot (invoice and PDF generation)
+- Kotlin 1.9 + Spring Boot (subscription quote and reconciliation engine)
+- Go 1.22 (operations and event ingestion service)
+- C++ compiled to WebAssembly via Emscripten (client-side preprocessing and scoring)
 
 ### AI backend
 
@@ -408,16 +436,29 @@ Notes:
 - This structure intentionally excludes generated and dependency-heavy folders such as `.next`, `node_modules`, and virtual environments.
 - The source tree under `src/icons` is large (hundreds of icon files) and is represented as a directory node to keep this README maintainable.
 
+### Structure updates in this revision
+
+- Added `java-invoice-service/` for Java PDF invoice generation.
+- Added `kotlin-subscription-service/` for Kotlin quote/reconciliation logic.
+- Added `go-ops-service/` for operational events and lightweight service tasks.
+- Added `cpp-wasm/` plus `public/wasm/` outputs for C++ compiled browser helpers.
+- Added `src/lib/wasm/filspressoMath.ts` for typed Wasm loading and helper calls.
+- Added new Express route modules for inter-service proxying: `operations.js` and `subscriptions_engine.js`.
+
 ---
 
 ## 5. Runtime Topology And Ports
 
-| Service     | Port | Responsibility                            | Health Endpoint              |
-| ----------- | ---- | ----------------------------------------- | ---------------------------- |
-| Next.js     | 3000 | UI rendering, route handlers, proxy logic | n/a (application page load)  |
-| Express API | 4000 | Commerce/auth/cart/orders/products/admin  | /health and /health/services |
-| Python AI   | 5000 | AI chat/semantic search/IoT endpoints     | /api/health                  |
-| PostgreSQL  | 5432 | Transactional + vector/chemistry data     | pg_isready health check      |
+| Service              | Port | Responsibility                                             | Health Endpoint              |
+| -------------------- | ---- | ---------------------------------------------------------- | ---------------------------- |
+| Next.js              | 3000 | UI rendering, route handlers, proxy logic                  | n/a (application page load)  |
+| Express API          | 4000 | Commerce/auth/cart/orders/products/admin                   | /health and /health/services |
+| Python AI            | 5000 | AI chat/semantic search/IoT endpoints                      | /api/health                  |
+| Java Invoice         | 8082 | PDF invoice generation service                             | /api/invoices/health         |
+| Go Ops               | 8083 | Event ingestion/webhooks/operational processing            | /health                      |
+| Kotlin Subscriptions | 8084 | Subscription pricing and reconciliation engine             | /api/subscriptions/health    |
+| PostgreSQL           | 5432 | Transactional + vector/chemistry data                      | pg_isready health check      |
+| C++ Wasm Builder     | n/a  | On-demand compilation of browser artifacts to /public/wasm | n/a (on-demand run)          |
 
 ### Internal container addressing
 
@@ -425,6 +466,9 @@ Inside Docker network:
 
 - backend reaches db at host `postgres`
 - backend reaches AI at `http://ai:5000`
+- backend reaches Java invoice at `http://invoice_java:8082`
+- backend reaches Go ops at `http://go_ops:8083`
+- backend reaches Kotlin subscriptions at `http://kotlin_subscriptions:8084`
 - AI reaches db at host `postgres`
 
 Outside Docker (host machine):
@@ -447,24 +491,28 @@ Outside Docker (host machine):
 
 ### Express
 
-| Variable                          | Typical Value         | Purpose                             |
-| --------------------------------- | --------------------- | ----------------------------------- |
-| PORT                              | 4000                  | Express listening port              |
-| DB_HOST                           | postgres or localhost | PostgreSQL host                     |
-| DB_PORT                           | 5432                  | PostgreSQL port                     |
-| DB_NAME                           | filspresso            | DB name                             |
-| DB_USER                           | filspresso_user       | DB user                             |
-| DB_PASSWORD                       | secret                | DB password                         |
-| JWT_SECRET                        | secret                | JWT signing                         |
-| ENCRYPTION_KEY                    | secret                | encryption helper key               |
-| CORS_ORIGIN                       | http://localhost:3000 | Allowed origin list                 |
-| PYTHON_AI_HOST                    | http://ai:5000        | AI health and integration host      |
-| DISABLE_RATE_LIMIT_FOR_DEV        | true or false         | dev toggle                          |
-| DISABLE_RATE_LIMIT                | true or false         | explicit global rate-limiter toggle |
-| CART_RESERVATION_MINUTES          | 20                    | cart reservation contention window  |
-| CART_STOCK_BUFFER_UNITS           | 0                     | optional safety buffer              |
-| SERVICE_INCIDENT_RETENTION_DAYS   | 180                   | incident retention window           |
-| SERVICE_INCIDENT_RETENTION_JOB_MS | 21600000              | cleanup job interval                |
+| Variable                          | Typical Value                    | Purpose                              |
+| --------------------------------- | -------------------------------- | ------------------------------------ |
+| PORT                              | 4000                             | Express listening port               |
+| DB_HOST                           | postgres or localhost            | PostgreSQL host                      |
+| DB_PORT                           | 5432                             | PostgreSQL port                      |
+| DB_NAME                           | filspresso                       | DB name                              |
+| DB_USER                           | filspresso_user                  | DB user                              |
+| DB_PASSWORD                       | secret                           | DB password                          |
+| JWT_SECRET                        | secret                           | JWT signing                          |
+| ENCRYPTION_KEY                    | secret                           | encryption helper key                |
+| CORS_ORIGIN                       | http://localhost:3000            | Allowed origin list                  |
+| PYTHON_AI_HOST                    | http://ai:5000                   | AI health and integration host       |
+| INVOICE_SERVICE_URL               | http://invoice_java:8082         | Java invoice service base URL        |
+| GO_OPS_URL                        | http://go_ops:8083               | Go operational service base URL      |
+| GO_OPS_API_KEY                    | filspresso-ops-key               | Go ops ingest authentication key     |
+| KOTLIN_SUBSCRIPTIONS_URL          | http://kotlin_subscriptions:8084 | Kotlin subscription service base URL |
+| DISABLE_RATE_LIMIT_FOR_DEV        | true or false                    | dev toggle                           |
+| DISABLE_RATE_LIMIT                | true or false                    | explicit global rate-limiter toggle  |
+| CART_RESERVATION_MINUTES          | 20                               | cart reservation contention window   |
+| CART_STOCK_BUFFER_UNITS           | 0                                | optional safety buffer               |
+| SERVICE_INCIDENT_RETENTION_DAYS   | 180                              | incident retention window            |
+| SERVICE_INCIDENT_RETENTION_JOB_MS | 21600000                         | cleanup job interval                 |
 
 ### Python AI
 
@@ -483,7 +531,7 @@ Outside Docker (host machine):
 
 ### Workflow A: Docker for backend services + local frontend
 
-1. Run `docker compose up --build -d postgres backend ai`
+1. Run `docker compose up --build -d`
 2. Run `npm install` and `npm run dev` in repository root
 3. Access app at port 3000
 
@@ -529,12 +577,39 @@ Docker is not an optional side note in this project. It is part of how the archi
     - Uses persistent caches for HuggingFace, CLIP, and MolScribe model artifacts
     - Health check via /api/health
 
+- invoice_java
+    - Built from java-invoice-service/Dockerfile
+    - Exposes port 8082
+    - Generates downloadable invoice PDFs for order history flows
+    - Health check via /api/invoices/health
+
+- go_ops
+    - Built from go-ops-service/Dockerfile
+    - Exposes port 8083
+    - Handles event ingestion and operational telemetry forwarding
+    - Health check via /health
+
+- kotlin_subscriptions
+    - Built from kotlin-subscription-service/Dockerfile
+    - Exposes port 8084
+    - Handles pricing quotes and subscription reconciliation rules
+    - Health check via /api/subscriptions/health
+
+- wasm_builder
+    - Built from cpp-wasm/Dockerfile
+    - Build profile service (on-demand)
+    - Compiles C++ helpers to public/wasm/filspresso_math.js and public/wasm/filspresso_math.wasm
+
 ### Compose dependency graph
 
 ```mermaid
 flowchart TD
     PG[postgres] --> BE[backend]
     PG --> AI[ai]
+    BE --> JI[invoice_java]
+    BE --> GO[go_ops]
+    BE --> KS[kotlin_subscriptions]
+    WB[wasm_builder] --> PW[public/wasm artifacts]
     BE --> IMG[public/images mount]
     AI --> HFC[hf_cache volume]
     AI --> CLC[clip_cache volume]
@@ -551,7 +626,9 @@ flowchart TD
 ### Typical Docker commands
 
 ```bash
+docker compose --profile build build
 docker compose up --build -d
+docker compose run --rm wasm_builder
 docker compose ps
 docker compose logs -f backend
 docker compose logs -f ai
@@ -612,6 +689,8 @@ The frontend uses a page-slug pattern where root page resolves component based o
 - /api/products
 - /api/favorites
 - /api/kafelot
+- /api/operations
+- /api/subscriptions-engine
 
 ### Operational endpoints
 
@@ -1487,6 +1566,65 @@ This section explains how image files are organized, used by the app, and mainta
 
 ---
 
+## 26. Why These New Languages And Where
+
+Filspresso keeps an Express-first architecture and adds other languages only for narrowly scoped workloads where they are clearly better.
+
+### Selection principles
+
+- Keep checkout, account, auth, and cart flows in Express to avoid fragmentation of core commerce logic.
+- Add a new runtime only when it gives a measurable gain in one domain (performance, tooling maturity, or maintainability).
+- Isolate each specialized runtime behind stable HTTP boundaries so it can evolve independently.
+
+### Language-to-domain mapping
+
+| Technology            | Where it is used                                               | Why it was chosen                                                             | Why not keep it in Node only                                                                      |
+| --------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Java 17 + Spring Boot | `java-invoice-service` (`/api/invoices/render`)                | Strong PDF ecosystem, reliable document rendering, predictable layout control | PDF generation quality and long-term maintainability are better with mature JVM PDF libraries     |
+| Kotlin + Spring Boot  | `kotlin-subscription-service` (`/api/subscriptions/*`)         | Null-safety and concise business-rule code for pricing/reconciliation         | Subscription rules grow quickly; Kotlin reduces boilerplate and runtime null bugs                 |
+| Go 1.22               | `go-ops-service` (`/events/ingest`, `/health`)                 | Fast startup, low memory use, simple concurrency model for ops/event traffic  | Operational/event paths benefit from lightweight services without Node event-loop coupling        |
+| C++ + WebAssembly     | `cpp-wasm` + frontend wrapper `src/lib/wasm/filspressoMath.ts` | Deterministic browser-side speed for numeric and pixel workloads              | JS is fine for orchestration, but heavy image/vector loops are faster and more consistent in Wasm |
+
+### C++/Wasm focus areas in this project
+
+- Image preprocessing before AI requests (RGBA to gray, binarization).
+- QR finder candidate scoring and pre-filtering.
+- Local vector similarity/ranking to reduce unnecessary network calls.
+
+### Why this polyglot split is intentional
+
+- It preserves stability in high-risk flows (payments/orders) by keeping them in the existing proven Express layer.
+- It avoids a big-bang rewrite and allows incremental migration by domain.
+- It improves performance where needed without overcomplicating every service.
+- It keeps ownership clear: each service has one primary responsibility.
+
+---
+
+## 27. Why PostgreSQL Over MySQL Or MariaDB Here
+
+PostgreSQL is the best fit for Filspresso because the platform combines commerce transactions, AI/vector retrieval, and chemistry-oriented extensions.
+
+### Direct comparison for this codebase
+
+| Requirement in Filspresso                  | PostgreSQL                                                                     | MySQL/MariaDB                                                        | Decision impact                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------- |
+| Vector retrieval and semantic similarity   | Mature pgvector workflows already integrated                                   | Requires different ecosystem and query rewrite patterns              | PostgreSQL minimizes implementation risk          |
+| Chemistry/extension-heavy stack            | Extension model aligns with current setup (including rdkit-oriented workflows) | Equivalent extension path is weaker or incompatible                  | PostgreSQL supports current architecture directly |
+| Checkout consistency and stock reservation | Strong transactional behavior used with lock-based flows (`FOR UPDATE`)        | Can be implemented, but would require retesting and query adaptation | PostgreSQL keeps current concurrency model stable |
+| Existing SQL, scripts, and migrations      | Current repo scripts and schema are PostgreSQL-oriented                        | Port would require broad SQL and behavior migration                  | PostgreSQL avoids expensive migration work        |
+
+### Why this matters operationally
+
+- Faster delivery: no database-porting project before shipping new features.
+- Lower risk: existing production logic remains aligned with tested DB behavior.
+- Better maintainability: one coherent data platform for AI + commerce + ops.
+
+### Practical conclusion
+
+For Filspresso, PostgreSQL is not only "good enough"; it is the database that best matches features already implemented and the roadmap (AI retrieval, extension use, transactional commerce).
+
+---
+
 ## Appendix A: Command Reference
 
 ### Root
@@ -1503,7 +1641,9 @@ This section explains how image files are organized, used by the app, and mainta
 
 ### Docker
 
+- docker compose --profile build build
 - docker compose up --build -d
+- docker compose run --rm wasm_builder
 - docker compose logs -f backend
 - docker compose logs -f ai
 - docker compose down
@@ -1514,12 +1654,21 @@ This section explains how image files are organized, used by the app, and mainta
 
 - docker-compose.yml
 - Dockerfile.express
+- cpp-wasm/Dockerfile
+- cpp-wasm/src/price_math.cpp
+- cpp-wasm/README.md
 - express-api/server.js
+- express-api/routes/operations.js
 - express-api/routes/cart.js
 - express-api/routes/orders.js
 - express-api/routes/products.js
+- express-api/routes/subscriptions_engine.js
 - express-api/data/schema.sql
+- go-ops-service/main.go
+- java-invoice-service/src/main/java/com/filspresso/invoice/InvoiceController.java
+- kotlin-subscription-service/src/main/kotlin/com/filspresso/subscriptions/SubscriptionController.kt
 - src/app/page.tsx
+- src/lib/wasm/filspressoMath.ts
 - proxy.ts
 - next.config.ts
 - app.py
