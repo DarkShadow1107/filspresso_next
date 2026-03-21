@@ -1,0 +1,38 @@
+sequenceDiagram
+    participant B as Browser
+    participant N as Next.js
+    participant E as Express API
+    participant P as Python AI
+    participant J as Java Invoice
+    participant K as Kotlin Subscriptions
+    participant G as Go Ops
+    participant DB as PostgreSQL
+
+    B->>N: Load page / navigate / client actions
+    N->>E: Commerce API calls (/api/products, /api/cart, /api/orders)
+    E->>DB: SQL reads/writes
+    DB-->>E: Result rows / conflicts
+    E-->>N: JSON responses
+
+    B->>N: AI chat request
+    N->>E: Kafelot prompt check
+    E-->>N: Allowed / blocked
+    N->>P: /api/chat or /api/ask-coffee
+    P->>DB: Vector or transactional access
+    P-->>N: AI response payload
+    N-->>B: Rendered AI result
+
+    B->>N: Download invoice
+    N->>E: GET /api/orders/:id/invoice
+    E->>J: POST /api/invoices/render
+    J-->>E: PDF bytes
+    E-->>N: application/pdf
+    N-->>B: Browser download
+
+    B->>N: Subscription quote request
+    N->>E: POST /api/subscriptions-engine/quote
+    E->>K: POST /api/subscriptions/quote
+    K-->>E: Quote payload
+    E-->>N: Quote JSON
+
+    E->>G: POST /events/ingest (operational events)

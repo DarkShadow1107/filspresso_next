@@ -164,79 +164,15 @@ Filspresso Next delivers a unified product experience around coffee discovery an
 
 ### System context diagram
 
-```mermaid
-flowchart LR
-    U[User Browser] --> N[Next.js App Router\nPort 3000]
-    N --> E[Express API\nPort 4000]
-    N --> P[Python AI Service\nPort 5000]
-    N --> W[Wasm runtime in browser\n/public/wasm]
-    E --> D[(PostgreSQL\nPort 5432)]
-    E --> J[Java Invoice\nPort 8082]
-    E --> K[Kotlin Subscriptions\nPort 8084]
-    E --> G[Go Ops\nPort 8083]
-    P --> D
-    I[IoT Device] --> P
-```
+![System Context Diagram](docs/uml/system-context-diagram.svg)
 
 ### Request routing and service interactions
 
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant N as Next.js
-    participant E as Express API
-    participant P as Python AI
-    participant J as Java Invoice
-    participant K as Kotlin Subscriptions
-    participant G as Go Ops
-    participant DB as PostgreSQL
-
-    B->>N: Load page / navigate / client actions
-    N->>E: Commerce API calls (/api/products, /api/cart, /api/orders)
-    E->>DB: SQL reads/writes
-    DB-->>E: Result rows / conflicts
-    E-->>N: JSON responses
-
-    B->>N: AI chat request
-    N->>E: Kafelot prompt check
-    E-->>N: Allowed / blocked
-    N->>P: /api/chat or /api/ask-coffee
-    P->>DB: Vector or transactional access
-    P-->>N: AI response payload
-    N-->>B: Rendered AI result
-
-    B->>N: Download invoice
-    N->>E: GET /api/orders/:id/invoice
-    E->>J: POST /api/invoices/render
-    J-->>E: PDF bytes
-    E-->>N: application/pdf
-    N-->>B: Browser download
-
-    B->>N: Subscription quote request
-    N->>E: POST /api/subscriptions-engine/quote
-    E->>K: POST /api/subscriptions/quote
-    K-->>E: Quote payload
-    E-->>N: Quote JSON
-
-    E->>G: POST /events/ingest (operational events)
-```
+![Request Routing And Service Interactions](docs/uml/request-routing-sequence.svg)
 
 ### Stock-safe checkout flow
 
-```mermaid
-flowchart TD
-    A[Add to cart] --> B[Server validates inventory]
-    B --> C[Compute reserved qty by other active carts]
-    C --> D{Enough reservable stock?}
-    D -- No --> E[409 conflict: insufficient stock]
-    D -- Yes --> F[Persist cart quantity]
-    F --> G[Checkout begins]
-    G --> H[Lock rows FOR UPDATE]
-    H --> I{stock >= requested?}
-    I -- No --> J[Rollback + conflict]
-    I -- Yes --> K[Decrement stock + create order]
-    K --> L[Commit transaction]
-```
+![Stock-safe Checkout Flow](docs/uml/stock-safe-checkout-flow.svg)
 
 ### 2.1 Full App UML (Component, Deployment, Domain)
 
@@ -260,261 +196,15 @@ The following UML set covers the full platform from code modules to runtime cont
 
 ### 2.2 Updated UML Sources And Additional Diagrams
 
-Authoritative editable UML sources are now maintained as Mermaid files in `docs/uml/`.
+Additional architecture diagrams are exported as SVG files in `docs/uml/` for direct rendering in README and GitHub.
 
-- `docs/uml/full-app-component-diagram.mmd`
-- `docs/uml/full-app-deployment-diagram.mmd`
-- `docs/uml/full-app-domain-model.mmd`
-- `docs/uml/coffee-stock-read-path.mmd`
-- `docs/uml/invoice-rendering-sequence.mmd`
-- `docs/uml/security-trust-boundary.mmd`
+#### Invoice rendering and signing flow (new)
 
-#### Inline: `full-app-component-diagram.mmd`
+![Invoice Rendering Sequence](docs/uml/invoice-rendering-sequence.svg)
 
-```mermaid
-flowchart LR
-        U[User Browser] --> N[Next.js App Router]
-        N --> E[Express API Orchestrator]
-        N --> P[Python AI Service]
-        N --> W[Wasm Runtime]
+#### Security trust-boundary map (new)
 
-        E --> O[Orders Domain]
-        E --> C[Cart Domain]
-        E --> A[Accounts/Auth Domain]
-        E --> PR[Products Domain]
-        E --> F[Favorites Domain]
-        E --> KAF[Kafelot Guardrails]
-
-        E --> J[Java Invoice Service]
-        E --> K[Kotlin Subscription Service]
-        E --> G[Go Ops Service]
-
-        E --> DB[(PostgreSQL)]
-        P --> DB
-
-        subgraph Browser-Side Acceleration
-                W
-        end
-
-        subgraph Core Orchestration
-                E
-                O
-                C
-                A
-                PR
-                F
-                KAF
-        end
-
-        subgraph Specialized Services
-                J
-                K
-                G
-                P
-        end
-```
-
-#### Inline: `full-app-deployment-diagram.mmd`
-
-```mermaid
-flowchart TD
-        UB[User Browser] --> FE[Next.js Container :3000]
-        FE --> BE[Express Container :4000]
-        FE --> AI[Python AI Container :5000]
-
-        BE --> DB[(PostgreSQL Container :5432)]
-        BE --> INV[Java Invoice Container :8082]
-        BE --> OPS[Go Ops Container :8083]
-        BE --> SUB[Kotlin Subscriptions Container :8084]
-
-        AI --> DB
-
-        WB[Wasm Builder Profile] --> WASM[(public/wasm artifacts)]
-        FE --> WASM
-
-        IMG[(public/images volume)] --> BE
-        IMG --> INV
-
-        HF[(hf_cache)] --> AI
-        CLIP[(clip_cache)] --> AI
-        MOL[(molscribe_model)] --> AI
-
-        classDef app fill:#eef7ff,stroke:#3a7bd5,color:#111;
-        classDef data fill:#fff6e8,stroke:#c17d2d,color:#111;
-
-        class FE,BE,AI,INV,OPS,SUB,WB app;
-        class DB,WASM,IMG,HF,CLIP,MOL data;
-```
-
-#### Inline: `full-app-domain-model.mmd`
-
-```mermaid
-classDiagram
-        class Account {
-            +id : uuid
-            +email : string
-            +username : string
-            +password_hash : string
-            +created_at : datetime
-        }
-
-        class UserSession {
-            +id : uuid
-            +account_id : uuid
-            +token_hash : string
-            +expires_at : datetime
-        }
-
-        class Order {
-            +id : uuid
-            +account_id : uuid
-            +status : string
-            +order_number : string
-            +created_at : datetime
-            +total : decimal
-        }
-
-        class OrderItem {
-            +id : uuid
-            +order_id : uuid
-            +product_id : string
-            +product_type : string
-            +quantity : int
-            +unit_price : decimal
-            +total_price : decimal
-        }
-
-        class CartItem {
-            +id : uuid
-            +account_id : uuid
-            +product_id : string
-            +product_type : string
-            +quantity : int
-            +updated_at : datetime
-        }
-
-        class CoffeeProduct {
-            +product_id : string
-            +name : string
-            +stock : int
-            +price : decimal
-            +category : string
-        }
-
-        class MachineProduct {
-            +product_id : string
-            +name : string
-            +stock : int
-            +price : decimal
-            +category : string
-        }
-
-        class Subscription {
-            +id : uuid
-            +account_id : uuid
-            +plan : string
-            +status : string
-            +next_billing_date : date
-        }
-
-        class Favorite {
-            +id : uuid
-            +account_id : uuid
-            +product_id : string
-            +product_type : string
-        }
-
-        class CoffeeFact {
-            +id : int
-            +content : text
-            +embedding : vector
-        }
-
-        Account "1" --> "many" UserSession
-        Account "1" --> "many" Order
-        Account "1" --> "many" CartItem
-        Account "1" --> "many" Favorite
-        Account "1" --> "many" Subscription
-        Order "1" --> "many" OrderItem
-        OrderItem --> CoffeeProduct : references
-        OrderItem --> MachineProduct : references
-```
-
-#### Inline: `coffee-stock-read-path.mmd`
-
-```mermaid
-sequenceDiagram
-        participant B as Browser
-        participant N as Next.js
-        participant E as Express API
-        participant DB as PostgreSQL
-
-        B->>N: Open /coffee
-        N->>E: GET /api/products/coffee
-        E->>DB: SELECT coffee products + stock
-        DB-->>E: Rows
-        E-->>N: Product payload
-        N-->>B: Render cards and stock
-
-        Note over N,E: Preferred pattern is a single initial read per page load.
-        Note over E,DB: Keep indexes on product_id, product_type, category for stable latency.
-```
-
-#### Inline: `invoice-rendering-sequence.mmd`
-
-```mermaid
-sequenceDiagram
-        participant B as Browser
-        participant N as Next.js
-        participant E as Express API
-        participant J as Java Invoice Service
-        participant S as SignatureStampRenderer
-        participant R as Signature Resource PNG
-
-        B->>N: Download invoice
-        N->>E: GET /api/orders/:id/invoice
-        E->>J: POST /api/invoices/render
-        J->>S: addSignatureStamp(invoiceRequest)
-        S->>R: Load /signature/filspresso-signature.png
-        R-->>S: Image bytes
-        S-->>J: Rendered signature section
-        J-->>E: PDF bytes
-        E-->>N: application/pdf attachment
-        N-->>B: PDF file
-```
-
-#### Inline: `security-trust-boundary.mmd`
-
-```mermaid
-flowchart LR
-        U[User Browser] -->|HTTPS| NX[Next.js]
-        NX -->|Bearer token| EX[Express API]
-
-        EX -->|service call| JV[Java Invoice]
-        EX -->|service call| KT[Kotlin Subscriptions]
-        EX -->|service call + API key| GO[Go Ops]
-        NX -->|proxy| PY[Python AI]
-
-        EX -->|parameterized SQL| PG[(PostgreSQL)]
-        PY --> PG
-
-        subgraph Public_Internet
-                U
-        end
-
-        subgraph Internal_Service_Network
-                NX
-                EX
-                JV
-                KT
-                GO
-                PY
-        end
-
-        subgraph Data_Boundary
-                PG
-        end
-```
+![Security Trust Boundary](docs/uml/security-trust-boundary.svg)
 
 ---
 
@@ -789,7 +479,7 @@ Notes:
 - Added new Express route modules for inter-service proxying: `operations.js` and `subscriptions_engine.js`.
 - Added `java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java` and signature resource assets for invoice stamp rendering.
 - Added legal route files for `/terms-and-conditions` and `/manage-subscription/privacy-policy` while deprecating legacy legal route paths.
-- Added editable UML source files under `docs/uml/*.mmd` to keep architecture diagrams versioned and maintainable.
+- Added UML SVG exports under `docs/uml/*.svg` so architecture diagrams render directly in README and GitHub.
 
 ---
 
@@ -948,19 +638,7 @@ Docker is not an optional side note in this project. It is part of how the archi
 
 ### Compose dependency graph
 
-```mermaid
-flowchart TD
-    PG[postgres] --> BE[backend]
-    PG --> AI[ai]
-    BE --> JI[invoice_java]
-    BE --> GO[go_ops]
-    BE --> KS[kotlin_subscriptions]
-    WB[wasm_builder] --> PW[public/wasm artifacts]
-    BE --> IMG[public/images mount]
-    AI --> HFC[hf_cache volume]
-    AI --> CLC[clip_cache volume]
-    AI --> MSC[molscribe_model volume]
-```
+![Compose Dependency Graph](docs/uml/compose-dependency-graph.svg)
 
 ### Important volumes
 
@@ -2098,7 +1776,7 @@ This snapshot is source-focused and excludes generated/dependency-heavy director
 
 - `docs/SCREENSHOTS.md`
 - `docs/screenshots/` (gallery image folder)
-- `docs/uml/` (UML SVG snapshots + Mermaid source files)
+- `docs/uml/` (UML SVG snapshots)
 
 ### express-api/
 
