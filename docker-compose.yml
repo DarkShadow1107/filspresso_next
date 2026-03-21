@@ -81,8 +81,12 @@ services:
             dockerfile: Dockerfile
         container_name: filspresso_invoice_java
         restart: unless-stopped
+        environment:
+            INVOICE_LOGO_PATH: /app/public/images/Logo_filspresso_web.png
         ports:
             - "8082:8082"
+        volumes:
+            - ./public/images:/app/public/images:ro
         networks:
             default:
                 aliases:

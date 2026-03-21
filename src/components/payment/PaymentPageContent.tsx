@@ -472,6 +472,14 @@ export default function PaymentPageContent() {
 			: fx(baseShippingCost).from("RON").to(selectedCurrency),
 	);
 	const conversionFeePercent = CURRENCY_CONFIG[selectedCurrency].feePercent;
+	const subtotalA = roundCurrency(items.reduce((sum, item) => sum + item.price * item.qty, 0));
+	const discountAmount = roundCurrency(memberDiscount.amount || 0);
+	const subtotalB = roundCurrency(Math.max(0, subtotalA - discountAmount));
+	const exchangeTaxAmountRon = selectedCurrency === "RON" ? 0 : roundCurrency(subtotalB * (conversionFeePercent / 100));
+	const totalBeforeVatRon = roundCurrency(subtotalB + exchangeTaxAmountRon);
+	const vatAmountRon = roundCurrency(totalBeforeVatRon * 0.21);
+	const chargedTotalDisplay =
+		selectedCurrency === "RON" ? roundCurrency(totalBeforeVatRon) : roundCurrency(totalBeforeVatRon * selectedRate);
 	const conversionFeeAmount =
 		selectedCurrency === "RON"
 			? 0
@@ -950,7 +958,7 @@ export default function PaymentPageContent() {
 						<div>
 							<strong>{exchangeRateLabel}</strong>
 							<span>
-								Conversion tax: {conversionFeePercent}%{" "}
+								Exchange tax: {conversionFeePercent}%{" "}
 								{selectedCurrency === "RON" ? "not applied for RON." : "applied to the converted total."}
 							</span>
 						</div>
@@ -960,39 +968,51 @@ export default function PaymentPageContent() {
 
 					<div className="payment-breakdown">
 						<div className="payment-breakdown__row">
-							<span>Subtotal</span>
+							<span>Subtotal A</span>
 							<div className="payment-breakdown__value">
-								<strong>{formatMoney(convertedSubtotal, selectedCurrency)}</strong>
-								{selectedCurrency !== "RON" && <span>{formatMoney(ronEquivalentSubtotal, "RON")}</span>}
+								<strong>{formatMoney(subtotalA, "RON")}</strong>
+							</div>
+						</div>
+						{discountAmount > 0 && (
+							<div className="payment-breakdown__row">
+								<span>Discount</span>
+								<div className="payment-breakdown__value">
+									<strong>- {formatMoney(discountAmount, "RON")}</strong>
+								</div>
+							</div>
+						)}
+						<div className="payment-breakdown__row">
+							<span>Subtotal B</span>
+							<div className="payment-breakdown__value">
+								<strong>{formatMoney(subtotalB, "RON")}</strong>
 							</div>
 						</div>
 						<div className="payment-breakdown__row">
-							<span>Shipping</span>
+							<span>Exchange tax ({conversionFeePercent}%)</span>
 							<div className="payment-breakdown__value">
-								<strong>
-									{baseShippingCost === 0 ? "Free" : formatMoney(convertedShippingCost, selectedCurrency)}
-								</strong>
-								{selectedCurrency !== "RON" && baseShippingCost > 0 && (
-									<span>{formatMoney(ronEquivalentShipping, "RON")}</span>
-								)}
-							</div>
-						</div>
-						<div className="payment-breakdown__row">
-							<span>Conversion tax</span>
-							<div className="payment-breakdown__value">
-								<strong>{formatMoney(conversionFeeAmount, selectedCurrency)}</strong>
-								{selectedCurrency !== "RON" && <span>{formatMoney(ronEquivalentConversionFee, "RON")}</span>}
+								<strong>{formatMoney(exchangeTaxAmountRon, "RON")}</strong>
 							</div>
 						</div>
 						<div className="payment-breakdown__row payment-breakdown__row--total">
 							<span>Total to charge</span>
 							<div className="payment-breakdown__value">
-								<strong>{formatMoney(chargedTotal, selectedCurrency)}</strong>
-								{selectedCurrency !== "RON" && <span>{formatMoney(ronEquivalentTotal, "RON")}</span>}
+								<strong>{formatMoney(totalBeforeVatRon, "RON")}</strong>
+							</div>
+						</div>
+						<div className="payment-breakdown__row">
+							<span>VAT (21%)</span>
+							<div className="payment-breakdown__value">
+								<strong>{formatMoney(vatAmountRon, "RON")}</strong>
+							</div>
+						</div>
+						<div className="payment-breakdown__row payment-breakdown__row--total">
+							<span>Charged total</span>
+							<div className="payment-breakdown__value">
+								<strong>{formatMoney(chargedTotalDisplay, selectedCurrency)}</strong>
 							</div>
 						</div>
 						<div className="payment-breakdown__footnote">
-							RON ledger equivalent: {formatMoney(ronEquivalentTotal, "RON")}
+							RON ledger equivalent: {formatMoney(totalBeforeVatRon, "RON")}
 						</div>
 					</div>
 				</div>

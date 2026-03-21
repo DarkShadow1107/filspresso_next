@@ -1,0 +1,89 @@
+classDiagram
+    class Account {
+      +id : uuid
+      +email : string
+      +username : string
+      +password_hash : string
+      +created_at : datetime
+    }
+
+    class UserSession {
+      +id : uuid
+      +account_id : uuid
+      +token_hash : string
+      +expires_at : datetime
+    }
+
+    class Order {
+      +id : uuid
+      +account_id : uuid
+      +status : string
+      +order_number : string
+      +created_at : datetime
+      +total : decimal
+    }
+
+    class OrderItem {
+      +id : uuid
+      +order_id : uuid
+      +product_id : string
+      +product_type : string
+      +quantity : int
+      +unit_price : decimal
+      +total_price : decimal
+    }
+
+    class CartItem {
+      +id : uuid
+      +account_id : uuid
+      +product_id : string
+      +product_type : string
+      +quantity : int
+      +updated_at : datetime
+    }
+
+    class CoffeeProduct {
+      +product_id : string
+      +name : string
+      +stock : int
+      +price : decimal
+      +category : string
+    }
+
+    class MachineProduct {
+      +product_id : string
+      +name : string
+      +stock : int
+      +price : decimal
+      +category : string
+    }
+
+    class Subscription {
+      +id : uuid
+      +account_id : uuid
+      +plan : string
+      +status : string
+      +next_billing_date : date
+    }
+
+    class Favorite {
+      +id : uuid
+      +account_id : uuid
+      +product_id : string
+      +product_type : string
+    }
+
+    class CoffeeFact {
+      +id : int
+      +content : text
+      +embedding : vector
+    }
+
+    Account "1" --> "many" UserSession
+    Account "1" --> "many" Order
+    Account "1" --> "many" CartItem
+    Account "1" --> "many" Favorite
+    Account "1" --> "many" Subscription
+    Order "1" --> "many" OrderItem
+    OrderItem --> CoffeeProduct : references
+    OrderItem --> MachineProduct : references

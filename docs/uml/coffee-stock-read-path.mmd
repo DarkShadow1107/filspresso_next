@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant B as Browser
+    participant N as Next.js
+    participant E as Express API
+    participant DB as PostgreSQL
+
+    B->>N: Open /coffee
+    N->>E: GET /api/products/coffee
+    E->>DB: SELECT coffee products + stock
+    DB-->>E: Rows
+    E-->>N: Product payload
+    N-->>B: Render cards and stock
+
+    Note over N,E: Preferred pattern is a single initial read per page load.
+    Note over E,DB: Keep indexes on product_id, product_type, category for stable latency.

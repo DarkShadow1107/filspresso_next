@@ -1,13 +1,13 @@
-import TermsOfUseContent from "@/components/legal/TermsOfUseContent";
+import TermsAndConditions from "@/components/legal/TermsAndConditionsContent";
 
 export const metadata = {
-	title: "Terms of Use | Filspresso",
+	title: "Terms and Conditions | Filspresso",
 	description:
 		"Terms and conditions governing your use of the Filspresso website, store, Kafelot AI, and IoT integration services.",
 };
 
 export const dynamic = "force-static";
 
-export default function TermsOfUsePage() {
-	return <TermsOfUseContent />;
+export default function TermsAndConditionsPage() {
+	return <TermsAndConditions />;
 }

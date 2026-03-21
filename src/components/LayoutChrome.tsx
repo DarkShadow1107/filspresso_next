@@ -20,7 +20,7 @@ export default function LayoutChrome({ children }: PropsWithChildren) {
 			pathname.startsWith("/admin") ||
 			pathname.startsWith("/kafelot-privacy") ||
 			pathname.startsWith("/privacy-policy") ||
-			pathname.startsWith("/terms-of-use") ||
+			pathname.startsWith("/terms-and-conditions") ||
 			pathname.startsWith("/sales-refunds"));
 
 	const isFavorites = pathname === "/favorites";
@@ -46,8 +46,8 @@ export default function LayoutChrome({ children }: PropsWithChildren) {
 					<Link href="/privacy-policy" target="_blank" rel="noopener noreferrer">
 						Privacy Policy
 					</Link>
-					<Link href="/terms-of-use" target="_blank" rel="noopener noreferrer">
-						Terms of Use
+					<Link href="/terms-and-conditions" target="_blank" rel="noopener noreferrer">
+						Terms and Conditions
 					</Link>
 					<Link href="/sales-refunds" target="_blank" rel="noopener noreferrer">
 						Sales &amp; Refunds

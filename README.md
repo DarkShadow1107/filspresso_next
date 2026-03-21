@@ -15,6 +15,38 @@ This section is a quick ADR-style summary for new contributors.
 - Use C++/WebAssembly in browser-side compute paths (image preprocessing, QR candidate scoring, vector ranking) where deterministic numeric performance is needed.
 - Keep PostgreSQL as the primary database because current architecture depends on transaction-heavy commerce flows plus extension-oriented AI/chemistry capabilities.
 
+## 0.1 Current Revision Change Log (Beta-3)
+
+This section tracks the most recent cross-service changes reflected in the current workspace.
+
+### Invoice and order experience updates
+
+- Added image-based signature rendering for invoice PDFs using `public/images/Filspresso_Signature_Invoice.png`.
+- Added dedicated Java renderer class `java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java`.
+- Updated invoice PDF generation pipeline in `java-invoice-service/src/main/java/com/filspresso/invoice/InvoiceController.java` to call the signature stamp renderer.
+- Added signature image asset mount/read path under `java-invoice-service/src/main/resources/signature/`.
+- Kept invoice generation deterministic by rendering static stamp assets instead of randomized runtime stroke generation.
+
+### Legal route migration and UX alignment
+
+- Replaced legacy legal page route `/terms-of-use` with `/terms-and-conditions`.
+- Moved privacy legal route to `/manage-subscription/privacy-policy`.
+- Added `src/app/terms-and-conditions/page.tsx` and `src/components/legal/TermsAndConditionsContent.tsx`.
+- Added `src/app/manage-subscription/privacy-policy/page.tsx`.
+- Updated shared chrome linking in `src/components/LayoutChrome.tsx` to match new legal URLs.
+
+### Commerce/payment and integration adjustments
+
+- Updated order and invoice integration behavior in `express-api/routes/orders.js`.
+- Updated payment flow behavior in `src/components/payment/PaymentPageContent.tsx`.
+- Updated order history behavior in `src/components/account/sections/OrderHistory.tsx`.
+
+### Documentation scope in this README revision
+
+- Refreshed UML source references and added additional architecture diagrams in Mermaid source form.
+- Added explicit technology tradeoff and performance-comparison matrix.
+- Added explicit security-control comparison matrix and service hardening rationale.
+
 ## Quick Start For New Contributors (5 Minutes)
 
 If you are new to this repository, use this section first.
@@ -71,10 +103,13 @@ npm run dev
 ## Table Of Contents
 
 - [0. Architecture Decision Snapshot](#0-architecture-decision-snapshot)
+- [0.1 Current Revision Change Log (Beta-3)](#01-current-revision-change-log-beta-3)
 - [1. Product Overview](#1-product-overview)
 - [2. Architecture At A Glance](#2-architecture-at-a-glance)
 - [2.1 Full App UML (Component, Deployment, Domain)](#21-full-app-uml-component-deployment-domain)
+- [2.2 Updated UML Sources And Additional Diagrams](#22-updated-uml-sources-and-additional-diagrams)
 - [3. Technology Stack](#3-technology-stack)
+- [3.1 Technology Alternatives And Performance Snapshot](#31-technology-alternatives-and-performance-snapshot)
 - [4. Monorepo Structure](#4-monorepo-structure)
 - [5. Runtime Topology And Ports](#5-runtime-topology-and-ports)
 - [6. Environment Variables](#6-environment-variables)
@@ -87,6 +122,7 @@ npm run dev
 - [13. Database Model And Data Lifecycle](#13-database-model-and-data-lifecycle)
 - [14. Stock Integrity, Reservation, And Checkout Safety](#14-stock-integrity-reservation-and-checkout-safety)
 - [15. Security Model](#15-security-model)
+- [15.1 Security Control Comparison](#151-security-control-comparison)
 - [16. Observability, Health, And Incidents](#16-observability-health-and-incidents)
 - [17. Page Map And Route Behavior](#17-page-map-and-route-behavior)
 - [18. Screenshots (All Pages)](#18-screenshots-all-pages)
@@ -133,7 +169,11 @@ flowchart LR
     U[User Browser] --> N[Next.js App Router\nPort 3000]
     N --> E[Express API\nPort 4000]
     N --> P[Python AI Service\nPort 5000]
+    N --> W[Wasm runtime in browser\n/public/wasm]
     E --> D[(PostgreSQL\nPort 5432)]
+    E --> J[Java Invoice\nPort 8082]
+    E --> K[Kotlin Subscriptions\nPort 8084]
+    E --> G[Go Ops\nPort 8083]
     P --> D
     I[IoT Device] --> P
 ```
@@ -146,6 +186,9 @@ sequenceDiagram
     participant N as Next.js
     participant E as Express API
     participant P as Python AI
+    participant J as Java Invoice
+    participant K as Kotlin Subscriptions
+    participant G as Go Ops
     participant DB as PostgreSQL
 
     B->>N: Load page / navigate / client actions
@@ -161,6 +204,21 @@ sequenceDiagram
     P->>DB: Vector or transactional access
     P-->>N: AI response payload
     N-->>B: Rendered AI result
+
+    B->>N: Download invoice
+    N->>E: GET /api/orders/:id/invoice
+    E->>J: POST /api/invoices/render
+    J-->>E: PDF bytes
+    E-->>N: application/pdf
+    N-->>B: Browser download
+
+    B->>N: Subscription quote request
+    N->>E: POST /api/subscriptions-engine/quote
+    E->>K: POST /api/subscriptions/quote
+    K-->>E: Quote payload
+    E-->>N: Quote JSON
+
+    E->>G: POST /events/ingest (operational events)
 ```
 
 ### Stock-safe checkout flow
@@ -200,6 +258,264 @@ The following UML set covers the full platform from code modules to runtime cont
 
 ![Coffee Stock Read Path](docs/uml/coffee-stock-read-path.svg)
 
+### 2.2 Updated UML Sources And Additional Diagrams
+
+Authoritative editable UML sources are now maintained as Mermaid files in `docs/uml/`.
+
+- `docs/uml/full-app-component-diagram.mmd`
+- `docs/uml/full-app-deployment-diagram.mmd`
+- `docs/uml/full-app-domain-model.mmd`
+- `docs/uml/coffee-stock-read-path.mmd`
+- `docs/uml/invoice-rendering-sequence.mmd`
+- `docs/uml/security-trust-boundary.mmd`
+
+#### Inline: `full-app-component-diagram.mmd`
+
+```mermaid
+flowchart LR
+        U[User Browser] --> N[Next.js App Router]
+        N --> E[Express API Orchestrator]
+        N --> P[Python AI Service]
+        N --> W[Wasm Runtime]
+
+        E --> O[Orders Domain]
+        E --> C[Cart Domain]
+        E --> A[Accounts/Auth Domain]
+        E --> PR[Products Domain]
+        E --> F[Favorites Domain]
+        E --> KAF[Kafelot Guardrails]
+
+        E --> J[Java Invoice Service]
+        E --> K[Kotlin Subscription Service]
+        E --> G[Go Ops Service]
+
+        E --> DB[(PostgreSQL)]
+        P --> DB
+
+        subgraph Browser-Side Acceleration
+                W
+        end
+
+        subgraph Core Orchestration
+                E
+                O
+                C
+                A
+                PR
+                F
+                KAF
+        end
+
+        subgraph Specialized Services
+                J
+                K
+                G
+                P
+        end
+```
+
+#### Inline: `full-app-deployment-diagram.mmd`
+
+```mermaid
+flowchart TD
+        UB[User Browser] --> FE[Next.js Container :3000]
+        FE --> BE[Express Container :4000]
+        FE --> AI[Python AI Container :5000]
+
+        BE --> DB[(PostgreSQL Container :5432)]
+        BE --> INV[Java Invoice Container :8082]
+        BE --> OPS[Go Ops Container :8083]
+        BE --> SUB[Kotlin Subscriptions Container :8084]
+
+        AI --> DB
+
+        WB[Wasm Builder Profile] --> WASM[(public/wasm artifacts)]
+        FE --> WASM
+
+        IMG[(public/images volume)] --> BE
+        IMG --> INV
+
+        HF[(hf_cache)] --> AI
+        CLIP[(clip_cache)] --> AI
+        MOL[(molscribe_model)] --> AI
+
+        classDef app fill:#eef7ff,stroke:#3a7bd5,color:#111;
+        classDef data fill:#fff6e8,stroke:#c17d2d,color:#111;
+
+        class FE,BE,AI,INV,OPS,SUB,WB app;
+        class DB,WASM,IMG,HF,CLIP,MOL data;
+```
+
+#### Inline: `full-app-domain-model.mmd`
+
+```mermaid
+classDiagram
+        class Account {
+            +id : uuid
+            +email : string
+            +username : string
+            +password_hash : string
+            +created_at : datetime
+        }
+
+        class UserSession {
+            +id : uuid
+            +account_id : uuid
+            +token_hash : string
+            +expires_at : datetime
+        }
+
+        class Order {
+            +id : uuid
+            +account_id : uuid
+            +status : string
+            +order_number : string
+            +created_at : datetime
+            +total : decimal
+        }
+
+        class OrderItem {
+            +id : uuid
+            +order_id : uuid
+            +product_id : string
+            +product_type : string
+            +quantity : int
+            +unit_price : decimal
+            +total_price : decimal
+        }
+
+        class CartItem {
+            +id : uuid
+            +account_id : uuid
+            +product_id : string
+            +product_type : string
+            +quantity : int
+            +updated_at : datetime
+        }
+
+        class CoffeeProduct {
+            +product_id : string
+            +name : string
+            +stock : int
+            +price : decimal
+            +category : string
+        }
+
+        class MachineProduct {
+            +product_id : string
+            +name : string
+            +stock : int
+            +price : decimal
+            +category : string
+        }
+
+        class Subscription {
+            +id : uuid
+            +account_id : uuid
+            +plan : string
+            +status : string
+            +next_billing_date : date
+        }
+
+        class Favorite {
+            +id : uuid
+            +account_id : uuid
+            +product_id : string
+            +product_type : string
+        }
+
+        class CoffeeFact {
+            +id : int
+            +content : text
+            +embedding : vector
+        }
+
+        Account "1" --> "many" UserSession
+        Account "1" --> "many" Order
+        Account "1" --> "many" CartItem
+        Account "1" --> "many" Favorite
+        Account "1" --> "many" Subscription
+        Order "1" --> "many" OrderItem
+        OrderItem --> CoffeeProduct : references
+        OrderItem --> MachineProduct : references
+```
+
+#### Inline: `coffee-stock-read-path.mmd`
+
+```mermaid
+sequenceDiagram
+        participant B as Browser
+        participant N as Next.js
+        participant E as Express API
+        participant DB as PostgreSQL
+
+        B->>N: Open /coffee
+        N->>E: GET /api/products/coffee
+        E->>DB: SELECT coffee products + stock
+        DB-->>E: Rows
+        E-->>N: Product payload
+        N-->>B: Render cards and stock
+
+        Note over N,E: Preferred pattern is a single initial read per page load.
+        Note over E,DB: Keep indexes on product_id, product_type, category for stable latency.
+```
+
+#### Inline: `invoice-rendering-sequence.mmd`
+
+```mermaid
+sequenceDiagram
+        participant B as Browser
+        participant N as Next.js
+        participant E as Express API
+        participant J as Java Invoice Service
+        participant S as SignatureStampRenderer
+        participant R as Signature Resource PNG
+
+        B->>N: Download invoice
+        N->>E: GET /api/orders/:id/invoice
+        E->>J: POST /api/invoices/render
+        J->>S: addSignatureStamp(invoiceRequest)
+        S->>R: Load /signature/filspresso-signature.png
+        R-->>S: Image bytes
+        S-->>J: Rendered signature section
+        J-->>E: PDF bytes
+        E-->>N: application/pdf attachment
+        N-->>B: PDF file
+```
+
+#### Inline: `security-trust-boundary.mmd`
+
+```mermaid
+flowchart LR
+        U[User Browser] -->|HTTPS| NX[Next.js]
+        NX -->|Bearer token| EX[Express API]
+
+        EX -->|service call| JV[Java Invoice]
+        EX -->|service call| KT[Kotlin Subscriptions]
+        EX -->|service call + API key| GO[Go Ops]
+        NX -->|proxy| PY[Python AI]
+
+        EX -->|parameterized SQL| PG[(PostgreSQL)]
+        PY --> PG
+
+        subgraph Public_Internet
+                U
+        end
+
+        subgraph Internal_Service_Network
+                NX
+                EX
+                JV
+                KT
+                GO
+                PY
+        end
+
+        subgraph Data_Boundary
+                PG
+        end
+```
+
 ---
 
 ## 3. Technology Stack
@@ -227,6 +543,14 @@ The following UML set covers the full platform from code modules to runtime cont
 - Go 1.22 (operations and event ingestion service)
 - C++ compiled to WebAssembly via Emscripten (client-side preprocessing and scoring)
 
+### Service ownership boundary (important)
+
+- Express owns API gateway/orchestration, auth/account/cart/order orchestration, and transactional stock writes.
+- Java owns invoice PDF rendering only.
+- Kotlin owns subscription quote and reconciliation computations.
+- Go owns operational event ingestion and lightweight ops endpoints.
+- Wasm owns browser-side numeric acceleration (preprocess, QR scoring, vector math), not server orchestration.
+
 ### AI backend
 
 - Python 3.10+
@@ -252,6 +576,24 @@ Model behavior is lazy-loaded at runtime. This keeps startup time lower and only
 - pgvector and rdkit enabled by DB image setup
 - Docker Compose orchestration with health checks and named volumes
 
+### 3.1 Technology Alternatives And Performance Snapshot
+
+The table below captures practical tradeoffs against realistic alternatives considered during implementation.
+
+| Concern                    | Chosen stack                           | Alternative considered          | Why chosen in this codebase                                                             | Observed/expected impact                                       |
+| -------------------------- | -------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Invoice rendering fidelity | Java 17 + OpenPDF/Spring               | Node PDFKit/Puppeteer templates | JVM PDF layout behavior is stable and deterministic for invoice stamping and typography | Fewer visual regressions in generated PDFs across environments |
+| Business-rule safety       | Kotlin service for subscription engine | Express-only rules              | Kotlin null-safety and concise data classes reduce branch-heavy reconciliation bugs     | Lower rule-maintenance risk as plan matrix grows               |
+| Event ingest efficiency    | Go ops service                         | Express worker endpoints        | Go startup and memory profile is favorable for lightweight ingest endpoints             | Better steady-state memory for always-on ops path              |
+| Browser numeric loops      | C++ compiled to Wasm                   | pure TypeScript loops           | Deterministic numeric kernels and faster tight loops for image/vector operations        | Lower CPU time in client-side heavy computation paths          |
+| AI retrieval storage       | PostgreSQL + pgvector                  | separate vector DB              | Keeps transactional + vector data in one consistency boundary                           | Fewer sync jobs and simpler operational topology               |
+
+#### Performance benchmark notes
+
+- Benchmarks are workload-specific and should be repeated in your deployment target.
+- The current architecture optimizes for deterministic output and operational simplicity over synthetic peak throughput.
+- Recommendation: keep a benchmark harness per service (invoice render latency, subscription quote latency, event ingest p95, Wasm compute duration) and track trends release-over-release.
+
 ---
 
 ## 4. Monorepo Structure
@@ -263,6 +605,7 @@ Model behavior is lazy-loaded at runtime. This keeps startup time lower and only
 |- docs/
 |  |- SCREENSHOTS.md
 |  |- screenshots/
+|  |- uml/
 |- express-api/
 |  |- .env
 |  |- package.json
@@ -348,13 +691,13 @@ Model behavior is lazy-loaded at runtime. This keeps startup time lower and only
 |  |  |- manage-subscription/
 |  |  |  |- layout.tsx
 |  |  |  |- page.tsx
+|  |  |  |- privacy-policy/page.tsx
 |  |  |- payment/
 |  |  |  |- layout.tsx
 |  |  |  |- page.tsx
-|  |  |- privacy-policy/page.tsx
 |  |  |- sales-refunds/page.tsx
 |  |  |- services/page.tsx
-|  |  |- terms-of-use/page.tsx
+|  |  |- terms-and-conditions/page.tsx
 |  |  |- api/
 |  |     |- chat/route.ts
 |  |     |- chat/save/route.ts
@@ -444,6 +787,9 @@ Notes:
 - Added `cpp-wasm/` plus `public/wasm/` outputs for C++ compiled browser helpers.
 - Added `src/lib/wasm/filspressoMath.ts` for typed Wasm loading and helper calls.
 - Added new Express route modules for inter-service proxying: `operations.js` and `subscriptions_engine.js`.
+- Added `java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java` and signature resource assets for invoice stamp rendering.
+- Added legal route files for `/terms-and-conditions` and `/manage-subscription/privacy-policy` while deprecating legacy legal route paths.
+- Added editable UML source files under `docs/uml/*.mmd` to keep architecture diagrams versioned and maintainable.
 
 ---
 
@@ -466,9 +812,9 @@ Inside Docker network:
 
 - backend reaches db at host `postgres`
 - backend reaches AI at `http://ai:5000`
-- backend reaches Java invoice at `http://invoice_java:8082`
+- backend reaches Java invoice at `http://invoice-java:8082`
 - backend reaches Go ops at `http://go_ops:8083`
-- backend reaches Kotlin subscriptions at `http://kotlin_subscriptions:8084`
+- backend reaches Kotlin subscriptions at `http://kotlin-subscriptions:8084`
 - AI reaches db at host `postgres`
 
 Outside Docker (host machine):
@@ -503,10 +849,10 @@ Outside Docker (host machine):
 | ENCRYPTION_KEY                    | secret                           | encryption helper key                |
 | CORS_ORIGIN                       | http://localhost:3000            | Allowed origin list                  |
 | PYTHON_AI_HOST                    | http://ai:5000                   | AI health and integration host       |
-| INVOICE_SERVICE_URL               | http://invoice_java:8082         | Java invoice service base URL        |
+| INVOICE_SERVICE_URL               | http://invoice-java:8082         | Java invoice service base URL        |
 | GO_OPS_URL                        | http://go_ops:8083               | Go operational service base URL      |
 | GO_OPS_API_KEY                    | filspresso-ops-key               | Go ops ingest authentication key     |
-| KOTLIN_SUBSCRIPTIONS_URL          | http://kotlin_subscriptions:8084 | Kotlin subscription service base URL |
+| KOTLIN_SUBSCRIPTIONS_URL          | http://kotlin-subscriptions:8084 | Kotlin subscription service base URL |
 | DISABLE_RATE_LIMIT_FOR_DEV        | true or false                    | dev toggle                           |
 | DISABLE_RATE_LIMIT                | true or false                    | explicit global rate-limiter toggle  |
 | CART_RESERVATION_MINUTES          | 20                               | cart reservation contention window   |
@@ -674,6 +1020,15 @@ The frontend uses a page-slug pattern where root page resolves component based o
 - expose health and incident endpoints
 - mount feature route modules under /api
 
+### Responsibilities moved out of Express
+
+- Invoice PDF document rendering moved to Java (`java-invoice-service`).
+- Subscription quote/reconciliation calculations moved to Kotlin (`kotlin-subscription-service`).
+- Operational event ingestion moved to Go (`go-ops-service`).
+- Browser-side high-volume numeric/image loops moved to C++/Wasm (`cpp-wasm`).
+
+Express now orchestrates these domains and enforces auth, validation, and response contracts.
+
 ### Mounted route groups
 
 - /api/auth
@@ -760,7 +1115,7 @@ Flask app that exposes semantic Q and A, multimodal chat, and IoT command lifecy
 - Cart operations
 - Order creation and history
 - Favorites
-- Subscriptions
+- Subscription lifecycle/state endpoints (pricing and quote logic delegated to Kotlin)
 - Weather and repairs
 - Admin operations
 - Prompt/quota flow with kafelot route group
@@ -964,6 +1319,24 @@ No application can be permanently “fully secure”; security is a continuous p
 - add periodic penetration testing and threat modeling updates
 - keep dependencies patched and re-audited continuously
 
+### 15.1 Security Control Comparison
+
+| Security area         | Current implementation                                                             | Lower-rigor alternative            | Why current approach is used                                   |
+| --------------------- | ---------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------- |
+| Auth token validation | JWT algorithm constrained + server-side session cross-check                        | JWT-only stateless validation      | Allows central revocation and tighter incident response        |
+| Credential protection | bcrypt hashing + normalized login + dummy-hash timing mitigation                   | simple hash/naive lookup           | Reduces account enumeration and brute-force leverage           |
+| Abuse resistance      | global and route-level rate limiting + lockout backoff telemetry                   | global limiter only                | Provides targeted protection for login and admin surfaces      |
+| SQL safety            | parameterized queries + identifier validation + read-only guardrails for admin SQL | string-concatenated SQL            | Minimizes injection surface and blast radius                   |
+| Secret handling       | required env secrets, no insecure fallbacks                                        | hardcoded defaults in code/compose | Improves portability to production and secret rotation hygiene |
+| Service events auth   | API key gating for ops ingest endpoints                                            | open internal endpoint assumption  | Defends against accidental exposure in misconfigured networks  |
+
+#### Invoice-specific security posture
+
+- PDF output is encrypted with print-only permissions in Java invoice generation.
+- Signature rendering uses static trusted assets loaded from service resources.
+- Failure to load signature image degrades gracefully without breaking invoice generation.
+- Invoice response is always emitted as `application/pdf` with explicit attachment disposition.
+
 ---
 
 ## 16. Observability, Health, And Incidents
@@ -1009,9 +1382,9 @@ Next route handlers can provide degraded but explicit service status, helping us
 - /favorites
 - /payment
 - /manage-subscription
+- /manage-subscription/privacy-policy
 - /services
-- /privacy-policy
-- /terms-of-use
+- /terms-and-conditions
 - /sales-refunds
 - /kafelot-privacy
 
@@ -1247,11 +1620,11 @@ Global privacy policy page describing data collection, processing, and retention
 - Legal transparency for platform-wide data practices.
 - Core trust and compliance documentation endpoint.
 
-#### Terms Of Use (`terms_of_use.png`)
+#### Terms And Conditions (`terms_of_use.png` legacy filename)
 
 ![Terms Of Use](docs/screenshots/terms_of_use.png)
 
-Legal terms page covering usage conditions and service boundaries.
+Legal terms page covering usage conditions and service boundaries (route now `/terms-and-conditions`).
 
 - Defines contractual framework for using platform features.
 - Complements policy and refund/legal navigation pages.
@@ -1469,6 +1842,13 @@ The workflow fails when any of the following happen:
 - inspect specific service logs
 - verify DB credentials and dependency ordering
 
+### Invoice PDF has missing signature
+
+- verify `public/images/Filspresso_Signature_Invoice.png` exists and is readable
+- verify `java-invoice-service/src/main/resources/signature/filspresso-signature.png` exists in the built image
+- rebuild invoice service with `docker compose up --build invoice_java -d`
+- check invoice service logs for resource-load failures
+
 ### start_all script exits with code 1
 
 - run docker compose command directly and inspect output
@@ -1544,6 +1924,7 @@ This section explains how image files are organized, used by the app, and mainta
 - `public/images/Payment` stores payment-brand logos shown in payment UX.
 - `public/images/svg` stores beverage-size and coffee-type icon assets.
 - `public/images/icons` stores generated/user icon outputs.
+- `public/images/Filspresso_Signature_Invoice.png` stores the invoice signature image used by the Java PDF renderer.
 
 ### How images are consumed in the app
 
@@ -1666,8 +2047,13 @@ For Filspresso, PostgreSQL is not only "good enough"; it is the database that be
 - express-api/data/schema.sql
 - go-ops-service/main.go
 - java-invoice-service/src/main/java/com/filspresso/invoice/InvoiceController.java
+- java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java
+- java-invoice-service/src/main/resources/signature/filspresso-signature.png
 - kotlin-subscription-service/src/main/kotlin/com/filspresso/subscriptions/SubscriptionController.kt
+- public/images/Filspresso_Signature_Invoice.png
 - src/app/page.tsx
+- src/app/terms-and-conditions/page.tsx
+- src/app/manage-subscription/privacy-policy/page.tsx
 - src/lib/wasm/filspressoMath.ts
 - proxy.ts
 - next.config.ts
@@ -1712,6 +2098,7 @@ This snapshot is source-focused and excludes generated/dependency-heavy director
 
 - `docs/SCREENSHOTS.md`
 - `docs/screenshots/` (gallery image folder)
+- `docs/uml/` (UML SVG snapshots + Mermaid source files)
 
 ### express-api/
 
@@ -1790,12 +2177,12 @@ This snapshot is source-focused and excludes generated/dependency-heavy director
 - `src/app/kafelot-privacy/page.tsx`
 - `src/app/manage-subscription/layout.tsx`
 - `src/app/manage-subscription/page.tsx`
+- `src/app/manage-subscription/privacy-policy/page.tsx`
 - `src/app/payment/layout.tsx`
 - `src/app/payment/page.tsx`
-- `src/app/privacy-policy/page.tsx`
 - `src/app/sales-refunds/page.tsx`
 - `src/app/services/page.tsx`
-- `src/app/terms-of-use/page.tsx`
+- `src/app/terms-and-conditions/page.tsx`
 - `src/app/api/chat/route.ts`
 - `src/app/api/chat/save/route.ts`
 - `src/app/api/model/route.ts`

@@ -1,14 +1,17 @@
 package com.filspresso.invoice;
 
+import com.lowagie.text.Chunk;
 import com.lowagie.text.Document;
 import com.lowagie.text.Element;
 import com.lowagie.text.Font;
 import com.lowagie.text.FontFactory;
+import com.lowagie.text.Image;
 import com.lowagie.text.PageSize;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
 import com.lowagie.text.Rectangle;
 import com.lowagie.text.pdf.PdfPCell;
+import com.lowagie.text.pdf.PdfContentByte;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
 import org.springframework.http.ContentDisposition;
@@ -23,13 +26,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -37,9 +42,13 @@ import java.util.Map;
 @RequestMapping("/api/invoices")
 public class InvoiceController {
 
+    private static final BigDecimal VAT_RATE = new BigDecimal("0.21");
     private static final Color COFFEE_DARK = new Color(28, 22, 18);
     private static final Color COFFEE_ACCENT = new Color(196, 167, 125);
+    private static final Color COFFEE_MID = new Color(143, 106, 73);
+    private static final Color COFFEE_SOFT = new Color(232, 217, 198);
     private static final Color ROW_ALT = new Color(248, 244, 239);
+    private static final String DEFAULT_LOGO_PATH = "/app/public/images/Logo_filspresso_web.png";
 
     @GetMapping("/health")
     public Map<String, Object> health() {
@@ -62,15 +71,18 @@ public class InvoiceController {
 
     private byte[] buildPdf(InvoiceRequest req) {
         try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            Document doc = new Document(PageSize.A4, 42, 42, 42, 42);
-            PdfWriter.getInstance(doc, output);
+            Document doc = new Document(PageSize.A4, 42, 42, 30, 38);
+            PdfWriter writer = PdfWriter.getInstance(doc, output);
+            // Keep invoice printable but discourage content edits in common PDF editors.
+            writer.setEncryption(null, null, PdfWriter.ALLOW_PRINTING, PdfWriter.ENCRYPTION_AES_128);
             doc.open();
 
-            addHeader(doc, req);
+            addHeader(doc, req, writer);
             addCustomerAndMeta(doc, req);
             addItems(doc, req);
             addTotals(doc, req);
-            addFooter(doc);
+            SignatureStampRenderer.addSignatureStamp(doc, req);
+            addFooter(doc, req);
 
             doc.close();
             return output.toByteArray();
@@ -79,52 +91,97 @@ public class InvoiceController {
         }
     }
 
-    private void addHeader(Document doc, InvoiceRequest req) throws Exception {
-        PdfPTable header = new PdfPTable(new float[]{2.6f, 1.4f});
+    private void addHeader(Document doc, InvoiceRequest req, PdfWriter writer) throws Exception {
+        drawTopGradient(writer, doc);
+
+        PdfPTable header = new PdfPTable(new float[]{2.35f, 1.65f});
         header.setWidthPercentage(100);
+        header.setSpacingBefore(0);
+        header.setSpacingAfter(2);
 
         PdfPCell brandCell = new PdfPCell();
-        brandCell.setBackgroundColor(COFFEE_DARK);
-        brandCell.setPadding(16);
+        brandCell.setPadding(10);
         brandCell.setBorder(Rectangle.NO_BORDER);
 
-        Font title = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22, COFFEE_ACCENT);
-        Font sub = FontFactory.getFont(FontFactory.HELVETICA, 11, new Color(235, 228, 218));
+        Font title = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 18, COFFEE_SOFT);
+        Font sub = FontFactory.getFont(FontFactory.HELVETICA, 9, new Color(235, 228, 218));
+        Font legal = FontFactory.getFont(FontFactory.HELVETICA, 7.5f, new Color(200, 190, 180));
 
-        Paragraph brand = new Paragraph("FILSPRESSO", title);
-        brand.setSpacingAfter(5);
-        brandCell.addElement(brand);
-        brandCell.addElement(new Paragraph("Specialty coffee, precision delivered", sub));
+        Image logoImage = tryLoadLogo();
+        if (logoImage != null) {
+            logoImage.scaleToFit(190f, 42f);
+            logoImage.setAlignment(Element.ALIGN_LEFT);
+            brandCell.addElement(logoImage);
+        } else {
+            Paragraph brand = new Paragraph("FILSPRESSO", title);
+            brand.setSpacingAfter(5);
+            brandCell.addElement(brand);
+        }
+
+        Paragraph frTagline = new Paragraph("Cafe de specialite, precision livree", sub);
+        frTagline.setSpacingBefore(4);
+        brandCell.addElement(frTagline);
 
         PdfPCell invoiceCell = new PdfPCell();
-        invoiceCell.setBackgroundColor(COFFEE_ACCENT);
-        invoiceCell.setPadding(16);
+        invoiceCell.setPadding(8);
         invoiceCell.setBorder(Rectangle.NO_BORDER);
 
-        Font invoiceLabel = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, COFFEE_DARK);
-        Font invoiceSub = FontFactory.getFont(FontFactory.HELVETICA, 10, COFFEE_DARK);
+        Font invoiceLabel = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, Color.BLACK);
+        Font invoiceSub = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9.5f, Color.BLACK);
 
         Paragraph inv = new Paragraph("INVOICE", invoiceLabel);
         inv.setAlignment(Element.ALIGN_RIGHT);
+        inv.setSpacingAfter(6);
         invoiceCell.addElement(inv);
-        Paragraph number = new Paragraph("Order " + req.orderNumber(), invoiceSub);
-        number.setAlignment(Element.ALIGN_RIGHT);
-        invoiceCell.addElement(number);
+
+        Paragraph orderRef = new Paragraph("Order no: " + req.orderNumber(), invoiceSub);
+        orderRef.setAlignment(Element.ALIGN_RIGHT);
+        orderRef.setSpacingAfter(0);
+        invoiceCell.addElement(orderRef);
 
         header.addCell(brandCell);
         header.addCell(invoiceCell);
 
         doc.add(header);
-        doc.add(new Paragraph(" "));
+    }
+
+    private void drawTopGradient(PdfWriter writer, Document doc) {
+        PdfContentByte canvas = writer.getDirectContentUnder();
+        float x = doc.left();
+        float y = doc.top() - 85;
+        float width = doc.right() - doc.left();
+        float height = 98f;
+        int steps = 120;
+
+        for (int i = 0; i < steps; i++) {
+            float t = i / (float) (steps - 1);
+            Color color = t < 0.5f
+                    ? blend(COFFEE_DARK, COFFEE_MID, t * 2f)
+                    : blend(COFFEE_MID, COFFEE_ACCENT, (t - 0.5f) * 2f);
+            canvas.setColorFill(color);
+            float sx = x + (width * i / steps);
+            float sw = width / steps + 0.8f;
+            canvas.rectangle(sx, y, sw, height);
+            canvas.fill();
+        }
+    }
+
+    private Color blend(Color a, Color b, float t) {
+        float clamped = Math.max(0f, Math.min(1f, t));
+        int r = Math.round(a.getRed() + (b.getRed() - a.getRed()) * clamped);
+        int g = Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * clamped);
+        int bl = Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * clamped);
+        return new Color(r, g, bl);
     }
 
     private void addCustomerAndMeta(Document doc, InvoiceRequest req) throws Exception {
         PdfPTable grid = new PdfPTable(new float[]{1.7f, 1.3f});
         grid.setWidthPercentage(100);
-        grid.setSpacingAfter(12);
+        grid.setSpacingAfter(8);
 
         PdfPCell customer = new PdfPCell();
         customer.setBorderColor(new Color(220, 220, 220));
+        customer.setBackgroundColor(new Color(254, 251, 247));
         customer.setPadding(12);
         customer.addElement(new Paragraph("Bill To", FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, COFFEE_DARK)));
         customer.addElement(new Paragraph(req.customerName(), FontFactory.getFont(FontFactory.HELVETICA, 10, Color.BLACK)));
@@ -132,18 +189,20 @@ public class InvoiceController {
         if (!req.billingAddress().isBlank()) {
             customer.addElement(new Paragraph(req.billingAddress(), FontFactory.getFont(FontFactory.HELVETICA, 9, Color.DARK_GRAY)));
         }
+        if (!req.shippingAddress().isBlank()) {
+            customer.addElement(new Paragraph("Ship to: " + req.shippingAddress(), FontFactory.getFont(FontFactory.HELVETICA, 9, Color.DARK_GRAY)));
+        }
 
         PdfPCell meta = new PdfPCell();
         meta.setBorderColor(new Color(220, 220, 220));
+        meta.setBackgroundColor(new Color(250, 246, 240));
         meta.setPadding(12);
-        meta.addElement(metaLine("Invoice #", req.invoiceNumber()));
-        meta.addElement(metaLine("Date", req.orderDate()));
+        meta.addElement(metaLine("Order date", req.orderDate()));
         meta.addElement(metaLine("Status", req.status().toUpperCase()));
         meta.addElement(metaLine("Payment", req.paymentSummary()));
 
         grid.addCell(customer);
         grid.addCell(meta);
-
         doc.add(grid);
     }
 
@@ -158,25 +217,23 @@ public class InvoiceController {
     }
 
     private void addItems(Document doc, InvoiceRequest req) throws Exception {
-        PdfPTable table = new PdfPTable(new float[]{3.1f, 1.3f, 0.9f, 1.2f, 1.3f});
+        PdfPTable table = new PdfPTable(new float[]{4.5f, 1.0f, 1.2f, 1.4f});
         table.setWidthPercentage(100);
         table.setSpacingBefore(2);
         table.setSpacingAfter(10);
 
-        addHeaderCell(table, "Item");
-        addHeaderCell(table, "SKU");
-        addHeaderCell(table, "Qty");
-        addHeaderCell(table, "Unit");
-        addHeaderCell(table, "Amount");
+        addHeaderCell(table, "Product");
+        addHeaderCell(table, "Quantity");
+        addHeaderCell(table, "Unit (RON)");
+        addHeaderCell(table, "Total (RON)");
 
         int row = 0;
         for (InvoiceItem item : req.items()) {
             Color bg = row % 2 == 0 ? Color.WHITE : ROW_ALT;
-            addBodyCell(table, item.name(), Element.ALIGN_LEFT, bg);
-            addBodyCell(table, item.sku(), Element.ALIGN_LEFT, bg);
+            addProductCell(table, item, bg);
             addBodyCell(table, String.valueOf(item.quantity()), Element.ALIGN_CENTER, bg);
-            addBodyCell(table, money(item.unitPrice(), req.currencyCode()), Element.ALIGN_RIGHT, bg);
-            addBodyCell(table, money(item.totalPrice(), req.currencyCode()), Element.ALIGN_RIGHT, bg);
+            addBodyCell(table, money(item.unitPrice(), "RON"), Element.ALIGN_RIGHT, bg);
+            addBodyCell(table, money(item.totalPrice(), "RON"), Element.ALIGN_RIGHT, bg);
             row++;
         }
 
@@ -203,19 +260,66 @@ public class InvoiceController {
         table.addCell(cell);
     }
 
+    private void addProductCell(PdfPTable table, InvoiceItem item, Color background) {
+        PdfPCell cell = new PdfPCell();
+        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        cell.setBackgroundColor(background);
+        cell.setPadding(8);
+        cell.setBorderColor(new Color(230, 230, 230));
+
+        Image productImage = tryLoadProductImage(item.productImage());
+        if (productImage != null) {
+            productImage.scaleToFit(42f, 42f);
+            productImage.setAlignment(Element.ALIGN_LEFT);
+            cell.addElement(productImage);
+            cell.addElement(new Chunk("\n"));
+        }
+
+        Paragraph name = new Paragraph(cleanProductName(item.name()), FontFactory.getFont(FontFactory.HELVETICA, 9, Color.BLACK));
+        name.setAlignment(Element.ALIGN_LEFT);
+        cell.addElement(name);
+
+        table.addCell(cell);
+    }
+
+    private String cleanProductName(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "Product";
+        }
+        return raw
+                .trim()
+                .replaceAll("\\s*-\\s*\\d+(?:[.,]\\d{1,2})?\\s*(?:RON|EUR|USD|CHF|GBP)\\s*$", "")
+                .replaceAll("\\s{2,}", " ");
+    }
+
     private void addTotals(Document doc, InvoiceRequest req) throws Exception {
         PdfPTable totals = new PdfPTable(new float[]{2.4f, 1f});
         totals.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        totals.setTotalWidth(220);
+        totals.setTotalWidth(260);
         totals.setLockedWidth(true);
+        totals.setSpacingBefore(4);
 
-        addTotalLine(totals, "Subtotal", money(req.subtotal(), req.currencyCode()), false);
-        if (req.discountAmount().compareTo(BigDecimal.ZERO) > 0) {
-            addTotalLine(totals, "Discount", "- " + money(req.discountAmount(), req.currencyCode()), false);
+        BigDecimal subtotalA = subtotalA(req);
+        BigDecimal discountAmount = req.discountAmount().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal subtotalB = subtotalB(req);
+        BigDecimal exchangeTax = exchangeTaxRon(req);
+        BigDecimal totalBeforeVat = totalBeforeVatRon(req);
+        BigDecimal vatAmount = vatAmountRon(req);
+        BigDecimal chargedTotal = chargedTotal(req);
+
+        addTotalLine(totals, "Subtotal A", money(subtotalA, req.baseCurrencyCode()), false);
+        if (discountAmount.compareTo(BigDecimal.ZERO) > 0) {
+            addTotalLine(totals, "Discount", "- " + money(discountAmount, req.baseCurrencyCode()), false);
         }
-        addTotalLine(totals, "Shipping", money(req.shippingCost(), req.currencyCode()), false);
-        addTotalLine(totals, "Tax", money(req.tax(), req.currencyCode()), false);
-        addTotalLine(totals, "Total", money(req.total(), req.currencyCode()), true);
+        addTotalLine(totals, "Subtotal B", money(subtotalB, req.baseCurrencyCode()), false);
+
+        if (exchangeTax.compareTo(BigDecimal.ZERO) > 0) {
+            addTotalLine(totals, "Exchange tax (" + req.conversionFeePercent().setScale(2, RoundingMode.HALF_UP).toPlainString() + "%)", money(exchangeTax, req.baseCurrencyCode()), false);
+        }
+
+        addTotalLine(totals, "Total", money(totalBeforeVat, req.baseCurrencyCode()), false);
+        addTotalLine(totals, "VAT (21%)", money(vatAmount, req.baseCurrencyCode()), false);
+        addTotalLine(totals, "Charged total", money(chargedTotal, req.currencyCode()), true);
 
         doc.add(totals);
     }
@@ -237,17 +341,143 @@ public class InvoiceController {
         table.addCell(right);
     }
 
-    private void addFooter(Document doc) throws Exception {
-        Paragraph gap = new Paragraph(" ");
-        gap.setSpacingBefore(12);
-        doc.add(gap);
+    private void addFooter(Document doc, InvoiceRequest req) throws Exception {
+        PdfPTable footer = new PdfPTable(new float[]{1f});
+        footer.setWidthPercentage(100);
+        footer.setSpacingBefore(8);
 
-        Paragraph footer = new Paragraph(
-                "Thank you for choosing Filspresso. For invoice support, contact support@filspresso.com",
-                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 9, new Color(92, 84, 78))
-        );
-        footer.setAlignment(Element.ALIGN_CENTER);
+        PdfPCell footerCell = new PdfPCell();
+        footerCell.setBorder(Rectangle.NO_BORDER);
+        footerCell.setPaddingTop(3);
+        footerCell.setPaddingBottom(0);
+        footerCell.setBorderWidthTop(0.6f);
+        footerCell.setBorderColorTop(new Color(200, 190, 180));
+
+        Font heading = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8.5f, COFFEE_DARK);
+        Font body = FontFactory.getFont(FontFactory.HELVETICA, 8f, new Color(66, 60, 56));
+        Font muted = FontFactory.getFont(FontFactory.HELVETICA, 7.5f, new Color(96, 90, 86));
+
+        Paragraph company = new Paragraph("Filspresso LLC | Bucharest, Romania | support@filspresso.com", heading);
+        company.setAlignment(Element.ALIGN_LEFT);
+        company.setSpacingAfter(3);
+        footerCell.addElement(company);
+
+        Paragraph terms = new Paragraph("Terms and Conditions: https://filspresso.com/terms-and-conditions", body);
+        terms.setAlignment(Element.ALIGN_LEFT);
+        terms.setSpacingAfter(3);
+        footerCell.addElement(terms);
+
+        String rateLine = exchangeRateSummary(req);
+        if (rateLine != null) {
+            Paragraph exchange = new Paragraph(rateLine, muted);
+            exchange.setAlignment(Element.ALIGN_LEFT);
+            exchange.setSpacingAfter(2);
+            footerCell.addElement(exchange);
+        }
+
+        Paragraph note = new Paragraph("Issued electronically by Filspresso Finance for accounting, reconciliation, and payment confirmation.", muted);
+        note.setAlignment(Element.ALIGN_LEFT);
+        footerCell.addElement(note);
+
+        footer.addCell(footerCell);
         doc.add(footer);
+    }
+
+    private BigDecimal subtotalA(InvoiceRequest req) {
+        return req.subtotal().setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal subtotalB(InvoiceRequest req) {
+        return subtotalA(req).subtract(req.discountAmount().setScale(2, RoundingMode.HALF_UP)).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal exchangeTaxRon(InvoiceRequest req) {
+        if ("RON".equalsIgnoreCase(req.currencyCode()) || req.conversionFeePercent().compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return subtotalB(req)
+                .multiply(req.conversionFeePercent().divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP))
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal vatAmountRon(InvoiceRequest req) {
+        BigDecimal vatBase = totalBeforeVatRon(req);
+        return vatBase.multiply(VAT_RATE).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal totalBeforeVatRon(InvoiceRequest req) {
+        return subtotalB(req).add(exchangeTaxRon(req)).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal chargedTotal(InvoiceRequest req) {
+        BigDecimal totalBeforeVat = totalBeforeVatRon(req);
+        if ("RON".equalsIgnoreCase(req.currencyCode()) || req.exchangeRate().compareTo(BigDecimal.ONE) == 0) {
+            return totalBeforeVat.setScale(2, RoundingMode.HALF_UP);
+        }
+        return totalBeforeVat.multiply(req.exchangeRate()).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private String exchangeRateSummary(InvoiceRequest req) {
+        if ("RON".equalsIgnoreCase(req.currencyCode()) || req.exchangeRate().compareTo(BigDecimal.ONE) == 0) {
+            return null;
+        }
+
+        BigDecimal forwardRate = req.exchangeRate().setScale(6, RoundingMode.HALF_UP);
+        BigDecimal reverseRate = BigDecimal.ONE.divide(req.exchangeRate(), 6, RoundingMode.HALF_UP);
+        return String.format(
+                "Exchange rate applied from %s to %s: 1 %s = %s %s (1 %s = %s %s).",
+                req.baseCurrencyCode(),
+                req.currencyCode(),
+                req.baseCurrencyCode(),
+                forwardRate.toPlainString(),
+                req.currencyCode(),
+                req.currencyCode(),
+                reverseRate.toPlainString(),
+                req.baseCurrencyCode()
+        );
+    }
+
+    private Image tryLoadLogo() {
+        String path = System.getenv("INVOICE_LOGO_PATH");
+        if (path == null || path.isBlank()) {
+            path = DEFAULT_LOGO_PATH;
+        }
+        try {
+            File logoFile = new File(path);
+            if (!logoFile.exists() || !logoFile.isFile()) {
+                return null;
+            }
+            return Image.getInstance(logoFile.getAbsolutePath());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Image tryLoadProductImage(String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            return null;
+        }
+
+        String path = rawPath.trim();
+        try {
+            if (path.startsWith("http://") || path.startsWith("https://")) {
+                return Image.getInstance(path);
+            }
+
+            if (path.startsWith("/images/")) {
+                path = "/app/public" + path;
+            } else if (path.startsWith("images/")) {
+                path = "/app/public/" + path;
+            }
+
+            File file = new File(path);
+            if (!file.exists() || !file.isFile()) {
+                return null;
+            }
+            return Image.getInstance(file.getAbsolutePath());
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String money(BigDecimal amount, String currencyCode) {
@@ -258,18 +488,27 @@ public class InvoiceController {
             String invoiceNumber,
             String orderNumber,
             String orderDate,
+            String generatedAt,
             String status,
+            String destinationCountry,
             String customerName,
             String customerEmail,
             String billingAddress,
             String shippingAddress,
             String paymentSummary,
+            String baseCurrencyCode,
             String currencyCode,
+            BigDecimal exchangeRate,
+            BigDecimal conversionFeePercent,
             BigDecimal subtotal,
             BigDecimal discountAmount,
             BigDecimal shippingCost,
             BigDecimal tax,
             BigDecimal total,
+            BigDecimal chargedSubtotal,
+            BigDecimal chargedShippingCost,
+            BigDecimal chargedTax,
+            BigDecimal chargedTotal,
             List<InvoiceItem> items
     ) {
         InvoiceRequest normalized() {
@@ -278,22 +517,32 @@ public class InvoiceController {
             String date = normalizeDate(orderDate);
             String statusValue = safe(status, "confirmed");
             String invoice = safe(invoiceNumber, "INV-" + order);
+            String generated = normalizeDateTime(generatedAt);
             return new InvoiceRequest(
                     invoice,
                     order,
                     date,
+                    generated,
                     statusValue,
+                    safe(destinationCountry, "Romania"),
                     safe(customerName, "Filspresso Customer"),
                     safe(customerEmail, "-"),
                     safe(billingAddress, ""),
                     safe(shippingAddress, ""),
                     safe(paymentSummary, "Card"),
+                    safe(baseCurrencyCode, "RON"),
                     safe(currencyCode, "RON"),
+                    nonNull(exchangeRate),
+                    nonNull(conversionFeePercent),
                     nonNull(subtotal),
                     nonNull(discountAmount),
                     nonNull(shippingCost),
                     nonNull(tax),
                     nonNull(total),
+                    nonNull(chargedSubtotal),
+                    nonNull(chargedShippingCost),
+                    nonNull(chargedTax),
+                    nonNull(chargedTotal),
                     normalizedItems
             );
         }
@@ -318,13 +567,26 @@ public class InvoiceController {
                 return raw.length() > 10 ? raw.substring(0, 10) : raw;
             }
         }
+
+        private static String normalizeDateTime(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+            }
+            try {
+                OffsetDateTime parsed = OffsetDateTime.parse(raw);
+                return parsed.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX"));
+            } catch (Exception ignored) {
+                return raw;
+            }
+        }
     }
 
-    public record InvoiceItem(String name, String sku, int quantity, BigDecimal unitPrice, BigDecimal totalPrice) {
+    public record InvoiceItem(String name, String sku, String productImage, int quantity, BigDecimal unitPrice, BigDecimal totalPrice) {
         InvoiceItem normalized() {
             return new InvoiceItem(
                     name == null || name.isBlank() ? "Item" : name,
                     sku == null || sku.isBlank() ? "-" : sku,
+                    productImage == null ? "" : productImage,
                     Math.max(1, quantity),
                     unitPrice == null ? BigDecimal.ZERO : unitPrice,
                     totalPrice == null ? BigDecimal.ZERO : totalPrice

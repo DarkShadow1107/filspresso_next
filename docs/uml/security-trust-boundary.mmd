@@ -1,0 +1,28 @@
+flowchart LR
+    U[User Browser] -->|HTTPS| NX[Next.js]
+    NX -->|Bearer token| EX[Express API]
+
+    EX -->|service call| JV[Java Invoice]
+    EX -->|service call| KT[Kotlin Subscriptions]
+    EX -->|service call + API key| GO[Go Ops]
+    NX -->|proxy| PY[Python AI]
+
+    EX -->|parameterized SQL| PG[(PostgreSQL)]
+    PY --> PG
+
+    subgraph Public_Internet
+        U
+    end
+
+    subgraph Internal_Service_Network
+        NX
+        EX
+        JV
+        KT
+        GO
+        PY
+    end
+
+    subgraph Data_Boundary
+        PG
+    end

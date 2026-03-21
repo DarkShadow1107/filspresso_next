@@ -17,6 +17,32 @@ const { v4: uuidv4 } = require("uuid");
 const router = express.Router();
 const INVOICE_SERVICE_URL = process.env.INVOICE_SERVICE_URL || "http://localhost:8082";
 
+function invoiceServiceUrlCandidates() {
+	const seen = new Set();
+	const candidates = [];
+
+	const pushCandidate = (value) => {
+		if (!value || typeof value !== "string") return;
+		const trimmed = value.trim().replace(/\/$/, "");
+		if (!trimmed || seen.has(trimmed)) return;
+		seen.add(trimmed);
+		candidates.push(trimmed);
+	};
+
+	pushCandidate(INVOICE_SERVICE_URL);
+
+	// Spring/Tomcat may reject Host headers that include underscores.
+	if (INVOICE_SERVICE_URL.includes("invoice_java")) {
+		pushCandidate(INVOICE_SERVICE_URL.replace("invoice_java", "invoice-java"));
+	}
+
+	pushCandidate("http://invoice-java:8082");
+	pushCandidate("http://invoice_java:8082");
+	pushCandidate("http://localhost:8082");
+
+	return candidates;
+}
+
 // Tier discount percentages
 const TIER_DISCOUNTS = {
 	None: 0,
@@ -75,6 +101,14 @@ function formatAddress(address) {
 			.join(", ");
 	}
 	return "";
+}
+
+function sanitizeInvoiceProductName(rawName) {
+	if (!rawName || typeof rawName !== "string") return "Product";
+	return rawName
+		.trim()
+		.replace(/\s*-\s*\d+(?:[.,]\d{1,2})?\s*(?:RON|EUR|USD|CHF|GBP)\s*$/i, "")
+		.replace(/\s{2,}/g, " ");
 }
 
 /**
@@ -1006,7 +1040,7 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 		}
 
 		const itemsResult = await client.query(
-			`SELECT product_name, product_id, quantity, unit_price, total_price
+			`SELECT product_name, product_id, product_image, quantity, unit_price, total_price
 			 FROM order_items
 			 WHERE order_id = $1
 			 ORDER BY id ASC`,
@@ -1017,7 +1051,9 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 			invoiceNumber: `INV-${order.order_number}`,
 			orderNumber: order.order_number,
 			orderDate: order.created_at,
+			generatedAt: new Date().toISOString(),
 			status: order.status,
+			destinationCountry: order.destination_country || "Romania",
 			customerName: order.customer_name,
 			customerEmail: order.customer_email,
 			billingAddress: formatAddress(order.billing_address),
@@ -1026,41 +1062,61 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 				order.card_type && order.card_last_four
 					? `${order.card_type.toUpperCase()} •••• ${order.card_last_four}`
 					: order.payment_method || "Card",
+			baseCurrencyCode: "RON",
 			currencyCode: (order.currency_code || "RON").toUpperCase(),
+			exchangeRate: Number(order.exchange_rate || 1),
+			conversionFeePercent: Number(order.conversion_fee_percent || 0),
 			subtotal: Number(order.subtotal || 0),
 			discountAmount: Number(order.discount_amount || 0),
 			shippingCost: Number(order.shipping_cost || 0),
 			tax: Number(order.tax || 0),
 			total: Number(order.total || 0),
+			chargedSubtotal: Number(order.charged_subtotal || order.subtotal || 0),
+			chargedShippingCost: Number(order.charged_shipping_cost || order.shipping_cost || 0),
+			chargedTax: Number(order.charged_tax || order.tax || 0),
+			chargedTotal: Number(order.charged_total || order.total || 0),
 			items: itemsResult.rows.map((item) => ({
-				name: item.product_name,
+				name: sanitizeInvoiceProductName(item.product_name),
 				sku: item.product_id,
+				productImage: item.product_image,
 				quantity: Number(item.quantity || 1),
 				unitPrice: Number(item.unit_price || 0),
 				totalPrice: Number(item.total_price || 0),
 			})),
 		};
 
-		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), 10000);
-		let invoiceResponse;
-		try {
-			invoiceResponse = await fetch(`${INVOICE_SERVICE_URL}/api/invoices/render`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Accept: "application/pdf",
-				},
-				body: JSON.stringify(payload),
-				signal: controller.signal,
-			});
-		} finally {
-			clearTimeout(timeout);
+		let invoiceResponse = null;
+		const attempts = invoiceServiceUrlCandidates();
+
+		for (const baseUrl of attempts) {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 10000);
+			try {
+				const response = await fetch(`${baseUrl}/api/invoices/render`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Accept: "application/pdf",
+					},
+					body: JSON.stringify(payload),
+					signal: controller.signal,
+				});
+
+				if (response.ok) {
+					invoiceResponse = response;
+					break;
+				}
+
+				const errorBody = await response.text().catch(() => "");
+				console.error(`Invoice service non-OK via ${baseUrl}:`, response.status, errorBody);
+			} catch (serviceError) {
+				console.error(`Invoice service unreachable via ${baseUrl}:`, serviceError?.message || serviceError);
+			} finally {
+				clearTimeout(timeout);
+			}
 		}
 
-		if (!invoiceResponse.ok) {
-			const errorBody = await invoiceResponse.text().catch(() => "");
-			console.error("Invoice service error:", invoiceResponse.status, errorBody);
+		if (!invoiceResponse) {
 			return res.status(502).json({ error: "Invoice generation service failed" });
 		}
 

@@ -240,13 +240,13 @@ const sections = [
 	},
 ];
 
-export default function TermsOfUseContent() {
+export default function TermsAndConditionsContent() {
 	return (
 		<main className="legal-page">
 			<div className="lp-hero">
 				<div className="lp-hero-inner">
 					<div className="lp-hero-badge">Legal</div>
-					<h1 className="lp-hero-title">Terms of Use</h1>
+					<h1 className="lp-hero-title">Terms and Conditions</h1>
 					<p className="lp-hero-subtitle">
 						The rules and conditions that govern your use of the Filspresso website, store, Kafelot AI, and IoT
 						integration services.

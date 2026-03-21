@@ -46,6 +46,16 @@ export function OrderHistory({
 		return `${value.toFixed(2)} ${currencyCode.toUpperCase()}`;
 	};
 
+	const roundAmount = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+	const sanitizeProductName = (raw: string) => {
+		if (!raw) return "Product";
+		return raw
+			.trim()
+			.replace(/\s*-\s*\d+(?:[.,]\d{1,2})?\s*(?:RON|EUR|USD|CHF|GBP)\s*$/i, "")
+			.replace(/\s{2,}/g, " ");
+	};
+
 	const handleInvoiceDownload = async (orderId: number, orderNumber: string) => {
 		const token = getAuthToken();
 		if (!token) {
@@ -210,17 +220,22 @@ export function OrderHistory({
 						const total = Number(order.total) || 0;
 						const currencyCode = String(order.currency_code || "RON").toUpperCase();
 						const exchangeRate = Number(order.exchange_rate) > 0 ? Number(order.exchange_rate) : 1;
-						const chargedTotal = Number(order.charged_total) || total * exchangeRate;
 						// Get shipping from database
 						const shippingCost = Number(order.shipping_cost) || 0;
 						const tax = Number(order.tax) || 0;
 						const discountAmount = Number(order.discount_amount) || 0;
 						const rawSubtotal = Number(order.subtotal) || 0;
-						const subtotal = Math.max(0, rawSubtotal - discountAmount);
-						const chargedSubtotal = Number(order.charged_subtotal) || subtotal * exchangeRate;
-						const chargedShippingCost = Number(order.charged_shipping_cost) || shippingCost * exchangeRate;
-						const chargedTax = Number(order.charged_tax) || tax * exchangeRate;
+						const subtotalA = roundAmount(rawSubtotal);
+						const subtotalB = roundAmount(Math.max(0, subtotalA - discountAmount));
+						const exchangeTaxPercent =
+							Number(order.conversion_fee_percent) > 0 ? Number(order.conversion_fee_percent) : 0;
 						const isForeignCurrency = currencyCode !== "RON";
+						const exchangeTaxAmountRon = isForeignCurrency ? roundAmount(subtotalB * (exchangeTaxPercent / 100)) : 0;
+						const totalBeforeVatRon = roundAmount(subtotalB + exchangeTaxAmountRon);
+						const vatAmountRon = roundAmount(totalBeforeVatRon * 0.21);
+						const chargedTotalDisplay = isForeignCurrency
+							? roundAmount(totalBeforeVatRon * exchangeRate)
+							: roundAmount(totalBeforeVatRon);
 						const isExpanded = expandedOrders.has(order.id);
 						const isLoading = loadingOrderItems.has(order.id);
 
@@ -370,12 +385,12 @@ export function OrderHistory({
 												}}
 											>
 												{isForeignCurrency
-													? formatAmount(chargedTotal, currencyCode)
-													: formatAmount(total, "RON")}
+													? formatAmount(chargedTotalDisplay, currencyCode)
+													: formatAmount(chargedTotalDisplay, "RON")}
 											</div>
 											{isForeignCurrency && (
 												<div style={{ fontSize: "0.78rem", color: "#949494" }}>
-													{formatAmount(total, "RON")}
+													{formatAmount(totalBeforeVatRon, "RON")}
 												</div>
 											)}
 										</div>
@@ -428,8 +443,7 @@ export function OrderHistory({
 													{order.items.map((item) => {
 														const unitPrice = Number(item.unit_price) || 0;
 														const totalPrice = Number(item.total_price) || 0;
-														const chargedUnitPrice = unitPrice * exchangeRate;
-														const chargedItemTotal = totalPrice * exchangeRate;
+														const displayName = sanitizeProductName(item.product_name || "");
 														const img =
 															item.product_image ||
 															(item.product_id ? getProductImage(item.product_id) : undefined);
@@ -462,7 +476,7 @@ export function OrderHistory({
 																	{img ? (
 																		<Image
 																			src={img}
-																			alt={item.product_name}
+																			alt={displayName}
 																			width={80}
 																			height={80}
 																			style={{
@@ -485,7 +499,7 @@ export function OrderHistory({
 																			marginBottom: "0.25rem",
 																		}}
 																	>
-																		{item.product_name}
+																		{displayName}
 																	</div>
 																	<div style={{ fontSize: "0.9rem", color: "#aaa" }}>
 																		Quantity:{" "}
@@ -502,9 +516,7 @@ export function OrderHistory({
 																			marginBottom: "2px",
 																		}}
 																	>
-																		{isForeignCurrency
-																			? `${chargedUnitPrice.toFixed(2)} ${currencyCode} / unit`
-																			: `${unitPrice.toFixed(2)} RON / unit`}
+																		{`${unitPrice.toFixed(2)} RON / unit`}
 																	</div>
 																	<div
 																		style={{
@@ -513,15 +525,8 @@ export function OrderHistory({
 																			...gradientTextStyle,
 																		}}
 																	>
-																		{isForeignCurrency
-																			? `${chargedItemTotal.toFixed(2)} ${currencyCode}`
-																			: `${totalPrice.toFixed(2)} RON`}
+																		{`${totalPrice.toFixed(2)} RON`}
 																	</div>
-																	{isForeignCurrency && (
-																		<div style={{ fontSize: "0.78rem", color: "#949494" }}>
-																			{totalPrice.toFixed(2)} RON
-																		</div>
-																	)}
 																</div>
 															</div>
 														);
@@ -548,15 +553,10 @@ export function OrderHistory({
 																	color: "#aaa",
 																}}
 															>
-																<span>Subtotal</span>
-																<span>
-																	{isForeignCurrency
-																		? formatAmount(chargedSubtotal, currencyCode)
-																		: formatAmount(subtotal, "RON")}
-																</span>
+																<span>Subtotal A</span>
+																<span>{formatAmount(subtotalA, "RON")}</span>
 															</div>
-															{/* Member Discount */}
-															{order.discount_tier && Number(order.discount_amount) > 0 && (
+															{order.discount_tier && discountAmount > 0 && (
 																<div
 																	style={{
 																		display: "flex",
@@ -574,19 +574,9 @@ export function OrderHistory({
 																		}}
 																	>
 																		<RosetteDiscountIcon size={16} />
-																		{order.discount_tier} Discount ({order.discount_percent}
-																		%)
+																		{order.discount_tier} Discount ({order.discount_percent}%)
 																	</span>
-																	<span>
-																		-
-																		{isForeignCurrency
-																			? (
-																					Number(order.discount_amount) * exchangeRate
-																				).toFixed(2) +
-																				" " +
-																				currencyCode
-																			: Number(order.discount_amount).toFixed(2) + " RON"}
-																	</span>
+																	<span>- {formatAmount(discountAmount, "RON")}</span>
 																</div>
 															)}
 															<div
@@ -598,47 +588,45 @@ export function OrderHistory({
 																	color: "#aaa",
 																}}
 															>
-																<span>Shipping</span>
-																<span>
-																	{shippingCost === 0 ? (
-																		<span style={{ color: "#10b981" }}>Free</span>
-																	) : isForeignCurrency ? (
-																		`${chargedShippingCost.toFixed(2)} ${currencyCode}`
-																	) : (
-																		`${shippingCost.toFixed(2)} RON`
-																	)}
-																</span>
+																<span>Subtotal B</span>
+																<span>{formatAmount(subtotalB, "RON")}</span>
 															</div>
 															<div
 																style={{
 																	display: "flex",
 																	justifyContent: "space-between",
-																	marginBottom: "1rem",
+																	marginBottom: "0.5rem",
 																	fontSize: "0.95rem",
 																	color: "#aaa",
 																}}
 															>
-																<span>{isForeignCurrency ? "Conversion tax" : "Tax"}</span>
-																<span>
-																	{isForeignCurrency
-																		? `${chargedTax.toFixed(2)} ${currencyCode}`
-																		: `${tax.toFixed(2)} RON`}
-																</span>
+																<span>{`Exchange tax${exchangeTaxPercent > 0 ? ` (${exchangeTaxPercent.toFixed(2)}%)` : ""}`}</span>
+																<span>{formatAmount(exchangeTaxAmountRon, "RON")}</span>
 															</div>
-															{isForeignCurrency && (
-																<div
-																	style={{
-																		display: "flex",
-																		justifyContent: "space-between",
-																		marginBottom: "1rem",
-																		fontSize: "0.85rem",
-																		color: "#999",
-																	}}
-																>
-																	<span>RON equivalent total</span>
-																	<span>{total.toFixed(2)} RON</span>
-																</div>
-															)}
+															<div
+																style={{
+																	display: "flex",
+																	justifyContent: "space-between",
+																	marginBottom: "0.5rem",
+																	fontSize: "0.95rem",
+																	color: "#aaa",
+																}}
+															>
+																<span>Total</span>
+																<span>{formatAmount(totalBeforeVatRon, "RON")}</span>
+															</div>
+															<div
+																style={{
+																	display: "flex",
+																	justifyContent: "space-between",
+																	marginBottom: "0.5rem",
+																	fontSize: "0.95rem",
+																	color: "#aaa",
+																}}
+															>
+																<span>VAT (21%)</span>
+																<span>{formatAmount(vatAmountRon, "RON")}</span>
+															</div>
 															<div
 																style={{
 																	justifyContent: "space-between",
@@ -654,13 +642,26 @@ export function OrderHistory({
 																	display: "flex",
 																}}
 															>
-																<span>Total</span>
+																<span>Charged total</span>
 																<span>
 																	{isForeignCurrency
-																		? formatAmount(chargedTotal, currencyCode)
-																		: formatAmount(total, "RON")}
+																		? formatAmount(chargedTotalDisplay, currencyCode)
+																		: formatAmount(chargedTotalDisplay, "RON")}
 																</span>
 															</div>
+															{isForeignCurrency && (
+																<div
+																	style={{
+																		marginTop: "0.75rem",
+																		fontSize: "0.85rem",
+																		color: "#999",
+																		textAlign: "right",
+																	}}
+																>
+																	Exchange rate from RON to {currencyCode}: 1 RON ={" "}
+																	{exchangeRate.toFixed(4)} {currencyCode}
+																</div>
+															)}
 
 															{/* Expected Delivery Date */}
 															{(order.expected_delivery_date || order.estimated_delivery) && (

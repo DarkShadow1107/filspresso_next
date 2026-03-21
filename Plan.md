@@ -222,6 +222,22 @@ Do not move these out of Express unless there is a strong reason:
 
 Do not move these to Java, Kotlin, or Go just because the language is available. Keep the current stable logic where it already works.
 
+## Express cleanup rule (important)
+
+Do not delete Express route files immediately after introducing Java, Kotlin, Go, or Wasm.
+
+Keep Express as the gateway/orchestration layer and remove old logic only when all of the following are true:
+
+- the new service fully owns the domain behavior in production
+- Express only proxies/validates/authenticates for that domain
+- health checks, logging, and error handling are stable for at least one release cycle
+- no frontend/client path depends on the old in-process Express implementation
+
+Practical example:
+
+- keep `express-api/routes/orders.js` because checkout and order orchestration still live in Express, even though invoice rendering moved to Java
+- keep subscription routes in Express for auth/session/context, while quote/reconciliation calculations are delegated to Kotlin
+
 ## Why this order works
 
 - Go gives quick operational value with low risk
