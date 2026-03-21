@@ -56,6 +56,20 @@ export function OrderHistory({
 			.replace(/\s{2,}/g, " ");
 	};
 
+	const getCapsuleSystemLabel = (item: NonNullable<Order["items"]>[number]) => {
+		if (item.product_type !== "capsule") return null;
+
+		const explicit = typeof item.capsule_system === "string" ? item.capsule_system.toLowerCase() : "";
+		if (explicit === "original" || explicit === "vertuo") {
+			return explicit === "original" ? "Original" : "Vertuo";
+		}
+
+		const haystack = `${item.product_id || ""} ${item.product_image || ""} ${item.product_name || ""}`.toLowerCase();
+		if (haystack.includes("vertuo")) return "Vertuo";
+		if (haystack.includes("original")) return "Original";
+		return null;
+	};
+
 	const handleInvoiceDownload = async (orderId: number, orderNumber: string) => {
 		const token = getAuthToken();
 		if (!token) {
@@ -444,6 +458,7 @@ export function OrderHistory({
 														const unitPrice = Number(item.unit_price) || 0;
 														const totalPrice = Number(item.total_price) || 0;
 														const displayName = sanitizeProductName(item.product_name || "");
+														const capsuleSystem = getCapsuleSystemLabel(item);
 														const img =
 															item.product_image ||
 															(item.product_id ? getProductImage(item.product_id) : undefined);
@@ -505,6 +520,21 @@ export function OrderHistory({
 																		Quantity:{" "}
 																		<strong style={{ color: "#ccc" }}>{item.quantity}</strong>
 																	</div>
+																	{capsuleSystem && (
+																		<div
+																			style={{
+																				marginTop: "0.38rem",
+																				fontSize: "0.78rem",
+																				color: "#cdb18d",
+																				border: "1px solid rgba(196, 167, 125, 0.35)",
+																				borderRadius: "999px",
+																				padding: "0.2rem 0.55rem",
+																				display: "inline-flex",
+																			}}
+																		>
+																			Capsule system: {capsuleSystem}
+																		</div>
+																	)}
 																</div>
 
 																{/* Price */}

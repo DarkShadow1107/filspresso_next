@@ -16,6 +16,8 @@ type PaymentsSectionProps = {
 	toggleOrderExpand: (id: number) => void;
 	handleDeleteCard: (id: number) => void;
 	getProductImage: (productId: string) => string | undefined;
+	invoiceIncludeProductView: boolean;
+	onInvoiceIncludeProductViewChange: (includeView: boolean) => void;
 };
 
 export function PaymentsSection({
@@ -27,6 +29,8 @@ export function PaymentsSection({
 	toggleOrderExpand,
 	handleDeleteCard,
 	getProductImage,
+	invoiceIncludeProductView,
+	onInvoiceIncludeProductViewChange,
 }: PaymentsSectionProps) {
 	// Pagination state
 	const [cardPage, setCardPage] = useState(1);
@@ -300,6 +304,49 @@ export function PaymentsSection({
 			/>
 
 			{/* Order History Subcomponent */}
+			<div className="card" style={{ marginBottom: "1.25rem", padding: "1rem 1.2rem" }}>
+				<div
+					style={{
+						display: "flex",
+						justifyContent: "space-between",
+						alignItems: "center",
+						gap: "1rem",
+						flexWrap: "wrap",
+					}}
+				>
+					<div>
+						<div style={{ fontWeight: 700, marginBottom: "0.2rem", ...gradientTextStyle }}>Invoice Preferences</div>
+						<div style={{ fontSize: "0.86rem", color: "#9ca3af" }}>
+							Set a default for showing product images in invoice PDFs.
+						</div>
+					</div>
+					<button
+						type="button"
+						onClick={() => onInvoiceIncludeProductViewChange(!invoiceIncludeProductView)}
+						style={{
+							padding: "10px 16px",
+							borderRadius: 999,
+							border: invoiceIncludeProductView
+								? "1px solid rgba(196, 167, 125, 0.55)"
+								: "1px solid rgba(120, 120, 120, 0.45)",
+							background: invoiceIncludeProductView
+								? "linear-gradient(135deg, rgba(196,167,125,0.28), rgba(166,124,82,0.35))"
+								: "linear-gradient(135deg, rgba(60,60,60,0.35), rgba(40,40,40,0.45))",
+							color: invoiceIncludeProductView ? "#f1dfc8" : "#c4c4c4",
+							fontWeight: 700,
+							letterSpacing: "0.2px",
+							cursor: "pointer",
+							transition: "all 0.2s ease",
+							boxShadow: invoiceIncludeProductView
+								? "0 8px 20px rgba(166,124,82,0.22)"
+								: "0 4px 10px rgba(0,0,0,0.25)",
+						}}
+					>
+						{invoiceIncludeProductView ? "View Column: ON" : "View Column: OFF"}
+					</button>
+				</div>
+			</div>
+
 			<OrderHistory
 				orders={paginatedOrders}
 				page={ordersPage}

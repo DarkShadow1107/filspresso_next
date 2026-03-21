@@ -10,9 +10,17 @@
  */
 
 const express = require("express");
+const fs = require("fs");
 const pool = require("../db/connection");
 const { authenticate } = require("../middleware/auth");
 const { v4: uuidv4 } = require("uuid");
+
+let sharp = null;
+try {
+	sharp = require("sharp");
+} catch (error) {
+	console.warn("sharp is not available; invoice AVIF conversion disabled", error?.message || error);
+}
 
 const router = express.Router();
 const INVOICE_SERVICE_URL = process.env.INVOICE_SERVICE_URL || "http://localhost:8082";
@@ -109,6 +117,169 @@ function sanitizeInvoiceProductName(rawName) {
 		.trim()
 		.replace(/\s*-\s*\d+(?:[.,]\d{1,2})?\s*(?:RON|EUR|USD|CHF|GBP)\s*$/i, "")
 		.replace(/\s{2,}/g, " ");
+}
+
+function deriveCapsuleSystem({ productType, productId, productImage, productName, capsuleSystem }) {
+	if (typeof capsuleSystem === "string") {
+		const normalized = capsuleSystem.trim().toLowerCase();
+		if (normalized === "original" || normalized === "vertuo") {
+			return normalized;
+		}
+	}
+
+	if (productType !== "capsule") {
+		return null;
+	}
+
+	const haystack = [productId, productImage, productName]
+		.filter((value) => typeof value === "string")
+		.join(" ")
+		.toLowerCase();
+
+	if (haystack.includes("vertuo")) return "vertuo";
+	if (haystack.includes("original")) return "original";
+
+	return null;
+}
+
+function normalizeInvoiceImagePath(rawImagePath) {
+	if (!rawImagePath || typeof rawImagePath !== "string") return null;
+	const trimmed = rawImagePath.trim();
+	if (!trimmed) return null;
+	if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+	if (trimmed.startsWith("/")) return trimmed;
+	return `/${trimmed}`;
+}
+
+function buildCoffeeImagePath(productRow) {
+	if (!productRow) return null;
+	const filename = typeof productRow.image_filename === "string" ? productRow.image_filename.trim() : "";
+	if (!filename) return null;
+
+	if (filename.startsWith("/") || filename.includes("/")) {
+		return normalizeInvoiceImagePath(filename);
+	}
+
+	const typeRaw = (productRow.product_type || "original").toString().trim().toLowerCase();
+	const categoryRaw = (productRow.category || "General").toString().trim();
+	const typeSegment = typeRaw === "vertuo" ? "Vertuo" : "Original";
+	const extRaw = (productRow.image_extension || "").toString().trim().replace(/^\./, "");
+	const hasKnownExt = /\.(png|avif|webp|jpg|jpeg|svg)$/i.test(filename);
+	const fullName = hasKnownExt || !extRaw ? filename : `${filename}.${extRaw}`;
+
+	return `/images/Capsules/${typeSegment}/${categoryRaw}/${fullName}`;
+}
+
+const invoiceImageDataUriCache = new Map();
+
+function toPublicImageFilePath(imagePath) {
+	if (!imagePath || typeof imagePath !== "string") return null;
+	const normalized = imagePath.trim().replace(/\\/g, "/");
+	if (!normalized) return null;
+
+	if (normalized.startsWith("/images/")) {
+		return `/public${normalized}`;
+	}
+	if (normalized.startsWith("images/")) {
+		return `/public/${normalized}`;
+	}
+	if (normalized.startsWith("/public/images/")) {
+		return normalized;
+	}
+	if (normalized.startsWith("public/images/")) {
+		return `/${normalized}`;
+	}
+
+	return null;
+}
+
+async function resolveInvoiceProductImagePath(imagePath) {
+	if (!imagePath || typeof imagePath !== "string") return null;
+	const normalized = normalizeInvoiceImagePath(imagePath);
+	if (!normalized) return null;
+
+	if (normalized.startsWith("data:image/")) {
+		return normalized;
+	}
+
+	if (!/\.avif($|\?)/i.test(normalized) || !sharp) {
+		return normalized;
+	}
+
+	const cacheHit = invoiceImageDataUriCache.get(normalized);
+	if (cacheHit) {
+		return cacheHit;
+	}
+
+	const filePath = toPublicImageFilePath(normalized);
+	if (!filePath || !fs.existsSync(filePath)) {
+		return normalized;
+	}
+
+	try {
+		const pngBuffer = await sharp(filePath).png({ compressionLevel: 9 }).toBuffer();
+		const dataUri = `data:image/png;base64,${pngBuffer.toString("base64")}`;
+		invoiceImageDataUriCache.set(normalized, dataUri);
+		return dataUri;
+	} catch (error) {
+		console.warn(`Failed to convert AVIF for invoice view (${normalized})`, error?.message || error);
+		return normalized;
+	}
+}
+
+async function buildInvoiceImageFallbacks(client, orderItems) {
+	const fallbackByKey = new Map();
+	if (!Array.isArray(orderItems) || orderItems.length === 0) {
+		return fallbackByKey;
+	}
+
+	const capsuleIds = [];
+	const machineLikeIds = [];
+
+	for (const item of orderItems) {
+		const productId = typeof item.product_id === "string" ? item.product_id.trim() : "";
+		if (!productId) continue;
+		if (item.product_type === "capsule") {
+			capsuleIds.push(productId);
+		} else if (item.product_type === "machine" || item.product_type === "accessory") {
+			machineLikeIds.push(productId);
+		}
+	}
+
+	if (capsuleIds.length > 0) {
+		const coffeeResult = await client.query(
+			`SELECT product_id, product_type, category, image_filename, image_extension
+			 FROM coffee_products
+			 WHERE product_id = ANY($1::text[])`,
+			[capsuleIds],
+		);
+
+		for (const row of coffeeResult.rows) {
+			const imagePath = buildCoffeeImagePath(row);
+			if (imagePath) {
+				fallbackByKey.set(`capsule::${row.product_id}`, imagePath);
+			}
+		}
+	}
+
+	if (machineLikeIds.length > 0) {
+		const machineResult = await client.query(
+			`SELECT product_id, image
+			 FROM machine_products
+			 WHERE product_id = ANY($1::text[])`,
+			[machineLikeIds],
+		);
+
+		for (const row of machineResult.rows) {
+			const imagePath = normalizeInvoiceImagePath(row.image);
+			if (imagePath) {
+				fallbackByKey.set(`machine::${row.product_id}`, imagePath);
+				fallbackByKey.set(`accessory::${row.product_id}`, imagePath);
+			}
+		}
+	}
+
+	return fallbackByKey;
 }
 
 /**
@@ -1040,11 +1211,51 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 		}
 
 		const itemsResult = await client.query(
-			`SELECT product_name, product_id, product_image, quantity, unit_price, total_price
+			`SELECT product_name, product_id, product_type, product_image, quantity, unit_price, total_price
 			 FROM order_items
 			 WHERE order_id = $1
 			 ORDER BY id ASC`,
 			[orderId],
+		);
+
+		const imageFallbacks = await buildInvoiceImageFallbacks(client, itemsResult.rows);
+
+		let accountInvoiceIncludeProductView = true;
+		try {
+			const prefResult = await client.query(
+				"SELECT COALESCE(invoice_include_product_view, TRUE) AS invoice_include_product_view FROM accounts WHERE id = $1",
+				[req.user.id],
+			);
+			accountInvoiceIncludeProductView = prefResult.rows[0]?.invoice_include_product_view !== false;
+		} catch (prefError) {
+			// Keep a safe default for old schemas where the preference column is not present.
+			console.warn("Invoice preference column unavailable, defaulting includeProductView=true", prefError?.message);
+		}
+
+		const includeProductView = accountInvoiceIncludeProductView;
+
+		const itemsPayload = await Promise.all(
+			itemsResult.rows.map(async (item) => {
+				const directImage = normalizeInvoiceImagePath(item.product_image);
+				const fallbackImage = imageFallbacks.get(`${item.product_type}::${item.product_id}`) || null;
+				const resolvedImage = directImage || fallbackImage;
+				const invoiceImagePath = await resolveInvoiceProductImagePath(resolvedImage);
+
+				return {
+					name: sanitizeInvoiceProductName(item.product_name),
+					sku: item.product_id,
+					productImage: invoiceImagePath,
+					capsuleSystem: deriveCapsuleSystem({
+						productType: item.product_type,
+						productId: item.product_id,
+						productImage: resolvedImage,
+						productName: item.product_name,
+					}),
+					quantity: Number(item.quantity || 1),
+					unitPrice: Number(item.unit_price || 0),
+					totalPrice: Number(item.total_price || 0),
+				};
+			}),
 		);
 
 		const payload = {
@@ -1075,14 +1286,8 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 			chargedShippingCost: Number(order.charged_shipping_cost || order.shipping_cost || 0),
 			chargedTax: Number(order.charged_tax || order.tax || 0),
 			chargedTotal: Number(order.charged_total || order.total || 0),
-			items: itemsResult.rows.map((item) => ({
-				name: sanitizeInvoiceProductName(item.product_name),
-				sku: item.product_id,
-				productImage: item.product_image,
-				quantity: Number(item.quantity || 1),
-				unitPrice: Number(item.unit_price || 0),
-				totalPrice: Number(item.total_price || 0),
-			})),
+			includeProductView,
+			items: itemsPayload,
 		};
 
 		let invoiceResponse = null;
@@ -1167,7 +1372,15 @@ router.get("/:id", authenticate, async (req, res) => {
 				[orderId],
 			);
 
-			order.items = itemsResult.rows;
+			order.items = itemsResult.rows.map((item) => ({
+				...item,
+				capsule_system: deriveCapsuleSystem({
+					productType: item.product_type,
+					productId: item.product_id,
+					productImage: item.product_image,
+					productName: item.product_name,
+				}),
+			}));
 
 			res.json({ order });
 		} finally {

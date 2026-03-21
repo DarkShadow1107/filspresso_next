@@ -17,6 +17,7 @@ export interface DBAccount {
 	subscription_id: number | null;
 	role: "admin" | "user";
 	graph_theme: string;
+	invoice_include_product_view: boolean;
 	email_verified: boolean;
 	last_login: Timestamp | null;
 	created_at: Timestamp;
@@ -126,6 +127,7 @@ export interface DBOrderItem {
 	product_id: string;
 	product_name: string;
 	product_image: string | null;
+	capsule_system?: "original" | "vertuo" | null;
 	quantity: number;
 	unit_price: number;
 	total_price: number;

@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     subscription_id INTEGER,
     role VARCHAR(20) DEFAULT 'user', -- admin, user
     graph_theme VARCHAR(20) DEFAULT 'classic',
+    invoice_include_product_view BOOLEAN DEFAULT TRUE,
     email_verified BOOLEAN DEFAULT FALSE,
     last_login TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

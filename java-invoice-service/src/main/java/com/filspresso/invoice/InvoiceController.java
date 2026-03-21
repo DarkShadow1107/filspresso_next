@@ -1,6 +1,5 @@
 package com.filspresso.invoice;
 
-import com.lowagie.text.Chunk;
 import com.lowagie.text.Document;
 import com.lowagie.text.Element;
 import com.lowagie.text.Font;
@@ -25,18 +24,28 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.awt.Color;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.URI;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+import javax.imageio.ImageIO;
 
 @RestController
 @RequestMapping("/api/invoices")
@@ -49,6 +58,8 @@ public class InvoiceController {
     private static final Color COFFEE_SOFT = new Color(232, 217, 198);
     private static final Color ROW_ALT = new Color(248, 244, 239);
     private static final String DEFAULT_LOGO_PATH = "/app/public/images/Logo_filspresso_web.png";
+    private static final Path PUBLIC_IMAGES_ROOT = Path.of("/app/public/images");
+    private static final Map<String, String> IMAGE_FILE_LOOKUP_CACHE = new ConcurrentHashMap<>();
 
     @GetMapping("/health")
     public Map<String, Object> health() {
@@ -217,11 +228,17 @@ public class InvoiceController {
     }
 
     private void addItems(Document doc, InvoiceRequest req) throws Exception {
-        PdfPTable table = new PdfPTable(new float[]{4.5f, 1.0f, 1.2f, 1.4f});
+        boolean includeView = req.includeProductView();
+        PdfPTable table = includeView
+                ? new PdfPTable(new float[]{1.1f, 3.8f, 1.0f, 1.2f, 1.4f})
+                : new PdfPTable(new float[]{4.5f, 1.0f, 1.2f, 1.4f});
         table.setWidthPercentage(100);
         table.setSpacingBefore(2);
         table.setSpacingAfter(10);
 
+        if (includeView) {
+            addHeaderCell(table, "View");
+        }
         addHeaderCell(table, "Product");
         addHeaderCell(table, "Quantity");
         addHeaderCell(table, "Unit (RON)");
@@ -230,7 +247,10 @@ public class InvoiceController {
         int row = 0;
         for (InvoiceItem item : req.items()) {
             Color bg = row % 2 == 0 ? Color.WHITE : ROW_ALT;
-            addProductCell(table, item, bg);
+            if (includeView) {
+                addViewCell(table, item, bg);
+            }
+            addProductCell(table, item, bg, includeView);
             addBodyCell(table, String.valueOf(item.quantity()), Element.ALIGN_CENTER, bg);
             addBodyCell(table, money(item.unitPrice(), "RON"), Element.ALIGN_RIGHT, bg);
             addBodyCell(table, money(item.totalPrice(), "RON"), Element.ALIGN_RIGHT, bg);
@@ -260,9 +280,35 @@ public class InvoiceController {
         table.addCell(cell);
     }
 
-    private void addProductCell(PdfPTable table, InvoiceItem item, Color background) {
+    private void addProductCell(PdfPTable table, InvoiceItem item, Color background, boolean includeView) {
         PdfPCell cell = new PdfPCell();
         cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        cell.setBackgroundColor(background);
+        cell.setPadding(8);
+        cell.setBorderColor(new Color(230, 230, 230));
+
+        Paragraph name = new Paragraph(cleanProductName(item.name()), FontFactory.getFont(FontFactory.HELVETICA, 9, Color.BLACK));
+        name.setAlignment(Element.ALIGN_LEFT);
+        cell.addElement(name);
+
+        if (!item.capsuleSystem().isBlank()) {
+            String capsuleLabel = item.capsuleSystem().equalsIgnoreCase("vertuo") ? "Vertuo" : "Original";
+            Paragraph capsuleLine = new Paragraph(
+                    "Capsule system: " + capsuleLabel,
+                    FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, includeView ? 8f : 8.5f, COFFEE_MID)
+            );
+            capsuleLine.setSpacingBefore(2f);
+            capsuleLine.setAlignment(Element.ALIGN_LEFT);
+            cell.addElement(capsuleLine);
+        }
+
+        table.addCell(cell);
+    }
+
+    private void addViewCell(PdfPTable table, InvoiceItem item, Color background) {
+        PdfPCell cell = new PdfPCell();
+        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setBackgroundColor(background);
         cell.setPadding(8);
         cell.setBorderColor(new Color(230, 230, 230));
@@ -270,14 +316,12 @@ public class InvoiceController {
         Image productImage = tryLoadProductImage(item.productImage());
         if (productImage != null) {
             productImage.scaleToFit(42f, 42f);
-            productImage.setAlignment(Element.ALIGN_LEFT);
+            productImage.setAlignment(Element.ALIGN_CENTER);
             cell.addElement(productImage);
-            cell.addElement(new Chunk("\n"));
+        } else {
+            Phrase placeholder = new Phrase("-", FontFactory.getFont(FontFactory.HELVETICA, 10, new Color(130, 130, 130)));
+            cell.setPhrase(placeholder);
         }
-
-        Paragraph name = new Paragraph(cleanProductName(item.name()), FontFactory.getFont(FontFactory.HELVETICA, 9, Color.BLACK));
-        name.setAlignment(Element.ALIGN_LEFT);
-        cell.addElement(name);
 
         table.addCell(cell);
     }
@@ -458,26 +502,160 @@ public class InvoiceController {
             return null;
         }
 
-        String path = rawPath.trim();
+        String path = rawPath.trim().replace("\\", "/");
         try {
             if (path.startsWith("http://") || path.startsWith("https://")) {
-                return Image.getInstance(path);
+                try {
+                    URI uri = URI.create(path);
+                    if (uri.getPath() != null && !uri.getPath().isBlank()) {
+                        path = uri.getPath();
+                    }
+                } catch (Exception ignored) {
+                    // Fall through to direct URL fetch.
+                }
+
+                if (path.startsWith("http://") || path.startsWith("https://")) {
+                    return Image.getInstance(path);
+                }
+            }
+
+            if (path.startsWith("data:image/")) {
+                int marker = path.indexOf(",");
+                if (marker > 0) {
+                    String meta = path.substring(0, marker).toLowerCase();
+                    String payload = path.substring(marker + 1);
+                    byte[] imageBytes;
+                    if (meta.endsWith(";base64")) {
+                        imageBytes = Base64.getDecoder().decode(payload);
+                    } else {
+                        imageBytes = URLDecoder.decode(payload, StandardCharsets.UTF_8).getBytes(StandardCharsets.ISO_8859_1);
+                    }
+                    return Image.getInstance(imageBytes);
+                }
             }
 
             if (path.startsWith("/images/")) {
                 path = "/app/public" + path;
             } else if (path.startsWith("images/")) {
                 path = "/app/public/" + path;
+            } else if (path.startsWith("/public/images/")) {
+                path = "/app" + path;
+            } else if (path.startsWith("public/images/")) {
+                path = "/app/" + path;
+            } else if (!path.startsWith("/")) {
+                path = "/app/public/images/" + path;
             }
 
             File file = new File(path);
             if (!file.exists() || !file.isFile()) {
+                if (path.startsWith("/app/public/images/")) {
+                    String fallback = "/app/public/" + path.substring("/app/public/images/".length());
+                    File fallbackFile = new File(fallback);
+                    if (fallbackFile.exists() && fallbackFile.isFile()) {
+                        Image fallbackImage = loadPdfImageFromFile(fallbackFile);
+                        if (fallbackImage != null) {
+                            return fallbackImage;
+                        }
+                    }
+                }
+
+                String discovered = findImageByFileName(rawPath);
+                if (discovered != null) {
+                    File discoveredFile = new File(discovered);
+                    if (discoveredFile.exists() && discoveredFile.isFile()) {
+                        Image discoveredImage = loadPdfImageFromFile(discoveredFile);
+                        if (discoveredImage != null) {
+                            return discoveredImage;
+                        }
+                    }
+                }
                 return null;
             }
+            return loadPdfImageFromFile(file);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Image loadPdfImageFromFile(File file) {
+        if (file == null || !file.exists() || !file.isFile()) {
+            return null;
+        }
+
+        try {
+            String lowerName = file.getName().toLowerCase();
+            if (lowerName.endsWith(".avif")) {
+                BufferedImage buffered = ImageIO.read(file);
+                if (buffered != null) {
+                    return bufferedImageToPdfImage(buffered);
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall back to direct OpenPDF file loading below.
+        }
+
+        try {
             return Image.getInstance(file.getAbsolutePath());
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private Image bufferedImageToPdfImage(BufferedImage buffered) throws IOException {
+        try (ByteArrayOutputStream pngBuffer = new ByteArrayOutputStream()) {
+            ImageIO.write(buffered, "png", pngBuffer);
+            return Image.getInstance(pngBuffer.toByteArray());
+        } catch (Exception ex) {
+            throw new IOException("Failed to convert decoded image for PDF", ex);
+        }
+    }
+
+    private String findImageByFileName(String rawPath) {
+        try {
+            String normalized = rawPath == null ? "" : rawPath.trim().replace("\\", "/");
+            String candidate = normalized;
+            if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
+                try {
+                    URI uri = URI.create(candidate);
+                    candidate = uri.getPath() == null ? candidate : uri.getPath();
+                } catch (Exception ignored) {
+                    // Keep original candidate.
+                }
+            }
+
+            int slash = candidate.lastIndexOf('/');
+            String fileName = slash >= 0 ? candidate.substring(slash + 1) : candidate;
+            if (fileName.isBlank()) {
+                return null;
+            }
+
+            String decoded = URLDecoder.decode(fileName, StandardCharsets.UTF_8);
+            String cacheHit = IMAGE_FILE_LOOKUP_CACHE.get(decoded);
+            if (cacheHit != null) {
+                return cacheHit;
+            }
+
+            if (!Files.exists(PUBLIC_IMAGES_ROOT)) {
+                return null;
+            }
+
+            try (var stream = Files.walk(PUBLIC_IMAGES_ROOT, 6)) {
+                Path match = stream
+                        .filter(Files::isRegularFile)
+                        .filter(path -> path.getFileName().toString().equalsIgnoreCase(decoded))
+                        .findFirst()
+                        .orElse(null);
+
+                if (match != null) {
+                    String resolved = match.toAbsolutePath().toString();
+                    IMAGE_FILE_LOOKUP_CACHE.put(decoded, resolved);
+                    return resolved;
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
     }
 
     private String money(BigDecimal amount, String currencyCode) {
@@ -509,6 +687,7 @@ public class InvoiceController {
             BigDecimal chargedShippingCost,
             BigDecimal chargedTax,
             BigDecimal chargedTotal,
+            Boolean includeProductView,
             List<InvoiceItem> items
     ) {
         InvoiceRequest normalized() {
@@ -543,6 +722,7 @@ public class InvoiceController {
                     nonNull(chargedShippingCost),
                     nonNull(chargedTax),
                     nonNull(chargedTotal),
+                    includeProductView == null || includeProductView,
                     normalizedItems
             );
         }
@@ -581,12 +761,17 @@ public class InvoiceController {
         }
     }
 
-    public record InvoiceItem(String name, String sku, String productImage, int quantity, BigDecimal unitPrice, BigDecimal totalPrice) {
+    public record InvoiceItem(String name, String sku, String productImage, String capsuleSystem, int quantity, BigDecimal unitPrice, BigDecimal totalPrice) {
         InvoiceItem normalized() {
+            String normalizedCapsuleSystem = capsuleSystem == null ? "" : capsuleSystem.trim().toLowerCase();
+            if (!normalizedCapsuleSystem.equals("original") && !normalizedCapsuleSystem.equals("vertuo")) {
+                normalizedCapsuleSystem = "";
+            }
             return new InvoiceItem(
                     name == null || name.isBlank() ? "Item" : name,
                     sku == null || sku.isBlank() ? "-" : sku,
                     productImage == null ? "" : productImage,
+                    normalizedCapsuleSystem,
                     Math.max(1, quantity),
                     unitPrice == null ? BigDecimal.ZERO : unitPrice,
                     totalPrice == null ? BigDecimal.ZERO : totalPrice

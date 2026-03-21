@@ -113,6 +113,7 @@ export default function AccountManagement() {
 	const [consumptionHistory, setConsumptionHistory] = useState<ConsumptionHistory | null>(null);
 	const [graphMounted, setGraphMounted] = useState(false);
 	const [graphTheme, setGraphTheme] = useState<"classic" | "neon" | "minimal" | "gradient" | "monochrome">("classic");
+	const [invoiceIncludeProductView, setInvoiceIncludeProductView] = useState(true);
 	const [hoveredGraphPoint, setHoveredGraphPoint] = useState<{
 		x: number;
 		y: number;
@@ -218,11 +219,16 @@ export default function AccountManagement() {
 						if (data.user?.id) {
 							setAccountId(data.user.id);
 							// Fetch graph theme preference
-							fetch(`${API_BASE}/api/accounts/preferences/${data.user.id}`)
+							fetch(`${API_BASE}/api/accounts/preferences/${data.user.id}`, {
+								headers: { Authorization: `Bearer ${token}` },
+							})
 								.then((res) => res.json())
 								.then((prefData) => {
 									if (prefData.graph_theme) {
 										setGraphTheme(prefData.graph_theme);
+									}
+									if (typeof prefData.invoice_include_product_view === "boolean") {
+										setInvoiceIncludeProductView(prefData.invoice_include_product_view);
 									}
 								})
 								.catch((err) => console.error("Failed to load graph theme", err));
@@ -543,6 +549,43 @@ export default function AccountManagement() {
 		window.location.reload(); // Reload to reset state in parent
 	}, [notify]);
 
+	const handleInvoicePreferenceChange = useCallback(
+		async (includeView: boolean) => {
+			setInvoiceIncludeProductView(includeView);
+
+			if (!accountId) {
+				return;
+			}
+
+			const token = getAuthToken();
+			if (!token) {
+				notify("Please sign in to save invoice preferences.", 5000, "error", "account");
+				return;
+			}
+
+			try {
+				const response = await fetch(`${API_BASE}/api/accounts/preferences`, {
+					method: "PUT",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${token}`,
+					},
+					body: JSON.stringify({ invoice_include_product_view: includeView }),
+				});
+
+				if (!response.ok) {
+					const message = await response.text();
+					throw new Error(message || "Failed to save invoice preference");
+				}
+			} catch (error) {
+				console.error("Failed to save invoice preference", error);
+				setInvoiceIncludeProductView((prev) => !prev);
+				notify("Could not save invoice image preference. Please retry.", 6000, "error", "account");
+			}
+		},
+		[accountId, notify],
+	);
+
 	const handleSaveProfile = useCallback(async () => {
 		if (!account) return;
 
@@ -837,6 +880,8 @@ export default function AccountManagement() {
 						toggleOrderExpand={toggleOrderExpand}
 						handleDeleteCard={handleDeleteCard}
 						getProductImage={getCoffeeProductImage}
+						invoiceIncludeProductView={invoiceIncludeProductView}
+						onInvoiceIncludeProductViewChange={handleInvoicePreferenceChange}
 					/>
 				)}
 

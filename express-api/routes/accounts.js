@@ -11,10 +11,24 @@ const { authenticate } = require("../middleware/auth");
 
 const router = express.Router();
 
+async function ensureInvoicePreferenceColumn(client) {
+	const result = await client.query(
+		`SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_name = 'accounts' AND column_name = 'invoice_include_product_view'
+		) AS has_column`,
+	);
+
+	if (!result.rows[0]?.has_column) {
+		await client.query("ALTER TABLE accounts ADD COLUMN invoice_include_product_view BOOLEAN DEFAULT TRUE");
+	}
+}
+
 /**
  * Get account details
  */
-router.get("/:id", authenticate, async (req, res) => {
+router.get("/:id(\\d+)", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
 
@@ -55,7 +69,7 @@ router.get("/:id", authenticate, async (req, res) => {
 /**
  * Update account details
  */
-router.put("/:id", authenticate, async (req, res) => {
+router.put("/:id(\\d+)", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
 
@@ -124,7 +138,7 @@ router.put("/:id", authenticate, async (req, res) => {
 /**
  * Delete account
  */
-router.delete("/:id", authenticate, async (req, res) => {
+router.delete("/:id(\\d+)", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
 
@@ -148,7 +162,7 @@ router.delete("/:id", authenticate, async (req, res) => {
 /**
  * Update subscription
  */
-router.put("/:id/subscription", authenticate, async (req, res) => {
+router.put("/:id(\\d+)/subscription", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
 
@@ -191,24 +205,39 @@ router.put("/:id/subscription", authenticate, async (req, res) => {
  */
 router.put("/preferences", authenticate, async (req, res) => {
 	try {
-		const { graph_theme } = req.body;
+		const { graph_theme, invoice_include_product_view } = req.body;
 		const accountId = req.user.id;
+		const hasGraphTheme = Object.prototype.hasOwnProperty.call(req.body, "graph_theme");
+		const hasInvoicePreference = Object.prototype.hasOwnProperty.call(req.body, "invoice_include_product_view");
 
 		// Validate theme
 		const validThemes = ["classic", "neon", "minimal", "gradient", "monochrome"];
-		if (graph_theme && !validThemes.includes(graph_theme)) {
+		if (hasGraphTheme && graph_theme && !validThemes.includes(graph_theme)) {
 			return res.status(400).json({ error: "Invalid theme" });
+		}
+
+		if (hasInvoicePreference && typeof invoice_include_product_view !== "boolean") {
+			return res.status(400).json({ error: "invoice_include_product_view must be a boolean" });
 		}
 
 		const client = await pool.connect();
 		try {
+			if (hasInvoicePreference) {
+				await ensureInvoicePreferenceColumn(client);
+			}
+
 			const updates = [];
 			const params = [];
 			let paramIdx = 1;
 
-			if (graph_theme) {
+			if (hasGraphTheme) {
 				updates.push(`graph_theme = $${paramIdx++}`);
-				params.push(graph_theme);
+				params.push(graph_theme || "classic");
+			}
+
+			if (hasInvoicePreference) {
+				updates.push(`invoice_include_product_view = $${paramIdx++}`);
+				params.push(invoice_include_product_view);
 			}
 
 			if (updates.length === 0) {
@@ -219,7 +248,16 @@ router.put("/preferences", authenticate, async (req, res) => {
 
 			await client.query(`UPDATE accounts SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${paramIdx}`, params);
 
-			res.json({ message: "Preferences updated", graph_theme });
+			const result = await client.query(
+				"SELECT graph_theme, COALESCE((to_jsonb(accounts)->>'invoice_include_product_view')::boolean, TRUE) AS invoice_include_product_view FROM accounts WHERE id = $1",
+				[accountId],
+			);
+
+			res.json({
+				message: "Preferences updated",
+				graph_theme: result.rows[0]?.graph_theme || "classic",
+				invoice_include_product_view: result.rows[0]?.invoice_include_product_view !== false,
+			});
 		} finally {
 			client.release();
 		}
@@ -242,13 +280,19 @@ router.get("/preferences/:id", authenticate, async (req, res) => {
 
 		const client = await pool.connect();
 		try {
-			const result = await client.query("SELECT graph_theme FROM accounts WHERE id = $1", [accountId]);
+			const result = await client.query(
+				"SELECT graph_theme, COALESCE((to_jsonb(accounts)->>'invoice_include_product_view')::boolean, TRUE) AS invoice_include_product_view FROM accounts WHERE id = $1",
+				[accountId],
+			);
 
 			if (result.rows.length === 0) {
 				return res.status(404).json({ error: "Account not found" });
 			}
 
-			res.json({ graph_theme: result.rows[0].graph_theme || "classic" });
+			res.json({
+				graph_theme: result.rows[0].graph_theme || "classic",
+				invoice_include_product_view: result.rows[0].invoice_include_product_view !== false,
+			});
 		} finally {
 			client.release();
 		}
