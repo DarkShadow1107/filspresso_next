@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import "../../styles/admin.css";
 import {
 	ArrowBigLeftDashIcon,
@@ -23,7 +24,7 @@ import {
 	XIcon,
 } from "@/icons";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const ADMIN_API_BASE = "/api/admin";
 const ADMIN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 
 type Column = {
@@ -53,6 +54,7 @@ type Pagination = {
 };
 
 export default function AdminPage() {
+	const router = useRouter();
 	const [isAuthenticated, setIsAuthenticated] = useState(false);
 	const [adminToken, setAdminToken] = useState<string | null>(null);
 	const [username, setUsername] = useState("");
@@ -87,12 +89,24 @@ export default function AdminPage() {
 
 	// Check for existing session
 	useEffect(() => {
-		const token = sessionStorage.getItem("admin_token");
-		if (token) {
-			setAdminToken(token);
-			setIsAuthenticated(true);
-		}
-	}, []);
+		const bootstrapSession = async () => {
+			try {
+				const res = await fetch(`${ADMIN_API_BASE}/session`, { method: "GET" });
+
+				if (!res.ok) {
+					router.replace("/admin-login");
+					return;
+				}
+
+				setAdminToken("cookie-session");
+				setIsAuthenticated(true);
+			} catch {
+				router.replace("/admin-login");
+			}
+		};
+
+		bootstrapSession();
+	}, [router]);
 
 	const clearInactivityTimer = useCallback(() => {
 		if (inactivityTimerRef.current) {
@@ -104,17 +118,13 @@ export default function AdminPage() {
 	const handleLogout = useCallback(
 		async (reason = "", notifyServer = true) => {
 			clearInactivityTimer();
-			if (notifyServer && adminToken) {
+			if (notifyServer) {
 				try {
-					await fetch(`${API_BASE}/api/admin/logout`, {
-						method: "POST",
-						headers: { Authorization: `Bearer ${adminToken}` },
-					});
+					await fetch(`${ADMIN_API_BASE}/logout`, { method: "POST" });
 				} catch {
 					// Ignore logout errors
 				}
 			}
-			sessionStorage.removeItem("admin_token");
 			setAdminToken(null);
 			setIsAuthenticated(false);
 			setSelectedTable(null);
@@ -130,8 +140,9 @@ export default function AdminPage() {
 			setActionError("");
 			setActionSuccess("");
 			setLoginError(reason);
+			router.replace("/admin-login");
 		},
-		[adminToken, clearInactivityTimer],
+		[clearInactivityTimer, router],
 	);
 
 	const authenticatedAdminFetch = useCallback(
@@ -140,13 +151,7 @@ export default function AdminPage() {
 				return null;
 			}
 
-			const headers = new Headers(init.headers || {});
-			headers.set("Authorization", `Bearer ${adminToken}`);
-
-			const response = await fetch(input, {
-				...init,
-				headers,
-			});
+			const response = await fetch(input, init);
 
 			if (response.status === 401) {
 				await handleLogout("Admin session expired. Please log in again.", false);
@@ -207,7 +212,7 @@ export default function AdminPage() {
 		setIsLoading(true);
 
 		try {
-			const res = await fetch(`${API_BASE}/api/admin/login`, {
+			const res = await fetch(`${ADMIN_API_BASE}/login`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ username, password }),
@@ -215,13 +220,17 @@ export default function AdminPage() {
 
 			const data = await res.json();
 
+			if (res.status === 202 && (data?.requiresMfa || data?.requiresMfaEnrollment)) {
+				router.replace("/admin-login");
+				return;
+			}
+
 			if (!res.ok) {
 				setLoginError(data.error || "Login failed");
 				return;
 			}
 
-			setAdminToken(data.token);
-			sessionStorage.setItem("admin_token", data.token);
+			setAdminToken("cookie-session");
 			setIsAuthenticated(true);
 			setLoginError("");
 			setPassword("");
@@ -234,7 +243,7 @@ export default function AdminPage() {
 
 	const fetchTables = async () => {
 		try {
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables`);
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables`);
 			if (!res) return;
 
 			const data = await res.json();
@@ -248,7 +257,7 @@ export default function AdminPage() {
 
 	const fetchTableInfo = async (table: string) => {
 		try {
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/table-info/${table}`);
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/table-info/${table}`);
 			if (!res) return;
 			const data = await res.json();
 			if (data.columns) {
@@ -272,7 +281,7 @@ export default function AdminPage() {
 					...(searchQuery && { search: searchQuery }),
 				});
 
-				const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${table}?${params}`);
+				const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables/${table}?${params}`);
 				if (!res) return;
 				const data = await res.json();
 				if (data.data) {
@@ -378,7 +387,7 @@ export default function AdminPage() {
 
 			const rowId = editingRow[primaryKey];
 			const dataToSend = prepareDataForSave(editedData);
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${selectedTable}/${rowId}`, {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables/${selectedTable}/${rowId}`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -417,7 +426,7 @@ export default function AdminPage() {
 		setIsLoading(true);
 
 		try {
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${selectedTable}/${rowId}`, {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables/${selectedTable}/${rowId}`, {
 				method: "DELETE",
 			});
 			if (!res) return;
@@ -460,7 +469,7 @@ export default function AdminPage() {
 			if (!readyForSave) return;
 
 			const dataToSend = prepareDataForSave(newRowData);
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${selectedTable}`, {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables/${selectedTable}`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -576,7 +585,7 @@ export default function AdminPage() {
 		setActionSuccess("");
 
 		try {
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/upload/coffee-image`, {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/upload/coffee-image`, {
 				method: "POST",
 				body: formData,
 			});

@@ -2,7 +2,15 @@
 
 import AccountIconGenerator from "@/components/AccountIconGenerator";
 import { AccountData, gradientTextStyle } from "./types";
-import { CoffeeIcon, RosetteDiscountIcon, GearIcon, UserCheckIcon as UserIcon, LockIcon, ChartBarIcon } from "@/icons";
+import {
+	CoffeeIcon,
+	RosetteDiscountIcon,
+	GearIcon,
+	UserCheckIcon as UserIcon,
+	LockIcon,
+	ChartBarIcon,
+	QrCodeIcon,
+} from "@/icons";
 
 type ProfileSectionProps = {
 	account: AccountData;
@@ -37,6 +45,23 @@ type ProfileSectionProps = {
 	setEditIconDataUrl: (val: string | null) => void;
 	handleSaveProfile: () => void;
 	handleChangePassword: () => void;
+	mfaSetup: {
+		challengeToken: string;
+		expiresIn: number;
+		totp: {
+			secret: string;
+			issuer: string;
+			accountName: string;
+			otpauthUrl: string;
+			qrDataUrl?: string | null;
+		};
+	} | null;
+	mfaCode: string;
+	mfaIncludeQrCode: boolean;
+	setMfaCode: (val: string) => void;
+	setMfaIncludeQrCode: (val: boolean) => void;
+	handleStartMfaSetup: () => void;
+	handleEnableMfa: () => void;
 };
 
 export function ProfileSection({
@@ -55,6 +80,13 @@ export function ProfileSection({
 	setEditIconDataUrl,
 	handleSaveProfile,
 	handleChangePassword,
+	mfaSetup,
+	mfaCode,
+	mfaIncludeQrCode,
+	setMfaCode,
+	setMfaIncludeQrCode,
+	handleStartMfaSetup,
+	handleEnableMfa,
 }: ProfileSectionProps) {
 	const isMultiCurrencyUser = totalSpending.currencyUsage.length > 1;
 
@@ -137,6 +169,72 @@ export function ProfileSection({
 						<button className="btn-primary" onClick={handleChangePassword}>
 							Update Password
 						</button>
+					</div>
+					<div className="form-group full-width" style={{ marginTop: "1rem" }}>
+						<label>Two-factor authentication (Authenticator app)</label>
+						<p style={{ color: "#aaa", margin: "0.25rem 0 0.5rem" }}>
+							Status: {account.mfa?.enabled ? "Enabled" : "Not enabled"}
+						</p>
+						{!account.mfa?.enabled && (
+							<div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+								<div className="form-actions" style={{ justifyContent: "center" }}>
+									<button className="btn-primary" onClick={handleStartMfaSetup}>
+										Enable 2FA
+									</button>
+								</div>
+
+								{mfaSetup && (
+									<div
+										style={{
+											marginTop: "0.5rem",
+											padding: "0.9rem",
+											border: "1px solid rgba(196, 167, 125, 0.35)",
+											borderRadius: "12px",
+											background: "rgba(196, 167, 125, 0.08)",
+										}}
+									>
+										<p style={{ margin: 0, color: "#ddd" }}>
+											Secret: <strong>{mfaSetup.totp.secret}</strong>
+										</p>
+										<button
+											type="button"
+											className={`btn-primary mfa-toggle-btn ${mfaIncludeQrCode ? "is-active" : ""}`}
+											onClick={() => setMfaIncludeQrCode((value) => !value)}
+											style={{ marginTop: "0.7rem" }}
+										>
+											<QrCodeIcon size={16} />
+											<span>{mfaIncludeQrCode ? "Use text key" : "Use QR code"}</span>
+										</button>
+										{mfaIncludeQrCode && mfaSetup.totp.qrDataUrl && (
+											<img
+												src={mfaSetup.totp.qrDataUrl}
+												alt="Authenticator QR code"
+												style={{ width: 180, height: 180, marginTop: "0.8rem", borderRadius: "10px" }}
+											/>
+										)}
+										{mfaSetup.totp.otpauthUrl && (
+											<a href={mfaSetup.totp.otpauthUrl} style={{ display: "block", marginTop: "0.6rem" }}>
+												Open in authenticator app
+											</a>
+										)}
+										<input
+											type="text"
+											inputMode="numeric"
+											pattern="[0-9]{6,8}"
+											value={mfaCode}
+											onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+											placeholder="Enter app code"
+											style={{ marginTop: "0.7rem" }}
+										/>
+										<div className="form-actions" style={{ marginTop: "0.6rem" }}>
+											<button className="btn-primary" onClick={handleEnableMfa}>
+												Enable 2FA
+											</button>
+										</div>
+									</div>
+								)}
+							</div>
+						)}
 					</div>
 				</div>
 			</div>

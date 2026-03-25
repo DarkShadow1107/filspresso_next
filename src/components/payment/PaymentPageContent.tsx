@@ -4,19 +4,21 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
-import emailjs from "@emailjs/browser";
 import fx from "money";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
+import { writeAccountSession } from "@/lib/accountSession";
 import { buildPageHref } from "@/lib/pages";
 import CreditCard from "@/icons/credit-card";
 import LockIcon from "@/icons/lock-icon";
 import {
 	CURRENCY_CONFIG,
+	FALLBACK_FX_RATES,
 	FX_FETCH_CODES,
 	SUPPORTED_DESTINATIONS,
 	formatMoney,
 	roundCurrency,
+	sanitizeFxRates,
 	type SupportedCurrencyCode,
 } from "@/lib/paymentCurrency";
 
@@ -192,7 +194,7 @@ export default function PaymentPageContent() {
 	const [selectedDestinationCode, setSelectedDestinationCode] = useState("RO");
 	const [selectedCurrency, setSelectedCurrency] = useState<SupportedCurrencyCode>("RON");
 	const [isCurrencyManuallySelected, setIsCurrencyManuallySelected] = useState(false);
-	const [fxRates, setFxRates] = useState<Partial<Record<SupportedCurrencyCode, number>>>({ RON: 1 });
+	const [fxRates, setFxRates] = useState<Partial<Record<SupportedCurrencyCode, number>>>(FALLBACK_FX_RATES);
 	const [fxUpdatedAt, setFxUpdatedAt] = useState<string | null>(null);
 	const [fxError, setFxError] = useState<string | null>(null);
 	const destinationDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -224,11 +226,30 @@ export default function PaymentPageContent() {
 
 	useEffect(() => {
 		let isActive = true;
+		const FX_CACHE_KEY = "payment_fx_rates";
+		const FX_CACHE_DATE_KEY = "payment_fx_rates_date";
+
+		if (typeof window !== "undefined") {
+			try {
+				const rawRates = window.localStorage.getItem(FX_CACHE_KEY);
+				const rawDate = window.localStorage.getItem(FX_CACHE_DATE_KEY);
+				if (rawRates) {
+					const parsed = JSON.parse(rawRates) as Partial<Record<SupportedCurrencyCode, number>>;
+					const cachedRates = { RON: 1, ...sanitizeFxRates(parsed) };
+					if (Object.keys(cachedRates).length > 1) {
+						setFxRates(cachedRates);
+						if (rawDate) setFxUpdatedAt(rawDate);
+					}
+				}
+			} catch {
+				// Ignore cache parse errors.
+			}
+		}
 
 		const loadRates = async () => {
 			try {
 				setFxError(null);
-				const response = await fetch(`https://api.frankfurter.app/latest?from=RON&to=${FX_FETCH_CODES}`, {
+				const response = await fetch(`/api/fx/latest?from=RON&to=${FX_FETCH_CODES}`, {
 					cache: "no-store",
 				});
 
@@ -239,16 +260,29 @@ export default function PaymentPageContent() {
 				const data = (await response.json()) as {
 					date?: string;
 					rates?: Partial<Record<SupportedCurrencyCode, number>>;
+					stale?: boolean;
 				};
 
 				if (!isActive) return;
 
-				setFxRates({ RON: 1, ...(data.rates || {}) });
+				const sanitizedRates = { RON: 1, ...sanitizeFxRates(data.rates) };
+				setFxRates(sanitizedRates);
 				setFxUpdatedAt(data.date ?? new Date().toISOString().slice(0, 10));
+
+				if (typeof window !== "undefined" && Object.keys(sanitizedRates).length > 1) {
+					window.localStorage.setItem(FX_CACHE_KEY, JSON.stringify(sanitizedRates));
+					window.localStorage.setItem(FX_CACHE_DATE_KEY, data.date ?? new Date().toISOString().slice(0, 10));
+				}
+
+				if (data.stale) {
+					setFxError("Live exchange feed is temporarily unavailable. Showing fallback rates.");
+				}
 			} catch (error) {
-				console.error("Failed to load currency rates", error);
+				console.warn("Failed to load live currency rates; using fallback rates", error);
 				if (!isActive) return;
-				setFxError("Live exchange rates are temporarily unavailable. RON payments remain available.");
+				setFxRates(FALLBACK_FX_RATES);
+				setFxUpdatedAt(new Date().toISOString().slice(0, 10));
+				setFxError("Live exchange rates are temporarily unavailable. Showing fallback rates.");
 			}
 		};
 
@@ -502,40 +536,6 @@ export default function PaymentPageContent() {
 			: `Auto-detected: ${selectedDestination.name} is an approved non-EU shipping exception.`;
 	const exchangeRateLabel = canConvertCurrency ? `1 RON = ${selectedRate.toFixed(4)} ${selectedCurrency}` : "Rate unavailable";
 
-	const sendPaymentConfirmationEmail = useCallback(async () => {
-		try {
-			const session = sessionStorage.getItem("account_session");
-			if (!session) {
-				console.error("User session not found.");
-				return;
-			}
-
-			const account = JSON.parse(session);
-			const userEmail = account.email;
-			const userName = account.full_name || account.username;
-
-			if (!userEmail) {
-				console.error("User email not found.");
-				return;
-			}
-
-			emailjs.init("T-VQxrMdcr_OdDWSa");
-
-			await emailjs.send(
-				"service_c2nhc5y",
-				"template_z6i4fwr",
-				{
-					to_email: userEmail,
-					to_name: userName ?? "",
-					items_list: [],
-				},
-				"T-VQxrMdcr_OdDWSa",
-			);
-		} catch (error) {
-			console.error("Error sending email:", error);
-		}
-	}, []);
-
 	const handlePayment = useCallback(async () => {
 		const cType = sessionStorage.getItem("cType") || (selectedSavedCard ? selectedSavedCard.card_type : null);
 		const cardDigits = removeAllSpaces(ccNum);
@@ -706,12 +706,12 @@ export default function PaymentPageContent() {
 							console.error("Failed to save subscription order", e);
 						}
 
-						// Update session storage with new subscription
+						// Keep account state synchronized in both local and session storage.
 						const updatedAccountData = {
 							...accountData,
 							subscription: subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1),
 						};
-						sessionStorage.setItem("account_session", JSON.stringify(updatedAccountData));
+						writeAccountSession(updatedAccountData);
 					} else {
 						notify("Subscription activation failed. Please contact support.", 5000, "error", "payment");
 					}
@@ -770,8 +770,6 @@ export default function PaymentPageContent() {
 				}
 			}
 
-			await sendPaymentConfirmationEmail();
-
 			reset({ silent: true });
 
 			redirectTimerRef.current = setTimeout(() => {
@@ -824,7 +822,6 @@ export default function PaymentPageContent() {
 		baseShippingCost,
 		reset,
 		router,
-		sendPaymentConfirmationEmail,
 		notify,
 	]);
 

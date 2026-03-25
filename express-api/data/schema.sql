@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS accounts (
     icon VARCHAR(255) DEFAULT '/images/default-avatar.png',
     subscription_id INTEGER,
     role VARCHAR(20) DEFAULT 'user', -- admin, user
+    oauth_provider VARCHAR(20),
+    oauth_subject VARCHAR(191),
+    oauth_linked_at TIMESTAMP NULL,
+    google_sub VARCHAR(191),
     graph_theme VARCHAR(20) DEFAULT 'classic',
     invoice_include_product_view BOOLEAN DEFAULT TRUE,
     email_verified BOOLEAN DEFAULT FALSE,
@@ -27,6 +31,12 @@ CREATE TABLE IF NOT EXISTS accounts (
 
 CREATE INDEX idx_accounts_email ON accounts(email);
 CREATE INDEX idx_accounts_username ON accounts(username);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_oauth_provider_subject
+ON accounts(oauth_provider, oauth_subject)
+WHERE oauth_provider IS NOT NULL AND oauth_subject IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_google_sub
+ON accounts(google_sub)
+WHERE google_sub IS NOT NULL;
 
 -- =============================================================================
 -- USER CARDS TABLE

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AccountIconGenerator from "@/components/AccountIconGenerator";
+import { clearAccountSession, createDefaultAvatarDataUrl, readAccountSession, writeAccountSession } from "@/lib/accountSession";
 import Image from "next/image";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
@@ -96,6 +97,19 @@ export default function AccountManagement() {
 	const [newPassword, setNewPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
 	const [editIconDataUrl, setEditIconDataUrl] = useState<string | null>(null);
+	const [mfaSetup, setMfaSetup] = useState<{
+		challengeToken: string;
+		expiresIn: number;
+		totp: {
+			secret: string;
+			issuer: string;
+			accountName: string;
+			otpauthUrl: string;
+			qrDataUrl?: string | null;
+		};
+	} | null>(null);
+	const [mfaCode, setMfaCode] = useState("");
+	const [mfaIncludeQrCode, setMfaIncludeQrCode] = useState(false);
 
 	// Data State
 	const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
@@ -185,15 +199,15 @@ export default function AccountManagement() {
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 		try {
-			const accountJson = sessionStorage.getItem("account_session");
-			if (accountJson) {
-				const accountData = JSON.parse(accountJson) as AccountData & { token?: string };
+			const accountData = readAccountSession() as (AccountData & { token?: string }) | null;
+			if (accountData) {
 				setAccount({
 					full_name: accountData.full_name,
 					username: accountData.username,
 					email: accountData.email,
 					icon: accountData.icon,
 					created_at: accountData.created_at,
+					mfa: accountData.mfa,
 				});
 				setEditFullName(accountData.full_name || "");
 				setEditEmail(accountData.email);
@@ -211,9 +225,14 @@ export default function AccountManagement() {
 							if (data.user.subscription) {
 								setSubscription(data.user.subscription.toLowerCase() as SubscriptionTier);
 							}
-							if (data.user.created_at) {
-								setAccount((prev) => (prev ? { ...prev, created_at: data.user.created_at } : null));
-							}
+							setAccount((prev) => {
+								if (!prev) return prev;
+								return {
+									...prev,
+									created_at: data.user.created_at || prev.created_at,
+									mfa: data.user.mfa || prev.mfa,
+								};
+							});
 						}
 						// Store account ID for graph theme saving
 						if (data.user?.id) {
@@ -542,9 +561,28 @@ export default function AccountManagement() {
 		[expandedOrders, orders],
 	);
 
-	const handleSignOut = useCallback(() => {
+	const handleSignOut = useCallback(async () => {
 		if (typeof window === "undefined") return;
-		sessionStorage.removeItem("account_session");
+		const token = getAuthToken();
+
+		try {
+			await window.signOut?.();
+		} catch (error) {
+			console.error("Google app sign out failed:", error);
+		}
+
+		if (token) {
+			try {
+				await fetch(`${API_BASE}/api/auth/logout`, {
+					method: "POST",
+					headers: { Authorization: `Bearer ${token}` },
+				});
+			} catch (error) {
+				console.error("Logout API failed:", error);
+			}
+		}
+
+		clearAccountSession();
 		notify("You have been signed out.", 6000, "success", "account");
 		window.location.reload(); // Reload to reset state in parent
 	}, [notify]);
@@ -603,13 +641,13 @@ export default function AccountManagement() {
 		}
 
 		try {
-			const session = sessionStorage.getItem("account_session");
+			const session = readAccountSession();
 			if (!session) {
 				notify("Please log in again.", 6000, "error", "account");
 				return;
 			}
 
-			const { token } = JSON.parse(session);
+			const { token } = session;
 			const res = await fetch(`${API_BASE}/api/accounts/update`, {
 				method: "PUT",
 				headers: {
@@ -630,9 +668,7 @@ export default function AccountManagement() {
 					email,
 					icon: editIconDataUrl || account.icon,
 				};
-				// Update sessionStorage with new data
-				const currentSession = JSON.parse(sessionStorage.getItem("account_session") || "{}");
-				sessionStorage.setItem("account_session", JSON.stringify({ ...currentSession, ...updatedAccount }));
+				writeAccountSession({ ...session, ...updatedAccount, token: token || null });
 				setAccount(updatedAccount);
 				setIsEditing(false);
 				notify("Profile updated successfully!", 6000, "success", "account");
@@ -661,6 +697,85 @@ export default function AccountManagement() {
 		setNewPassword("");
 		setConfirmPassword("");
 	}, [newPassword, confirmPassword, notify]);
+
+	const handleStartMfaSetup = useCallback(async () => {
+		const token = getAuthToken();
+		if (!token) {
+			notify("Please log in again.", 6000, "error", "account");
+			return;
+		}
+
+		try {
+			const response = await fetch(`${API_BASE}/api/auth/mfa/setup`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({ includeQrCode: true }),
+			});
+			const data = await response.json();
+
+			if (!response.ok || data?.status !== "success") {
+				notify(data?.message || data?.error || "Failed to start 2FA setup.", 6000, "error", "account");
+				return;
+			}
+
+			setMfaSetup({
+				challengeToken: String(data.challengeToken || ""),
+				expiresIn: Number(data.expiresIn || 0),
+				totp: data.totp,
+			});
+			setMfaIncludeQrCode(false);
+			setMfaCode("");
+			notify("2FA setup started. Verify with your authenticator code.", 6000, "success", "account");
+		} catch (error) {
+			console.error("MFA setup error:", error);
+			notify("Failed to start 2FA setup.", 6000, "error", "account");
+		}
+	}, [notify]);
+
+	const handleEnableMfa = useCallback(async () => {
+		if (!mfaSetup?.challengeToken) {
+			notify("Start 2FA setup first.", 5000, "error", "account");
+			return;
+		}
+		if (!mfaCode.trim()) {
+			notify("Enter the authenticator code.", 5000, "error", "account");
+			return;
+		}
+
+		const token = getAuthToken();
+		if (!token) {
+			notify("Please log in again.", 6000, "error", "account");
+			return;
+		}
+
+		try {
+			const response = await fetch(`${API_BASE}/api/auth/mfa/enable`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({ challengeToken: mfaSetup.challengeToken, code: mfaCode }),
+			});
+			const data = await response.json();
+
+			if (!response.ok || data?.status !== "success") {
+				notify(data?.message || data?.error || "Failed to enable 2FA.", 6000, "error", "account");
+				return;
+			}
+
+			setAccount((prev) => (prev ? { ...prev, mfa: { enabled: true } } : prev));
+			setMfaSetup(null);
+			setMfaCode("");
+			notify("Two-factor authentication enabled.", 6000, "success", "account");
+		} catch (error) {
+			console.error("Enable MFA error:", error);
+			notify("Failed to enable 2FA.", 6000, "error", "account");
+		}
+	}, [mfaCode, mfaSetup, notify]);
 
 	const handleDeleteCard = useCallback(
 		async (id: number) => {
@@ -772,9 +887,21 @@ export default function AccountManagement() {
 			<div className="account-header">
 				<div className="account-avatar">
 					{account.icon ? (
-						<img src={getIconUrl(account.icon) || account.icon} alt="Profile" />
+						<img
+							src={getIconUrl(account.icon) || account.icon}
+							alt="Profile"
+							onError={(event) => {
+								const fallback = createDefaultAvatarDataUrl(
+									account.username || account.full_name || account.email || "User",
+								);
+								(event.currentTarget as HTMLImageElement).src = fallback;
+							}}
+						/>
 					) : (
-						<div className="avatar-placeholder">{account.username[0].toUpperCase()}</div>
+						<img
+							src={createDefaultAvatarDataUrl(account.username || account.full_name || account.email || "User")}
+							alt="Profile"
+						/>
 					)}
 				</div>
 				<div className="account-info">
@@ -840,6 +967,13 @@ export default function AccountManagement() {
 						setEditIconDataUrl={setEditIconDataUrl}
 						handleSaveProfile={handleSaveProfile}
 						handleChangePassword={handleChangePassword}
+						mfaSetup={mfaSetup}
+						mfaCode={mfaCode}
+						mfaIncludeQrCode={mfaIncludeQrCode}
+						setMfaCode={setMfaCode}
+						setMfaIncludeQrCode={setMfaIncludeQrCode}
+						handleStartMfaSetup={handleStartMfaSetup}
+						handleEnableMfa={handleEnableMfa}
 					/>
 				)}
 

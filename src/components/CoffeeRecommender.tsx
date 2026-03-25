@@ -15,6 +15,7 @@ import {
 	extractMoleculeQuery,
 	getMoleculeCard,
 } from "@/lib/moleculeSearch";
+import { clearAccountSession, writeAccountSession } from "@/lib/accountSession";
 import KafelotStats from "./kafelot/KafelotStats";
 import KafelotUsage from "./kafelot/KafelotUsage";
 import {
@@ -1257,15 +1258,12 @@ export default function CoffeeRecommender() {
 									<button
 										onClick={() => {
 											// Demo login - simulate session with max subscription
-											sessionStorage.setItem(
-												"account_session",
-												JSON.stringify({
-													username: "demo_max",
-													full_name: "Demo Max User",
-													email: "demo_max@test.com",
-													token: "demo_token_max",
-												}),
-											);
+											writeAccountSession({
+												username: "demo_max",
+												full_name: "Demo Max User",
+												email: "demo_max@test.com",
+												token: "demo_token_max",
+											});
 											setIsLoggedIn(true);
 											setUserSubscription("max");
 											setSelectedModel("tanka");
@@ -1277,15 +1275,12 @@ export default function CoffeeRecommender() {
 									<button
 										onClick={() => {
 											// Demo login - simulate session with ultimate subscription
-											sessionStorage.setItem(
-												"account_session",
-												JSON.stringify({
-													username: "demo_ultimate",
-													full_name: "Demo Ultimate User",
-													email: "demo_ultimate@test.com",
-													token: "demo_token_ultimate",
-												}),
-											);
+											writeAccountSession({
+												username: "demo_ultimate",
+												full_name: "Demo Ultimate User",
+												email: "demo_ultimate@test.com",
+												token: "demo_token_ultimate",
+											});
 											setIsLoggedIn(true);
 											setUserSubscription("ultimate");
 											setSelectedModel("tanka");
@@ -1297,15 +1292,12 @@ export default function CoffeeRecommender() {
 									<button
 										onClick={() => {
 											// Demo login - simulate session with basic subscription
-											sessionStorage.setItem(
-												"account_session",
-												JSON.stringify({
-													username: "demo_basic",
-													full_name: "Demo Basic User",
-													email: "demo_basic@test.com",
-													token: "demo_token_basic",
-												}),
-											);
+											writeAccountSession({
+												username: "demo_basic",
+												full_name: "Demo Basic User",
+												email: "demo_basic@test.com",
+												token: "demo_token_basic",
+											});
 											setIsLoggedIn(true);
 											setUserSubscription("basic");
 											setSelectedModel("tanka");
@@ -1318,7 +1310,7 @@ export default function CoffeeRecommender() {
 							) : (
 								<button
 									onClick={() => {
-										sessionStorage.removeItem("account_session");
+										clearAccountSession();
 										setIsLoggedIn(false);
 										setUserSubscription("none");
 										setSelectedModel("tanka");

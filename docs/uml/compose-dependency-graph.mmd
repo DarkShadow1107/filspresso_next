@@ -1,10 +1,10 @@
 flowchart TD
     PG[postgres] --> BE[backend]
+    RD[redis] --> GO[go_ops]
     PG --> AI[ai]
     BE --> JI[invoice_java]
     BE --> GO[go_ops]
     BE --> KS[kotlin_subscriptions]
-    WB[wasm_builder] --> PW[public/wasm artifacts]
     BE --> IMG[public/images mount]
     AI --> HFC[hf_cache volume]
     AI --> CLC[clip_cache volume]

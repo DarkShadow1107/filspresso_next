@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { buildPageHref, type PageSlug, DEFAULT_PAGE_SLUG } from "@/lib/pages";
+import { createDefaultAvatarDataUrl, readAccountSession } from "@/lib/accountSession";
 import { UsersIcon, ShoppingCartIcon, HeartIcon } from "@/icons";
 
 type NavLink = {
@@ -122,6 +123,7 @@ export default function Navbar() {
 	const [accountName, setAccountName] = useState<string | null>(null);
 	const [accountIcon, setAccountIcon] = useState<string | null>(null);
 	const lastFailedUrlRef = useRef<string | null>(null);
+	const fallbackAvatarRef = useRef<string | null>(null);
 
 	const getIconUrl = (icon: string | null) => {
 		if (!icon) return null;
@@ -140,11 +142,10 @@ export default function Navbar() {
 			url = `/images/icons/${url}`;
 		}
 
-		// Force lowercase and .svg extension for internal icon paths
+		// Normalize only internal icon paths and preserve explicit extensions.
 		if (url.startsWith("/images/icons/") && !url.startsWith("data:")) {
-			// Only lowercase the part after /images/icons/ to be safe, though the whole path is fine here
 			url = url.toLowerCase();
-			if (!url.endsWith(".svg")) {
+			if (!/\.(svg|png|jpe?g|ico|webp|avif)(\?.*)?$/i.test(url)) {
 				url = `${url}.svg`;
 			}
 		}
@@ -155,7 +156,7 @@ export default function Navbar() {
 				if (url.includes(" ") || url.includes("[") || url.includes("]")) {
 					return encodeURI(url);
 				}
-			} catch (e) {
+			} catch {
 				return url;
 			}
 		}
@@ -166,19 +167,23 @@ export default function Navbar() {
 		if (typeof window === "undefined") return;
 		const checkSession = () => {
 			try {
-				const a = sessionStorage.getItem("account_session");
-				if (a) {
-					const obj = JSON.parse(a);
-					const iconUrl = getIconUrl(obj.icon);
-					setAccountName(obj.username || obj.full_name || null);
-					// Only update icon if it's not the one that just failed
-					if (iconUrl !== lastFailedUrlRef.current) {
-						setAccountIcon(iconUrl || null);
+				const session = readAccountSession();
+				if (session) {
+					const displayName = session.username || session.full_name || session.email || null;
+					const iconUrl = getIconUrl(session.icon || null);
+					const fallbackIcon = createDefaultAvatarDataUrl(displayName || "User");
+					fallbackAvatarRef.current = fallbackIcon;
+					setAccountName(displayName);
+					if (iconUrl && iconUrl !== lastFailedUrlRef.current) {
+						setAccountIcon(iconUrl);
+					} else {
+						setAccountIcon(fallbackIcon);
 					}
 				} else {
 					setAccountName(null);
 					setAccountIcon(null);
 					lastFailedUrlRef.current = null;
+					fallbackAvatarRef.current = null;
 				}
 			} catch (e) {
 				console.error("Navbar session error:", e);
@@ -310,7 +315,6 @@ export default function Navbar() {
 										>
 											{accountIcon ? (
 												<>
-													{console.log("Rendering icon img with src:", accountIcon)}
 													<img
 														src={accountIcon}
 														alt="account"
@@ -320,11 +324,11 @@ export default function Navbar() {
 															display: "inline-block",
 														}}
 														onError={(e) => {
-															console.error("Icon load error for:", accountIcon, e);
-															lastFailedUrlRef.current = accountIcon;
-															setAccountIcon(null);
+															if (accountIcon && !accountIcon.startsWith("data:image/")) {
+																lastFailedUrlRef.current = accountIcon;
+																setAccountIcon(fallbackAvatarRef.current || null);
+															}
 														}}
-														onLoad={() => console.log("Icon loaded successfully")}
 													/>
 													<span style={{ display: "inline-block", verticalAlign: "middle" }}>
 														{accountName || label}

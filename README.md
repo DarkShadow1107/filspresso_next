@@ -2,7 +2,7 @@
 
 Filspresso Next is a full-stack coffee commerce platform that combines e-commerce, AI assistance, and IoT-ready machine orchestration.
 
-It is built with Next.js (App Router), Express, PostgreSQL, a Python AI service (Flask + Tanka model stack), and polyglot domain services in Java, Kotlin, Go, and C++/WebAssembly.
+It is built with Next.js (App Router), Express, PostgreSQL, Redis, a Python AI service (Flask + Tanka model stack), and polyglot domain services in Java, Kotlin, and Go.
 
 ## 0. Architecture Decision Snapshot
 
@@ -12,7 +12,6 @@ This section is a quick ADR-style summary for new contributors.
 - Use Java for invoice PDF rendering where mature JVM document tooling gives stable output quality.
 - Use Kotlin for subscription pricing and reconciliation rules where null-safety and concise rule code reduce maintenance risk.
 - Use Go for operational event ingestion and lightweight service endpoints where startup speed and memory efficiency matter.
-- Use C++/WebAssembly in browser-side compute paths (image preprocessing, QR candidate scoring, vector ranking) where deterministic numeric performance is needed.
 - Keep PostgreSQL as the primary database because current architecture depends on transaction-heavy commerce flows plus extension-oriented AI/chemistry capabilities.
 
 ## 0.1 Current Revision Change Log (Beta-3)
@@ -69,7 +68,6 @@ npm install
 ### 3) Build and start the full container stack
 
 ```bash
-docker compose --profile build build
 docker compose up --build -d
 ```
 
@@ -90,7 +88,7 @@ npm run dev
 
 ### Quick verification checklist
 
-- `docker compose ps` shows `postgres`, `backend`, `ai`, `invoice_java`, `go_ops`, and `kotlin_subscriptions` as running
+- `docker compose ps` shows `postgres`, `redis`, `backend`, `ai`, `invoice_java`, `go_ops`, and `kotlin_subscriptions` as running
 - `GET /health` on port 4000 returns status ok
 - `GET /api/health` on port 5000 returns status ok
 - `GET /api/invoices/health` on port 8082 returns status ok
@@ -231,15 +229,14 @@ Additional architecture diagrams are exported as SVG files in `docs/uml/` for di
 - Java 17 + Spring Boot (invoice and PDF generation)
 - Kotlin 1.9 + Spring Boot (subscription quote and reconciliation engine)
 - Go 1.22 (operations and event ingestion service)
-- C++ compiled to WebAssembly via Emscripten (client-side preprocessing and scoring)
+- Redis 7 (durable shared event list for the Go ops service)
 
 ### Service ownership boundary (important)
 
 - Express owns API gateway/orchestration, auth/account/cart/order orchestration, and transactional stock writes.
 - Java owns invoice PDF rendering only.
 - Kotlin owns subscription quote and reconciliation computations.
-- Go owns operational event ingestion and lightweight ops endpoints.
-- Wasm owns browser-side numeric acceleration (preprocess, QR scoring, vector math), not server orchestration.
+- Go owns operational event ingestion and lightweight ops endpoints backed by Redis.
 
 ### AI backend
 
@@ -274,15 +271,14 @@ The table below captures practical tradeoffs against realistic alternatives cons
 | -------------------------- | -------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | Invoice rendering fidelity | Java 17 + OpenPDF/Spring               | Node PDFKit/Puppeteer templates | JVM PDF layout behavior is stable and deterministic for invoice stamping and typography | Fewer visual regressions in generated PDFs across environments |
 | Business-rule safety       | Kotlin service for subscription engine | Express-only rules              | Kotlin null-safety and concise data classes reduce branch-heavy reconciliation bugs     | Lower rule-maintenance risk as plan matrix grows               |
-| Event ingest efficiency    | Go ops service                         | Express worker endpoints        | Go startup and memory profile is favorable for lightweight ingest endpoints             | Better steady-state memory for always-on ops path              |
-| Browser numeric loops      | C++ compiled to Wasm                   | pure TypeScript loops           | Deterministic numeric kernels and faster tight loops for image/vector operations        | Lower CPU time in client-side heavy computation paths          |
+| Event ingest efficiency    | Go ops service + Redis list            | Express worker endpoints        | Go startup and memory profile is favorable while Redis provides shared durable state    | Better horizontal scaling and restart resilience               |
 | AI retrieval storage       | PostgreSQL + pgvector                  | separate vector DB              | Keeps transactional + vector data in one consistency boundary                           | Fewer sync jobs and simpler operational topology               |
 
 #### Performance benchmark notes
 
 - Benchmarks are workload-specific and should be repeated in your deployment target.
 - The current architecture optimizes for deterministic output and operational simplicity over synthetic peak throughput.
-- Recommendation: keep a benchmark harness per service (invoice render latency, subscription quote latency, event ingest p95, Wasm compute duration) and track trends release-over-release.
+- Recommendation: keep a benchmark harness per service (invoice render latency, subscription quote latency, event ingest p95) and track trends release-over-release.
 
 ---
 
@@ -474,8 +470,7 @@ Notes:
 - Added `java-invoice-service/` for Java PDF invoice generation.
 - Added `kotlin-subscription-service/` for Kotlin quote/reconciliation logic.
 - Added `go-ops-service/` for operational events and lightweight service tasks.
-- Added `cpp-wasm/` plus `public/wasm/` outputs for C++ compiled browser helpers.
-- Added `src/lib/wasm/filspressoMath.ts` for typed Wasm loading and helper calls.
+- Added Redis-backed event persistence for shared, durable ops history.
 - Added new Express route modules for inter-service proxying: `operations.js` and `subscriptions_engine.js`.
 - Added `java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java` and signature resource assets for invoice stamp rendering.
 - Added legal route files for `/terms-and-conditions` and `/manage-subscription/privacy-policy` while deprecating legacy legal route paths.
@@ -485,16 +480,16 @@ Notes:
 
 ## 5. Runtime Topology And Ports
 
-| Service              | Port | Responsibility                                             | Health Endpoint              |
-| -------------------- | ---- | ---------------------------------------------------------- | ---------------------------- |
-| Next.js              | 3000 | UI rendering, route handlers, proxy logic                  | n/a (application page load)  |
-| Express API          | 4000 | Commerce/auth/cart/orders/products/admin                   | /health and /health/services |
-| Python AI            | 5000 | AI chat/semantic search/IoT endpoints                      | /api/health                  |
-| Java Invoice         | 8082 | PDF invoice generation service                             | /api/invoices/health         |
-| Go Ops               | 8083 | Event ingestion/webhooks/operational processing            | /health                      |
-| Kotlin Subscriptions | 8084 | Subscription pricing and reconciliation engine             | /api/subscriptions/health    |
-| PostgreSQL           | 5432 | Transactional + vector/chemistry data                      | pg_isready health check      |
-| C++ Wasm Builder     | n/a  | On-demand compilation of browser artifacts to /public/wasm | n/a (on-demand run)          |
+| Service              | Port | Responsibility                                  | Health Endpoint              |
+| -------------------- | ---- | ----------------------------------------------- | ---------------------------- |
+| Next.js              | 3000 | UI rendering, route handlers, proxy logic       | n/a (application page load)  |
+| Express API          | 4000 | Commerce/auth/cart/orders/products/admin        | /health and /health/services |
+| Python AI            | 5000 | AI chat/semantic search/IoT endpoints           | /api/health                  |
+| Java Invoice         | 8082 | PDF invoice generation service                  | /api/invoices/health         |
+| Go Ops               | 8083 | Event ingestion/webhooks/operational processing | /health                      |
+| Kotlin Subscriptions | 8084 | Subscription pricing and reconciliation engine  | /api/subscriptions/health    |
+| Redis                | 6379 | Durable shared event storage for Go ops         | redis-cli ping               |
+| PostgreSQL           | 5432 | Transactional + vector/chemistry data           | pg_isready health check      |
 
 ### Internal container addressing
 
@@ -503,8 +498,9 @@ Inside Docker network:
 - backend reaches db at host `postgres`
 - backend reaches AI at `http://ai:5000`
 - backend reaches Java invoice at `http://invoice-java:8082`
-- backend reaches Go ops at `http://go_ops:8083`
+- backend reaches Go ops at `http://go-ops:8083`
 - backend reaches Kotlin subscriptions at `http://kotlin-subscriptions:8084`
+- go ops reaches Redis at `redis:6379`
 - AI reaches db at host `postgres`
 
 Outside Docker (host machine):
@@ -540,7 +536,7 @@ Outside Docker (host machine):
 | CORS_ORIGIN                       | http://localhost:3000            | Allowed origin list                  |
 | PYTHON_AI_HOST                    | http://ai:5000                   | AI health and integration host       |
 | INVOICE_SERVICE_URL               | http://invoice-java:8082         | Java invoice service base URL        |
-| GO_OPS_URL                        | http://go_ops:8083               | Go operational service base URL      |
+| GO_OPS_URL                        | http://go-ops:8083               | Go operational service base URL      |
 | GO_OPS_API_KEY                    | filspresso-ops-key               | Go ops ingest authentication key     |
 | KOTLIN_SUBSCRIPTIONS_URL          | http://kotlin-subscriptions:8084 | Kotlin subscription service base URL |
 | DISABLE_RATE_LIMIT_FOR_DEV        | true or false                    | dev toggle                           |
@@ -631,10 +627,11 @@ Docker is not an optional side note in this project. It is part of how the archi
     - Handles pricing quotes and subscription reconciliation rules
     - Health check via /api/subscriptions/health
 
-- wasm_builder
-    - Built from cpp-wasm/Dockerfile
-    - Build profile service (on-demand)
-    - Compiles C++ helpers to public/wasm/filspresso_math.js and public/wasm/filspresso_math.wasm
+- redis
+    - Uses redis:7.4-alpine image
+    - Exposes port 6379
+    - Shared durable event list backend for go_ops
+    - Health check via redis-cli ping
 
 ### Compose dependency graph
 
@@ -650,9 +647,7 @@ Docker is not an optional side note in this project. It is part of how the archi
 ### Typical Docker commands
 
 ```bash
-docker compose --profile build build
 docker compose up --build -d
-docker compose run --rm wasm_builder
 docker compose ps
 docker compose logs -f backend
 docker compose logs -f ai
@@ -702,8 +697,7 @@ The frontend uses a page-slug pattern where root page resolves component based o
 
 - Invoice PDF document rendering moved to Java (`java-invoice-service`).
 - Subscription quote/reconciliation calculations moved to Kotlin (`kotlin-subscription-service`).
-- Operational event ingestion moved to Go (`go-ops-service`).
-- Browser-side high-volume numeric/image loops moved to C++/Wasm (`cpp-wasm`).
+- Operational event ingestion moved to Go (`go-ops-service`) with Redis-backed durability.
 
 Express now orchestrates these domains and enforces auth, validation, and response contracts.
 
@@ -1637,18 +1631,12 @@ Filspresso keeps an Express-first architecture and adds other languages only for
 
 ### Language-to-domain mapping
 
-| Technology            | Where it is used                                               | Why it was chosen                                                             | Why not keep it in Node only                                                                      |
-| --------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Java 17 + Spring Boot | `java-invoice-service` (`/api/invoices/render`)                | Strong PDF ecosystem, reliable document rendering, predictable layout control | PDF generation quality and long-term maintainability are better with mature JVM PDF libraries     |
-| Kotlin + Spring Boot  | `kotlin-subscription-service` (`/api/subscriptions/*`)         | Null-safety and concise business-rule code for pricing/reconciliation         | Subscription rules grow quickly; Kotlin reduces boilerplate and runtime null bugs                 |
-| Go 1.22               | `go-ops-service` (`/events/ingest`, `/health`)                 | Fast startup, low memory use, simple concurrency model for ops/event traffic  | Operational/event paths benefit from lightweight services without Node event-loop coupling        |
-| C++ + WebAssembly     | `cpp-wasm` + frontend wrapper `src/lib/wasm/filspressoMath.ts` | Deterministic browser-side speed for numeric and pixel workloads              | JS is fine for orchestration, but heavy image/vector loops are faster and more consistent in Wasm |
-
-### C++/Wasm focus areas in this project
-
-- Image preprocessing before AI requests (RGBA to gray, binarization).
-- QR finder candidate scoring and pre-filtering.
-- Local vector similarity/ranking to reduce unnecessary network calls.
+| Technology            | Where it is used                                       | Why it was chosen                                                             | Why not keep it in Node only                                                                  |
+| --------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Java 17 + Spring Boot | `java-invoice-service` (`/api/invoices/render`)        | Strong PDF ecosystem, reliable document rendering, predictable layout control | PDF generation quality and long-term maintainability are better with mature JVM PDF libraries |
+| Kotlin + Spring Boot  | `kotlin-subscription-service` (`/api/subscriptions/*`) | Null-safety and concise business-rule code for pricing/reconciliation         | Subscription rules grow quickly; Kotlin reduces boilerplate and runtime null bugs             |
+| Go 1.22               | `go-ops-service` (`/events/ingest`, `/health`)         | Fast startup, low memory use, simple concurrency model for ops/event traffic  | Operational/event paths benefit from lightweight services without Node event-loop coupling    |
+| Redis 7               | shared service used by `go-ops-service`                | Durable shared event history across deploys and multi-instance Go ops traffic | In-memory slices are fast but lose history on restart and split state per instance            |
 
 ### Why this polyglot split is intentional
 
@@ -1700,9 +1688,7 @@ For Filspresso, PostgreSQL is not only "good enough"; it is the database that be
 
 ### Docker
 
-- docker compose --profile build build
 - docker compose up --build -d
-- docker compose run --rm wasm_builder
 - docker compose logs -f backend
 - docker compose logs -f ai
 - docker compose down
@@ -1713,9 +1699,6 @@ For Filspresso, PostgreSQL is not only "good enough"; it is the database that be
 
 - docker-compose.yml
 - Dockerfile.express
-- cpp-wasm/Dockerfile
-- cpp-wasm/src/price_math.cpp
-- cpp-wasm/README.md
 - express-api/server.js
 - express-api/routes/operations.js
 - express-api/routes/cart.js
@@ -1732,7 +1715,6 @@ For Filspresso, PostgreSQL is not only "good enough"; it is the database that be
 - src/app/page.tsx
 - src/app/terms-and-conditions/page.tsx
 - src/app/manage-subscription/privacy-policy/page.tsx
-- src/lib/wasm/filspressoMath.ts
 - proxy.ts
 - next.config.ts
 - app.py

@@ -145,7 +145,10 @@
 	border-radius: 12px;
 	color: var(--admin-text);
 	font-size: 1rem;
-	transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+	transition:
+		border-color 0.2s,
+		box-shadow 0.2s,
+		background 0.2s;
 }
 
 .admin-login-form input:focus {
@@ -179,7 +182,9 @@
 	color: var(--admin-text-soft);
 	padding: 4px 8px;
 	border-radius: 999px;
-	transition: color 0.2s, background 0.2s;
+	transition:
+		color 0.2s,
+		background 0.2s;
 }
 
 .password-toggle-btn:hover {
@@ -213,7 +218,10 @@
 	font-size: 1rem;
 	font-weight: 600;
 	cursor: pointer;
-	transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
+	transition:
+		transform 0.2s,
+		box-shadow 0.2s,
+		filter 0.2s;
 	position: relative;
 	z-index: 1;
 }
@@ -231,6 +239,44 @@
 
 .login-button-label {
 	padding-bottom: 1px;
+}
+
+.admin-mfa-toggle-btn {
+	width: 100%;
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.5rem;
+	padding: 0.72rem 0.85rem;
+	border-radius: 12px;
+	border: 1px solid rgba(196, 167, 125, 0.35);
+	background: rgba(196, 167, 125, 0.1);
+	color: var(--admin-text);
+	font-size: 0.78rem;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	cursor: pointer;
+	transition:
+		transform 0.2s,
+		border-color 0.2s,
+		background 0.2s,
+		box-shadow 0.2s;
+}
+
+.admin-mfa-toggle-btn:hover,
+.admin-mfa-toggle-btn:focus {
+	background: rgba(196, 167, 125, 0.17);
+	border-color: rgba(230, 196, 157, 0.62);
+	transform: translateY(-1px);
+	box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+	outline: none;
+}
+
+.admin-mfa-toggle-btn.is-active {
+	background: linear-gradient(135deg, var(--admin-accent) 0%, var(--admin-accent-strong) 100%);
+	border-color: transparent;
+	color: #1a120d;
 }
 
 /* Admin Dashboard */
@@ -332,7 +378,10 @@
 	color: var(--admin-danger);
 	cursor: pointer;
 	font-size: 0.85rem;
-	transition: background 0.2s, transform 0.2s, border-color 0.2s;
+	transition:
+		background 0.2s,
+		transform 0.2s,
+		border-color 0.2s;
 }
 
 .logout-button:hover {
@@ -397,7 +446,10 @@
 	padding: 0.85rem 0.95rem;
 	border-radius: 16px;
 	cursor: pointer;
-	transition: background 0.2s, border-color 0.2s, transform 0.2s;
+	transition:
+		background 0.2s,
+		border-color 0.2s,
+		transform 0.2s;
 	margin-bottom: 0.4rem;
 	border: 1px solid transparent;
 	background: rgba(255, 255, 255, 0.02);
@@ -560,7 +612,11 @@
 	border-radius: 14px;
 	font-size: 0.85rem;
 	cursor: pointer;
-	transition: background 0.2s, transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+	transition:
+		background 0.2s,
+		transform 0.2s,
+		border-color 0.2s,
+		box-shadow 0.2s;
 }
 
 .search-button {
@@ -662,7 +718,10 @@
 	border-radius: 14px;
 	font-size: 0.85rem;
 	cursor: pointer;
-	transition: transform 0.2s, border-color 0.2s, background 0.2s;
+	transition:
+		transform 0.2s,
+		border-color 0.2s,
+		background 0.2s;
 }
 
 .save-button {
@@ -803,7 +862,11 @@
 	margin-right: 0.3rem;
 	border-radius: 10px;
 	opacity: 0.92;
-	transition: opacity 0.2s, transform 0.2s, border-color 0.2s, background 0.2s;
+	transition:
+		opacity 0.2s,
+		transform 0.2s,
+		border-color 0.2s,
+		background 0.2s;
 }
 
 .action-btn:hover {
@@ -1093,7 +1156,9 @@
 	color: #1a120d;
 	font-weight: 600;
 	cursor: pointer;
-	transition: transform 0.15s, box-shadow 0.15s;
+	transition:
+		transform 0.15s,
+		box-shadow 0.15s;
 }
 
 .upload-button:disabled {
