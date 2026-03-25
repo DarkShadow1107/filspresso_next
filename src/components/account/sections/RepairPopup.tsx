@@ -3,6 +3,17 @@
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { UserMachine, SavedCard, RepairType, REPAIR_COSTS, getCardTypeImage, calculateRepairCost } from "./types";
+import {
+	ShieldCheck as ShieldCheckIcon,
+	CreditCard as CreditCardIcon,
+	SimpleCheckedIcon,
+	XIcon as CircleXIcon,
+	GearIcon,
+	FlameIcon,
+	TrashIcon,
+	SparklesIcon,
+	TriangleAlertIcon,
+} from "@/icons";
 
 interface RepairPopupProps {
 	isOpen: boolean;
@@ -106,13 +117,14 @@ export default function RepairPopup({
 								background: "transparent",
 								border: "none",
 								color: "#888",
-								fontSize: "1.5rem",
 								cursor: "pointer",
 								padding: "0.25rem",
-								lineHeight: 1,
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
 							}}
 						>
-							×
+							<CircleXIcon size={24} />
 						</button>
 					</div>
 				</div>
@@ -143,13 +155,15 @@ export default function RepairPopup({
 											color: useWarrantyForRepair ? "#10b981" : "#aaa",
 											fontSize: "0.9rem",
 											whiteSpace: "nowrap",
+											display: "flex",
+											alignItems: "center",
+											gap: "0.4rem",
 										}}
 									>
-										🆓 Use Warranty · <span style={{ fontWeight: 400, color: "#888" }}>Free</span>
+										<ShieldCheckIcon size={16} /> Warranty ·{" "}
+										<span style={{ fontWeight: 400, color: "#888" }}>Free</span>
 									</div>
-									{useWarrantyForRepair && (
-										<span style={{ color: "#10b981", fontSize: "1rem", marginLeft: "0.5rem" }}>✓</span>
-									)}
+									{useWarrantyForRepair && <SimpleCheckedIcon size={16} color="#10b981" />}
 								</div>
 							</div>
 							{/* Pay Option */}
@@ -174,13 +188,15 @@ export default function RepairPopup({
 											color: !useWarrantyForRepair ? "#c4a77d" : "#aaa",
 											fontSize: "0.9rem",
 											whiteSpace: "nowrap",
+											display: "flex",
+											alignItems: "center",
+											gap: "0.4rem",
 										}}
 									>
-										💳 Pay · <span style={{ fontWeight: 400, color: "#888" }}>Priority</span>
+										<CreditCardIcon size={16} /> Pay ·{" "}
+										<span style={{ fontWeight: 400, color: "#888" }}>Priority</span>
 									</div>
-									{!useWarrantyForRepair && (
-										<span style={{ color: "#c4a77d", fontSize: "1rem", marginLeft: "0.5rem" }}>✓</span>
-									)}
+									{!useWarrantyForRepair && <SimpleCheckedIcon size={16} color="#c4a77d" />}
 								</div>
 							</div>
 						</div>
@@ -235,17 +251,23 @@ export default function RepairPopup({
 											fontSize: "0.9rem",
 											fontWeight: 500,
 											color: selectedRepairType === type ? "#c4a77d" : "#aaa",
+											display: "flex",
+											alignItems: "center",
+											gap: "0.5rem",
 										}}
 									>
-										{type === "general"
-											? "🔧 General"
-											: type === "cleaning"
-											? "🧹 Cleaning"
-											: type === "descaling"
-											? "🧴 Descaling"
-											: type === "pump"
-											? "⚙️ Pump"
-											: "🔥 Heating"}
+										{type === "general" ? (
+											<GearIcon size={16} />
+										) : type === "cleaning" ? (
+											<TrashIcon size={16} />
+										) : type === "descaling" ? (
+											<SparklesIcon size={16} />
+										) : type === "pump" ? (
+											<GearIcon size={16} />
+										) : (
+											<FlameIcon size={16} />
+										)}
+										{type.charAt(0).toUpperCase() + type.slice(1)}
 									</span>
 									<span
 										style={{
@@ -280,8 +302,16 @@ export default function RepairPopup({
 									marginBottom: "1rem",
 								}}
 							>
-								<div style={{ fontSize: "0.85rem", color: "#f59e0b" }}>
-									⚠️ Warranty expired. Repair costs: 10-40% of original price.
+								<div
+									style={{
+										fontSize: "0.85rem",
+										color: "#f59e0b",
+										display: "flex",
+										alignItems: "center",
+										gap: "0.5rem",
+									}}
+								>
+									<TriangleAlertIcon size={16} /> Warranty expired. Repair costs: 10-40% of original price.
 								</div>
 							</div>
 						)}

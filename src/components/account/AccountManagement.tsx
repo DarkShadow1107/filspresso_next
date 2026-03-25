@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AccountIconGenerator from "@/components/AccountIconGenerator";
 import Image from "next/image";
-import { coffeeCollections } from "@/data/coffee";
+import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
+import type { CoffeeProduct } from "@/data/coffee";
 
 // Import section components
 import {
@@ -20,6 +21,16 @@ import {
 	RepairPopup,
 	MaintenancePopup,
 } from "./sections";
+
+import {
+	UserCheckIcon as UserIcon,
+	RosetteDiscountIcon as StatusIcon,
+	ShieldCheck as SubscriptionIcon,
+	CoffeeIcon,
+	CreditCard as CreditCardIcon,
+	HistoryCircleIcon as HistoryIcon,
+	LogoutIcon,
+} from "@/icons";
 
 // Import shared types and utilities
 import {
@@ -48,16 +59,9 @@ import {
 } from "./sections/types";
 
 // Helper function to get product image from data
-function getProductImage(productId: string): string | undefined {
-	// Search in coffee collections
-	for (const collection of coffeeCollections) {
-		for (const group of collection.groups) {
-			for (const product of group.products) {
-				if (product.id === productId) {
-					return product.image;
-				}
-			}
-		}
+function getProductImage(productId: string, coffeeProducts: CoffeeProduct[]): string | undefined {
+	for (const product of coffeeProducts) {
+		if (product.id === productId) return product.image;
 	}
 
 	// Search in machine collections
@@ -75,12 +79,14 @@ function getProductImage(productId: string): string | undefined {
 }
 
 export default function AccountManagement() {
+	const { collections } = useCoffeeCollections();
+	const coffeeProducts = collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [];
 	const router = useRouter();
 	const { notify } = useNotifications();
 	const [account, setAccount] = useState<AccountData | null>(null);
 	const [accountId, setAccountId] = useState<number | null>(null);
 	const [activeTab, setActiveTab] = useState<"profile" | "status" | "subscriptions" | "machines" | "payments" | "history">(
-		"profile"
+		"profile",
 	);
 
 	// Profile State
@@ -107,6 +113,7 @@ export default function AccountManagement() {
 	const [consumptionHistory, setConsumptionHistory] = useState<ConsumptionHistory | null>(null);
 	const [graphMounted, setGraphMounted] = useState(false);
 	const [graphTheme, setGraphTheme] = useState<"classic" | "neon" | "minimal" | "gradient" | "monochrome">("classic");
+	const [invoiceIncludeProductView, setInvoiceIncludeProductView] = useState(true);
 	const [hoveredGraphPoint, setHoveredGraphPoint] = useState<{
 		x: number;
 		y: number;
@@ -139,6 +146,10 @@ export default function AccountManagement() {
 
 	// Portal mount state
 	const [mounted, setMounted] = useState(false);
+	const getCoffeeProductImage = useCallback(
+		(productId: string) => getProductImage(productId, coffeeProducts),
+		[coffeeProducts],
+	);
 
 	// Spending State
 	const [totalSpending, setTotalSpending] = useState<{
@@ -146,13 +157,28 @@ export default function AccountManagement() {
 		subscriptions: number;
 		machines: number;
 		products: number;
+		taxes: number;
 		total: number;
+		preferredCurrency: string;
+		totalOrders: number;
+		currencyUsage: Array<{
+			currencyCode: string;
+			orderCount: number;
+			chargedTotal: number;
+			ronEquivalentTotal: number;
+			conversionTaxesRon: number;
+			percentage: number;
+		}>;
 	}>({
 		orders: 0,
 		subscriptions: 0,
 		machines: 0,
 		products: 0,
+		taxes: 0,
 		total: 0,
+		preferredCurrency: "RON",
+		totalOrders: 0,
+		currencyUsage: [],
 	});
 
 	// Load account from sessionStorage on mount
@@ -167,6 +193,7 @@ export default function AccountManagement() {
 					username: accountData.username,
 					email: accountData.email,
 					icon: accountData.icon,
+					created_at: accountData.created_at,
 				});
 				setEditFullName(accountData.full_name || "");
 				setEditEmail(accountData.email);
@@ -180,18 +207,28 @@ export default function AccountManagement() {
 				})
 					.then((res) => res.json())
 					.then((data) => {
-						if (data.user?.subscription) {
-							setSubscription(data.user.subscription.toLowerCase() as SubscriptionTier);
+						if (data.user) {
+							if (data.user.subscription) {
+								setSubscription(data.user.subscription.toLowerCase() as SubscriptionTier);
+							}
+							if (data.user.created_at) {
+								setAccount((prev) => (prev ? { ...prev, created_at: data.user.created_at } : null));
+							}
 						}
 						// Store account ID for graph theme saving
 						if (data.user?.id) {
 							setAccountId(data.user.id);
 							// Fetch graph theme preference
-							fetch(`${API_BASE}/api/accounts/preferences/${data.user.id}`)
+							fetch(`${API_BASE}/api/accounts/preferences/${data.user.id}`, {
+								headers: { Authorization: `Bearer ${token}` },
+							})
 								.then((res) => res.json())
 								.then((prefData) => {
 									if (prefData.graph_theme) {
 										setGraphTheme(prefData.graph_theme);
+									}
+									if (typeof prefData.invoice_include_product_view === "boolean") {
+										setInvoiceIncludeProductView(prefData.invoice_include_product_view);
 									}
 								})
 								.catch((err) => console.error("Failed to load graph theme", err));
@@ -241,8 +278,8 @@ export default function AccountManagement() {
 				})
 				.catch((err) => console.error("Failed to load cards", err));
 
-			// Load orders from Express API
-			fetch(`${API_BASE}/api/orders`, {
+			// Load orders from Express API (fetch all with high limit)
+			fetch(`${API_BASE}/api/orders?limit=1000`, {
 				headers: { Authorization: `Bearer ${token}` },
 			})
 				.then((res) => res.json())
@@ -326,7 +363,7 @@ export default function AccountManagement() {
 												lowerName.includes("machine") ||
 												lowerId.includes("machine") ||
 												machineCollections.some((c) =>
-													c.groups.some((g) => g.products.some((p) => p.id === item.product_id))
+													c.groups.some((g) => g.products.some((p) => p.id === item.product_id)),
 												);
 
 											if (isMachine || isForfait) {
@@ -343,11 +380,14 @@ export default function AccountManagement() {
 													product_image: item.product_image,
 													unit_price: item.unit_price,
 													quantity: item.quantity || 1,
-													purchase_date: order.created_at,
+													purchase_date:
+														order.created_at instanceof Date
+															? order.created_at.toISOString()
+															: String(order.created_at),
 													warranty_end_date: warrantyEnd.toISOString(),
 													is_under_warranty: new Date() < warrantyEnd,
 													is_forfait: isForfait,
-												});
+												} as UserMachine);
 											}
 										});
 									}
@@ -375,7 +415,11 @@ export default function AccountManagement() {
 							subscriptions: data.spending.subscriptions || 0,
 							machines: data.spending.machines || 0,
 							products: data.spending.products || 0,
+							taxes: data.spending.taxes || 0,
 							total: data.spending.total || 0,
+							preferredCurrency: data.currency?.preferredCurrency || "RON",
+							totalOrders: data.currency?.totalOrders || 0,
+							currencyUsage: Array.isArray(data.currency?.usage) ? data.currency.usage : [],
 						});
 					}
 				})
@@ -391,7 +435,7 @@ export default function AccountManagement() {
 							if (ordersData.orders && Array.isArray(ordersData.orders)) {
 								ordersTotal = ordersData.orders.reduce(
 									(sum: number, o: Order) => sum + (Number(o.total) || 0),
-									0
+									0,
 								);
 							}
 							setTotalSpending({
@@ -399,7 +443,11 @@ export default function AccountManagement() {
 								subscriptions: 0,
 								machines: 0,
 								products: 0,
+								taxes: 0,
 								total: ordersTotal,
+								preferredCurrency: "RON",
+								totalOrders: 0,
+								currencyUsage: [],
 							});
 						})
 						.catch(() => {});
@@ -491,7 +539,7 @@ export default function AccountManagement() {
 				setExpandedOrders((prev) => new Set(prev).add(orderId));
 			}
 		},
-		[expandedOrders, orders]
+		[expandedOrders, orders],
 	);
 
 	const handleSignOut = useCallback(() => {
@@ -500,6 +548,43 @@ export default function AccountManagement() {
 		notify("You have been signed out.", 6000, "success", "account");
 		window.location.reload(); // Reload to reset state in parent
 	}, [notify]);
+
+	const handleInvoicePreferenceChange = useCallback(
+		async (includeView: boolean) => {
+			setInvoiceIncludeProductView(includeView);
+
+			if (!accountId) {
+				return;
+			}
+
+			const token = getAuthToken();
+			if (!token) {
+				notify("Please sign in to save invoice preferences.", 5000, "error", "account");
+				return;
+			}
+
+			try {
+				const response = await fetch(`${API_BASE}/api/accounts/preferences`, {
+					method: "PUT",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${token}`,
+					},
+					body: JSON.stringify({ invoice_include_product_view: includeView }),
+				});
+
+				if (!response.ok) {
+					const message = await response.text();
+					throw new Error(message || "Failed to save invoice preference");
+				}
+			} catch (error) {
+				console.error("Failed to save invoice preference", error);
+				setInvoiceIncludeProductView((prev) => !prev);
+				notify("Could not save invoice image preference. Please retry.", 6000, "error", "account");
+			}
+		},
+		[accountId, notify],
+	);
 
 	const handleSaveProfile = useCallback(async () => {
 		if (!account) return;
@@ -525,7 +610,7 @@ export default function AccountManagement() {
 			}
 
 			const { token } = JSON.parse(session);
-			const res = await fetch("http://localhost:4000/api/accounts/update", {
+			const res = await fetch(`${API_BASE}/api/accounts/update`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -600,7 +685,7 @@ export default function AccountManagement() {
 				notify("Error removing card.", 3000, "error", "account");
 			}
 		},
-		[notify]
+		[notify],
 	);
 
 	const getStatusColor = (status: string) => {
@@ -662,10 +747,10 @@ export default function AccountManagement() {
 				const weatherMsg = data.isBadWeather ? " (Weather delay applied)" : "";
 
 				notify(
-					`Repair request submitted! Order #${data.orderNumber}. Est. duration: ${data.estimatedDuration} days${weatherMsg}`,
+					`Repair request submitted! Order #${data.orderNumber}. Estimated duration: ${data.estimatedDuration} days${weatherMsg}`,
 					8000,
 					"success",
-					"account"
+					"account",
 				);
 				setRepairPopup({ open: false, machine: null });
 				setSelectedRepairPaymentId(null);
@@ -701,32 +786,39 @@ export default function AccountManagement() {
 								? "Free Plan"
 								: `${subscription.charAt(0).toUpperCase() + subscription.slice(1)} Plan`}
 						</span>
-						<span className="badge outline">Member since 2025</span>
+						<span className="badge outline">
+							Member since{" "}
+							{account.created_at ? new Date(account.created_at).getFullYear() : new Date().getFullYear()}
+						</span>
 					</div>
 				</div>
-				<button className="sign-out-btn" onClick={handleSignOut}>
-					Sign Out
+				<button
+					className="sign-out-btn"
+					onClick={handleSignOut}
+					style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+				>
+					<LogoutIcon size={18} /> Log out
 				</button>
 			</div>
 
 			<div className="account-tabs">
 				<button className={activeTab === "profile" ? "active" : ""} onClick={() => setActiveTab("profile")}>
-					👤 Profile
+					<UserIcon size={18} /> Profile
 				</button>
 				<button className={activeTab === "status" ? "active" : ""} onClick={() => setActiveTab("status")}>
-					🏆 Member Status
+					<StatusIcon size={18} /> Member Status
 				</button>
 				<button className={activeTab === "subscriptions" ? "active" : ""} onClick={() => setActiveTab("subscriptions")}>
-					🎫 Subscription
+					<SubscriptionIcon size={18} /> Subscription
 				</button>
 				<button className={activeTab === "machines" ? "active" : ""} onClick={() => setActiveTab("machines")}>
-					☕ Machines
+					<CoffeeIcon size={18} /> Machines
 				</button>
 				<button className={activeTab === "payments" ? "active" : ""} onClick={() => setActiveTab("payments")}>
-					💳 Payments
+					<CreditCardIcon size={18} /> Payments
 				</button>
 				<button className={activeTab === "history" ? "active" : ""} onClick={() => setActiveTab("history")}>
-					📜 Chat History
+					<HistoryIcon size={18} /> Chat History
 				</button>
 			</div>
 
@@ -774,7 +866,7 @@ export default function AccountManagement() {
 						setMaintenancePopup={setMaintenancePopup}
 						setRepairPopup={setRepairPopup}
 						setSelectedRepairType={setSelectedRepairType}
-						getProductImage={getProductImage}
+						getProductImage={getCoffeeProductImage}
 					/>
 				)}
 
@@ -787,7 +879,9 @@ export default function AccountManagement() {
 						loadingOrderItems={loadingOrderItems}
 						toggleOrderExpand={toggleOrderExpand}
 						handleDeleteCard={handleDeleteCard}
-						getProductImage={getProductImage}
+						getProductImage={getCoffeeProductImage}
+						invoiceIncludeProductView={invoiceIncludeProductView}
+						onInvoiceIncludeProductViewChange={handleInvoicePreferenceChange}
 					/>
 				)}
 

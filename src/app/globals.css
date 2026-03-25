@@ -1,6 +1,13 @@
 @import "tailwindcss/preflight";
 @import "tailwindcss/utilities";
 
+/* load the consolidated legacy stylesheet */
+@import "../styles/globals.css";
+@import "../styles/account-management.css";
+@import "../styles/weather.css";
+@import "../styles/kafelot-privacy.css";
+@import "../styles/legal-pages.css";
+
 :root {
 	--background: #000000;
 	--foreground: #f8dccb;
@@ -48,8 +55,3 @@ th,
 td {
 	font-family: "Poppins", sans-serif;
 }
-
-/* load the consolidated legacy stylesheet */
-@import "../styles/globals.css";
-@import "../styles/account-management.css";
-@import "../styles/weather.css";

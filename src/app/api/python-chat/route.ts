@@ -1,27 +1,116 @@
 import { NextResponse } from "next/server";
 
+async function checkPromptLimit(request: Request): Promise<{ allowed: boolean; errorResponse?: Response }> {
+	try {
+		const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+		const headers: Record<string, string> = { "Content-Type": "application/json" };
+		const authHeader = request.headers.get("authorization");
+		if (authHeader) headers["authorization"] = authHeader;
+		const fingerprint = request.headers.get("x-kafelot-fingerprint");
+		if (fingerprint) headers["x-kafelot-fingerprint"] = fingerprint;
+		const forwarded = request.headers.get("x-forwarded-for");
+		if (forwarded) headers["x-forwarded-for"] = forwarded;
+
+		const res = await fetch(`${API_BASE}/api/kafelot/check-and-use`, {
+			method: "POST",
+			headers,
+			body: JSON.stringify({}),
+		});
+
+		if (res.status === 429) {
+			const data = (await res.json()) as { reset_date?: string; prompts_limit?: number };
+			return {
+				allowed: false,
+				errorResponse: new Response(
+					JSON.stringify({
+						error: "PROMPT_LIMIT_REACHED",
+						reset_date: data.reset_date,
+						prompts_limit: data.prompts_limit,
+					}),
+					{ status: 429, headers: { "Content-Type": "application/json" } },
+				),
+			};
+		}
+		return { allowed: true };
+	} catch {
+		return { allowed: true };
+	}
+}
+
 export async function POST(request: Request) {
 	try {
+		const limitCheck = await checkPromptLimit(request);
+		if (!limitCheck.allowed) return limitCheck.errorResponse!;
+
 		const PY_HOST = process.env.PYTHON_AI_HOST || "http://localhost:5000";
-		const body = (await request.json()) as Record<string, unknown>;
+		const contentType = request.headers.get("content-type") || "";
 
 		// Generate a unique request ID for cancellation support
-		const requestId = (body.request_id as string) || `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+		const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+		let pyBody: BodyInit;
+		let pyHeaders: Record<string, string> = {};
+		let modelType = "tanka_semantic";
+
+		if (contentType.includes("multipart/form-data")) {
+			// Image upload path — forward FormData to Python
+			const formData = await request.formData();
+			const image = formData.get("image") as File | null;
+			const messagesRaw = formData.get("messages") as string;
+			const messages = messagesRaw ? (JSON.parse(messagesRaw) as Array<Record<string, string>>) : [];
+
+			modelType = (formData.get("model") as string) || "tanka_semantic";
+			const mode = modelType === "tanka_chemistry" ? "chemistry" : "natural_language";
+			const reqId = (formData.get("request_id") as string) || requestId;
+
+			// Only use the last user message for semantic embedding — joining full history produces a noisy vector
+			const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+			const queryMessage = lastUserMsg?.content || messages[messages.length - 1]?.content || "";
+
+			const pyForm = new FormData();
+			pyForm.append("message", queryMessage);
+			pyForm.append("mode", mode);
+			pyForm.append("request_id", reqId);
+			if (image) pyForm.append("image", image);
+
+			pyBody = pyForm;
+		} else {
+			// Text-only JSON path
+			const body = (await request.json()) as Record<string, unknown>;
+			modelType = (body.model as string) || "tanka_semantic";
+			const mode = modelType === "tanka_chemistry" ? "chemistry" : "natural_language";
+			const reqId = (body.request_id as string) || requestId;
+
+			pyHeaders = { "Content-Type": "application/json" };
+			// Only use the last user message for semantic embedding — joining full history produces a noisy vector
+			const msgList = (body.messages as Array<Record<string, string>>) || [];
+			const lastUserContent =
+				[...msgList].reverse().find((m) => m.role === "user")?.content || msgList[msgList.length - 1]?.content || "";
+			pyBody = JSON.stringify({
+				message: lastUserContent,
+				mode,
+				request_id: reqId,
+			});
+		}
 
 		const res = await fetch(`${PY_HOST}/api/chat`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				model: (body.model as string) || "tanka",
-				message: ((body.messages as Array<Record<string, string>>) || [])
-					.map((m: Record<string, string>) => m.content)
-					.join("\n"),
-				history: [],
-				request_id: requestId,
-				subscription: body.subscription,
-				chemistry_mode: body.chemistry_mode,
-			}),
+			headers: pyHeaders,
+			body: pyBody,
 		});
+
+		if (!res.ok) {
+			const text = await res.text();
+			let errorMsg = `Python AI error: ${res.status}`;
+			try {
+				const errorJson = JSON.parse(text);
+				errorMsg = errorJson.error || errorMsg;
+			} catch {
+				// Not JSON, keep status message
+			}
+			return NextResponse.json({ error: errorMsg }, { status: res.status });
+		}
+
 		const json = (await res.json()) as Record<string, unknown>;
 
 		// Check if request was cancelled
@@ -29,15 +118,17 @@ export async function POST(request: Request) {
 			return NextResponse.json({ cancelled: true, request_id: requestId }, { status: 200 });
 		}
 
-		// Normalize Python response shape to what frontend expects and indicate smarter AI is active
+		// Normalize Python response shape to what frontend expects
 		return NextResponse.json(
 			{
 				response: (json.assistant_response as string) || (json.generated as string) || "",
 				products: (json.products as unknown[]) || [],
 				smarterAI: true,
+				model: "Tanka",
+				mode: (json.mode as string) || "",
 				request_id: requestId,
 			},
-			{ status: res.status }
+			{ status: res.status },
 		);
 	} catch (err) {
 		return NextResponse.json({ error: String(err) }, { status: 502 });

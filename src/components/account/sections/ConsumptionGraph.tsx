@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ConsumptionHistory } from "./types";
+import { CoffeeIcon, FlameIcon, LayersIcon, SparklesIcon, MoonIcon } from "@/icons";
 
 export type GraphTheme = "classic" | "neon" | "minimal" | "gradient" | "monochrome";
 
@@ -99,12 +100,12 @@ const THEMES: Record<GraphTheme, ThemeColors> = {
 	},
 };
 
-const THEME_LABELS: Record<GraphTheme, string> = {
-	classic: "☕ Classic",
-	neon: "⚡ Neon",
-	minimal: "◻️ Minimal",
-	gradient: "🌊 Ocean",
-	monochrome: "◐ Mono",
+const THEME_CONFIG: Record<GraphTheme, { label: string; icon: React.ElementType }> = {
+	classic: { label: "Classic", icon: CoffeeIcon },
+	neon: { label: "Neon", icon: FlameIcon },
+	minimal: { label: "Minimal", icon: LayersIcon },
+	gradient: { label: "Ocean", icon: SparklesIcon },
+	monochrome: { label: "Monochrome", icon: MoonIcon },
 };
 
 interface GraphPoint {
@@ -161,15 +162,17 @@ export default function ConsumptionGraph({
 
 	if (!data || data.length === 0) {
 		return (
-			<div style={{ 
-				color: "#666", 
-				textAlign: "center", 
-				padding: "2rem",
-				background: "rgba(0,0,0,0.2)",
-				borderRadius: "12px",
-				margin: "0 auto",
-				maxWidth: "580px",
-			}}>
+			<div
+				style={{
+					color: "#666",
+					textAlign: "center",
+					padding: "2rem",
+					background: "rgba(0,0,0,0.2)",
+					borderRadius: "12px",
+					margin: "0 auto",
+					maxWidth: "580px",
+				}}
+			>
 				No data available
 			</div>
 		);
@@ -249,14 +252,16 @@ export default function ConsumptionGraph({
 	} ${height - paddingBottom} Z`;
 
 	return (
-		<div style={{ 
-			marginBottom: "2.5rem",
-			display: "flex",
-			flexDirection: "column",
-			alignItems: "center",
-			width: "100%",
-			maxWidth: "620px",
-		}}>
+		<div
+			style={{
+				marginBottom: "2.5rem",
+				display: "flex",
+				flexDirection: "column",
+				alignItems: "center",
+				width: "100%",
+				maxWidth: "620px",
+			}}
+		>
 			{/* Theme Selector */}
 			<div
 				style={{
@@ -281,20 +286,28 @@ export default function ConsumptionGraph({
 							fontSize: "0.75rem",
 							borderRadius: "8px",
 							border: theme === t ? `2px solid ${THEMES[t].original}` : "1px solid transparent",
-							background: theme === t 
-								? `linear-gradient(135deg, ${THEMES[t].original}20, ${THEMES[t].original}10)` 
-								: "rgba(40,40,40,0.5)",
+							background:
+								theme === t
+									? `linear-gradient(135deg, ${THEMES[t].original}20, ${THEMES[t].original}10)`
+									: "rgba(40,40,40,0.5)",
 							color: theme === t ? THEMES[t].original : "#888",
 							cursor: "pointer",
 							transition: "all 0.3s ease",
 							fontWeight: theme === t ? 600 : 400,
-							boxShadow: theme === t 
-								? `0 0 20px ${THEMES[t].original}25, inset 0 0 20px ${THEMES[t].original}10` 
-								: "none",
+							boxShadow:
+								theme === t ? `0 0 20px ${THEMES[t].original}25, inset 0 0 20px ${THEMES[t].original}10` : "none",
 							transform: theme === t ? "scale(1.05)" : "scale(1)",
 						}}
 					>
-						{THEME_LABELS[t]}
+						{(() => {
+							const { icon: Icon, label } = THEME_CONFIG[t];
+							return (
+								<div style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "center" }}>
+									<Icon size={14} animate />
+									{label}
+								</div>
+							);
+						})()}
 					</button>
 				))}
 			</div>
@@ -470,12 +483,7 @@ export default function ConsumptionGraph({
 						strokeLinecap="round"
 					/>
 					{/* Axis corner accent */}
-					<circle
-						cx={paddingLeft}
-						cy={height - paddingBottom}
-						r="3"
-						fill={colors.axis}
-					/>
+					<circle cx={paddingLeft} cy={height - paddingBottom} r="3" fill={colors.axis} />
 
 					{/* Areas with enhanced gradients */}
 					<path d={originalArea} fill={`url(#grad-original-${theme})`} />
@@ -540,8 +548,8 @@ export default function ConsumptionGraph({
 												})
 											}
 											onMouseLeave={() => setHoveredGraphPoint(null)}
-											style={{ 
-												cursor: "pointer", 
+											style={{
+												cursor: "pointer",
 												transition: "transform 0.2s ease, r 0.2s ease",
 											}}
 										/>
@@ -576,8 +584,8 @@ export default function ConsumptionGraph({
 												})
 											}
 											onMouseLeave={() => setHoveredGraphPoint(null)}
-											style={{ 
-												cursor: "pointer", 
+											style={{
+												cursor: "pointer",
 												transition: "transform 0.2s ease, r 0.2s ease",
 											}}
 										/>
@@ -657,13 +665,7 @@ export default function ConsumptionGraph({
 									>
 										{hoveredGraphPoint.value} {type}
 									</text>
-									<text 
-										x="0" 
-										y={-tooltipHeight + 50} 
-										fill="#888" 
-										fontSize="10" 
-										textAnchor="middle"
-									>
+									<text x="0" y={-tooltipHeight + 50} fill="#888" fontSize="10" textAnchor="middle">
 										{new Date(hoveredGraphPoint.date).toLocaleDateString(undefined, {
 											month: "short",
 											day: "numeric",

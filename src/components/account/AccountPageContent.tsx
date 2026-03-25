@@ -4,6 +4,7 @@ import { useCallback, useState, type FormEvent, type MouseEvent } from "react";
 import AccountIconGenerator from "@/components/AccountIconGenerator";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
+import { UserPlusIcon, UserCheckIcon, LockIcon, AtSignIcon, AtSignIcon as EmailIcon, EyeIcon, EyeOffIcon } from "@/icons";
 
 const ALLOWED_EMAIL_SUFFIXES = ["@gmail.com", "@outlook.com", "@yahoo.com"];
 
@@ -52,7 +53,7 @@ export default function AccountPageContent() {
 					"Your e-mail address must not contain special characters!\nBUT some special characters are allowed, like the following characters: @_.",
 					6000,
 					"error",
-					"account"
+					"account",
 				);
 				return;
 			}
@@ -63,7 +64,7 @@ export default function AccountPageContent() {
 					"Invalid e-mail address or empty full name/username, please insert a valid e-mail address and a username!",
 					6000,
 					"error",
-					"account"
+					"account",
 				);
 				return;
 			}
@@ -87,7 +88,8 @@ export default function AccountPageContent() {
 			let savedIconPath: string | null = null;
 			if (signIconDataUrl && typeof window !== "undefined") {
 				try {
-					const iconRes = await fetch("http://localhost:5000/api/icons/save", {
+					const AI_BASE = process.env.NEXT_PUBLIC_AI_URL || "http://localhost:5000";
+					const iconRes = await fetch(`${AI_BASE}/api/icons/save`, {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
 						body: JSON.stringify({ username, svg: signIconDataUrl }),
@@ -95,6 +97,7 @@ export default function AccountPageContent() {
 					const iconData = await iconRes.json();
 					if (iconData.status === "success") {
 						savedIconPath = iconData.icon_path;
+						console.log("Icon saved successfully to:", savedIconPath);
 					}
 				} catch (e) {
 					console.error("Failed to save icon:", e);
@@ -109,99 +112,100 @@ export default function AccountPageContent() {
 				password,
 				icon: savedIconPath || signIconDataUrl,
 			};
-			if (typeof window !== "undefined") {
-				fetch("http://localhost:4000/api/auth/register", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payload),
-				})
-					.then((res) => res.json())
-					.then((data) => {
-						if (data?.status === "success") {
-							// Use the static icon URL from Python server
-							const iconUrl = savedIconPath || data.icon_path || null;
-							const token = data.token || null;
-							sessionStorage.setItem(
-								"account_session",
-								JSON.stringify({ full_name: nickname, username, email, icon: iconUrl, token })
-							);
-							// Notify Navbar of session change
-							window.dispatchEvent(new Event("session-update"));
-							notify(
-								`Welcome ${nickname}, your account was registered with the following address ${email}`,
-								6000,
-								"success",
-								"account"
-							);
-						} else {
-							notify(data?.message || "Failed to create account", 6000, "error", "account");
-							return;
-						}
-					})
-					.catch((error) => {
-						console.error("Signup error:", error);
-						notify("Failed to create account. Please check your connection.", 6000, "error", "account");
-						return;
-					});
-			}
 
-			setIsSignUp(false);
-			setLoginEmail(username);
-			setLoginPassword("");
-			setSignPassword("");
-			setSignName("");
-			setTimeout(() => router.push("/"), 1500);
+			if (typeof window !== "undefined") {
+				try {
+					const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+					const response = await fetch(`${API_BASE}/api/auth/register`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(payload),
+					});
+					const data = await response.json();
+
+					if (data?.status === "success") {
+						// Use the static icon URL from Python server
+						const iconUrl = savedIconPath || data.icon_path || null;
+						const token = data.token || null;
+						sessionStorage.setItem(
+							"account_session",
+							JSON.stringify({ full_name: nickname, username, email, icon: iconUrl, token }),
+						);
+						// Notify Navbar of session change
+						window.dispatchEvent(new Event("session-update"));
+						notify(
+							`Welcome ${nickname}, your account was registered with the following address ${email}`,
+							6000,
+							"success",
+							"account",
+						);
+
+						// Cleanup and redirect only on success
+						setIsSignUp(false);
+						setLoginEmail(username);
+						setLoginPassword("");
+						setSignPassword("");
+						setSignName("");
+						setTimeout(() => router.push("/"), 1500);
+					} else {
+						notify(data?.message || "Failed to create account", 6000, "error", "account");
+					}
+				} catch (error) {
+					console.error("Signup error:", error);
+					notify("Failed to create account. Please check your connection.", 6000, "error", "account");
+				}
+			}
 		},
-		[router, notify, signEmail, signName, signPassword, signUsername, signIconDataUrl]
+		[router, notify, signEmail, signName, signPassword, signUsername, signIconDataUrl],
 	);
 
-	const attemptLogin = useCallback(() => {
-		if (typeof window === "undefined") return false;
+	const attemptLogin = useCallback(async () => {
+		if (typeof window === "undefined") return;
 		const username = loginEmail.trim();
 		const password = loginPassword;
 
 		if (!username || !password) {
 			notify("Username and password are required!", 6000, "error", "account");
-			return false;
+			return;
 		}
 
 		// Use backend login endpoint
-		fetch("http://localhost:4000/api/auth/login", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ username, password }),
-		})
-			.then((res) => res.json())
-			.then((data) => {
-				if (data?.status === "success" && data?.account) {
-					const account = data.account;
-					const token = data.token || null;
-					sessionStorage.setItem(
-						"account_session",
-						JSON.stringify({
-							full_name: account.full_name,
-							username: account.username,
-							email: account.email,
-							icon: account.icon,
-							token,
-						})
-					);
-					// Notify Navbar of session change
-					window.dispatchEvent(new Event("session-update"));
-					notify(`Welcome back ${account.full_name || account.username}!`, 6000, "success", "account");
-					setLoginPassword("");
-					setLoginEmail("");
-					router.push("/");
-				} else {
-					notify(data?.message || "Invalid username or password!", 6000, "error", "account");
-				}
-			})
-			.catch((error) => {
-				console.error("Login error:", error);
-				notify("Login failed. Please check your connection.", 6000, "error", "account");
+		try {
+			const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+			const response = await fetch(`${API_BASE}/api/auth/login`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ username, password }),
 			});
+			const data = await response.json();
 
-		return true;
+			if (data?.status === "success" && data?.account) {
+				const account = data.account;
+				const token = data.token || null;
+				sessionStorage.setItem(
+					"account_session",
+					JSON.stringify({
+						full_name: account.full_name,
+						username: account.username,
+						email: account.email,
+						icon: account.icon,
+						role: account.role,
+						token,
+					}),
+				);
+				// Notify Navbar of session change
+				window.dispatchEvent(new Event("session-update"));
+				notify(`Welcome back ${account.full_name || account.username}!`, 6000, "success", "account");
+				setLoginPassword("");
+				setLoginEmail("");
+				router.push("/");
+			} else {
+				notify(data?.message || "Invalid username or password!", 6000, "error", "account");
+			}
+		} catch (error) {
+			console.error("Login error:", error);
+			notify("Login failed. Please check your connection.", 6000, "error", "account");
+		}
 	}, [loginEmail, loginPassword, router, notify]);
 
 	const handleLogin = useCallback(
@@ -209,7 +213,7 @@ export default function AccountPageContent() {
 			event.preventDefault();
 			attemptLogin();
 		},
-		[attemptLogin]
+		[attemptLogin],
 	);
 
 	const handleForgot = useCallback(
@@ -219,10 +223,10 @@ export default function AccountPageContent() {
 				"Password reset is not yet implemented. Please create a new account or contact support.",
 				6000,
 				"info",
-				"account"
+				"account",
 			);
 		},
-		[notify]
+		[notify],
 	);
 
 	return (
@@ -262,7 +266,7 @@ export default function AccountPageContent() {
 															autoComplete="username"
 															required
 														/>
-														<i className="input-icon uil uil-at" aria-hidden="true" />
+														<AtSignIcon className="input-icon" size={18} />
 													</div>
 													<div className="form-group mt-2">
 														<input
@@ -281,16 +285,26 @@ export default function AccountPageContent() {
 															aria-label={loginPasswordVisible ? "Hide password" : "Show password"}
 															onClick={() => setLoginPasswordVisible((v) => !v)}
 														>
-															<i
-																className={`uil ${
-																	loginPasswordVisible ? "uil-eye" : "uil-eye-slash"
-																}`}
-																aria-hidden="true"
-															/>
+															{loginPasswordVisible ? (
+																<EyeOffIcon size={18} />
+															) : (
+																<EyeIcon size={18} />
+															)}
 														</button>
-														<i className="input-icon uil uil-lock-alt" aria-hidden="true" />
+														<LockIcon className="input-icon" size={18} />
 													</div>
-													<button type="submit" className="btn mt-4">
+													<button
+														type="submit"
+														className="btn mt-4"
+														style={{
+															width: "40%",
+															display: "inline-flex",
+															alignItems: "center",
+															justifyContent: "center",
+															gap: "8px",
+														}}
+													>
+														<UserPlusIcon size={20} />
 														Log In
 													</button>
 													<p className="mb-0 mt-4 text-center">
@@ -316,7 +330,7 @@ export default function AccountPageContent() {
 															autoComplete="name"
 															required
 														/>
-														<i className="input-icon uil uil-user" aria-hidden="true" />
+														<UserPlusIcon className="input-icon" size={18} />
 													</div>
 													<div className="form-group mt-2">
 														<input
@@ -329,7 +343,7 @@ export default function AccountPageContent() {
 															autoComplete="username"
 															required
 														/>
-														<i className="input-icon uil uil-at" aria-hidden="true" />
+														<AtSignIcon className="input-icon" size={18} />
 													</div>
 													<div className="form-group mt-2">
 														<input
@@ -342,7 +356,7 @@ export default function AccountPageContent() {
 															autoComplete="email"
 															required
 														/>
-														<i className="input-icon uil uil-at" aria-hidden="true" />
+														<AtSignIcon className="input-icon" size={18} />
 													</div>
 													<div className="form-group mt-2">
 														<input
@@ -361,14 +375,13 @@ export default function AccountPageContent() {
 															aria-label={signPasswordVisible ? "Hide password" : "Show password"}
 															onClick={() => setSignPasswordVisible((v) => !v)}
 														>
-															<i
-																className={`uil ${
-																	signPasswordVisible ? "uil-eye" : "uil-eye-slash"
-																}`}
-																aria-hidden="true"
-															/>
+															{signPasswordVisible ? (
+																<EyeOffIcon size={18} />
+															) : (
+																<EyeIcon size={18} />
+															)}
 														</button>
-														<i className="input-icon uil uil-lock-alt" aria-hidden="true" />
+														<LockIcon className="input-icon" size={18} />
 													</div>
 													<div style={{ marginTop: 16, marginBottom: 8 }}>
 														<AccountIconGenerator
@@ -385,7 +398,17 @@ export default function AccountPageContent() {
 															margin: "20px auto 0",
 														}}
 													/>
-													<button type="submit" className="btn mt-4">
+													<button
+														type="submit"
+														className="btn mt-4"
+														style={{
+															display: "inline-flex",
+															alignItems: "center",
+															justifyContent: "center",
+															gap: "8px",
+														}}
+													>
+														<UserPlusIcon size={20} />
 														Create Account
 													</button>
 												</div>

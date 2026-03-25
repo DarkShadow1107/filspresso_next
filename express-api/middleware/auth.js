@@ -5,8 +5,12 @@
 const jwt = require("jsonwebtoken");
 const pool = require("../db/connection");
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-super-secret-jwt-key-here!";
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+
+if (!JWT_SECRET) {
+	throw new Error("JWT_SECRET environment variable is required");
+}
 
 /**
  * Generate JWT token for a user
@@ -21,7 +25,7 @@ function generateToken(user) {
 			username: user.username,
 		},
 		JWT_SECRET,
-		{ expiresIn: JWT_EXPIRES_IN }
+		{ expiresIn: JWT_EXPIRES_IN },
 	);
 }
 
@@ -32,10 +36,25 @@ function generateToken(user) {
  */
 function verifyToken(token) {
 	try {
-		return jwt.verify(token, JWT_SECRET);
+		return jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
 	} catch (error) {
 		return null;
 	}
+}
+
+async function getActiveSessionUser(accountId, token) {
+	const result = await pool.query(
+		`SELECT a.id, a.username, a.email, a.name, a.icon, a.subscription, a.role
+		 FROM accounts a
+		 JOIN user_sessions s ON s.account_id = a.id
+		 WHERE a.id = $1
+		   AND s.session_token = $2
+		   AND s.expires_at > NOW()
+		 LIMIT 1`,
+		[accountId, token],
+	);
+
+	return result.rows[0] || null;
 }
 
 /**
@@ -49,28 +68,29 @@ async function authenticate(req, res, next) {
 			return res.status(401).json({ error: "Authentication required" });
 		}
 
-		const token = authHeader.split(" ")[1];
+		const token = authHeader.slice(7).trim();
+		if (!token) {
+			return res.status(401).json({ error: "Authentication required" });
+		}
 		const decoded = verifyToken(token);
 
 		if (!decoded) {
 			return res.status(401).json({ error: "Invalid or expired token" });
 		}
 
-		// Get user from database
-		const conn = await pool.getConnection();
+		// Require an active server-side session for every JWT.
 		try {
-			const [user] = await conn.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = ?", [
-				decoded.id,
-			]);
+			const user = await getActiveSessionUser(decoded.id, token);
 
 			if (!user) {
-				return res.status(401).json({ error: "User not found" });
+				return res.status(401).json({ error: "Invalid or expired session" });
 			}
 
 			req.user = user;
 			next();
-		} finally {
-			conn.release();
+		} catch (dbError) {
+			console.error("DB Auth error:", dbError);
+			return res.status(500).json({ error: "Database error during authentication" });
 		}
 	} catch (error) {
 		console.error("Auth error:", error);
@@ -90,7 +110,11 @@ async function optionalAuth(req, res, next) {
 			return next();
 		}
 
-		const token = authHeader.split(" ")[1];
+		const token = authHeader.slice(7).trim();
+		if (!token) {
+			req.user = null;
+			return next();
+		}
 		const decoded = verifyToken(token);
 
 		if (!decoded) {
@@ -98,14 +122,10 @@ async function optionalAuth(req, res, next) {
 			return next();
 		}
 
-		const conn = await pool.getConnection();
 		try {
-			const [user] = await conn.query("SELECT id, username, email, name, icon, subscription FROM accounts WHERE id = ?", [
-				decoded.id,
-			]);
-			req.user = user || null;
-		} finally {
-			conn.release();
+			req.user = await getActiveSessionUser(decoded.id, token);
+		} catch (err) {
+			req.user = null;
 		}
 
 		next();

@@ -1,0 +1,12 @@
+flowchart TD
+    A[Add to cart] --> B[Server validates inventory]
+    B --> C[Compute reserved qty by other active carts]
+    C --> D{Enough reservable stock?}
+    D -- No --> E[409 conflict: insufficient stock]
+    D -- Yes --> F[Persist cart quantity]
+    F --> G[Checkout begins]
+    G --> H[Lock rows FOR UPDATE]
+    H --> I{stock >= requested?}
+    I -- No --> J[Rollback + conflict]
+    I -- Yes --> K[Decrement stock + create order]
+    K --> L[Commit transaction]

@@ -1,76 +1,44 @@
 [
   {
-    "id": "chat-1764776600040",
-    "timestamp": 1764776693887,
+    "id": "chat-1774008887452",
+    "timestamp": 1774008996696,
     "messages": [
       {
         "role": "user",
-        "content": "show me caffeine"
+        "content": "",
+        "image": "data:image/png;base64,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"
       },
       {
         "role": "assistant",
-        "content": "🔍 **Found molecule:**\n\n📊 **CAFFEINE CITRATE**\n🔬 **ChEMBL ID:** CHEMBL1200569\n🧪 **Formula:** C14H18N4O9\n⚖️ **Molecular Weight:** 386.32 g/mol\n🔗 **LogP (Lipophilicity):** -1.03\n📐 **TPSA (Polarity):** 61.82\n🔶 **H-Bond Acceptors:** 6\n🔵 **H-Bond Donors:** 0\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow."
+        "content": "I can see: **a product or packaging** (35.7% confidence)\n\nTop matches:\n  1. a product or packaging (35.7%)\n  2. a person or human (28.1%)\n  3. text or document (18.7%)",
+        "products": []
       }
     ],
-    "preview": "show me caffeine",
+    "preview": "New conversation",
     "model": "tanka",
-    "category": "chemistry"
-  },
-  {
-    "id": "chat-1764450375906",
-    "timestamp": 1764450406211,
-    "messages": [
-      {
-        "role": "user",
-        "content": "hello, what are youy doing today?"
-      }
-    ],
-    "preview": "hello, what are youy doing today?",
-    "model": "villanelle",
-    "category": "general"
-  },
-  {
-    "id": "chat-1764449914922",
-    "timestamp": 1764450062553,
-    "messages": [
-      {
-        "role": "user",
-        "content": "hello, what are you doing?"
-      }
-    ],
-    "preview": "hello, what are you doing?",
-    "model": "villanelle",
-    "category": "general"
-  },
-  {
-    "id": "chat-1764449393820",
-    "timestamp": 1764449464275,
-    "messages": [
-      {
-        "role": "user",
-        "content": "hello"
-      }
-    ],
-    "preview": "hello",
-    "model": "ode",
     "category": "coffee"
   },
   {
-    "id": "chat-1764449370891",
-    "timestamp": 1764449374910,
+    "id": "chat-1773780407173",
+    "timestamp": 1773780529474,
     "messages": [
       {
         "role": "user",
-        "content": "hello"
+        "content": "What are the arabica beans?"
+      },
+      {
+        "role": "assistant",
+        "content": "Arabica beans are generally considered higher quality and have a sweeter, softer taste with tones of sugar, fruit, and berries.\n\nAlso worth knowing: Robusta beans contain roughly twice the caffeine of Arabica beans — around 2.7% vs 1.5% by weight.",
+        "products": []
       }
     ],
-    "preview": "hello",
-    "model": "ode",
+    "preview": "What are the arabica beans?",
+    "model": "tanka",
     "category": "coffee"
   },
   {
-    "id": "chat-1764448976535",
-    "timestamp": 1764449087406,
+    "id": "chat-1773397854249",
+    "timestamp": 1773397857833,
     "messages": [
       {
         "role": "user",
@@ -78,47 +46,15 @@
       },
       {
         "role": "assistant",
-        "content": "What is the difference between coffee and caffeine?\n[Language: english] 8. Sweetener\nCoffee is typically prepared by brewing the seeds from\ncoffee plants. Coffee is usually prepared in a\npot-roasted or percolator method, and the spent\ncoffee grounds are typically discarded. Coffee\nmay be served black with hot water or a\nsugar-free sweetener.\n\n[Language: spanish] 290.\nCasado, Carlos A. (2003). Historia de la cosecha de café.\n\n[Language: english] y 300 m s. n. m.3  (metros sobre el nivel del mar).2  (2015).\n\"Coffee growing regions\" (en inglés). FAO (Forestry\nAgriculture and Forestry) .\n\n[Language: spanish] 290. Casado, Carlos A. (2003). Historia de la cosecha de café.\n\n[Language: english] 301. \"Coffee Growing Regions\" (en inglés). FAO (Forestry, Agriculture and\nForestry) . Consultado el 21 de febrero de 2021 .\n302. \"Coffee\" . The World Factbook . Central Intelligence Agency . Consultado el 21 de\nfebrero de 2021 .\n303. \"Coffee\" . Encyclopædia Britannica . Encyclopædia Britannica , S.v. \"Coffee\" . Consultado el\n21 de febrero de 2021 .\n304. \"Coffee - A Brief History\" .\n305. \"Coffee: The First Bottled Beverage\" .\n306. \"Coffee - A History\" .\n307. \"History of Coffee\" .\n308. \"The Story of Coffee\" .\n309. \"Coffee - The Beginnings\" .\n310. \"The History of Coffee\" .\n311. \"Coffee\" .\n312. \"Coffee - An Introduction\" .\n313. \"C",
-        "products": []
+        "content": "⚠️ You have reached your prompt limit for this month. Your limit resets on April 1, 2026. Please upgrade your subscription or wait for the reset."
+      },
+      {
+        "role": "assistant",
+        "content": "⚠️ You have reached your prompt limit for this month. Your limit resets next month. Please upgrade your subscription or wait for the reset."
       }
     ],
     "preview": "Hello",
-    "model": "ode",
-    "category": "general"
-  },
-  {
-    "id": "chat-1764284388845",
-    "timestamp": 1764284498719,
-    "messages": [
-      {
-        "role": "user",
-        "content": "cafeine"
-      },
-      {
-        "role": "assistant",
-        "content": "I am Tanka, built for fast coffee pointers. Mention intensity, flavors, time of day, capsule types, or machine questions and I will keep the answer focused, friendly, and practical.",
-        "products": []
-      },
-      {
-        "role": "user",
-        "content": "give me caffeine"
-      },
-      {
-        "role": "assistant",
-        "content": "Caffeine blocks adenosine receptors, so you feel alert instead of sleepy. A standard espresso capsule delivers about 60 to 80 mg, lungos climb near 110 mg, and Vertuo mug capsules can climb above 160 mg. You feel the lift in 30 to 45 minutes, the strongest effects last about 3 hours, and then it tapers off.\n\nIf you are sensitive, switch to Half Caffeinato after lunch, brew shorter (ristretto style) for less volume, or stretch the shot with milk or water to make it feel gentler. Keep water nearby and pause after three cups so you do not edge into jitters or late-night staring at the ceiling.",
-        "products": []
-      },
-      {
-        "role": "user",
-        "content": "show me caffeine"
-      },
-      {
-        "role": "assistant",
-        "content": "🔍 **Found molecule:**\n\n📊 **CAFFEINE CITRATE**\n🔬 **ChEMBL ID:** CHEMBL1200569\n🧪 **Formula:** C14H18N4O9\n⚖️ **Molecular Weight:** 386.32 g/mol\n🔗 **LogP (Lipophilicity):** -1.03\n📐 **TPSA (Polarity):** 61.82\n🔶 **H-Bond Acceptors:** 6\n🔵 **H-Bond Donors:** 0\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow."
-      }
-    ],
-    "preview": "cafeine",
     "model": "tanka",
-    "category": "chemistry"
+    "category": "coffee"
   }
 ]

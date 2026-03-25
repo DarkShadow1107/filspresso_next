@@ -1,0 +1,18 @@
+sequenceDiagram
+    participant B as Browser
+    participant N as Next.js
+    participant E as Express API
+    participant J as Java Invoice Service
+    participant S as SignatureStampRenderer
+    participant R as Signature Resource PNG
+
+    B->>N: Download invoice
+    N->>E: GET /api/orders/:id/invoice
+    E->>J: POST /api/invoices/render
+    J->>S: addSignatureStamp(invoiceRequest)
+    S->>R: Load /signature/filspresso-signature.png
+    R-->>S: Image bytes
+    S-->>J: Rendered signature section
+    J-->>E: PDF bytes
+    E-->>N: application/pdf attachment
+    N-->>B: PDF file

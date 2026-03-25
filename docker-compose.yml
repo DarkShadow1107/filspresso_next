@@ -1,27 +1,198 @@
 services:
-    # MariaDB database - managed automatically by Express server
-    # The Express server will start/stop this container
-    mariadb:
-        image: mariadb:10.11
-        container_name: filspresso_next_mariadb
+    # -------------------------------------------------------------------------
+    # 1. PostgreSQL  (pgvector + rdkit)
+    # -------------------------------------------------------------------------
+    postgres:
+        build:
+            context: .
+            dockerfile: Dockerfile.db
+        container_name: filspresso_postgres
         restart: unless-stopped
         environment:
-            MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-filspresso_root_2024}
-            MYSQL_DATABASE: ${DB_NAME:-filspresso}
-            MYSQL_USER: ${DB_USER:-filspresso_user}
-            MYSQL_PASSWORD: ${DB_PASSWORD:-filspresso_secure_2024}
+            POSTGRES_DB: ${DB_NAME:-filspresso}
+            POSTGRES_USER: ${DB_USER:-filspresso_user}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
         ports:
-            - "3306:3306"
+            - "5432:5432"
         volumes:
-            - mariadb_data:/var/lib/mysql
-            # Mount the SQL init scripts directory from the express-api package.
+            - postgres_data:/var/lib/postgresql/data
             - ./express-api/data:/docker-entrypoint-initdb.d:ro
         healthcheck:
-            test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+            test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-filspresso_user} -d ${DB_NAME:-filspresso}"]
             interval: 10s
             timeout: 5s
             retries: 5
 
+    # -------------------------------------------------------------------------
+    # 2. Backend  (Express.js REST API)
+    # -------------------------------------------------------------------------
+    backend:
+        build:
+            context: .
+            dockerfile: Dockerfile.express
+        container_name: filspresso_backend
+        restart: unless-stopped
+        depends_on:
+            postgres:
+                condition: service_healthy
+            invoice_java:
+                condition: service_started
+            go_ops:
+                condition: service_started
+            kotlin_subscriptions:
+                condition: service_started
+        environment:
+            NODE_ENV: ${NODE_ENV:-production}
+            PORT: 4000
+            DB_HOST: postgres
+            DB_PORT: 5432
+            DB_NAME: ${DB_NAME:-filspresso}
+            DB_USER: ${DB_USER:-filspresso_user}
+            DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+            JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+            ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+            SERVICE_EVENTS_API_KEY: ${SERVICE_EVENTS_API_KEY:?SERVICE_EVENTS_API_KEY is required}
+            CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+            PYTHON_AI_HOST: http://ai:5000
+            INVOICE_SERVICE_URL: http://invoice-java:8082
+            GO_OPS_URL: http://go_ops:8083
+            GO_OPS_API_KEY: ${GO_OPS_API_KEY:-filspresso-ops-key}
+            KOTLIN_SUBSCRIPTIONS_URL: http://kotlin-subscriptions:8084
+            SERVICE_METRICS_STRICT_DB_ONLY: ${SERVICE_METRICS_STRICT_DB_ONLY:-false}
+            ADMIN_HEALTH_URL: ${ADMIN_HEALTH_URL:-}
+        volumes:
+            # Mount product images so the backend can read/write images (admin uploads)
+            - ./public/images:/public/images
+        ports:
+            - "4000:4000"
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+            interval: 15s
+            timeout: 5s
+            retries: 3
+            start_period: 20s
+
+    # -------------------------------------------------------------------------
+    # 3. Java Invoice Service  (PDF generation)
+    # -------------------------------------------------------------------------
+    invoice_java:
+        build:
+            context: ./java-invoice-service
+            dockerfile: Dockerfile
+        container_name: filspresso_invoice_java
+        restart: unless-stopped
+        environment:
+            INVOICE_LOGO_PATH: /app/public/images/Logo_filspresso_web.png
+        ports:
+            - "8082:8082"
+        volumes:
+            - ./public/images:/app/public/images:ro
+        networks:
+            default:
+                aliases:
+                    - invoice-java
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:8082/api/invoices/health || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 5
+
+    # -------------------------------------------------------------------------
+    # 4. Go Operations Service  (events/webhooks/telemetry)
+    # -------------------------------------------------------------------------
+    go_ops:
+        build:
+            context: ./go-ops-service
+            dockerfile: Dockerfile
+        container_name: filspresso_go_ops
+        restart: unless-stopped
+        environment:
+            PORT: 8083
+            OPS_API_KEY: ${GO_OPS_API_KEY:-filspresso-ops-key}
+        ports:
+            - "8083:8083"
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 5
+
+    # -------------------------------------------------------------------------
+    # 5. Kotlin Subscription Service  (pricing/reconciliation)
+    # -------------------------------------------------------------------------
+    kotlin_subscriptions:
+        build:
+            context: ./kotlin-subscription-service
+            dockerfile: Dockerfile
+        container_name: filspresso_kotlin_subscriptions
+        restart: unless-stopped
+        ports:
+            - "8084:8084"
+        networks:
+            default:
+                aliases:
+                    - kotlin-subscriptions
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:8084/api/subscriptions/health || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 5
+
+    # -------------------------------------------------------------------------
+    # 6. C++/Wasm Build Container  (on-demand artifact generation)
+    # -------------------------------------------------------------------------
+    wasm_builder:
+        build:
+            context: ./cpp-wasm
+            dockerfile: Dockerfile
+        container_name: filspresso_wasm_builder
+        profiles: ["build"]
+        volumes:
+            - ./public/wasm:/out
+        restart: "no"
+
+    # -------------------------------------------------------------------------
+    # 7. AI  (Tanka model — MiniLM / CLIP / MolScribe via Flask)
+    # -------------------------------------------------------------------------
+    ai:
+        build:
+            context: .
+            dockerfile: Dockerfile.ai
+        container_name: filspresso_ai
+        restart: unless-stopped
+        depends_on:
+            postgres:
+                condition: service_healthy
+        environment:
+            DB_HOST: postgres
+            DB_PORT: 5432
+            DB_NAME: ${DB_NAME:-filspresso}
+            DB_USER: ${DB_USER:-filspresso_user}
+            DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+            PYTHON_AI_PORT: 5000
+        ports:
+            - "5000:5000"
+        volumes:
+            # MiniLM (sentence-transformers) model cache
+            - hf_cache:/root/.cache/huggingface
+            # CLIP ViT-B/32 model cache
+            - clip_cache:/root/.cache/clip
+            # MolScribe .pth weights (seeded from image on first run, then persisted)
+            - molscribe_model:/app/models/model
+            # Persist generated user icons
+            - ./public/images/icons:/app/public/images/icons
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:5000/api/health || exit 1"]
+            interval: 20s
+            timeout: 10s
+            retries: 5
+
 volumes:
-    mariadb_data:
+    postgres_data:
+        driver: local
+    hf_cache:
+        driver: local
+    clip_cache:
+        driver: local
+    molscribe_model:
         driver: local

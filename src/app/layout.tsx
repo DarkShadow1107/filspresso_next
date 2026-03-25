@@ -4,6 +4,7 @@ import "./globals.css";
 import "../styles/notifications.css";
 import LayoutChrome from "@/components/LayoutChrome";
 import NotificationsProvider from "@/components/NotificationsProvider";
+import { FavoritesProvider } from "@/components/FavoritesProvider";
 import type { PropsWithChildren } from "react";
 
 export const metadata = {
@@ -31,7 +32,9 @@ export default function RootLayout({ children }: PropsWithChildren) {
 			<body>
 				<Suspense fallback={null}>
 					<NotificationsProvider>
-						<LayoutChrome>{children}</LayoutChrome>
+						<FavoritesProvider>
+							<LayoutChrome>{children}</LayoutChrome>
+						</FavoritesProvider>
 					</NotificationsProvider>
 				</Suspense>
 			</body>

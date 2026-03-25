@@ -20,20 +20,20 @@ const DEFAULT_LON = 26.1063;
  */
 router.get("/", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const repairs = await conn.query(
+			const result = await client.query(
 				`SELECT r.*, o.order_number, uc.card_type, uc.card_last_four
 				FROM repairs r
 				LEFT JOIN orders o ON r.order_id = o.id
 				LEFT JOIN user_cards uc ON r.payment_card_id = uc.id
-				WHERE r.account_id = ?
+				WHERE r.account_id = $1
 				ORDER BY r.created_at DESC`,
 				[req.user.id]
 			);
-			res.json({ repairs });
+			res.json({ repairs: result.rows });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Failed to fetch repairs:", error);
@@ -94,17 +94,17 @@ router.post("/", authenticate, async (req, res) => {
 		deliveryDate.setDate(deliveryDate.getDate() + duration);
 		const estimatedDeliveryStr = `${duration} days`;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			await conn.beginTransaction();
+			await client.query("BEGIN");
 
 			// 3. Create Order
 			const orderNumber = `REP-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
 
-			const orderResult = await conn.query(
+			const orderResult = await client.query(
 				`INSERT INTO orders 
 				(account_id, order_number, status, subtotal, shipping_cost, tax, total, payment_method, card_id, created_at, estimated_delivery, weather_condition, expected_delivery_date)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?)`,
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, $11, $12) RETURNING id`,
 				[
 					req.user.id,
 					orderNumber,
@@ -121,13 +121,13 @@ router.post("/", authenticate, async (req, res) => {
 				]
 			);
 
-			const newOrderId = orderResult.insertId;
+			const newOrderId = orderResult.rows[0].id;
 
 			// 4. Create Order Item
-			await conn.query(
+			await client.query(
 				`INSERT INTO order_items 
 				(order_id, product_type, product_id, product_name, quantity, unit_price, total_price)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 				[
 					newOrderId,
 					"service",
@@ -143,10 +143,10 @@ router.post("/", authenticate, async (req, res) => {
 			// Strip price from machine name (e.g., "Machine Name - 590,00 RON" -> "Machine Name")
 			const cleanMachineName = machine_name.replace(/\s*-\s*[\d,.]+\s*RON\s*$/i, "").trim();
 
-			await conn.query(
+			await client.query(
 				`INSERT INTO repairs 
 				(account_id, order_id, machine_id, machine_name, repair_type, is_warranty, estimated_cost, estimated_duration, weather_delay, warranty_delay, status, pickup_date, payment_card_id)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 				[
 					req.user.id,
 					newOrderId,
@@ -164,7 +164,7 @@ router.post("/", authenticate, async (req, res) => {
 				]
 			);
 
-			await conn.commit();
+			await client.query("COMMIT");
 
 			res.json({
 				success: true,
@@ -175,10 +175,10 @@ router.post("/", authenticate, async (req, res) => {
 				isBadWeather,
 			});
 		} catch (err) {
-			await conn.rollback();
+			await client.query("ROLLBACK");
 			throw err;
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Repair request error:", error);

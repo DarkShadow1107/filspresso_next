@@ -69,9 +69,9 @@ const formatDate = (dateString: string | null) => {
 		const date = new Date(dateString);
 		if (isNaN(date.getTime())) return "N/A";
 		return date.toLocaleDateString("en-US", {
-			weekday: "short",
+			weekday: "long",
 			year: "numeric",
-			month: "short",
+			month: "long",
 			day: "numeric",
 		});
 	} catch {
@@ -154,7 +154,7 @@ export default function ManageSubscriptionContent() {
 					"Subscription cancelled. You'll retain access until the end of your billing period.",
 					6000,
 					"success",
-					"subscription"
+					"subscription",
 				);
 				setShowCancelModal(false);
 				// Refresh subscription data
@@ -239,7 +239,7 @@ export default function ManageSubscriptionContent() {
 					newState ? "Auto-renewal enabled" : "Auto-renewal disabled. Your subscription will end on the renewal date.",
 					4000,
 					"success",
-					"subscription"
+					"subscription",
 				);
 				setSubscription((prev) => (prev ? { ...prev, auto_renew: newState } : null));
 			} else {
@@ -346,8 +346,8 @@ export default function ManageSubscriptionContent() {
 								subscription.status === "ending"
 									? "rgba(245, 158, 11, 0.15)"
 									: subscription.is_active
-									? "rgba(16, 185, 129, 0.15)"
-									: "rgba(239, 68, 68, 0.15)",
+										? "rgba(16, 185, 129, 0.15)"
+										: "rgba(239, 68, 68, 0.15)",
 							color: subscription.status === "ending" ? "#f59e0b" : subscription.is_active ? "#10b981" : "#ef4444",
 							padding: "6px 12px",
 							borderRadius: "8px",
@@ -378,8 +378,8 @@ export default function ManageSubscriptionContent() {
 								{subscription.status === "ending"
 									? "Access ends on"
 									: subscription.auto_renew
-									? "Next billing date"
-									: "Access until"}
+										? "Next billing date"
+										: "Access until"}
 							</div>
 							<div
 								style={{
@@ -389,7 +389,9 @@ export default function ManageSubscriptionContent() {
 								}}
 							>
 								{formatDate(
-									subscription.status === "ending" ? subscription.end_date ?? null : subscription.renewal_date
+									subscription.status === "ending"
+										? (subscription.end_date ?? null)
+										: subscription.renewal_date,
 								)}
 							</div>
 						</div>

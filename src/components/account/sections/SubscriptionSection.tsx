@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { formatDate, getCardTypeImage, SubscriptionData } from "./types";
+import { ClockIcon, CreditCard as CreditCardIcon, CheckedIcon as CheckIcon, XIcon } from "@/icons";
 
 type SubscriptionSectionProps = {
 	subscription: string;
@@ -30,7 +31,7 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 							? `${subscriptionData.price_ron.toFixed(2)} RON`
 							: "Free"}
 						{subscriptionData?.price_ron && subscriptionData.price_ron > 0 && (
-							<span>/{subscriptionData?.billing_cycle === "annual" ? "year" : "month"}</span>
+							<span>/{subscriptionData?.billing_cycle === "yearly" ? "year" : "month"}</span>
 						)}
 					</div>
 				</div>
@@ -54,7 +55,7 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 						>
 							<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
 								<div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-									<span style={{ fontSize: "1.5rem" }}>📅</span>
+									<ClockIcon size={24} />
 									<div>
 										<div style={{ fontSize: "0.85rem", color: "#aaa" }}>
 											{subscriptionData.auto_renew ? "Next Renewal" : "Access Until"}
@@ -91,7 +92,7 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 								>
 									Billing cycle:{" "}
 									<span style={{ color: "#c4a77d", fontWeight: 500 }}>
-										{subscriptionData.billing_cycle === "annual" ? "Annual" : "Monthly"}
+										{subscriptionData.billing_cycle === "yearly" ? "Annual" : "Monthly"}
 									</span>
 									{subscriptionData.start_date && (
 										<>
@@ -140,11 +141,33 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 						</div>
 					)}
 
-					<ul>
-						<li>✅ Access to Kafelot Tanka</li>
-						<li>{subscription !== "none" && subscription !== "free" ? "✅" : "❌"} Access to Kafelot Villanelle</li>
-						<li>{subscription === "ultimate" ? "✅" : "❌"} Access to Kafelot Ode</li>
-						<li>{subscription === "ultimate" ? "✅" : "❌"} Chemistry Mode & Visualizations</li>
+					<ul style={{ padding: 0, listStyle: "none", marginTop: "1.5rem" }}>
+						<li style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+							<span style={{ width: "24px", display: "flex", justifyContent: "center" }}>
+								<CheckIcon size={18} color="#10b981" />
+							</span>
+							<span style={{ fontSize: "0.95rem", color: "#ddd" }}>Access to Kafelot Tanka</span>
+						</li>
+						<li style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+							<span style={{ width: "24px", display: "flex", justifyContent: "center" }}>
+								{subscription !== "none" && subscription !== "free" ? (
+									<CheckIcon size={18} color="#10b981" />
+								) : (
+									<XIcon size={18} color="#ef4444" />
+								)}
+							</span>
+							<span style={{ fontSize: "0.95rem", color: "#ddd" }}>Access to Kafelot AI</span>
+						</li>
+						<li style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+							<span style={{ width: "24px", display: "flex", justifyContent: "center" }}>
+								{subscription === "ultimate" ? (
+									<CheckIcon size={18} color="#10b981" />
+								) : (
+									<XIcon size={18} color="#ef4444" />
+								)}
+							</span>
+							<span style={{ fontSize: "0.95rem", color: "#ddd" }}>Chemistry Mode & Visualizations</span>
+						</li>
 					</ul>
 				</div>
 				<div className="sub-actions">
@@ -152,7 +175,7 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 						className="btn-primary"
 						onClick={() =>
 							router.push(
-								subscription === "none" || subscription === "free" ? "/subscription" : "/manage-subscription"
+								subscription === "none" || subscription === "free" ? "/subscription" : "/manage-subscription",
 							)
 						}
 					>

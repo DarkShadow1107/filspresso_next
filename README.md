@@ -1,2241 +1,1889 @@
-# Filspresso Next — Full Project README
+# Filspresso Next
 
-This document is a comprehensive guide to the Filspresso Next project (Next.js frontend + Python AI + IoT integration). It combines the app overview, AI model design and training, training data, IoT workflow and device integration (ESP32 + Krups Essenza Mini XN110 guidance), developer instructions, and production recommendations.
+Filspresso Next is a full-stack coffee commerce platform that combines e-commerce, AI assistance, and IoT-ready machine orchestration.
 
-## Table of Contents
+It is built with Next.js (App Router), Express, PostgreSQL, a Python AI service (Flask + Tanka model stack), and polyglot domain services in Java, Kotlin, Go, and C++/WebAssembly.
 
--   Project overview
--   High-level architecture
--   Technologies used
--   Project structure (detailed)
--   AI: models, data and training
--   IoT: recipes, API endpoints, device workflow
--   ESP32 device example and Krups Essenza integration notes
--   Development: running locally and testing
--   Security & production recommendations
--   Troubleshooting and debugging
--   Appendices: file references, capsule volumes, useful commands
+## 0. Architecture Decision Snapshot
 
----
+This section is a quick ADR-style summary for new contributors.
 
-## Project overview
+- Keep Express as the orchestration and commerce core (auth, cart, checkout, account, products).
+- Use Java for invoice PDF rendering where mature JVM document tooling gives stable output quality.
+- Use Kotlin for subscription pricing and reconciliation rules where null-safety and concise rule code reduce maintenance risk.
+- Use Go for operational event ingestion and lightweight service endpoints where startup speed and memory efficiency matter.
+- Use C++/WebAssembly in browser-side compute paths (image preprocessing, QR candidate scoring, vector ranking) where deterministic numeric performance is needed.
+- Keep PostgreSQL as the primary database because current architecture depends on transaction-heavy commerce flows plus extension-oriented AI/chemistry capabilities.
 
-> **⚠️ SECURITY WARNING: EDUCATIONAL USE ONLY**
-> This project currently uses **plain text storage** for all user data (passwords, credit cards, orders) and has **no encryption**. It is designed for demonstration purposes only. DO NOT use real credentials or payment information.
+## 0.1 Current Revision Change Log (Beta-3)
 
-Filspresso Next is a modern migration of the original Filspresso site into a Next.js (App Router + TypeScript) frontend that integrates with a Python AI service and optional IoT-enabled coffee machines.
+This section tracks the most recent cross-service changes reflected in the current workspace.
 
-**Recent Updates & Architecture Changes:**
+### Invoice and order experience updates
 
--   **JSON-based Storage**: Replaced database dependencies with local JSON files for user data.
-    -   `src/data/accounts.json`: User credentials (plain text).
-    -   `src/data/user_cards.json`: User payment methods (plain text).
-    -   `src/data/orders.json`: Complete order history.
--   **Simplified Backend**: Removed `bcrypt` and complex auth flows in favor of direct file manipulation for transparency and ease of testing.
--   **New API Endpoints**: Added Next.js Route Handlers for managing Cards (`/api/user/cards`) and Orders (`/api/order`).
+- Added image-based signature rendering for invoice PDFs using `public/images/Filspresso_Signature_Invoice.png`.
+- Added dedicated Java renderer class `java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java`.
+- Updated invoice PDF generation pipeline in `java-invoice-service/src/main/java/com/filspresso/invoice/InvoiceController.java` to call the signature stamp renderer.
+- Added signature image asset mount/read path under `java-invoice-service/src/main/resources/signature/`.
+- Kept invoice generation deterministic by rendering static stamp assets instead of randomized runtime stroke generation.
 
-The system supports three tiers of AI-backed assistants for coffee recommendations:
+### Legal route migration and UX alignment
 
--   **Tanka (~30M parameters)** — lightweight, conversational assistant for quick recommendations and support
--   **Villanelle (~60M parameters)** — balanced model for technical explanations and troubleshooting
--   **Ode (~90M parameters)** — research-grade model for deep technical, sensory, and sustainability insights
+- Replaced legacy legal page route `/terms-of-use` with `/terms-and-conditions`.
+- Moved privacy legal route to `/manage-subscription/privacy-policy`.
+- Added `src/app/terms-and-conditions/page.tsx` and `src/components/legal/TermsAndConditionsContent.tsx`.
+- Added `src/app/manage-subscription/privacy-policy/page.tsx`.
+- Updated shared chrome linking in `src/components/LayoutChrome.tsx` to match new legal URLs.
 
-The app can produce personalized brewing recipes which can optionally be delivered to a connected coffee machine (ESP32 or similar) that executes the recipe.
+### Commerce/payment and integration adjustments
 
-## Feature Breakdown
+- Updated order and invoice integration behavior in `express-api/routes/orders.js`.
+- Updated payment flow behavior in `src/components/payment/PaymentPageContent.tsx`.
+- Updated order history behavior in `src/components/account/sections/OrderHistory.tsx`.
 
-### 🧠 Kafelot AI System
+### Documentation scope in this README revision
 
-The core intelligence of Filspresso, powered by the "Kafelot" engine.
+- Refreshed UML source references and added additional architecture diagrams in Mermaid source form.
+- Added explicit technology tradeoff and performance-comparison matrix.
+- Added explicit security-control comparison matrix and service hardening rationale.
 
--   **Multi-Model Support**: Seamlessly switches between Tanka, Villanelle, and Ode based on query complexity.
--   **Context-Aware Chat**: Remembers conversation history for natural dialogue.
--   **RAG (Retrieval-Augmented Generation)**: Accesses a vector database of coffee knowledge to answer specific questions.
--   **Chemistry Mode**: Visualizes coffee molecules and explains chemical processes (caffeine, lipids, sugars).
--   **IoT Command Generation**: Translates natural language requests ("Make me a strong espresso") into machine-executable JSON commands.
+## Quick Start For New Contributors (5 Minutes)
 
-### 👤 Account & Order Management
+If you are new to this repository, use this section first.
 
-A fully functional (demonstration) e-commerce user system.
+### 1) Prerequisites
 
--   **User Profiles**: Create and manage accounts with persistent data.
--   **Wallet System**: Add, view, and remove credit cards (stored in `user_cards.json`).
--   **Order History**: Track past purchases with detailed receipts (stored in `orders.json`).
--   **Shopping Bag**: Persistent cart state with local storage synchronization.
--   **Subscription Management**: Manage recurring coffee deliveries.
+- Node.js 20+
+- npm 10+
+- Docker Desktop (recommended)
+- Python 3.10+ (only required if you run AI service outside Docker)
 
-### 🔌 IoT Integration
+### 2) Clone and install frontend dependencies
 
--   **Device Polling**: ESP32 devices poll the server for new brewing tasks.
--   **Real-time Status**: Updates brew status (Heating -> Brewing -> Done) in real-time.
--   **Remote Control**: Trigger brews directly from the web interface.
-
-### End-to-End User Journey
-
-```
-Complete User Journey: Browse → AI Recommendation → Purchase → Automated Brew
-═══════════════════════════════════════════════════════════════════════════════
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                      DISCOVERY PHASE                                │
-  └─────────────────────────────────────────────────────────────────────┘
-                                 │
-                  User visits filspresso.com
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ Home Page                   │
-                  │ • Hero section              │
-                  │ • Featured products         │
-                  │ • AI assistant intro        │
-                  └──────────────┬──────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ Browse Coffee Catalog       │
-                  │ • Filter by type/intensity  │
-                  │ • View capsule details      │
-                  │ • Read tasting notes        │
-                  └──────────────┬──────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ Explore Machines            │
-                  │ • Compare models            │
-                  │ • Check compatibility       │
-                  │ • Read specifications       │
-                  └──────────────┬──────────────┘
-                                 │
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                    AI INTERACTION PHASE                             │
-  └─────────────────────────────────────────────────────────────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ User asks AI:               │
-                  │ "What coffee should I try?" │
-                  └──────────────┬──────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ AI Model Selection           │
-                  │ ┌─────────┬──────────┬──────┐│
-                  │ │ Tanka   │Villanelle│ Ode  ││
-                  │ │ (Quick) │(Balanced)│(Deep)││
-                  │ └─────────┴──────────┴──────┘│
-                  └──────────────┬───────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ AI analyzes:                 │
-                  │ • User preferences           │
-                  │ • Previous orders            │
-                  │ • Time of day                │
-                  │ • Machine compatibility      │
-                  └──────────────┬───────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ AI provides:                 │
-                  │ • Coffee recommendation      │
-                  │ • Brewing parameters         │
-                  │ • Tasting notes              │
-                  │ • Perfect pairing ideas      │
-                  └──────────────┬───────────────┘
-                                 │
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                      PURCHASE PHASE                                 │
-  └─────────────────────────────────────────────────────────────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ Add to Cart                 │
-                  │ • Recommended capsules      │
-                  │ • Optional: Machine         │
-                  │ • Accessories               │
-                  └──────────────┬──────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ Review Cart                 │
-                  │ • Quantities                │
-                  │ • Subscription options      │
-                  │ • Apply promo codes         │
-                  └──────────────┬──────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ Proceed to Checkout         │
-                  │ • Shipping address          │
-                  │ • Delivery options          │
-                  └──────────────┬──────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ Payment                     │
-                  │ • Enter card details        │
-                  │ • Process Payment           │
-                  │ • Order confirmation        │
-                  └──────────────┬──────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ Order Confirmed             │
-                  │ • Order ID: #12345          │
-                  │ • Email receipt             │
-                  │ • Track delivery            │
-                  └──────────────┬──────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ Brew Coffee (Optional)      │
-                  │ • Send recipe to machine    │
-                  │ • Trigger brew remotely     │
-                  └──────────────┬──────────────┘
-                                 │
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                  IoT BREWING PHASE (Optional)                       │
-  └─────────────────────────────────────────────────────────────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ User clicks:                │
-                  │ "Brew with my machine"      │
-                  └──────────────┬──────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ Backend creates command      │
-                  │ POST /api/commands/create    │
-                  │ {machine_id, recipe}         │
-                  └──────────────┬───────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ ESP32 polls API              │
-                  │ GET /api/commands/check      │
-                  │ Receives brew command        │
-                  └──────────────┬───────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ Pre-flight checks            │
-                  │ • Capsule magazine OK        │
-                  │ • Water reservoir OK         │
-                  │ • Machine ready              │
-                  └──────────────┬───────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ Execute brew sequence:       │
-                  │ 1. Pick capsule from slot    │
-                  │ 2. Insert into machine       │
-                  │ 3. Close brew head           │
-                  │ 4. Press start button        │
-                  └──────────────┬───────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ Machine brews coffee         │
-                  │ • Heat water (92°C)          │
-                  │ • Pre-infusion (300ms)       │
-                  │ • Pump water (40ml)          │
-                  │ • ~30-40 seconds             │
-                  └──────────────┬───────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ ESP32 posts completion       │
-                  │ POST /api/commands/update    │
-                  │ {status: "complete"}         │
-                  └──────────────┬───────────────┘
-                                 │
-                                 v
-                  ┌──────────────────────────────┐
-                  │ User receives notification   │
-                  │ "Your coffee is ready! ☕"   │
-                  └──────────────┬───────────────┘
-                                 │
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                      ENJOYMENT PHASE                                │
-  └─────────────────────────────────────────────────────────────────────┘
-                                 │
-                  ┌──────────────v──────────────┐
-                  │ User enjoys perfectly       │
-                  │ brewed coffee ☕            │
-                  │                             │
-                  │ • Optimal temperature       │
-                  │ • Perfect extraction        │
-                  │ • AI-recommended pairing    │
-                  └─────────────────────────────┘
-
-
-Timeline Summary:
-═══════════════════════════════════════════════════════════════════════
-
-  Discovery Phase:        2-5 minutes
-  AI Interaction:         1-2 minutes
-  Purchase Phase:         2-3 minutes
-  IoT Brewing Phase:      1-2 minutes (automated)
-  ────────────────────────────────────────
-  Total Experience:       6-12 minutes
-
-  Result: Perfect cup of AI-recommended, automatically brewed coffee! ☕
-```
-
----
-
-## High-level architecture
-
-```
-              ┌──────────────────────────────────────────────────┐
-              │               Filspresso Next System             │
-              │         AI-Powered Coffee E-Commerce + IoT       │
-              └──────────────────────────┬───────────────────────┘
-                                         |
-                    ┌────────────────────┴───────────────────┐
-                    |                                        |
-            ┌───────v──────┐                         ┌───────v──────┐
-            │  Web Browser │                         │ Mobile Device│
-            │   (Client)   │                         │   (Client)   │
-            └───────┬──────┘                         └───────┬──────┘
-                    |                                        |
-                    └────────────────┬───────────────────────┘
-                                     |
-                            ┌────────v────────┐
-                            │   Next.js 15    │
-                            │   App Router    │
-                            │  (TypeScript)   │
-                            └────────┬────────┘
-                                     |
-                    ┌────────────────┼────────────────┐
-                    |                |                |
-            ┌───────v─────┐   ┌──────v──────┐   ┌─────v──────┐
-            │ Page        │   │ Cart State  │   │  Product   │
-            │ Components  │   │ Management  │   │  Catalog   │
-            │ (React)     │   │ (Context)   │   │  (JSON)    │
-            └───────┬─────┘   └─────────────┘   └──────┬─────┘
-                    |                                  |
-                    └────────────────┬─────────────────┘
-                                     |
-                            ┌────────v────────┐
-                            │  Flask Backend  │
-                            │  (Python 3.11)  │
-                            │  Port 5000      │
-                            └────────┬────────┘
-                                     |
-                    ┌────────────────┼────────────────┐
-                    |                |                |
-            ┌───────v─────┐   ┌──────v──────┐   ┌─────v──────┐
-            │ AI Models   │   │  IoT API    │   │  Inference │
-            │ (PyTorch)   │   │  Endpoints  │   │   Engine   │
-            │             │   │             │   │            │
-            │ • Tanka     │   │ • Create    │   │ • Generate │
-            │ • Villanelle│   │ • Check     │   │ • Chat     │
-            │ • Ode       │   │ • Update    │   │ • Classify │
-            └─────┬───────┘   └──────┬──────┘   └────────────┘
-                  |                  |
-                  |          ┌───────v───────┐
-                  |          │  Commands DB  │
-                  |          │ SQLite/MariaDB│
-                  |          └───────┬───────┘
-                  |                  |
-          ┌───────v──────────────────v───────┐
-          |       Data Storage Layer         |
-          ├──────────────────────────────────┤
-          │ • User Data (JSON)               │
-          │ • Training corpora (.txt)        │
-          │ • Model checkpoints (.pt)        │
-          │ • Capsule volumes (JSON)         │
-          │ • Command history (DB)           │
-          └─────────────┬────────────────────┘
-                        |
-            ┌───────────┴───────────┐
-            |                       |
-    ┌───────v──────┐         ┌──────v───────┐
-    │ ESP32        │         │ Coffee       │
-    │ Accessory    │────────→│ Machine      │
-    │ (Wi-Fi)      │         │ (Krups       │
-    │              │         │  Essenza)    │
-    │ • Poll API   │         │              │
-    │ • Execute    │         │ • Brew       │
-    │ • Update     │         │ • Heat       │
-    └──────┬───────┘         └──────────────┘
-           |
-    ┌──────v───────┐
-    │ Actuators &  │
-    │ Sensors      │
-    │ • Servos     │
-    │ • Steppers   │
-    │ • Limit SW   │
-    │ • Optical    │
-    └──────────────┘
-```
-
-### Architecture Components1. **Next.js frontend (React)** — user UI, product pages, actions (e.g., "Brew with AI Recommendation")
-
-2. **Backend API (Python Flask for AI microservice shown in repo)** — orchestrates AI calls, stores commands, exposes IoT endpoints
-3. **Python AI stack** — transformer-based models (Tanka / Villanelle / Ode) trained on curated coffee domain corpora
-4. **IoT device** — ESP32-based coffee accessory (example sketch included). Machine polls backend for commands and executes them.
-5. **Database** — training/corpus files (flat .txt for training), and command store (SQLite for testing; production recommend MariaDB/Postgres)
-
----
-
-## Technologies used
-
-### Frontend Stack
-
--   **Framework**: Next.js 15.5.4 (App Router with Turbopack)
--   **Language**: TypeScript 5.x (strict mode enabled)
--   **UI Framework**: React 19.1.0
--   **Styling**: Tailwind CSS 4.x with PostCSS
--   **HTTP Client**: Native Fetch API, @emailjs/browser 4.4.1 for contact forms
--   **Build Tools**:
-    -   Turbopack (Next.js bundler)
-    -   ESLint 9.x with Next.js config
-    -   TypeScript compiler with strict settings
--   **Development**: Hot module replacement, fast refresh
-
-### Backend Stack (Python AI Microservice)
-
--   **Web Framework**: Flask 3.0.0 with Flask-CORS 4.0.0
--   **AI/ML Framework**: PyTorch 2.1.0
--   **LLM & Fine-Tuning**:
-    -   **Base Model**: TinyLlama-1.1B-Chat-v1.0
-    -   **Fine-Tuning**: PEFT (LoRA), bitsandbytes (4-bit quantization)
-    -   **Library**: Hugging Face Transformers 4.35+
--   **RAG (Retrieval-Augmented Generation)**:
-    -   **Vector Store**: FAISS (Facebook AI Similarity Search)
-    -   **Embeddings**: Sentence-Transformers (`all-MiniLM-L6-v2`)
--   **Data Processing**:
-    -   NumPy 1.24.3 (numerical computing)
-    -   Pandas 2.1.0 (data manipulation)
-    -   scikit-learn 1.3.2 (preprocessing, metrics)
--   **Database**:
-    -   SQLite (development, via `iot_db.py`)
-    -   MariaDB/MySQL support via pymysql 1.1.0
-    -   SQLAlchemy 2.0.19 (optional ORM wrapper for pooling)
--   **Production Server**: Waitress 2.1.2 (WSGI server for production)
--   **Configuration**: python-dotenv 1.0.0 for environment variables
--   **HTTP Client**: requests 2.31.0
-
-### Device/IoT Stack
-
--   **Microcontroller**: ESP32 (Wi-Fi enabled, Arduino/PlatformIO)
--   **Communication Protocol**: HTTP/HTTPS polling (example); MQTT recommended for production
--   **Language**: C++ (Arduino framework)
--   **Hardware Components** (recommended for accessory):
-    -   Servo motors for button pressing
-    -   Stepper motors with drivers for capsule handling
-    -   Limit switches and optical sensors for feedback
-    -   Optoisolated relay/driver boards for safety
-
-### Database & Storage
-
--   **User Data Engine**: Custom JSON-based File Storage System (NoSQL/No-DB)
-    -   Direct file I/O for `accounts.json`, `user_cards.json`, `orders.json`
-    -   Zero-dependency, portable, and transparent (for educational visibility)
--   **IoT Commands**: SQLite 3 (embedded) or MariaDB (optional)
--   **Training Data**: Plain text files (.txt format, UTF-8 encoded)
--   **Model Checkpoints**: PyTorch `.pt` files with state dictionaries
--   **Configuration Data**: JSON files (capsule volumes, recipe schemas)
-
-### DevOps & Tooling
-
--   **Version Control**: Git
--   **Package Managers**:
-    -   npm (Node.js/frontend dependencies)
-    -   pip (Python dependencies)
--   **Containerization**: Docker with Docker Compose (optional, for MariaDB dev)
--   **Process Management**: Python venv for isolated environments
--   **Linting & Formatting**: ESLint (frontend), Black/Flake8 (Python, optional)
-
----
-
-## Project structure (complete directory tree)
-
-```
-filspresso_next/
-├── src/                              # Next.js application source
-│   ├── app/                          # App Router pages and API routes
-│   │   ├── api/                      # Next.js API routes
-│   │   │   ├── chat/                # AI Chat endpoints
-│   │   │   ├── chemistry/           # Chemistry molecule endpoints
-│   │   │   ├── model/               # AI Model management
-│   │   │   ├── order/               # Order processing endpoints
-│   │   │   ├── pages/               # Dynamic page data endpoints
-│   │   │   ├── python-chat/         # Python AI bridge
-│   │   │   ├── python-health/       # Python service health check
-│   │   │   ├── subscribe/           # Subscription management
-│   │   │   └── user/                # User data endpoints
-│   │   │       └── cards/           # Card management
-│   │   ├── data/                    # Client-side page content data
-│   │   ├── payment/                 # Payment page route
-│   │   ├── globals.css              # Global styles (legacy CSS preserved)
-│   │   ├── layout.tsx               # Root layout component
-│   │   └── page.tsx                 # Root page component
-│   ├── components/                   # React components (organized by feature)
-│   │   ├── account/                 # Account page components
-│   │   ├── coffee/                  # Coffee catalog components
-│   │   ├── coffee-machine-animation/ # Interactive machine animation
-│   │   ├── home/                    # Home page components
-│   │   ├── love-coffee/             # Coffee education components
-│   │   ├── machines/                # Machine catalog components
-│   │   ├── payment/                 # Payment flow components
-│   │   ├── shopping-bag/            # Cart/bag components
-│   │   ├── subscription/            # Subscription management components
-│   │   ├── Cart.tsx                 # Global cart component
-│   │   ├── LayoutChrome.tsx         # App chrome/layout wrapper
-│   │   ├── Navbar.tsx               # Navigation bar
-│   │   ├── NotificationsProvider.tsx # Toast/notification system
-│   │   ├── PaymentForm.tsx          # Payment form component
-│   │   └── SubscriptionForm.tsx     # Subscription form component
-│   ├── data/                         # Data storage (JSON)
-│   │   ├── accounts.json            # User accounts (plain text)
-│   │   ├── user_cards.json          # User cards (plain text)
-│   │   ├── orders.json              # Order history
-│   │   ├── coffee.generated.json    # Coffee product catalog
-│   │   ├── coffee.ts                # Coffee data types
-│   │   ├── machines.generated.json  # Machine product catalog
-│   │   └── machines.ts              # Machine data types
-│   ├── hooks/                        # Custom React hooks
-│   │   └── useCart.ts               # Cart state management hook
-│   ├── lib/                          # Utility libraries
-│   │   └── pages.ts                 # Page routing utilities
-│   ├── styles/                       # Feature-specific stylesheets
-│   │   ├── account.css
-│   │   ├── coffee-machine.css
-│   │   ├── globals.css
-│   │   ├── love-coffee.css
-│   │   ├── notifications.css
-│   │   ├── payment.css
-│   │   ├── shopping-bag.css
-│   │   └── subscription.css
-│   └── types/                        # TypeScript type definitions
-│       └── custom.d.ts
-├── public/                           # Static assets
-│   ├── images/                       # Product images, backgrounds, logos
-│   │   ├── Capsules/                # Capsule product images
-│   │   ├── Machines/                # Machine product images
-│   │   └── svg/                     # Coffee size/type icons
-├── python_ai/                        # Python AI & IoT backend
-│   ├── data/                         # Reference data (PDFs, JSONs)
-│   │   ├── capsule_volumes.json     # Canonical capsule volume specs
-│   │   ├── chembl-molecules.json    # Chemistry database
-│   │   └── coffee_*.pdf             # Multilingual coffee knowledge
-│   ├── migrations/                   # Database migrations
-│   │   └── create_commands_table.sql
-│   ├── models/                       # TinyLlama Models
-│   │   ├── tinyllama_chem/          # Fine-tuned Chemistry Model
-│   │   └── tinyllama_v2/            # Fine-tuned Coffee Model
-│   ├── rag_data/                     # RAG Vector Database
-│   │   ├── coffee_chunks.json       # Knowledge chunks
-│   │   ├── coffee_embeddings.npy    # Vector embeddings
-│   │   └── coffee_faiss.index       # FAISS index
-│   ├── scripts/                      # Training & Data Scripts
-│   │   ├── build_coffee_rag.py      # RAG builder
-│   │   ├── finetune_tinyllama_*.py  # Fine-tuning scripts
-│   │   └── generate_molecule_*.py   # Data generation
-│   ├── training_data/                # Training corpora (JSONL)
-│   │   ├── coffee.jsonl             # Coffee instruction datasets
-│   │   └── molecules.jsonl          # Molecule datasets
-│   ├── app.py                        # Flask microservice (AI + IoT endpoints)
-│   ├── iot_db.py                     # IoT command DB helper
-│   ├── rag_retriever.py              # RAG Logic
-│   ├── tinyllama_models.py           # Model Manager
-│   ├── requirements.txt              # Python dependencies
-│   └── docker-compose.maria.yml      # Docker Compose for local MariaDB
-├── scripts/                          # Utility scripts
-│   ├── esp32/                       # ESP32 device integration
-│   │   └── esp32_coffeemachine.ino  # Arduino sketch for accessory
-│   ├── addCoffeeNotes.mjs           # Script to add coffee notes
-│   ├── extractCoffeeData.mjs        # Extract coffee data from sources
-│   ├── extractMachinesData.mjs      # Extract machine data from sources
-│   └── start_all.bat                # Startup script
-├── package.json                      # Node.js dependencies and scripts
-├── tsconfig.json                     # TypeScript compiler configuration
-├── next.config.ts                    # Next.js configuration
-├── tailwind.config.cjs               # Tailwind CSS configuration
-├── postcss.config.mjs                # PostCSS configuration
-├── eslint.config.mjs                 # ESLint configuration
-├── middleware.ts                     # Next.js middleware (routing)
-├── global.d.ts                       # Global TypeScript declarations
-├── next-env.d.ts                     # Next.js TypeScript declarations
-├── LICENSE                           # MIT License
-└── README.md                         # This comprehensive documentation
-```
-
-### Key Directory Purposes
-
--   **`src/app/`**: Next.js App Router pages and layouts; uses file-based routing
--   **`src/components/`**: Feature-organized React components; each major page has a dedicated subfolder
--   **`src/data/`**: Product catalog data (coffee capsules and machines) in JSON format
--   **`python_ai/`**: Complete Python AI backend including models, training, inference, and IoT API
--   **`python_ai/training_data/`**: Plain text training corpora for the three coffee AI models
--   **`python_ai/models_checkpoint/`**: Saved PyTorch model weights (`.pt` files)
--   **`scripts/esp32/`**: Device integration example and documentation for ESP32 accessory
--   **`public/images/`**: Product photography and visual assets organized by product type
-
----
-
-## Data Storage (New Architecture)
-
-The project now uses a file-based storage system located in `src/data/` for all user-related data. This replaces the need for a SQL database for these features.
-
-| File                      | Description                                        | Format          |
-| ------------------------- | -------------------------------------------------- | --------------- |
-| `accounts.json`           | Stores user accounts and passwords.                | Plain Text JSON |
-| `user_cards.json`         | Stores user credit card details mapped by User ID. | Plain Text JSON |
-| `orders.json`             | Stores complete order history mapped by User ID.   | Plain Text JSON |
-| `coffee.generated.json`   | Coffee product catalog (Static).                   | JSON            |
-| `machines.generated.json` | Coffee machine catalog (Static).                   | JSON            |
-
-### Data Structure Examples
-
-**`accounts.json`**
-
-```json
-[
-	{
-		"id": "user_123",
-		"email": "user@example.com",
-		"password": "plain_text_password",
-		"name": "John Doe"
-	}
-]
-```
-
-**`user_cards.json`**
-
-```json
-{
-	"user_123": [
-		{
-			"id": "card_456",
-			"number": "1234567890123456",
-			"expiry": "12/25",
-			"cvv": "123",
-			"holder": "John Doe"
-		}
-	]
-}
-```
-
-**`orders.json`**
-
-```json
-{
-  "user_123": [
-    {
-      "id": "order_789",
-      "date": "2025-11-20T10:00:00.000Z",
-      "items": [...],
-      "total": 45.50,
-      "status": "confirmed"
-    }
-  ]
-}
-```
-
-## AI: models, data and training
-
-### Model architecture (detailed)
-
-The Kafelot AI models are built on an enhanced transformer architecture with coffee-domain specialization. All three models share the same core components but differ in size and feature activation.
-
-#### Core Architecture Components
-
-1. **Enhanced Transformer Layers** (`EnhancedTransformerLayer`)
-
-    - Multi-Query Attention (MQA) with configurable KV heads
-    - Rotary Position Embeddings (RoPE) for improved context handling
-    - Coffee Domain Attention for specialized knowledge
-    - SwiGLU-activated feed-forward networks or Mixture of Experts (MoE)
-    - Layer normalization with residual connections
-
-2. **Multi-Query Attention (MQA)** (`MultiQueryAttention`)
-
-    - Shares key/value projections across multiple query heads for efficiency
-    - Reduces memory bandwidth and increases inference speed
-    - Configurable number of KV heads (2 for lightweight, 4 for quality)
-    - Integrated with RoPE for position-aware attention
-
-3. **Rotary Position Embeddings (RoPE)** (`RotaryPositionEmbedding`)
-
-    - Reference: RoFormer (Su et al., 2021)
-    - Applies rotation to query and key embeddings based on position
-    - Better extrapolation to longer sequences than learned positional embeddings
-    - Precomputed cos/sin buffers for efficiency
-    - Configurable theta parameter (default: 10000.0)
-
-4. **SwiGLU Activation** (`SwiGLU`, `FeedForwardNetworkSwiGLU`)
-
-    - Reference: GLU Variants Improve Transformer (Shazeer, 2020)
-    - Gated Linear Unit variant with Swish/SiLU activation
-    - More expressive than ReLU/GELU for language modeling
-    - Applied in feed-forward layers: `x * SiLU(gate)`
-
-5. **Coffee Domain Attention** (`CoffeeDomainAttention`)
-
-    - Custom attention mechanism for coffee-specific knowledge
-    - Learnable domain embeddings (8 domains by default):
-        - Extraction techniques
-        - Coffee chemistry
-        - Sensory evaluation
-        - Sustainability practices
-        - Equipment knowledge
-        - Regional characteristics
-        - Processing methods
-        - Brewing science
-    - Domain-weighted context blending with hidden states
-
-6. **Mixture of Experts (MoE)** (`MixtureOfExpertsLayer`)
-
-    - Enabled for Villanelle and Ode models
-    - Routes tokens to specialized expert networks
-    - Learned router selects top-k experts per token
-    - Load balancing across experts for efficiency
-    - Each expert is a dedicated feed-forward network
-
-7. **Weight Tying**
-    - Output projection tied to input embedding matrix
-    - Significantly reduces parameter count (embedding weights reused)
-    - Common practice in modern language models
-
-#### Model Configurations
-
-| Model          | Parameters | Hidden Size | Layers | Heads | KV Heads | FFN Size | MoE            | Max Context |
-| -------------- | ---------- | ----------- | ------ | ----- | -------- | -------- | -------------- | ----------- |
-| **Tanka**      | ~30M       | 432         | 7      | 8     | 2        | 1,296    | ❌             | 1,024       |
-| **Villanelle** | ~60M       | 592         | 9      | 8     | 2        | 1,776    | ✅ (4 experts) | 1,024       |
-| **Ode**        | ~90M       | 776         | 8      | 8     | 4        | 2,328    | ✅ (8 experts) | 1,536       |
-
-#### ModelConfig Dataclass
-
-All models are configured via the `ModelConfig` dataclass in `python_ai/models.py`:
-
-```python
-@dataclass
-class ModelConfig:
-    vocab_size: int = 50000              # Vocabulary size
-    max_seq_length: int = 1024           # Maximum sequence length
-    hidden_size: int = 768               # Hidden dimension size
-    num_layers: int = 12                 # Number of transformer layers
-    num_heads: int = 12                  # Number of attention heads
-    num_kv_heads: int = 4                # Number of key/value heads (MQA)
-    ffn_hidden_size: int = 3072          # Feed-forward hidden size
-    dropout_rate: float = 0.1            # General dropout rate
-    attention_dropout_rate: float = 0.1  # Attention dropout rate
-    layer_norm_eps: float = 1e-6         # Layer norm epsilon
-    activation: str = "swiglu"           # Activation function
-    use_rope: bool = True                # Enable RoPE
-    use_moe: bool = False                # Enable Mixture of Experts
-    num_experts: int = 8                 # Number of experts (if MoE)
-    num_experts_per_token: int = 2       # Active experts per token
-    rope_theta: float = 10000.0          # RoPE frequency base
-```
-
-#### Factory Functions
-
-`python_ai/models.py` provides three factory functions:
-
--   **`create_tanka_model(vocab_size)`** → Tanka (~30M parameters)
-
-    -   Lightweight, conversational assistant
-    -   Features: MQA (2 KV heads), RoPE, SwiGLU, Coffee Domain Attention
-    -   No MoE (efficiency priority)
-
--   **`create_villanelle_model(vocab_size)`** → Villanelle (~60M parameters)
-
-    -   Balanced model with technical depth
-    -   Features: MQA (2 KV heads), RoPE, SwiGLU, Coffee Domain Attention, MoE (4 experts)
-    -   Suitable for detailed explanations and troubleshooting
-
--   **`create_ode_model(vocab_size)`** → Ode (~90M parameters)
-    -   Comprehensive research-grade model
-    -   Features: MQA (4 KV heads), RoPE, SwiGLU, Coffee Domain Attention, MoE (8 experts)
-    -   Extended context window (1,536 tokens)
-    -   Best for deep technical and sensory analysis
-
-These factories return an `AdvancedAIModel` instance and the `ModelConfig` used.
-
-#### Model Architecture Diagram
-
-```
-Enhanced Transformer Architecture (AdvancedAIModel)
-═══════════════════════════════════════════════════════════════════════
-
-                        Input Token IDs
-                        [batch, seq_len]
-                              │
-                ┌─────────────┴─────────────┐
-                │                           │
-        ┌───────v──────┐           ┌────────v────────┐
-        │ Token        │           │ Positional      │
-        │ Embedding    │           │ Embedding       │
-        │ [vocab_size, │           │ [max_seq,       │
-        │  hidden]     │           │  hidden]        │
-        └───────┬──────┘           └────────┬────────┘
-                │                           │
-                └─────────────┬─────────────┘
-                              │
-                      ┌───────v────────┐
-                      │  Dropout       │
-                      │  (p=0.1)       │
-                      └───────┬────────┘
-                              │
-                      ╔═══════v════════╗
-                      ║ Enhanced       ║
-                      ║ Transformer    ║  ← Repeated N times
-                      ║ Layer          ║     (7-9 layers)
-                      ╚═══════╤════════╝
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-        │  ┌──────────────────v──────────────────┐  │
-        │  │  Multi-Query Attention (MQA)        │  │
-        │  │  ┌────────────────────────────────┐ │  │
-        │  │  │ Query Heads: num_heads         │ │  │
-        │  │  │ KV Heads: num_kv_heads (2-4)   │ │  │
-        │  │  │                                │ │  │
-        │  │  │  ┌─────────────────────┐       │ │  │
-        │  │  │  │ Rotary Position     │       │ │  │
-        │  │  │  │ Embedding (RoPE)    │       │ │  │
-        │  │  │  │ • Rotate Q and K    │       │ │  │
-        │  │  │  │ • Better context    │       │ │  │
-        │  │  │  └─────────────────────┘       │ │  │
-        │  │  │                                │ │  │
-        │  │  │ Scores = Q × K^T / √d          │ │  │
-        │  │  │ Context = Softmax(Scores) × V  │ │  │
-        │  │  └────────────────────────────────┘ │  │
-        │  └──────────────────┬──────────────────┘  │
-        │                     │                     │
-        │  ┌──────────────────v──────────────────┐  │
-        │  │  Layer Norm + Residual Connection   │  │
-        │  └──────────────────┬──────────────────┘  │
-        │                     │                     │
-        │  ┌──────────────────v──────────────────┐  │
-        │  │  Coffee Domain Attention            │  │
-        │  │  • 8 domain embeddings              │  │
-        │  │  • Extraction, Chemistry, Sensory   │  │
-        │  │  • Sustainability, Equipment, etc.  │  │
-        │  └──────────────────┬──────────────────┘  │
-        │                     │                     │
-        │            ┌────────v────────┐            │
-        │            │ MoE Enabled?    │            │
-        │            └────┬──────────┬─┘            │
-        │                 │          │              │
-        │            No   │          │  Yes         │
-        │                 │          │              │
-        │  ┌──────────────v─┐   ┌──v────────────┐   │
-        │  │  SwiGLU FFN    │   │ Mixture of    │   │
-        │  │  ┌───────────┐ │   │ Experts (MoE) │   │
-        │  │  │ Linear    │ │   │ ┌───────────┐ │   │
-        │  │  │ (h→2*ffn) │ │   │ │ Router    │ │   │
-        │  │  └─────┬─────┘ │   │ │ (select   │ │   │
-        │  │        │       │   │ │  top-k)   │ │   │
-        │  │  ┌─────v─────┐ │   │ └─────┬─────┘ │   │
-        │  │  │ SwiGLU    │ │   │       │       │   │
-        │  │  │ x*σ(gate) │ │   │  ┌────v────┐  │   │
-        │  │  └─────┬─────┘ │   │  │Expert 1 │  │   │
-        │  │        │       │   │  │Expert 2 │  │   │
-        │  │  ┌─────v─────┐ │   │  │  ...    │  │   │
-        │  │  │ Linear    │ │   │  │Expert K │  │   │
-        │  │  │ (ffn→h)   │ │   │  └────┬────┘  │   │
-        │  │  └─────┬─────┘ │   │       │       │   │
-        │  │        │       │   │  Weighted sum │   │
-        │  └────────┼───────┘   └───────┼───────┘   │
-        │           │                   │           │
-        │           └─────────┬─────────┘           │
-        │                     │                     │
-        │  ┌──────────────────v──────────────────┐  │
-        │  │  Layer Norm + Residual Connection   │  │
-        │  └──────────────────┬──────────────────┘  │
-        │                     │                     │
-        └─────────────────────┼─────────────────────┘
-                              │
-                      ┌───────v────────┐
-                      │  Final Layer   │
-                      │  Normalization │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Output Logits  │
-                      │ (tied to       │
-                      │  embedding)    │
-                      │ [batch, seq,   │
-                      │  vocab_size]   │
-                      └────────────────┘
-```
-
-#### Multi-Query Attention (MQA) Detail
-
-```
-Multi-Query Attention with Rotary Position Embeddings
-══════════════════════════════════════════════════════════════
-
-       Hidden States [batch, seq_len, hidden_size]
-                      │
-        ┌─────────────┼─────────────┐
-        │             │             │
-    ┌───v──┐      ┌───v──┐      ┌───v──┐
-    │ W_Q  │      │ W_K  │      │ W_V  │
-    │      │      │      │      │      │
-    │Query │      │ Key  │      │Value │
-    │Proj  │      │Proj  │      │Proj  │
-    └───┬──┘      └───┬──┘      └───┬──┘
-        │             │             │
-        │ num_heads   │ num_kv_heads│ num_kv_heads
-        │ (e.g., 8)   │ (e.g., 2-4) │ (e.g., 2-4)
-        │             │             │
-    ┌───v──────┐  ┌───v──────┐      │
-    │  Reshape │  │  Reshape │      │
-    │  to heads│  │  to heads│      │
-    └───┬──────┘  └───┬──────┘      │
-        │             │             │
-        └──────┬──────┘             │
-               │                    │
-        ┌──────v──────┐             │
-        │ Apply RoPE  │             │
-        │ ┌─────────┐ │             │
-        │ │ cos/sin │ │             │
-        │ │ rotation│ │             │
-        │ │ per pos │ │             │
-        │ └─────────┘ │             │
-        └──────┬──────┘             │
-               │                    │
-        Q_rot, K_rot                V
-               │                    │
-        ┌──────v──────┐             │
-        │ Expand K, V │             │
-        │ to match Q  │             │
-        │ heads via   │             │
-        │ repeat      │             │
-        └──────┬──────┴─────────────┘
-               │
-        ┌──────v──────────────┐
-        │ Attention Scores    │
-        │                     │
-        │ S = Q × K^T / √d    │
-        │                     │
-        │ [batch, heads,      │
-        │  seq_len, seq_len]  │
-        └──────┬──────────────┘
-               │
-        ┌──────v──────────────┐
-        │ Apply Mask          │
-        │ (if provided)       │
-        └──────┬──────────────┘
-               │
-        ┌──────v──────────────┐
-        │ Softmax(Scores)     │
-        │ = Attention Weights │
-        └──────┬──────────────┘
-               │
-        ┌──────v──────────────┐
-        │ Dropout (p=0.1)     │
-        └──────┬──────────────┘
-               │
-        ┌──────v──────────────┐
-        │ Context             │
-        │ = Weights × V       │
-        │                     │
-        │ [batch, heads,      │
-        │  seq_len, head_dim] │
-        └──────┬──────────────┘
-               │
-        ┌──────v──────────────┐
-        │ Reshape & Concat    │
-        │ heads               │
-        └──────┬──────────────┘
-               │
-        ┌──────v──────────────┐
-        │ Output Projection   │
-        │ W_O                 │
-        └──────┬──────────────┘
-               │
-               v
-        Attention Output
-        [batch, seq_len, hidden_size]
-```
-
-### Training data
-
-Training data lives as plaintext files under `python_ai/training_data/`:
-
--   `tanka-training.txt` — conversational and practical scenarios (now expanded to ~17 KB)
--   `villanelle-training.txt` — deeper technical/analytical content (~27 KB)
--   `ode-training.txt` — research-grade and multi-domain content (~42 KB)
-
-Each file contains multi-turn dialogues, troubleshooting trees, sensory lexicon references, and science-backed explanations tailored to each model's persona.
-
-### Training pipeline
-
-Use `python_ai/train.py` to train models locally. The training pipeline uses a `Trainer` class in `python_ai/trainer.py` which handles dataset creation, batching, optimizer setup, checkpointing, and a simple validation loop.
-
-Quick run (example):
-
-```powershell
-# from repo root
-python python_ai/train.py --model tanka --data python_ai/training_data --epochs 3
-```
-
-Notes:
-
--   Use a GPU-enabled environment for efficient training. The code supports CUDA where available.
--   Tokenizer is in `python_ai/tokenizer.py` (SimpleTokenizer). Replace with a production tokenizer (sentencepiece/BPE) for robust deployments.
-
-#### Training Pipeline Flow
-
-```
-Training Pipeline (train.py / trainer.py)
-═══════════════════════════════════════════════════════════════════════
-
-  ┌────────────────────────────────────────────────────────────────┐
-  │                    Data Preparation Phase                      │
-  └────────────────────────────────────────────────────────────────┘
-                              │
-                ┌─────────────┴─────────────┐
-                │                           │
-        ┌───────v──────┐            ┌───────v───────┐
-        │ Training     │            │ Validation   │
-        │ Text Files   │            │ Text Files   │
-        │ (.txt)       │            │ (.txt)       │
-        │              │            │              │
-        │ • tanka.txt  │            │ • val.txt    │
-        │ • vill.txt   │            │              │
-        │ • ode.txt    │            │              │
-        └───────┬──────┘            └───────┬──────┘
-                │                           │
-                └─────────────┬─────────────┘
-                              │
-                      ┌───────v────────┐
-                      │ SimpleTokenizer│
-                      │ Build vocab    │
-                      │ (30K-50K)      │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ TextDataset    │
-                      │ • Tokenize     │
-                      │ • Create seqs  │
-                      │ • Build labels │
-                      └───────┬────────┘
-                              │
-  ┌────────────────────────────────────────────────────────────────┐
-  │                    Training Loop Phase                         │
-  └────────────────────────────────────────────────────────────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Create Model   │
-                      │ • Tanka (30M)  │
-                      │ • Vill (60M)   │
-                      │ • Ode (90M)    │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ AdamW Optimizer│
-                      │ lr=1e-4        │
-                      │ weight_decay   │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ LR Scheduler   │
-                      │ (Cosine/Linear)│
-                      └───────┬────────┘
-                              │
-                    ╔═════════v═════════╗
-                    ║   Training Epoch  ║
-                    ╚═════════╤═════════╝
-                              │
-                      ┌───────v────────┐
-                      │ Batch Loop     │
-                      │ for batch in   │
-                      │   dataloader   │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Forward Pass   │
-                      │ logits = model │
-                      │   (input_ids)  │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Compute Loss   │
-                      │ CrossEntropy   │
-                      │ (logits, tgt)  │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Backward Pass  │
-                      │ loss.backward()│
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Gradient Clip  │
-                      │ (max_norm=1.0) │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Optimizer Step │
-                      │ Update weights │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ LR Scheduler   │
-                      │ step()         │
-                      └───────┬────────┘
-                              │
-                              │
-  ┌────────────────────────────────────────────────────────────────┐
-  │                  Validation & Checkpoint Phase                 │
-  └────────────────────────────────────────────────────────────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Validation Loop│
-                      │ @torch.no_grad │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Compute        │
-                      │ Perplexity     │
-                      │ Val Loss       │
-                      └───────┬────────┘
-                              │
-                      ┌───────v────────┐
-                      │ Log Metrics    │
-                      │ • Train Loss   │
-                      │ • Val Loss     │
-                      │ • Perplexity   │
-                      │ • Learning Rate│
-                      └───────┬────────┘
-                              │
-                    ┌─────────v─────────┐
-                    │ Best Model Check? │
-                    └─────┬──────────┬──┘
-                          │          │
-                     Yes  │          │  No
-                          │          │
-            ┌─────────────v──┐       │
-            │ Save Best      │       │
-            │ Checkpoint     │       │
-            │ • model.pt     │       │
-            │ • optimizer    │       │
-            │ • scheduler    │       │
-            │ • history      │       │
-            └─────────────┬──┘       │
-                          │          │
-                          └────┬─────┘
-                               │
-                     ┌─────────v─────────┐
-                     │ Early Stopping?   │
-                     │ (patience=3)      │
-                     └─────┬──────────┬──┘
-                           │          │
-                      Continue        Stop
-                           │          │
-                           │    ┌─────v─────┐
-                           │    │ Training  │
-                           │    │ Complete  │
-                           │    └───────────┘
-                           │
-                           └──────→ Next Epoch
-```
-
-#### Model Comparison Chart
-
-````
-Kafelot AI Models Comparison
-═══════════════════════════════════════════════════════════════════════
-
-┌─────────────────┬──────────────────┬──────────────────┬──────────────────┐
-│                 │   🌿 TANKA       │  🎻 VILLANELLE  │   🎼 ODE        │
-│                 │   Lightweight    │    Balanced      │  Comprehensive   │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Parameters      │  ~28.5M          │   ~64.2M         │   ~97M           │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Hidden Size     │    432           │    592           │    776           │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Num Layers      │     7            │     9            │     8            │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Attention Heads │     8            │     8            │     8            │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ KV Heads (MQA)  │     2            │     2            │     4            │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ FFN Hidden Size │  1,296           │  1,776           │  2,328           │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Max Context     │  1,024 tokens    │  1,024 tokens    │  1,536 tokens    │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ MoE Enabled     │    ❌ No        │   ✅ Yes (4 exp) │   ✅ Yes (8 exp) │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Features        │ • MQA            │ • MQA            │ • MQA            │
-│                 │ • RoPE           │ • RoPE           │ • RoPE           │
-│                 │ • SwiGLU         │ • SwiGLU         │ • SwiGLU         │
-│                 │ • Coffee Domain  │ • Coffee Domain  │ • Coffee Domain  │
-│                 │   Attention      │   Attention      │   Attention      │
-│                 │                  │ • MoE (light)    │ • MoE (full)     │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Best For        │ • Quick answers  │ • Technical      │ • Deep analysis  │
-│                 │ • Chat support   │   explanations   │ • Research       │
-│                 │ • Basic queries  │ • Troubleshoot   │ • Sensory eval   │
-│                 │ • Fast response  │ • Balance        │ • Sustainability │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Inference Speed │  Fast ⚡⚡⚡   │  Medium ⚡⚡     │  Slower ⚡      │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Memory (GPU)    │  ~200 MB         │  ~350 MB         │  ~450 MB         │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Training Time   │  Shortest        │  Medium          │  Longest         │
-│ (per epoch)     │  ~5-10 min       │  ~15-20 min      │  ~25-35 min      │
-├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Recommended     │ • Web chat       │ • Product pages  │ • Expert system  │
-│ Use Cases       │ • Mobile apps    │ • Knowledge base │ • Training tool  │
-│                 │ • Quick lookups  │ • Support desk   │ • Research       │
-└─────────────────┴──────────────────┴──────────────────┴──────────────────┘
-
-Usage Examples:
-  Tanka:      "How do I brew an espresso?"
-  Villanelle: "Explain extraction temperature's effect on acidity"
-  Ode:        "Compare sustainability impacts of wet vs natural processing"
-```---
-
-## IoT: recipes, API endpoints, device workflow
-
-This project includes a minimal IoT workflow enabling the backend to send brewing commands to a Wi-Fi coffee machine.
-
-### Recipe JSON schema
-
-Example recipe:
-
-```json
-{
-	"volume_ml": 50,
-	"temperature_c": 92,
-	"pre_infusion_ms": 500,
-	"capsule_type": "original",
-	"capsule_variant": "espresso"
-}
-````
-
--   `volume_ml`: target water volume (ml) — use `python_ai/data/capsule_volumes.json` for canonical capsule volumes
--   `temperature_c`: target brewing temperature (°C) — requires device temperature sensor and PID in production
--   `pre_infusion_ms`: milliseconds to wet puck before full pump
--   `capsule_type`/`capsule_variant`: used for compatibility checks (e.g., Original vs Vertuo)
-
-### API Endpoints (Flask microservice in `python_ai/app.py`)
-
-The Flask backend exposes two categories of endpoints: **AI Inference** and **IoT Command Management**.
-
-#### AI Inference Endpoints
-
--   **POST `/api/generate`** — Generate text completion
-
-    -   Body: `{ "model": "tanka|villanelle|ode", "prompt": "User prompt...", "max_length": 100, "temperature": 0.8 }`
-    -   Returns: `{ "generated_text": "...", "model": "tanka" }`
-
--   **POST `/api/chat`** — Multi-turn conversational interface
-
-    -   Body: `{ "model": "tanka|villanelle|ode", "messages": [{"role": "user", "content": "..."}], "temperature": 0.7 }`
-    -   Returns: `{ "response": "...", "model": "villanelle" }`
-
--   **POST `/api/summarize`** — Summarize long text
-
-    -   Body: `{ "model": "villanelle|ode", "text": "Long text...", "max_length": 150 }`
-    -   Returns: `{ "summary": "...", "model": "ode" }`
-
--   **POST `/api/classify`** — Text classification (coffee types, brewing methods, etc.)
-
-    -   Body: `{ "model": "tanka|villanelle|ode", "text": "..." }`
-    -   Returns: `{ "classification": {...}, "confidence": 0.95 }`
-
--   **POST `/api/train`** — Trigger training job (dev only)
-
-    -   Body: `{ "model": "tanka|villanelle|ode", "data_path": "...", "epochs": 3 }`
-    -   Returns: `{ "status": "training_started", "job_id": "..." }`
-
--   **POST `/api/save-model`** — Save model checkpoint
-    -   Body: `{ "model": "tanka|villanelle|ode", "path": "..." }`
-    -   Returns: `{ "status": "saved", "path": "..." }`
-
-#### IoT Command Management Endpoints
-
--   **POST `/api/commands/create`** — Store a brewing command for a machine
-
-    -   Body:
-
-    ```json
-    {
-    	"machine_id": "MACHINE_ID_123",
-    	"recipe": {
-    		"volume_ml": 40,
-    		"temperature_c": 92,
-    		"pre_infusion_ms": 300,
-    		"capsule_type": "original",
-    		"capsule_variant": "espresso"
-    	},
-    	"execute_allowed": true,
-    	"meta": { "user_id": 456, "order_id": 789 }
-    }
-    ```
-
-    -   Returns: `{ "status": "created", "command_id": 123 }`
-
--   **GET `/api/commands/check/<machine_id>`** — Device polls for pending commands
-
-    -   Returns:
-        -   `204 No Content` if no pending commands
-        -   `200 OK` with command JSON if pending:
-        ```json
-        {
-          "command_id": 123,
-          "recipe": {...},
-          "execute_allowed": true,
-          "meta": {...},
-          "created_at": "2025-10-22T10:30:00Z"
-        }
-        ```
-
--   **POST `/api/commands/update/<command_id>`** — Device updates command status
-    -   Body:
-    ```json
-    {
-      "status": "brewing" | "complete" | "failed",
-      "meta": {
-        "started_at": "2025-10-22T10:30:05Z",
-        "completed_at": "2025-10-22T10:31:20Z",
-        "actual_volume_ml": 41,
-        "error": "pump_timeout"
-      }
-    }
-    ```
-    -   Returns: `{ "status": "updated", "command_id": 123 }`
-
-#### Database Configuration
-
-The server uses a simple SQLite-based `python_ai/iot_db.py` to record commands for local testing. For production, migrate this to MariaDB/Postgres and add device authentication and rate-limiting.
-
--   **Environment Variable**: `IOT_USE_SQLALCHEMY=1` enables the optional SQLAlchemy wrapper (`iot_db_sqlalchemy.py`)
--   **SQLAlchemy Mode**: Uses connection pooling and supports MariaDB/MySQL via `IOT_DATABASE_URL` or individual `IOT_DB_*` variables
--   **SQLite Mode**: Zero-config embedded database for development
-
-### Device workflow (ESP32 polling)
-
-```
-IoT Command Lifecycle
-═════════════════════════════════════════════════════════════════════
-
-  User/Frontend          Flask Backend       Commands DB       ESP32 Device       Coffee Machine
-       │                      │                   │                  │                   │
-       │                      │                   │                  │                   │
-  ┌────┴────┐                 │                   │                  │                   │
-  │ User    │                 │                   │                  │                   │
-  │ creates │                 │                   │                  │                   │
-  │ recipe  │                 │                   │                  │                   │
-  └────┬────┘                 │                   │                  │                   │
-       │                      │                   │                  │                   │
-       │ POST /api/commands/  │                   │                  │                   │
-       │ create               │                   │                  │                   │
-       ├─────────────────────→│                   │                  │                   │
-       │  {machine_id,recipe} │                   │                  │                   │
-       │                      │                   │                  │                   │
-       │                      │ INSERT command    │                  │                   │
-       │                      │ status='pending'  │                  │                   │
-       │                      ├──────────────────→│                  │                   │
-       │                      │                   │                  │                   │
-       │                      │ command_id: 123   │                  │                   │
-       │                      │←──────────────────┤                  │                   │
-       │                      │                   │                  │                   │
-       │ {status: created,    │                   │                  │                   │
-       │  command_id: 123}    │                   │                  │                   │
-       │←─────────────────────┤                   │                  │                   │
-       │                      │                   │                  │                   │
-       │                      │                   │                  │                   │
-       │                      │                   │ ┌────────────────┴──────────────┐    │
-       │                      │                   │ │ Polling Loop (every 5-10s)    │    │
-       │                      │                   │ └────────────────┬──────────────┘    │
-       │                      │                   │                  │                   │
-       │                      │  GET /api/commands│                  │                   │
-       │                      │  /check/MACHINE123│                  │                   │
-       │                      │←──────────────────┼──────────────────┤                   │
-       │                      │                   │                  │                   │
-       │                      │ Query pending     │                  │                   │
-       │                      ├──────────────────→│                  │                   │
-       │                      │                   │                  │                   │
-       │                      │ Command data      │                  │                   │
-       │                      │←──────────────────┤                  │                   │
-       │                      │                   │                  │                   │
-       │                      │ 200 OK            │                  │                   │
-       │                      │ {cmd_id, recipe}  │                  │                   │
-       │                      ├─────────────────────────────────────→│                   │
-       │                      │                   │                  │                   │
-       │                      │                   │                  │ ┌─────────────┐   │
-       │                      │                   │                  │ │ Pre-flight  │   │
-       │                      │                   │                  │ │ checks OK   │   │
-       │                      │                   │                  │ └─────────────┘   │
-       │                      │                   │                  │                   │
-       │                      │ POST /update/123  │                  │                   │
-       │                      │ {status:brewing}  │                  │                   │
-       │                      │←──────────────────┼──────────────────┤                   │
-       │                      │                   │                  │                   │
-       │                      │ UPDATE status     │                  │                   │
-       │                      ├──────────────────→│                  │                   │
-       │                      │                   │                  │                   │
-       │                      │                   │                  │ Execute sequence  │
-       │                      │                   │                  │ 1. Pick capsule   │
-       │                      │                   │                  ├──────────────────→│
-       │                      │                   │                  │ 2. Insert capsule │
-       │                      │                   │                  ├──────────────────→│
-       │                      │                   │                  │ 3. Close head     │
-       │                      │                   │                  ├──────────────────→│
-       │                      │                   │                  │ 4. Press button   │
-       │                      │                   │                  ├──────────────────→│
-       │                      │                   │                  │                   │
-       │                      │                   │                  │   Brew cycle      │
-       │                      │                   │                  │   complete        │
-       │                      │                   │                  │←──────────────────┤
-       │                      │                   │                  │                   │
-       │                      │ POST /update/123  │                  │                   │
-       │                      │ {status:complete} │                  │                   │
-       │                      │←──────────────────┼──────────────────┤                   │
-       │                      │                   │                  │                   │
-       │                      │ UPDATE status     │                  │                   │
-       │                      ├──────────────────→│                  │                   │
-       │                      │                   │                  │                   │
-       │                      │                   │ ┌────────────────┴──────────────┐    │
-       │                      │                   │ │ Continue polling...           │    │
-       │                      │                   │ │ (204 No Content if empty)     │    │
-       │                      │                   │ └───────────────────────────────┘    │
-```
-
-#### Sequence Steps1. Device polls `GET /api/commands/check/<MACHINE_ID>` and receives a pending command.
-
-2. Accessory verifies `execute_allowed` and validates recipe fields.
-3. Accessory performs pre-flight checks (sensors, capsule magazine non-empty, latched state clear).
-4. Accessory runs an actuator sequence:
-    - pick a capsule from the magazine (servo/stepper sequence)
-    - insert capsule into the machine's insertion point
-    - close/latch the head or press the machine's mechanical lever if required
-    - press the start button (short press using servo/linear actuator)
-5. Accessory posts `status=brewing` to `/api/commands/update/<command_id>` with start metadata (time, sensor snapshots).
-6. Accessory monitors machine (optional) via optical sensor or current draw to detect when brew ends. When complete, post `status=complete` and any brew metrics (duration, detected flow).
-
-This sequence avoids altering the machine's heater or pump and uses the machine's built-in brew cycle.
-
-### Command / recipe schema additions for accessories
-
-To support accessory action sequences the backend command payload may include an `actuator_sequence` or `accessory_instructions` block alongside the recipe. Example:
-
-```json
-{
-	"command_id": 123,
-	"recipe": {
-		"volume_ml": 40,
-		"temperature_c": 92,
-		"pre_infusion_ms": 300,
-		"capsule_type": "original",
-		"capsule_variant": "espresso"
-	},
-	"accessory_instructions": {
-		"capsule_slot": 2,
-		"motor_steps_per_ml": 10,
-		"insert_sequence": [
-			{ "action": "pick", "params": { "slot": 2 } },
-			{ "action": "insert", "params": {} },
-			{ "action": "latch", "params": {} },
-			{ "action": "press_button", "params": { "duration_ms": 200 } }
-		]
-	}
-}
-```
-
-Notes:
-
--   `motor_steps_per_ml` is accessory-specific calibration (if accessory meters water externally). If using the machine's built-in pump, the accessory need only command mechanical operations and monitor the machine.
--   `insert_sequence` is intentionally simple; devices can interpret this into low-level servo/stepper commands.
-
-### ESP32 sketch responsibilities (practical)
-
--   Network: connect to Wi‑Fi and poll backend for commands (or use MQTT if configured)
--   Auth: attach device token or mutual TLS client cert for authenticated API calls
--   Safety checks: ensure accessory is in a safe home position before any motion
--   Execute actuator sequence with sensor feedback and timeouts
--   Post lifecycle updates to the backend (`brewing`, `complete`, `failed`) with `meta` containing sensor traces and photos if present
-
-### Calibration and tuning
-
--   Calibrate actuator travel distances using limit switches. Record positions for pick, insert, latch, and idle.
--   Use current or optical sensors to detect successful capsule seating and brew flow.
--   Add retry logic: if insertion fails (sensor mismatch), retry N times then report failure and set `execute_allowed=false` in the admin UI.
-
-### Example accessory error handling
-
--   If a pick fails: retry up to 2 times, then mark `failed` with `meta: {"error": "pick_failed"}`
--   If a button press fails: attempt a simulated double-press and report results
--   If sensors disagree (e.g., magazine empty but server thought there were capsules): post `failed` and raise an operator alert
-
-### Security / OTA
-
--   Use HTTPS and a per-device API key or mTLS. Store keys securely in device flash (encrypted) or use a provisioning flow.
--   Provide OTA updates to the accessory firmware (PlatformIO or custom OTA over HTTPS). Sign firmware images to prevent tampering.
-
-### Why this approach
-
-This accessory-first approach keeps the cheapest path to automation safe and practical for consumer appliances. It reduces legal and safety risk, simplifies development, and enables broad compatibility across many Original-line machines that share similar mechanical interfaces.
-
----
-
-## Frontend architecture and routing
-
-### Next.js App Router Structure
-
-The frontend uses Next.js 15's App Router with a custom middleware-based routing system. All pages are rendered through a single root route (`/`) with query parameter-based routing.
-
-#### Routing Mechanism (`middleware.ts`)
-
--   **Pattern**: Rewrite requests like `/coffee` → `/?page=coffee`
--   **Supported pages**: home, account, coffee, machines, payment, subscription, shopping-bag, coffee-machine-animation, love-coffee
--   **Benefits**:
-    -   Single root layout component
-    -   Consistent page transitions
-    -   Simplified state management
-    -   Preserved legacy CSS compatibility
-
-#### Page Components
-
-Each page is implemented as a dedicated component in `src/components/<page-name>/`:
-
-```
-src/components/
-├── home/HomePageContent.tsx              # Landing page with hero and features
-├── coffee/CoffeePageContent.tsx          # Coffee catalog with filtering
-├── machines/MachinesPageContent.tsx      # Machine catalog with comparisons
-├── payment/PaymentPageContent.tsx        # Payment flow
-├── subscription/...                      # Subscription management
-├── shopping-bag/...                      # Cart and checkout
-└── account/AccountPageContent.tsx        # User account management
-```
-
-#### Shared Components
-
--   **`LayoutChrome.tsx`**: Page wrapper with navigation, footer, and notifications
--   **`Navbar.tsx`**: Responsive navigation bar with cart indicator
--   **`Cart.tsx`**: Global cart sidebar with add/remove/checkout actions
--   **`NotificationsProvider.tsx`**: Toast notification system for user feedback
-
-#### State Management
-
--   **Cart State**: `useCart` hook (React Context + localStorage persistence)
--   **Form State**: React controlled components with validation
--   **Notifications**: Context provider with queue and auto-dismiss
-
-#### Styling Strategy
-
--   **Global CSS**: `src/styles/globals.css` preserves legacy CSS 1:1 for visual parity
--   **Feature CSS**: Scoped stylesheets per page feature (e.g., `coffee-machine.css`)
--   **Tailwind CSS**: Utility classes for new components and responsive layouts
--   **Approach**: Hybrid CSS (legacy preserved + Tailwind for new features)
-
-#### Data Loading
-
--   **Product Catalogs**:
-    -   Static JSON files (`src/data/coffee.generated.json`, `machines.generated.json`)
-    -   Generated by scripts (`scripts/extractCoffeeData.mjs`)
-    -   Type-safe via TypeScript interfaces
--   **Dynamic Content**:
-    -   API routes under `src/app/api/` for server-side operations
-    -   Next.js Server Actions for form submissions
-    -   Fetch API for Python AI backend calls
-
-#### TypeScript Configuration
-
--   **Strict Mode**: Enabled for type safety
--   **Path Aliases**: `@/*` maps to `src/*`
--   **Target**: ES2017 with DOM types
--   **Custom Types**: `src/types/custom.d.ts` for global declarations
-
-#### Frontend Data Flow
-
-```
-Frontend Data Flow (Next.js + React)
-═══════════════════════════════════════════════════════════════════════
-
-                      User Action
-                     (Click, Input)
-                           │
-                           v
-                  ┌────────────────┐
-                  │ Page Component │
-                  │   (React)      │
-                  └────────┬───────┘
-                           │
-          ┌────────────────┼────────────────┐
-          │                │                │
-          v                v                v
-    ┌──────────┐    ┌──────────┐    ┌──────────────┐
-    │ useCart  │    │ useState │    │ Notifications│
-    │  Hook    │    │ (Local)  │    │   Context    │
-    └────┬─────┘    └──────────┘    └──────────────┘
-         │
-         v
-    ┌──────────────┐
-    │ localStorage │
-    │ Persistence  │
-    │ (cart items) │
-    └──────────────┘
-
-
-    Server Communication:
-    ════════════════════════════════════════════════
-
-                  Page Component
-                        │
-                        v
-              ┌─────────────────┐
-              │ Fetch/API Call  │
-              └────────┬────────┘
-                       │
-              ┌────────┴────────┐
-              │                 │
-              v                 v
-      ┌───────────────┐  ┌──────────────┐
-      │ Next.js API   │  │ Flask API    │
-      │ Route         │  │ (Direct)     │
-      │ /api/...      │  │ localhost:   │
-      │               │  │ 5000         │
-      └───────┬───────┘  └──────┬───────┘
-              │                 │
-              v                 v
-      ┌───────────────┐  ┌──────────────┐
-      │ Server Action │  │ AI Models    │
-      │ (DB/Auth)     │  │ IoT Commands │
-      └───────┬───────┘  └──────┬───────┘
-              │                 │
-              └────────┬────────┘
-                       │
-                       v
-              ┌────────────────┐
-              │ JSON Response  │
-              └────────┬───────┘
-                       │
-                       v
-              ┌────────────────┐
-              │ Update State   │
-              │ Re-render UI   │
-              └────────────────┘
-
-
-    State Management Pattern:
-    ════════════════════════════════════════════════
-
-      Cart State (Global):
-        • React Context API
-        • Persisted to localStorage
-        • Synced across tabs (storage events)
-
-      Form State (Local):
-        • useState hooks
-        • Controlled components
-        • Client-side validation
-
-      Notifications (Global):
-        • Context provider
-        • Queue with auto-dismiss
-        • Toast UI component
-
-
-    Example Flow: Add to Cart
-    ════════════════════════════════════════════════
-
-      User clicks "Add to Cart"
-              │
-              v
-      Component calls addToCart(item)
-              │
-              v
-      useCart hook updates context state
-              │
-              v
-      ┌───────┴────────┐
-      │                │
-      v                v
-    Update           Save to
-    UI state         localStorage
-      │                │
-      └───────┬────────┘
-              v
-      Show toast notification
-              │
-              v
-      Update cart badge counter
-```
-
-## Development: running locally and testing
-
-This section consolidates practical development steps for the frontend, Python AI & IoT backend, and ESP32 accessory.
-
-1. Frontend (Next.js)
-
-```powershell
+```bash
+git clone https://github.com/DarkShadow1107/filspresso_next.git
+cd filspresso_next
 npm install
+```
+
+### 3) Build and start the full container stack
+
+```bash
+docker compose --profile build build
+docker compose up --build -d
+```
+
+### 4) Run the Next.js frontend
+
+```bash
 npm run dev
 ```
 
-2. Python AI & IoT server (venv recommended)
+### 5) Open the app
 
-```powershell
-# from repo root
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r python_ai/requirements.txt
-python python_ai/app.py
+- Frontend: http://localhost:3000
+- Express API health: http://localhost:4000/health
+- Python AI health: http://localhost:5000/api/health
+- Java Invoice health: http://localhost:8082/api/invoices/health
+- Go Ops health: http://localhost:8083/health
+- Kotlin Subscriptions health: http://localhost:8084/api/subscriptions/health
+
+### Quick verification checklist
+
+- `docker compose ps` shows `postgres`, `backend`, `ai`, `invoice_java`, `go_ops`, and `kotlin_subscriptions` as running
+- `GET /health` on port 4000 returns status ok
+- `GET /api/health` on port 5000 returns status ok
+- `GET /api/invoices/health` on port 8082 returns status ok
+- `GET /health` on port 8083 returns status ok
+- `GET /api/subscriptions/health` on port 8084 returns status ok
+- Home page loads at port 3000 and can navigate between pages
+
+---
+
+## Table Of Contents
+
+- [0. Architecture Decision Snapshot](#0-architecture-decision-snapshot)
+- [0.1 Current Revision Change Log (Beta-3)](#01-current-revision-change-log-beta-3)
+- [1. Product Overview](#1-product-overview)
+- [2. Architecture At A Glance](#2-architecture-at-a-glance)
+- [2.1 Full App UML (Component, Deployment, Domain)](#21-full-app-uml-component-deployment-domain)
+- [2.2 Updated UML Sources And Additional Diagrams](#22-updated-uml-sources-and-additional-diagrams)
+- [3. Technology Stack](#3-technology-stack)
+- [3.1 Technology Alternatives And Performance Snapshot](#31-technology-alternatives-and-performance-snapshot)
+- [4. Monorepo Structure](#4-monorepo-structure)
+- [5. Runtime Topology And Ports](#5-runtime-topology-and-ports)
+- [6. Environment Variables](#6-environment-variables)
+- [7. Local Development Workflows](#7-local-development-workflows)
+- [8. Docker Involvement (Deep Dive)](#8-docker-involvement-deep-dive)
+- [9. Frontend Architecture](#9-frontend-architecture)
+- [10. Backend Architecture (Express)](#10-backend-architecture-express)
+- [11. AI Service Architecture (Python)](#11-ai-service-architecture-python)
+- [12. API Surface Reference](#12-api-surface-reference)
+- [13. Database Model And Data Lifecycle](#13-database-model-and-data-lifecycle)
+- [14. Stock Integrity, Reservation, And Checkout Safety](#14-stock-integrity-reservation-and-checkout-safety)
+- [15. Security Model](#15-security-model)
+- [15.1 Security Control Comparison](#151-security-control-comparison)
+- [16. Observability, Health, And Incidents](#16-observability-health-and-incidents)
+- [17. Page Map And Route Behavior](#17-page-map-and-route-behavior)
+- [18. Screenshots (All Pages)](#18-screenshots-all-pages)
+- [19. Testing, Validation, And Quality Gates](#19-testing-validation-and-quality-gates)
+- [20. Deployment Guide](#20-deployment-guide)
+- [21. Troubleshooting Playbook](#21-troubleshooting-playbook)
+- [22. Contributor Guidelines](#22-contributor-guidelines)
+- [23. Operational Runbook](#23-operational-runbook)
+- [24. Known Gaps And Suggested Next Improvements](#24-known-gaps-and-suggested-next-improvements)
+- [25. Image Assets And Media Pipeline](#25-image-assets-and-media-pipeline)
+- [26. Why These New Languages And Where](#26-why-these-new-languages-and-where)
+- [27. Why PostgreSQL Over MySQL Or MariaDB Here](#27-why-postgresql-over-mysql-or-mariadb-here)
+- [Appendix A. Command Reference](#appendix-a-command-reference)
+- [Appendix B. Important Files](#appendix-b-important-files)
+- [Appendix C. Source File Index (Snapshot)](#appendix-c-source-file-index-snapshot)
+
+---
+
+## 1. Product Overview
+
+Filspresso Next delivers a unified product experience around coffee discovery and purchase:
+
+- Commerce experiences for coffee capsules, machines, favorites, cart, payments, and account
+- Multi-service backend architecture with explicit health and incident tracking
+- AI assistant flows for text and image-assisted coffee guidance
+- IoT command pipeline for machine command scheduling and status feedback
+- Docker-first environment for local onboarding and reproducible runtime
+
+### Primary goals
+
+- Reliable shopping and order flows
+- Correct stock behavior under concurrent usage
+- Modern frontend with App Router and route rewrites
+- High developer velocity with clear service boundaries
+
+---
+
+## 2. Architecture At A Glance
+
+### System context diagram
+
+![System Context Diagram](docs/uml/system-context-diagram.svg)
+
+### Request routing and service interactions
+
+![Request Routing And Service Interactions](docs/uml/request-routing-sequence.svg)
+
+### Stock-safe checkout flow
+
+![Stock-safe Checkout Flow](docs/uml/stock-safe-checkout-flow.svg)
+
+### 2.1 Full App UML (Component, Deployment, Domain)
+
+The following UML set covers the full platform from code modules to runtime containers and core data entities.
+
+#### UML component diagram
+
+![Full App UML Component Diagram](docs/uml/full-app-component-diagram.svg)
+
+#### UML deployment diagram
+
+![Full App UML Deployment Diagram](docs/uml/full-app-deployment-diagram.svg)
+
+#### UML domain model (high-level)
+
+![Full App UML Domain Model](docs/uml/full-app-domain-model.svg)
+
+#### Coffee stock-read path (latency-sensitive)
+
+![Coffee Stock Read Path](docs/uml/coffee-stock-read-path.svg)
+
+### 2.2 Updated UML Sources And Additional Diagrams
+
+Additional architecture diagrams are exported as SVG files in `docs/uml/` for direct rendering in README and GitHub.
+
+#### Invoice rendering and signing flow (new)
+
+![Invoice Rendering Sequence](docs/uml/invoice-rendering-sequence.svg)
+
+#### Security trust-boundary map (new)
+
+![Security Trust Boundary](docs/uml/security-trust-boundary.svg)
+
+---
+
+## 3. Technology Stack
+
+### Frontend
+
+- Next.js 16 (App Router, standalone output)
+- React 19
+- TypeScript 5
+- Tailwind CSS 4
+- Motion library for UI animation
+- ESLint 9 with next config
+
+### Backend (Commerce API)
+
+- Node.js 20+ runtime
+- Express 4.18
+- PostgreSQL access via pg
+- Security and middleware: helmet, cors, jsonwebtoken, bcrypt, express-rate-limit, multer
+
+### Polyglot service layer
+
+- Java 17 + Spring Boot (invoice and PDF generation)
+- Kotlin 1.9 + Spring Boot (subscription quote and reconciliation engine)
+- Go 1.22 (operations and event ingestion service)
+- C++ compiled to WebAssembly via Emscripten (client-side preprocessing and scoring)
+
+### Service ownership boundary (important)
+
+- Express owns API gateway/orchestration, auth/account/cart/order orchestration, and transactional stock writes.
+- Java owns invoice PDF rendering only.
+- Kotlin owns subscription quote and reconciliation computations.
+- Go owns operational event ingestion and lightweight ops endpoints.
+- Wasm owns browser-side numeric acceleration (preprocess, QR scoring, vector math), not server orchestration.
+
+### AI backend
+
+- Python 3.10+
+- Flask 3 with Flask-CORS
+- sentence-transformers, transformers, faiss-cpu
+- torch + torchvision
+- Molecule pipeline support: rdkit, py3Dmol, chembl-webresource-client, MolScribe dependency set
+
+### Models used in this app
+
+| Model                                     | Family / package      | Where used                              | Purpose                                                          |
+| ----------------------------------------- | --------------------- | --------------------------------------- | ---------------------------------------------------------------- |
+| all-MiniLM-L6-v2                          | sentence-transformers | `models/tanka.py` natural_language mode | Embedding generation for semantic retrieval over `coffee_facts`  |
+| fine_tuned_minilm (optional local path)   | sentence-transformers | `models/fine_tuned_minilm` if present   | Preferred domain-tuned embedding model override                  |
+| CLIP ViT-B/32                             | openai/CLIP           | `models/tanka.py` `describe_image()`    | Image understanding/classification for chat image uploads        |
+| MolScribe (`swin_base_char_aux_200k.pth`) | molscribe             | `models/tanka.py` chemistry mode        | Molecule structure recognition from images and SMILES extraction |
+
+Model behavior is lazy-loaded at runtime. This keeps startup time lower and only loads models when endpoints actually require them.
+
+### Data and infra
+
+- PostgreSQL 16
+- pgvector and rdkit enabled by DB image setup
+- Docker Compose orchestration with health checks and named volumes
+
+### 3.1 Technology Alternatives And Performance Snapshot
+
+The table below captures practical tradeoffs against realistic alternatives considered during implementation.
+
+| Concern                    | Chosen stack                           | Alternative considered          | Why chosen in this codebase                                                             | Observed/expected impact                                       |
+| -------------------------- | -------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Invoice rendering fidelity | Java 17 + OpenPDF/Spring               | Node PDFKit/Puppeteer templates | JVM PDF layout behavior is stable and deterministic for invoice stamping and typography | Fewer visual regressions in generated PDFs across environments |
+| Business-rule safety       | Kotlin service for subscription engine | Express-only rules              | Kotlin null-safety and concise data classes reduce branch-heavy reconciliation bugs     | Lower rule-maintenance risk as plan matrix grows               |
+| Event ingest efficiency    | Go ops service                         | Express worker endpoints        | Go startup and memory profile is favorable for lightweight ingest endpoints             | Better steady-state memory for always-on ops path              |
+| Browser numeric loops      | C++ compiled to Wasm                   | pure TypeScript loops           | Deterministic numeric kernels and faster tight loops for image/vector operations        | Lower CPU time in client-side heavy computation paths          |
+| AI retrieval storage       | PostgreSQL + pgvector                  | separate vector DB              | Keeps transactional + vector data in one consistency boundary                           | Fewer sync jobs and simpler operational topology               |
+
+#### Performance benchmark notes
+
+- Benchmarks are workload-specific and should be repeated in your deployment target.
+- The current architecture optimizes for deterministic output and operational simplicity over synthetic peak throughput.
+- Recommendation: keep a benchmark harness per service (invoice render latency, subscription quote latency, event ingest p95, Wasm compute duration) and track trends release-over-release.
+
+---
+
+## 4. Monorepo Structure
+
+```text
+.
+|- .vscode/
+|  |- settings.json
+|- docs/
+|  |- SCREENSHOTS.md
+|  |- screenshots/
+|  |- uml/
+|- express-api/
+|  |- .env
+|  |- package.json
+|  |- server.js
+|  |- data/
+|  |  |- extensions.sql
+|  |  |- schema.sql
+|  |- db/
+|  |  |- connection.js
+|  |- middleware/
+|  |  |- auth.js
+|  |- routes/
+|  |  |- accounts.js
+|  |  |- admin.js
+|  |  |- auth.js
+|  |  |- cards.js
+|  |  |- cart.js
+|  |  |- chat.js
+|  |  |- favorites.js
+|  |  |- kafelot.js
+|  |  |- orders.js
+|  |  |- products.js
+|  |  |- repairs.js
+|  |  |- subscriptions.js
+|  |  |- weather.js
+|  |- scripts/
+|  |  |- check_db_status.js
+|  |  |- debug_account_dates.js
+|  |  |- diagnostic_columns.js
+|  |  |- fix_schema.js
+|  |  |- run_migration.js
+|  |  |- setup_all_tables.js
+|  |  |- setup_favorites_table.js
+|  |  |- setup_full_db.js
+|  |  |- test_login.js
+|  |  |- update_admin_creds.js
+|  |- utils/
+|     |- dockerManager.js
+|     |- encryption.js
+|     |- ensureAppSchema.js
+|- logs/
+|- models/
+|  |- __init__.py
+|  |- requirements.txt
+|  |- tanka.py
+|  |- data/
+|  |  |- capsule_volumes.json
+|  |  |- chembl-molecules.json
+|  |  |- coffee_chunks.json
+|  |- model/
+|     |- swin_base_char_aux_200k.pth
+|- public/
+|  |- data/
+|  |  |- chembl-molecules.json
+|  |- fonts/
+|  |- images/
+|  |  |- Capsules/
+|  |  |  |- Original/
+|  |  |  |- Vertuo/
+|  |  |- Machines/
+|  |  |  |- Original/
+|  |  |  |- Vertuo/
+|  |  |- Payment/
+|  |  |- icons/
+|  |  |- svg/
+|- scripts/
+|  |- addCoffeeNotes.mjs
+|  |- extractCoffeeData.mjs
+|  |- extractMachinesData.mjs
+|  |- remove_render_graph.py
+|  |- replace_sections.py
+|  |- start_all.bat
+|  |- esp32/
+|     |- esp32_coffeemachine.ino
+|- src/
+|  |- app/
+|  |  |- globals.css
+|  |  |- layout.tsx
+|  |  |- page.tsx
+|  |  |- admin/page.tsx
+|  |  |- favorites/page.tsx
+|  |  |- kafelot-privacy/page.tsx
+|  |  |- manage-subscription/
+|  |  |  |- layout.tsx
+|  |  |  |- page.tsx
+|  |  |  |- privacy-policy/page.tsx
+|  |  |- payment/
+|  |  |  |- layout.tsx
+|  |  |  |- page.tsx
+|  |  |- sales-refunds/page.tsx
+|  |  |- services/page.tsx
+|  |  |- terms-and-conditions/page.tsx
+|  |  |- api/
+|  |     |- chat/route.ts
+|  |     |- chat/save/route.ts
+|  |     |- model/route.ts
+|  |     |- pages/
+|  |     |- python-chat/route.ts
+|  |     |- python-health/route.ts
+|  |     |- services-health/route.ts
+|  |     |- subscribe/route.ts
+|  |- components/
+|  |  |- account/
+|  |  |- coffee/
+|  |  |- coffee-machine-animation/
+|  |  |- favorites/
+|  |  |- home/
+|  |  |- kafelot/
+|  |  |- legal/
+|  |  |- love-coffee/
+|  |  |- machines/
+|  |  |- payment/
+|  |  |- services/
+|  |  |- shopping-bag/
+|  |  |- subscription/
+|  |  |- AccountIconGenerator.tsx
+|  |  |- Cart.tsx
+|  |  |- CoffeeRecommender.tsx
+|  |  |- FavoritesProvider.tsx
+|  |  |- LayoutChrome.tsx
+|  |  |- MoleculeVisualizer.tsx
+|  |  |- Navbar.tsx
+|  |  |- NotificationsProvider.tsx
+|  |  |- PaymentForm.tsx
+|  |  |- ScrollToTopButton.tsx
+|  |  |- SubscriptionForm.tsx
+|  |  |- WeatherWidget.tsx
+|  |- data/
+|  |  |- chat_history.json
+|  |  |- coffee.generated.json
+|  |  |- coffee.ts
+|  |  |- machines.generated.json
+|  |  |- machines.ts
+|  |- hooks/
+|  |  |- useCart.ts
+|  |  |- useCoffeeCollections.ts
+|  |  |- useMachineCollections.ts
+|  |- icons/
+|  |- lib/
+|  |- styles/
+|  |- types/
+|- .dockerignore
+|- .env
+|- .gitignore
+|- app.py
+|- docker-compose.yml
+|- Dockerfile.ai
+|- Dockerfile.db
+|- Dockerfile.express
+|- eslint.config.mjs
+|- filspresso_next.code-workspace
+|- FilspressoNext.session.sql
+|- global.d.ts
+|- iot_db.py
+|- LICENSE
+|- next-env.d.ts
+|- next.config.ts
+|- package.json
+|- postcss.config.mjs
+|- proxy.ts
+|- README.md
+|- requirements.txt
+|- seed_vectors.py
+|- tailwind.config.cjs
+|- train.py
+|- tsconfig.json
 ```
 
 Notes:
 
--   `python_ai/requirements.txt` should include core dependencies: Flask, PyTorch, SQLAlchemy (optional), pymysql (optional), and testing tools. Adjust for your environment (GPU vs CPU).
--   The Flask microservice listens on port 5000 by default. Use `IOT_USE_SQLALCHEMY=1` to enable the SQLAlchemy DB wrapper in `python_ai/iot_db_sqlalchemy.py`.
+- This structure intentionally excludes generated and dependency-heavy folders such as `.next`, `node_modules`, and virtual environments.
+- The source tree under `src/icons` is large (hundreds of icon files) and is represented as a directory node to keep this README maintainable.
 
-3. ESP32 accessory (development)
+### Structure updates in this revision
 
--   Open `scripts/esp32/esp32_coffeemachine.ino` in Arduino IDE or PlatformIO.
--   Configure Wi‑Fi credentials, server URL, and device token (or set up mTLS if available).
--   Compile and flash to the ESP32.
-
-4. Test a full flow (example)
-
-Create a command using curl (PowerShell example):
-
-```powershell
-curl -X POST http://localhost:5000/api/commands/create -H "Content-Type: application/json" -d '{"machine_id":"MACHINE_ID_123","recipe":{"volume_ml":40,"temperature_c":92,"pre_infusion_ms":300,"capsule_type":"original","capsule_variant":"espresso"}}'
-```
-
--   The ESP32 accessory will poll `GET /api/commands/check/<MACHINE_ID>` and execute the command according to the accessory instructions.
--   Monitor the accessory serial console for action logs and POSTs to `/api/commands/update/<command_id>`.
-
-### Express API: disabling rate limiting during local development
-
-The Express API (in `express-api/server.js`) has a global `express-rate-limit` middleware that is applied to `/api/*` endpoints by default. In local development you may hit that limit during heavy testing (hot reloads, repeated login attempts, automated scripts) and see `429 - Too Many Requests`.
-
-Quick / development-friendly options:
-
--   Node environment check: when `NODE_ENV` is set to `development` the server will skip applying the global rate limiter so you won't hit 429s while testing locally.
--   Explicit disable flag: you can also set `DISABLE_RATE_LIMIT_FOR_DEV=true` to force the server to skip rate limiting regardless of `NODE_ENV`.
-
-Example (set in PowerShell):
-
-```powershell
-# skip rate limiting (local dev)
-$env:DISABLE_RATE_LIMIT_FOR_DEV = 'true'
-npm run start:express
-```
-
-Important: this setting is intended for local development and debugging only — do not use it in production.
-
-Recommended production configuration:
-
--   Use route-specific rules — keep a global limiter but also apply stricter limits to sensitive endpoints such as `/api/auth/login` and `/api/auth/register` (e.g., 5-10 attempts per 15 minutes). This balances protection against brute-force attacks and usability for other API routes.
--   Consider using a persistent store for rate-limiting (Redis) if you run multiple API instances behind a load balancer.
-
-See `express-api/server.js` for the exact environment variable and example implementation.
+- Added `java-invoice-service/` for Java PDF invoice generation.
+- Added `kotlin-subscription-service/` for Kotlin quote/reconciliation logic.
+- Added `go-ops-service/` for operational events and lightweight service tasks.
+- Added `cpp-wasm/` plus `public/wasm/` outputs for C++ compiled browser helpers.
+- Added `src/lib/wasm/filspressoMath.ts` for typed Wasm loading and helper calls.
+- Added new Express route modules for inter-service proxying: `operations.js` and `subscriptions_engine.js`.
+- Added `java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java` and signature resource assets for invoice stamp rendering.
+- Added legal route files for `/terms-and-conditions` and `/manage-subscription/privacy-policy` while deprecating legacy legal route paths.
+- Added UML SVG exports under `docs/uml/*.svg` so architecture diagrams render directly in README and GitHub.
 
 ---
 
-## Security Status
+## 5. Runtime Topology And Ports
 
-**Current Implementation (Educational/Demo Mode):**
+| Service              | Port | Responsibility                                             | Health Endpoint              |
+| -------------------- | ---- | ---------------------------------------------------------- | ---------------------------- |
+| Next.js              | 3000 | UI rendering, route handlers, proxy logic                  | n/a (application page load)  |
+| Express API          | 4000 | Commerce/auth/cart/orders/products/admin                   | /health and /health/services |
+| Python AI            | 5000 | AI chat/semantic search/IoT endpoints                      | /api/health                  |
+| Java Invoice         | 8082 | PDF invoice generation service                             | /api/invoices/health         |
+| Go Ops               | 8083 | Event ingestion/webhooks/operational processing            | /health                      |
+| Kotlin Subscriptions | 8084 | Subscription pricing and reconciliation engine             | /api/subscriptions/health    |
+| PostgreSQL           | 5432 | Transactional + vector/chemistry data                      | pg_isready health check      |
+| C++ Wasm Builder     | n/a  | On-demand compilation of browser artifacts to /public/wasm | n/a (on-demand run)          |
 
--   **Passwords**: Stored in plain text in `src/data/accounts.json`.
--   **Credit Cards**: Stored in plain text in `src/data/user_cards.json`.
--   **Orders**: Stored in `src/data/orders.json`.
--   **Encryption**: None. `bcrypt` has been removed.
--   **Authentication**: Simple plain-text matching.
+### Internal container addressing
 
-**Production Recommendations (If deploying for real use):**
+Inside Docker network:
 
--   Re-enable hashing (e.g., bcrypt) for passwords.
--   Use a secure database (Postgres/MariaDB) instead of JSON files.
--   Tokenize credit card information (PCI-DSS compliance) - never store raw card numbers.
--   Implement proper JWT or Session-based auth.
+- backend reaches db at host `postgres`
+- backend reaches AI at `http://ai:5000`
+- backend reaches Java invoice at `http://invoice-java:8082`
+- backend reaches Go ops at `http://go_ops:8083`
+- backend reaches Kotlin subscriptions at `http://kotlin-subscriptions:8084`
+- AI reaches db at host `postgres`
 
----
+Outside Docker (host machine):
 
-## Troubleshooting & debugging
-
--   If devices report repeated `failed`, inspect `meta` in DB and drop `execute_allowed` until a human operator verifies.
--   If commands queue, verify device polling interval and network stability.
--   For model inference issues, review `python_ai/inference.py` and the tokenizer.
-
----
-
-## Appendices
-
-### Capsule volumes
-
-See `python_ai/data/capsule_volumes.json` — includes Original and Vertuo canonical volumes in ml. The backend uses these as guidance. Original-only machines will ignore Vertuo recipes.
-
-### Files of interest
-
--   `python_ai/models.py` — model architecture and factories
--   `python_ai/trainer.py` — training loop and utilities
--   `python_ai/app.py` — AI & IoT endpoints
--   `python_ai/iot_db.py` — command DB helper (SQLite)
--   `python_ai/training_data/` — training corpora (tanka, villanelle, ode)
--   `scripts/esp32/` — device code and device README
-
-### Additional README sources merged
-
-This `README_FULL.md` now incorporates and consolidates information from:
-
--   `README.md` (project overview, Next.js quick start)
--   `scripts/esp32/README.md` (ESP32 device integration notes and quick flow)
--   `python_ai/README_IoT.md` (IoT quick reference: endpoints, recipe schema, calibration and production notes)
-
-If you find content missing or want a separate, shorter quick-start README for each subproject (frontend, python_ai, ESP32), tell me and I will split the merged sections into focused README files while keeping `README_FULL.md` as the canonical long-form documentation.
+- frontend usually calls Express via `http://localhost:4000`
+- Next route handlers proxy to AI via configured `PYTHON_AI_HOST`
 
 ---
 
-## Diagrams Index
+## 6. Environment Variables
 
-This README includes comprehensive visual documentation using **ASCII box-drawing art** for maximum compatibility:
+### Frontend / Next
 
-### Architecture Diagrams
+| Variable                       | Typical Value         | Purpose                                      |
+| ------------------------------ | --------------------- | -------------------------------------------- |
+| NEXT_PUBLIC_API_URL            | http://localhost:4000 | Base URL used by frontend calls              |
+| PYTHON_AI_HOST                 | http://localhost:5000 | Next handler upstream for AI proxy           |
+| NEXT_PUBLIC_AI_URL             | optional              | Alternate client AI URL if used              |
+| SERVICE_METRICS_STRICT_DB_ONLY | false                 | Controls strict mode in service health route |
 
-1. **High-Level System Architecture** — 4-layer system showing frontend (Next.js/React), backend (Flask/PyTorch), data tier (SQLite/MySQL), and IoT layer (ESP32)
-2. **Production Deployment Architecture** — 4-tier production infrastructure: CDN/WAF → Load Balancer → App Tier (3 nodes) → Data Tier with replication
+### Express
 
-### Process Flow Diagrams
+| Variable                          | Typical Value                    | Purpose                              |
+| --------------------------------- | -------------------------------- | ------------------------------------ |
+| PORT                              | 4000                             | Express listening port               |
+| DB_HOST                           | postgres or localhost            | PostgreSQL host                      |
+| DB_PORT                           | 5432                             | PostgreSQL port                      |
+| DB_NAME                           | filspresso                       | DB name                              |
+| DB_USER                           | filspresso_user                  | DB user                              |
+| DB_PASSWORD                       | secret                           | DB password                          |
+| JWT_SECRET                        | secret                           | JWT signing                          |
+| ENCRYPTION_KEY                    | secret                           | encryption helper key                |
+| CORS_ORIGIN                       | http://localhost:3000            | Allowed origin list                  |
+| PYTHON_AI_HOST                    | http://ai:5000                   | AI health and integration host       |
+| INVOICE_SERVICE_URL               | http://invoice-java:8082         | Java invoice service base URL        |
+| GO_OPS_URL                        | http://go_ops:8083               | Go operational service base URL      |
+| GO_OPS_API_KEY                    | filspresso-ops-key               | Go ops ingest authentication key     |
+| KOTLIN_SUBSCRIPTIONS_URL          | http://kotlin-subscriptions:8084 | Kotlin subscription service base URL |
+| DISABLE_RATE_LIMIT_FOR_DEV        | true or false                    | dev toggle                           |
+| DISABLE_RATE_LIMIT                | true or false                    | explicit global rate-limiter toggle  |
+| CART_RESERVATION_MINUTES          | 20                               | cart reservation contention window   |
+| CART_STOCK_BUFFER_UNITS           | 0                                | optional safety buffer               |
+| SERVICE_INCIDENT_RETENTION_DAYS   | 180                              | incident retention window            |
+| SERVICE_INCIDENT_RETENTION_JOB_MS | 21600000                         | cleanup job interval                 |
 
-3. **IoT Device Workflow Sequence** — Detailed sequence: User → API → Database → ESP32 → Coffee Machine (full lifecycle with state updates)
-4. **ESP32 Accessory State Machine** — 7-state machine (Idle → Picking → Inserting → Brewing → Ejecting → Error → Reset) with 15+ transitions
-5. **End-to-End User Journey** — 5-phase journey: Discovery → AI Interaction → Purchase → IoT Brewing → Enjoyment (6-12 minute timeline)
+### Python AI
 
-### AI/ML Diagrams
-
-6. **Model Architecture Diagram** — Enhanced Transformer with Input Embedding → 6/12/16 Layers (RoPE + MQA + SwiGLU + Coffee Attention + MoE) → Output Head
-7. **Multi-Query Attention with RoPE** — Q/K/V processing flow: Linear projections → RoPE → Grouped heads → Softmax → Output
-8. **Training Pipeline Flow** — 3-phase pipeline: Data Preparation → Training Loop (forward/backward/optimize) → Validation/Checkpointing
-9. **Model Comparison Chart** — ASCII table comparing Tanka (28.5M), Villanelle (64.2M), Ode (81.8M) specifications
-
-### Frontend Diagrams
-
-10. **Frontend Data Flow** — React patterns: User Actions → State Management (Zustand cart store) → API Communication → Backend
-11. **Next.js Routing Architecture** — (Described in text; middleware-based routing with App Router)
-
-### Hardware Diagrams
-
-12. **ESP32 Hardware Architecture** — Complete wiring: 5V/3.3V Power Tree → ESP32 → External Controllers → Actuators/Sensors → Coffee Machine
-
-### Database Diagrams
-
-13. **Database Schema (ER Diagram)** — Commands table (10 fields), indexes, and relationships with users/devices/order_items tables
-
----
-
-**Format Notes:**  
-All diagrams use ASCII box-drawing characters (`┌─┐│└┘├┤┬┴┼`) and render perfectly in:
-
--   Any text editor or terminal
--   GitHub/GitLab markdown viewers
--   VS Code preview
--   Documentation tools (Sphinx, MkDocs, etc.)
-
-This format matches the style of `python_ai/ARCHITECTURE_DIAGRAMS.md` and ensures compatibility across all platforms without requiring special rendering engines.
-
----
-
-If you'd like, I can also:
-
--   Add device authentication headers and update the ESP32 sketch to include an API key
--   Replace polling with MQTT sample and sample broker config
--   Implement MariaDB-backed `iot_db` and a simple admin UI for command management
-
-Tell me which of these you'd like next and I'll implement it.
+| Variable       | Typical Value         | Purpose         |
+| -------------- | --------------------- | --------------- |
+| PYTHON_AI_PORT | 5000                  | Flask bind port |
+| DB_HOST        | postgres or localhost | PostgreSQL host |
+| DB_PORT        | 5432                  | PostgreSQL port |
+| DB_NAME        | filspresso            | DB name         |
+| DB_USER        | filspresso_user       | DB user         |
+| DB_PASSWORD    | secret                | DB password     |
 
 ---
 
-## Database Schema
+## 7. Local Development Workflows
 
-### Commands Table Structure
+### Workflow A: Docker for backend services + local frontend
 
-```
-Database Schema (MariaDB / MySQL / SQLite)
-═══════════════════════════════════════════════════════════════════════
+1. Run `docker compose up --build -d`
+2. Run `npm install` and `npm run dev` in repository root
+3. Access app at port 3000
 
-┌────────────────────────────────────────────────────────────────────┐
-│                       COMMANDS TABLE                               │
-├──────────────────┬──────────────┬─────────────┬────────────────────┤
-│ Field            │ Type         │ Constraints │ Description        │
-├──────────────────┼──────────────┼─────────────┼────────────────────┤
-│ command_id       │ INT          │ PK, AUTO    │ Unique ID          │
-│ machine_id       │ VARCHAR(255) │ NOT NULL    │ Device identifier  │
-│ recipe           │ JSON         │ NOT NULL    │ Brew recipe data   │
-│ execute_allowed  │ BOOLEAN      │ DEFAULT 1   │ Safety flag        │
-│ status           │ VARCHAR(50)  │ NOT NULL    │ Command state      │
-│ meta             │ JSON         │ NULL        │ Additional data    │
-│ created_at       │ DATETIME     │ NOT NULL    │ Creation timestamp │
-│ updated_at       │ DATETIME     │ ON UPDATE   │ Last update time   │
-└──────────────────┴──────────────┴─────────────┴────────────────────┘
+### Workflow B: Fully local (no Docker for app services)
 
-Status Values:
-  • 'pending'   - Command created, waiting for device
-  • 'brewing'   - Device executing brew cycle
-  • 'complete'  - Brew finished successfully
-  • 'failed'    - Error occurred during execution
+1. Ensure PostgreSQL is locally available and configured
+2. Start Express from express-api directory: `npm install && npm run dev`
+3. Create Python virtual environment and run app.py
+4. Start Next dev server from root
 
-Recipe JSON Structure:
-  {
-    "volume_ml": 40,
-    "temperature_c": 92,
-    "pre_infusion_ms": 300,
-    "capsule_type": "original",
-    "capsule_variant": "espresso"
-  }
+### Workflow C: Windows helper script
 
-Meta JSON Structure:
-  {
-    "user_id": 456,
-    "order_id": 789,
-    "started_at": "2025-10-22T10:30:05Z",
-    "completed_at": "2025-10-22T10:31:20Z",
-    "actual_volume_ml": 41,
-    "error": "pump_timeout"
-  }
+`scripts/start_all.bat` does:
 
+- compose up detached
+- starts frontend dev server
 
-┌────────────────────────────────────────────────────────────────────┐
-│                   COMMAND_HISTORY TABLE (Optional)                 │
-├──────────────────┬──────────────┬─────────────┬────────────────────┤
-│ Field            │ Type         │ Constraints │ Description        │
-├──────────────────┼──────────────┼─────────────┼────────────────────┤
-│ history_id       │ INT          │ PK, AUTO    │ History record ID  │
-│ command_id       │ INT          │ FK, INDEX   │ Ref to COMMANDS    │
-│ old_status       │ VARCHAR(50)  │ NULL        │ Previous status    │
-│ new_status       │ VARCHAR(50)  │ NOT NULL    │ New status         │
-│ meta_snapshot    │ JSON         │ NULL        │ Meta at change     │
-│ changed_at       │ DATETIME     │ NOT NULL    │ Change timestamp   │
-└──────────────────┴──────────────┴─────────────┴────────────────────┘
+---
 
+## 8. Docker Involvement (Deep Dive)
 
-Relationships:
-═══════════════════════════════════════════════════════════════════════
+Docker is not an optional side note in this project. It is part of how the architecture is intended to run locally and in production-like environments.
 
-  COMMANDS (1) ────────────────────→ (Many) COMMAND_HISTORY
-       │                                      │
-       │ command_id                           │ command_id (FK)
-       │                                      │
-       └──────────────────────────────────────┘
-               Tracks status changes
+### Compose services
 
+- postgres
+    - Built from Dockerfile.db
+    - Mounts schema/extensions SQL for initialization
+    - Exposes port 5432
+    - Health check via pg_isready
 
-Index Recommendations:
-═══════════════════════════════════════════════════════════════════════
+- backend
+    - Built from Dockerfile.express
+    - Depends on healthy postgres
+    - Exposes port 4000
+    - Mounts public images volume for admin media workflows
+    - Health check via /health
 
-  PRIMARY:
-    • commands.command_id (auto)
-    • command_history.history_id (auto)
+- ai
+    - Built from Dockerfile.ai
+    - Depends on healthy postgres
+    - Exposes port 5000
+    - Uses persistent caches for HuggingFace, CLIP, and MolScribe model artifacts
+    - Health check via /api/health
 
-  COMPOSITE INDEX (for polling):
-    • CREATE INDEX idx_machine_status
-      ON commands(machine_id, status, created_at);
+- invoice_java
+    - Built from java-invoice-service/Dockerfile
+    - Exposes port 8082
+    - Generates downloadable invoice PDFs for order history flows
+    - Health check via /api/invoices/health
 
-  STATUS INDEX (for analytics):
-    • CREATE INDEX idx_status_created
-      ON commands(status, created_at);
+- go_ops
+    - Built from go-ops-service/Dockerfile
+    - Exposes port 8083
+    - Handles event ingestion and operational telemetry forwarding
+    - Health check via /health
 
-  HISTORY FK INDEX:
-    • CREATE INDEX idx_history_command
-      ON command_history(command_id);
-```
+- kotlin_subscriptions
+    - Built from kotlin-subscription-service/Dockerfile
+    - Exposes port 8084
+    - Handles pricing quotes and subscription reconciliation rules
+    - Health check via /api/subscriptions/health
 
-#### Commands Table Fields| Field | Type | Description |
+- wasm_builder
+    - Built from cpp-wasm/Dockerfile
+    - Build profile service (on-demand)
+    - Compiles C++ helpers to public/wasm/filspresso_math.js and public/wasm/filspresso_math.wasm
 
-| ----------------- | ------------ | ----------------------------------- |
-| `command_id` | INT | Primary key, auto-increment |
-| `machine_id` | VARCHAR(255) | Unique machine identifier |
-| `recipe` | JSON | Recipe payload (volume, temp, etc.) |
-| `execute_allowed` | BOOLEAN | Safety flag for execution |
-| `status` | VARCHAR(50) | pending, brewing, complete, failed |
-| `meta` | JSON | Additional metadata, logs, errors |
-| `created_at` | DATETIME | Command creation timestamp |
-| `updated_at` | DATETIME | Last status update timestamp |
+### Compose dependency graph
 
-#### Recommended Indexes
+![Compose Dependency Graph](docs/uml/compose-dependency-graph.svg)
 
-```sql
--- For fast polling queries
-CREATE INDEX idx_machine_status ON commands(machine_id, status, created_at);
+### Important volumes
 
--- For command history tracking
-CREATE INDEX idx_status_created ON commands(status, created_at);
+- postgres_data: persists relational data
+- hf_cache: transformer model cache
+- clip_cache: CLIP model cache
+- molscribe_model: molecule model assets
+
+### Typical Docker commands
+
+```bash
+docker compose --profile build build
+docker compose up --build -d
+docker compose run --rm wasm_builder
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f ai
+docker compose down
 ```
 
 ---
 
-## Production Deployment Architecture
+## 9. Frontend Architecture
 
-````
-Production Deployment Architecture
-═══════════════════════════════════════════════════════════════════════
+### Routing model
 
-                            Internet
-                                │
-                ┌───────────────┴───────────────┐
-                │                               │
-         End Users                        ESP32 Devices
-         (Browsers/Mobile)                (Coffee Machines)
-                │                               │
-                └───────────────┬───────────────┘
-                                │
-                    ┌───────────v───────────┐
-                    │   CDN / Edge Layer    │
-                    ├───────────────────────┤
-                    │ • Vercel Edge Network │
-                    │ • Static Assets Cache │
-                    │ • DDoS Protection     │
-                    └───────────┬───────────┘
-                                │
-                    ┌───────────v───────────┐
-                    │   WAF (Firewall)      │
-                    ├───────────────────────┤
-                    │ • Rate Limiting       │
-                    │ • SQL Injection Block │
-                    │ • XSS Protection      │
-                    └───────────┬───────────┘
-                                │
-                    ┌───────────v───────────┐
-                    │  Load Balancer (LB)   │
-                    ├───────────────────────┤
-                    │• HTTPS/TLS Termination│
-                    │• Health Checks        │
-                    │• Session Affinity     │
-                    └───────────┬───────────┘
-                                │
-                ┌───────────────┴───────────────┐
-                │                               │
-     ┌───────────v──────────┐         ┌─────────v──────────┐
-     │  Next.js App Tier   │         │  Flask AI Tier     │
-     ├─────────────────────┤         ├────────────────────┤
-     │ ┌─────────────────┐ │         │ ┌────────────────┐ │
-     │ │ Next.js Inst. 1 │ │         │ │ Flask Inst. 1  │ │
-     │ │ (Container)     │ │────────→│ │ (Container)    │ │
-     │ └─────────────────┘ │         │ └────────┬───────┘ │
-     │                     │         │          │         │
-     │ ┌─────────────────┐ │         │ ┌────────v───────┐ │
-     │ │ Next.js Inst. 2 │ │         │ │ Flask Inst. 2  │ │
-     │ │ (Container)     │ │────────→│ │ (Container)    │ │
-     │ └─────────────────┘ │         │ └────────┬───────┘ │
-     │                     │         │          │         │
-     │ • SSR/SSG           │         │ • AI Models        │
-     │ • API Routes        │         │ • IoT API          │
-     │ • State Management  │         │ • Inference        │
-     └─────────────────────┘         └──────────┬─────────┘
-                                                 │
-                                  ┌──────────────┴──────────────┐
-                                  │                             │
-                    ┌─────────────v──────────┐    ┌────────────v───────────┐
-                    │    Data Tier           │    │  Cache Layer           │
-                    ├────────────────────────┤    ├────────────────────────┤
-                    │ ┌────────────────────┐ │    │ ┌────────────────────┐ │
-                    │ │ MariaDB Primary    │ │    │ │ Redis Cluster      │ │
-                    │ │ (Read/Write)       │ │    │ │ • Sessions         │ │
-                    │ └────────┬───────────┘ │    │ │ • Rate Limits      │ │
-                    │          │             │    │ │ • Command Queue    │ │
-                    │          │ Replication │    │ └────────────────────┘ │
-                    │          v             │    └────────────────────────┘
-                    │ ┌────────────────────┐ │
-                    │ │ MariaDB Replica(s) │ │
-                    │ │ (Read-only)        │ │
-                    │ └────────────────────┘ │
-                    │                        │
-                    │ • Commands DB          │
-                    │ • User Data            │
-                    │ • Orders               │
-                    └────────────────────────┘
-                                  │
-                    ┌─────────────v──────────┐
-                    │ Object Storage (S3)    │
-                    ├────────────────────────┤
-                    │ • Model Checkpoints    │
-                    │   (.pt files)          │
-                    │ • Training Data        │
-                    │ • Static Assets        │
-                    │ • Logs (archived)      │
-                    └────────────────────────┘
+The frontend uses a page-slug pattern where root page resolves component based on query param:
 
+- root path `/` with `?page=<slug>` loads appropriate page module
+- rewrite logic in proxy.ts maps pretty paths (`/coffee`, `/machines`, `/account`, etc.) to root with page param
+- bypass list protects `/api`, static assets, Next internals, and robots/sitemap
 
-    ┌─────────────────────────────────────────────────────────────────┐
-    │                    Monitoring & Observability                   │
-    ├─────────────────────────────────────────────────────────────────┤
-    │                                                                 │
-    │  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────┐   │
-    │  │  Prometheus     │  │    Grafana      │  │ Log Aggregation│   │
-    │  │  (Metrics)      │→ │   (Dashboards)  │  │ (ELK/Loki)     │   │
-    │  │                 │  │                 │  │                │   │
-    │  │ • Request rate  │  │ • System health │  │ • App logs     │   │
-    │  │ • Error rate    │  │ • Model metrics │  │ • Access logs  │   │
-    │  │ • Latency       │  │ • DB perf       │  │ • Error traces │   │
-    │  │ • DB connection │  │ • Alerts        │  │ • Device logs  │   │
-    │  └─────────────────┘  └─────────────────┘  └────────────────┘   │
-    │                                                                 │
-    └─────────────────────────────────────────────────────────────────┘
+### Page composition pattern
 
+- shared providers for notifications/cart/favorites
+- hook-driven client data sync with Express endpoints
+- feature components under src/components with domain segmentation
 
-Deployment Summary:
-═══════════════════════════════════════════════════════════════════════
+### Data flow
 
-  Edge Layer:      Vercel CDN + WAF (DDoS, rate limit)
-  Load Balancer:   HTTPS/TLS termination, health checks
-  App Tier:        2+ Next.js instances, 2+ Flask instances
-  Data Tier:       MariaDB primary + replica(s), Redis cache
-  Storage:         S3 for model checkpoints and training data
-  Monitoring:      Prometheus, Grafana, Log aggregation
-  Security:        mTLS for devices, JWT for users, encryption at rest
-```---
-
-## Local MariaDB for development (optional but recommended)
-
-If you want to test the IoT flow against a real MariaDB instance (recommended before production), you can run a small MariaDB container locally and point the service at it. The repo includes a sample `docker-compose` and a SQL migration to create the `commands` table.
-
-Files provided:
-
--   `python_ai/docker-compose.maria.yml` — Docker Compose service to run MariaDB for local development
--   `python_ai/migrations/create_commands_table.sql` — Simple migration to create the `commands` table used by the IoT API
--   `python_ai/.env.example` — Example environment variables for local testing
-
-Quick start (PowerShell):
-
-```powershell
-# from repo root
-cd python_ai
-# copy the example env
-copy .env.example .env
-docker compose -f docker-compose.maria.yml up -d
-
-# wait a few seconds, then run the migration (use root password from .env)
-docker compose -f docker-compose.maria.yml exec mariadb sh -c "mysql -uroot -p\"$env:MYSQL_ROOT_PASSWORD\" < /migrations/create_commands_table.sql"
-```
-
-Environment variables to set (use `.env` or export in your shell):
-
--   `IOT_DB_HOST` — hostname where MariaDB is reachable (e.g., localhost)
--   `IOT_DB_PORT` — port (default 3306)
--   `IOT_DB_USER` — database user (e.g., kafelot)
--   `IOT_DB_PASS` — user password
--   `IOT_DB_NAME` — database name (e.g., kafelot_iot)
-
-After starting MariaDB, point the Python service to it by setting the env vars above or by setting `IOT_DATABASE_URL` to a full SQLAlchemy URL (example below):
-
-```
-IOT_DATABASE_URL=mysql+pymysql://kafelot:changeme@127.0.0.1:3306/kafelot_iot?charset=utf8mb4
-```
-
-## Switching the Flask app to use SQLAlchemy wrapper
-
-The repo includes two ways to access the commands DB:
-
--   `python_ai/iot_db.py` — lightweight helper (raw pymysql/sqlite3 calls). Works immediately and matches the earlier Flask endpoints.
--   `python_ai/iot_db_sqlalchemy.py` — optional SQLAlchemy wrapper providing connection pooling and consistent dialect handling.
-
-To use the SQLAlchemy wrapper in `python_ai/app.py`, change the import and initialization lines where the DB is initialized. Example (pseudo):
-
-```python
-# old
-import python_ai.iot_db as iot_db
-iot_db.init_db()
-
-# new
-from python_ai import iot_db_sqlalchemy as iot_db
-iot_db.init_db()
-```
-
-The SQLAlchemy wrapper will read `IOT_DATABASE_URL` or fall back to the `IOT_DB_*` env vars and then to a local SQLite file.
-
-## Automated test for local SQLite (already included)
-
-There is a lightweight test script `python_ai/test_iot_db_sqlalchemy.py` which exercises the SQLAlchemy wrapper using the SQLite fallback. Run it like this from the repo root:
-
-```powershell
-#$env:PYTHONPATH must include the repo root so `python_ai` is importable
-$env:PYTHONPATH = "$pwd"
-python python_ai/test_iot_db_sqlalchemy.py
-```
-
-## Production notes and hardening
-
--   Use strong passwords and do not commit `.env` files to source control. Keep production credentials in a secrets manager.
--   Configure MariaDB with secure settings: remote access limited by firewall, use TLS for server connections if hosts are not co-located, and enable slow query logging for troubleshooting.
--   If you expect heavy device polling, use a connection pool and tune the pool size in SQLAlchemy (via `create_engine(pool_size=..., max_overflow=...)`).
--   Add an index on `(machine_id, status, created_at)` to make polling fast at scale.
-
-## Device authentication patterns
-
-Use one of these patterns depending on your operational requirements:
-
--   Per-device API keys: issue each device a long random token and verify it on each request. Store token hashes server-side.
--   Mutual TLS (mTLS): devices hold client certificates and present them to the server. Strong, no-token required authentication for fleet-managed devices.
--   JWTs with short lifetimes: useful if devices can request tokens via a provisioning service.
-
-The ESP32 sketch can be updated to include an `Authorization: Bearer <token>` header or an `X-Device-Token: <key>` header; the Flask endpoints should validate this before returning commands.
-
-## Operational runbook (backup & restore)
-
--   Backup MariaDB regularly with `mysqldump` or logical backups; for larger fleets, consider binary backups and PITR solutions.
--   Monitor the `commands` table growth; purge or archive old `complete`/`failed` rows older than the retention window.
--   Add observability: Prometheus metrics for polling rate, command throughput, and error rates. Export DB connection pool stats.
+1. Component invokes hook
+2. Hook calls Express API or Next route handler
+3. State updated from authoritative backend response
+4. UI reflects stock, cart totals, favorites, and account state
 
 ---
 
-## Merged notes from other READMEs and expanded guidance
+## 10. Backend Architecture (Express)
 
-This section gathers important, actionable details from the repository's other README files (`README.md`, `scripts/esp32/README.md`) and merges them into a single authoritative reference. It adds more operational and developer guidance to make onboarding and testing straightforward.
+### Startup responsibilities
 
-### Frontend quick start
+- load environment variables
+- enforce security middleware
+- apply CORS policy with localhost allowlist
+- optionally apply global rate limiting
+- verify schema compatibility via ensureAppSchema
+- expose health and incident endpoints
+- mount feature route modules under /api
 
-The Next.js front-end is a standard `create-next-app` migration. To run it locally:
+### Responsibilities moved out of Express
 
-```powershell
-npm install
-npm run dev
+- Invoice PDF document rendering moved to Java (`java-invoice-service`).
+- Subscription quote/reconciliation calculations moved to Kotlin (`kotlin-subscription-service`).
+- Operational event ingestion moved to Go (`go-ops-service`).
+- Browser-side high-volume numeric/image loops moved to C++/Wasm (`cpp-wasm`).
+
+Express now orchestrates these domains and enforces auth, validation, and response contracts.
+
+### Mounted route groups
+
+- /api/auth
+- /api/accounts
+- /api/cards
+- /api/orders
+- /api/cart
+- /api/chat
+- /api/weather
+- /api/subscriptions
+- /api/repairs
+- /api/admin
+- /api/products
+- /api/favorites
+- /api/kafelot
+- /api/operations
+- /api/subscriptions-engine
+
+### Operational endpoints
+
+- GET /health
+- GET /health/services
+- GET /health/services/events
+- POST /health/services/events/bulk
+
+---
+
+## 11. AI Service Architecture (Python)
+
+### Service profile
+
+Flask app that exposes semantic Q and A, multimodal chat, and IoT command lifecycle helpers.
+
+### Runtime model loading behavior
+
+- Natural language mode loads MiniLM embeddings model (`all-MiniLM-L6-v2` or local fine-tuned variant if available).
+- Image input path loads CLIP ViT-B/32 to score semantic image labels.
+- Chemistry mode with image loads MolScribe (`models/model/swin_base_char_aux_200k.pth`) to extract molecule SMILES.
+- Models are loaded lazily (first-use load), then reused in memory.
+
+### Core endpoint behavior
+
+- POST /api/ask-coffee
+    - Embeds query
+    - Runs pgvector similarity query over coffee facts
+    - Returns top contextual facts
+
+- POST /api/chat
+    - Accepts JSON or multipart
+    - Supports modes: natural_language and chemistry
+    - Optional image path runs CLIP or MolScribe-related handling
+
+- GET /api/health
+    - Basic service health payload
+
+### AI mode behavior summary
+
+| Mode             | Input        | Primary behavior                         |
+| ---------------- | ------------ | ---------------------------------------- |
+| natural_language | text         | semantic retrieval + contextual response |
+| natural_language | image + text | CLIP-style image description path        |
+| chemistry        | image + text | molecule extraction/recognition path     |
+| chemistry        | text only    | prompts for molecule image upload        |
+
+---
+
+## 12. API Surface Reference
+
+### Next route handlers
+
+- POST /api/python-chat
+- DELETE /api/python-chat?request_id=...
+- GET /api/python-health
+- GET /api/services-health
+- GET /api/model
+- POST /api/chat
+- GET|POST /api/chat/save
+- POST /api/subscribe
+
+### Express functional domains
+
+- Auth and account management
+- Product catalog and stock
+- Cart operations
+- Order creation and history
+- Favorites
+- Subscription lifecycle/state endpoints (pricing and quote logic delegated to Kotlin)
+- Weather and repairs
+- Admin operations
+- Prompt/quota flow with kafelot route group
+
+### API expectations
+
+- JSON response envelopes for normal and error outcomes
+- explicit conflict errors for stock failures
+- no optimistic success assumptions in frontend behavior
+
+---
+
+## 13. Database Model And Data Lifecycle
+
+Schema source is primarily in express-api/data/schema.sql and supporting migration/bootstrap scripts in express-api/scripts and utils.
+
+### Main data domains
+
+- Accounts and authentication: accounts, user_sessions
+- Payment method data: user_cards
+- Catalog/inventory: coffee_products, machine_products
+- Purchasing: cart_items, orders, order_items
+- Personalization: favorites, subscriptions, user_subscriptions
+- AI memory/data: coffee_facts, molecules, chat_sessions, chat_messages
+- IoT operations: iot_commands
+- Operational records: service health incident tables and weather cache
+
+### Data lifecycle
+
+- startup schema checks reduce drift
+- cart/order flows enforce transactional updates
+- historical records retained for analytics and audit
+
+---
+
+## 14. Stock Integrity, Reservation, And Checkout Safety
+
+This application is designed to avoid overselling.
+
+### Layer 1: cart-time validation
+
+- each add/update checks product stock
+- reservation impact from other active carts is considered
+- optional configured buffer is subtracted
+- if unavailable, API returns conflict and does not mutate cart
+
+### Layer 2: checkout-time transactional guard
+
+- row locks with FOR UPDATE
+- guarded decrement where stock must remain non-negative
+- transaction rolls back on violation
+- user receives deterministic conflict response
+
+### Why both layers matter
+
+- cart validation reduces bad UX early
+- checkout lock guarantees data consistency under concurrency
+
+---
+
+## 15. Security Model
+
+This section documents how Filspresso is currently secured, how security is monitored, and how to maintain a strong security posture over time.
+
+### Security objectives
+
+- prevent unauthorized data access
+- reduce account takeover risk
+- block common web attacks (injection, brute force, abuse)
+- preserve service availability under abusive traffic
+- provide operational visibility for suspicious authentication behavior
+
+### Active controls in the current backend
+
+#### Transport and HTTP layer
+
+- security headers are enforced through `helmet`
+- strict CORS origin checks are enabled with credential support
+- express identifies no implementation details via disabled `x-powered-by`
+- strict JSON parsing is enabled to reject malformed payloads
+
+#### Authentication and session model
+
+- JWT tokens are verified with explicit HS256 algorithm constraints
+- JWT authentication requires a matching active server-side session record
+- admin authentication is session-backed and refreshed with bounded session lifetimes
+- logout removes server-side session entries
+- password change invalidates all other active sessions for that account
+
+#### Password and credential security
+
+- passwords are hashed with bcrypt (cost factor 12)
+- login input is normalized and size-bounded
+- dummy-hash comparison is used for unknown users to reduce timing-based account enumeration
+
+#### Brute-force and lockout protections
+
+- global API rate limiting is enabled by default
+- route-level auth rate limits protect register/login/admin login paths
+- failed authentication attempts are persisted in `auth_login_attempts`
+- lockout with exponential backoff is applied per normalized login key (username/email)
+- lock state returns `429` with retry hints (`Retry-After` header and `retryAfterSeconds` response field)
+
+#### SQL injection and query safety
+
+- application queries use parameterized statements for user-supplied values
+- dynamic SQL identifiers are validated with allowlisted identifier patterns
+- admin raw SQL endpoint only allows single-statement read-only queries
+- admin raw SQL executes in read-only transactions with statement timeout guardrails
+
+#### Secrets and configuration hardening
+
+- sensitive values are required from environment (no hardcoded runtime fallback secrets)
+- docker compose now requires explicit values for:
+    - `DB_PASSWORD`
+    - `JWT_SECRET`
+    - `ENCRYPTION_KEY`
+    - `SERVICE_EVENTS_API_KEY`
+- service event ingestion is protected by dedicated API key validation
+
+#### CI security gates
+
+- GitHub Actions workflow `.github/workflows/security-ci.yml` runs on push and PR
+- checks include:
+    - frontend lint and build
+    - frontend dependency audit (`npm audit --audit-level=high`)
+    - backend dependency audit (`npm audit --audit-level=high`)
+    - Python dependency audit (`pip-audit` for both requirements files)
+
+### Security telemetry and monitoring
+
+Authentication telemetry is persisted to `auth_security_events` and lockout state to `auth_login_attempts`.
+
+Admin-only telemetry endpoints:
+
+- `GET /api/admin/security/telemetry`
+    - purpose: summary metrics for failed logins, lock events, source IP concentration, and currently locked identifiers
+    - query: `windowHours` (1 to 720)
+- `GET /api/admin/security/events`
+    - purpose: retrieve recent authentication security events for investigations
+    - query: `limit` (1 to 1000)
+- `DELETE /api/admin/security/lockouts/:loginKey`
+    - purpose: operational unlock for a specific login key during support incidents
+    - action is logged as `lockout_cleared_admin`
+
+### Secrets rotation runbook
+
+The project uses active rotation for authentication and data-access secrets.
+
+#### Rotate these values together
+
+- `JWT_SECRET`
+- `ENCRYPTION_KEY`
+- `SERVICE_EVENTS_API_KEY`
+- `DB_PASSWORD`
+
+#### Rotation procedure
+
+1. Generate new cryptographically strong random values.
+2. Update both environment files used in local/docker workflows:
+    - `.env`
+    - `express-api/.env`
+3. Apply database password rotation at the PostgreSQL role level.
+4. Recreate backend and dependent services so new environment values are loaded.
+5. Invalidate active sessions where appropriate (for JWT secret rotation, clear old sessions).
+6. Verify health endpoints and login behavior.
+
+#### Rotation cadence
+
+- standard cadence: every 60 to 90 days
+- immediate rotation: after suspected exposure, unauthorized access, or leaked logs/artifacts
+
+### Operational maintenance checklist
+
+Run this checklist for each release:
+
+1. Ensure security CI jobs are green.
+2. Verify rate-limit toggles are not disabling protections in production.
+3. Confirm CORS origins are restricted to approved domains.
+4. Confirm required secrets are present and not using placeholder values.
+5. Review authentication telemetry for unusual failed-login spikes.
+6. Review lockout telemetry and top source IPs for abuse indicators.
+7. Confirm incident retention settings match policy.
+
+### Incident response guidance (auth attacks)
+
+When suspicious login abuse is detected:
+
+1. Inspect `GET /api/admin/security/telemetry` for current lockout and source-IP concentration.
+2. Query `GET /api/admin/security/events` for recent attack patterns.
+3. If needed, clear accidental lockouts with `DELETE /api/admin/security/lockouts/:loginKey`.
+4. Increase auth lockout strictness (`AUTH_LOCK_THRESHOLD`, `AUTH_LOCK_BASE_SECONDS`, `AUTH_LOCK_MAX_SECONDS`) and redeploy.
+5. Rotate security secrets if compromise is suspected.
+
+### Security limits and ongoing work
+
+No application can be permanently “fully secure”; security is a continuous program. Current controls significantly improve resilience, but ongoing improvement remains required:
+
+- enforce TLS at ingress/load balancer in all environments
+- add alerting integrations for telemetry thresholds
+- add periodic penetration testing and threat modeling updates
+- keep dependencies patched and re-audited continuously
+
+### 15.1 Security Control Comparison
+
+| Security area         | Current implementation                                                             | Lower-rigor alternative            | Why current approach is used                                   |
+| --------------------- | ---------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------- |
+| Auth token validation | JWT algorithm constrained + server-side session cross-check                        | JWT-only stateless validation      | Allows central revocation and tighter incident response        |
+| Credential protection | bcrypt hashing + normalized login + dummy-hash timing mitigation                   | simple hash/naive lookup           | Reduces account enumeration and brute-force leverage           |
+| Abuse resistance      | global and route-level rate limiting + lockout backoff telemetry                   | global limiter only                | Provides targeted protection for login and admin surfaces      |
+| SQL safety            | parameterized queries + identifier validation + read-only guardrails for admin SQL | string-concatenated SQL            | Minimizes injection surface and blast radius                   |
+| Secret handling       | required env secrets, no insecure fallbacks                                        | hardcoded defaults in code/compose | Improves portability to production and secret rotation hygiene |
+| Service events auth   | API key gating for ops ingest endpoints                                            | open internal endpoint assumption  | Defends against accidental exposure in misconfigured networks  |
+
+#### Invoice-specific security posture
+
+- PDF output is encrypted with print-only permissions in Java invoice generation.
+- Signature rendering uses static trusted assets loaded from service resources.
+- Failure to load signature image degrades gracefully without breaking invoice generation.
+- Invoice response is always emitted as `application/pdf` with explicit attachment disposition.
+
+---
+
+## 16. Observability, Health, And Incidents
+
+### Multi-service health
+
+Express exposes health state for:
+
+- backend
+- database
+- ai
+- administration
+
+### Incident retention
+
+- retention window controlled by SERVICE_INCIDENT_RETENTION_DAYS
+- cleanup interval controlled by SERVICE_INCIDENT_RETENTION_JOB_MS
+
+### Frontend behavior during outages
+
+Next route handlers can provide degraded but explicit service status, helping user-facing pages remain informative.
+
+---
+
+## 17. Page Map And Route Behavior
+
+### Core page slugs resolved by root page
+
+- home
+- love-coffee
+- coffee
+- machines
+- subscription
+- shopping-bag
+- favorites
+- account
+- payment
+- coffee-machine-animation
+
+### Additional route pages in app directory
+
+- /admin
+- /favorites
+- /payment
+- /manage-subscription
+- /manage-subscription/privacy-policy
+- /services
+- /terms-and-conditions
+- /sales-refunds
+- /kafelot-privacy
+
+### Proxy rewrite concept
+
+Pretty URLs are mapped into page slug query values so the app keeps a centralized rendering shell while preserving navigable URLs.
+
+---
+
+## 18. Screenshots (All Pages)
+
+This section documents every PNG currently in `docs/screenshots`, including what each image represents and the features visible in the UI.
+
+### Screenshot location
+
+- docs/screenshots
+
+### Complete gallery with explanations
+
+#### Home (`home.png`)
+
+![Home](docs/screenshots/home.png)
+
+Main landing experience with hero messaging, primary navigation entry points, and featured commerce sections.
+
+- Highlights onboarding flow into coffee and machine discovery.
+- Shows the visual tone and top-level call-to-action hierarchy.
+
+#### Coffee Catalog (`coffee.png`)
+
+![Coffee](docs/screenshots/coffee.png)
+
+Core coffee listing page where users browse capsule products by collection and flavor profile.
+
+- Product cards expose name, imagery, and purchase actions.
+- Serves as the primary entry to capsule detail and cart flows.
+
+#### Coffee Types (`coffee_types.png`)
+
+![Coffee Types](docs/screenshots/coffee_types.png)
+
+Coffee taxonomy view focused on type segmentation and browse refinement.
+
+- Emphasizes category discovery across coffee families.
+- Supports faster filtering before adding products to cart.
+
+#### Capsule Amount (`capsule_amount.png`)
+
+![Capsule Amount](docs/screenshots/capsule_amount.png)
+
+Quantity/pack-size focused UI used to communicate capsule volume options and selection controls.
+
+- Helps users understand purchase quantity context before checkout.
+- Reinforces price/volume decisions in product journey.
+
+#### Machines (`machines.png`)
+
+![Machines](docs/screenshots/machines.png)
+
+Machine catalog page for browsing available coffee machine models.
+
+- Presents machine cards with model visuals and selection actions.
+- Connects hardware discovery with commerce and account features.
+
+#### Account Machines (`account_machines.png`)
+
+![Account Machines](docs/screenshots/account_machines.png)
+
+Account-area machine management surface that links user profile context with owned/registered machines.
+
+- Centralizes machine-related actions under the account domain.
+- Supports post-purchase hardware lifecycle management.
+
+#### Favorites (`favorites.png`)
+
+![Favorites](docs/screenshots/favorites.png)
+
+Favorites page where users keep a personal shortlist of products for quick return.
+
+- Enables save-for-later behavior and repeat purchase patterns.
+- Integrates with card/grid shopping actions.
+
+#### Shopping Bag (`shopping_bag.png`)
+
+![Shopping Bag](docs/screenshots/shopping_bag.png)
+
+Cart interface summarizing selected items and quantities before payment.
+
+- Displays line items and checkout progression controls.
+- Acts as validation checkpoint for quantity and selection updates.
+
+#### Payment (`payment_page.png`)
+
+![Payment](docs/screenshots/payment_page.png)
+
+Checkout payment page responsible for final transaction information entry and order confirmation path.
+
+- Hosts payment form UI and order total context.
+- Final step in commerce conversion funnel.
+
+#### Orders (`orders.png`)
+
+![Orders](docs/screenshots/orders.png)
+
+Order history/status interface for reviewing previously placed purchases.
+
+- Surfaces transactional timeline and order tracking visibility.
+- Supports support/debug workflows for account-specific purchases.
+
+#### Subscription (`subscription.png`)
+
+![Subscription](docs/screenshots/subscription.png)
+
+Subscription product setup view for recurring coffee delivery management.
+
+- Shows plan configuration controls and recurring options.
+- Enables retention-focused purchasing model.
+
+#### Subscription Account (`subscription_account.png`)
+
+![Subscription Account](docs/screenshots/subscription_account.png)
+
+Account-specific subscription management area for updating active recurring plans.
+
+- Provides self-service controls over cadence and subscription state.
+- Complements the initial subscription enrollment flow.
+
+#### Management Account (`management_account.png`)
+
+![Management Account](docs/screenshots/management_account.png)
+
+Account management dashboard area for identity/profile-related actions.
+
+- Consolidates user-level controls in one administrative panel.
+- Acts as a hub for profile and membership interactions.
+
+#### Member Status 1 (`member_status_1.png`)
+
+![Member Status 1](docs/screenshots/member_status_1.png)
+
+Membership status state capture showing one phase of user membership information.
+
+- Communicates loyalty/member tier context.
+- Supports account personalization and feature gating.
+
+#### Member Status 2 (`member_status_2.png`)
+
+![Member Status 2](docs/screenshots/member_status_2.png)
+
+Second membership state capture to document alternate membership status presentation.
+
+- Shows conditional UI behavior for different account states.
+- Useful for validating membership lifecycle transitions.
+
+#### Spending Analytics (`spending_analytics.png`)
+
+![Spending Analytics](docs/screenshots/spending_analytics.png)
+
+User analytics screen focused on spending trends and account-level purchase metrics.
+
+- Visualizes financial behavior for informed subscription/purchase decisions.
+- Useful for retention and engagement feature storytelling.
+
+#### Graphs (`graphs.png`)
+
+![Graphs](docs/screenshots/graphs.png)
+
+Data visualization surface showing charted metrics linked to account or admin intelligence.
+
+- Demonstrates chart components and insight-focused UI.
+- Supports analytical product capabilities documentation.
+
+#### Admin (`admin_page.png`)
+
+![Admin](docs/screenshots/admin_page.png)
+
+Administrative dashboard for privileged operations and system-level oversight.
+
+- Includes management controls unavailable to normal users.
+- Central point for operational and moderation workflows.
+
+#### Services (`services.png`)
+
+![Services](docs/screenshots/services.png)
+
+Services landing page describing customer support or platform service offerings.
+
+- Captures non-commerce navigation branch of the app.
+- Supports informational and support journey continuity.
+
+#### Maintenance (`maintenance.png`)
+
+![Maintenance](docs/screenshots/maintenance.png)
+
+Maintenance/support operations view centered on machine upkeep and serviceability context.
+
+- Documents after-sales support pathways.
+- Relates to hardware lifecycle and service scheduling.
+
+#### Warranty Repair (`warranty_repair.png`)
+
+![Warranty Repair](docs/screenshots/warranty_repair.png)
+
+Warranty and repair-specific page for service requests and policy-aligned remediation.
+
+- Highlights support request flow for malfunction scenarios.
+- Strengthens trust and post-purchase support documentation.
+
+#### Kafelot (`kafelot.png`)
+
+![Kafelot](docs/screenshots/kafelot.png)
+
+AI assistant experience where users interact with coffee guidance and intelligent suggestions.
+
+- Demonstrates conversational AI surface in product ecosystem.
+- Connects recommendation workflow with broader shopping experience.
+
+#### Kafelot Privacy (`kafelot_policy.png`)
+
+![Kafelot Privacy](docs/screenshots/kafelot_policy.png)
+
+Privacy disclosure page specific to Kafelot AI interactions and data handling boundaries.
+
+- Clarifies AI-specific privacy promises and usage constraints.
+- Supports compliance and user transparency.
+
+#### Privacy Policy (`privacy_policy.png`)
+
+![Privacy Policy](docs/screenshots/privacy_policy.png)
+
+Global privacy policy page describing data collection, processing, and retention posture.
+
+- Legal transparency for platform-wide data practices.
+- Core trust and compliance documentation endpoint.
+
+#### Terms And Conditions (`terms_of_use.png` legacy filename)
+
+![Terms Of Use](docs/screenshots/terms_of_use.png)
+
+Legal terms page covering usage conditions and service boundaries (route now `/terms-and-conditions`).
+
+- Defines contractual framework for using platform features.
+- Complements policy and refund/legal navigation pages.
+
+#### Sales And Refunds (`sales_and_refunds.png`)
+
+![Sales And Refunds](docs/screenshots/sales_and_refunds.png)
+
+Commercial policy page documenting sales conditions, returns, and refund expectations.
+
+- Sets user expectations for post-purchase outcomes.
+- Reduces support ambiguity in order dispute scenarios.
+
+### Optional automation for screenshot capture
+
+You can automate capture with Playwright/Cypress in CI and export to docs/screenshots using route-by-route scripts.
+
+### Screenshot quality and consistency guidance
+
+- Capture each page in both desktop and mobile breakpoints where possible.
+- Keep browser UI (tabs/address bar) outside the image frame.
+- Use PNG for UI fidelity, especially where text overlays gradients.
+- Keep naming consistent with `docs/SCREENSHOTS.md` so gallery links remain valid.
+- Prefer deterministic captures after data is loaded (avoid intermediate loading states).
+
+---
+
+## 19. Testing, Validation, And Quality Gates
+
+This repository currently ships one GitHub Actions workflow that acts as the CI quality gate:
+
+- `.github/workflows/security-ci.yml`
+
+It focuses on build integrity and dependency security for frontend, backend, and Python layers.
+
+### CI workflow summary
+
+Workflow name:
+
+- `Security CI`
+
+Triggers:
+
+- push to any branch
+- pull request events
+- manual run from GitHub Actions UI (`workflow_dispatch`)
+
+Execution platform:
+
+- `ubuntu-latest`
+
+### CI jobs and checks (what runs in GitHub)
+
+1. Frontend Security Checks
+
+- install dependencies with `npm ci` (root)
+- run `npm run lint`
+- run `npm run build`
+- run `npm audit --audit-level=high`
+
+2. Backend Security Checks
+
+- working directory: `express-api`
+- install dependencies with `npm ci`
+- run `npm audit --audit-level=high`
+
+3. Python Dependency Audit
+
+- install `pip-audit`
+- run `pip-audit -r requirements.txt`
+- run `pip-audit -r models/requirements.txt`
+
+### How to run CI from GitHub UI
+
+1. Open the repository on GitHub.
+2. Go to the `Actions` tab.
+3. Select `Security CI` in the left panel.
+4. Click `Run workflow`.
+5. Choose branch and confirm `Run workflow`.
+6. Open the run to inspect per-job logs and failures.
+
+### How to run the same checks locally (CI parity)
+
+Run these commands before pushing to reduce CI failures.
+
+Frontend (repo root):
+
+```bash
+npm ci
+npm run lint
+npm run build
+npm audit --audit-level=high
 ```
 
-Open http://localhost:3000 to view the app. Development builds are hot-reloaded.
+Backend (`express-api`):
 
-If you plan to deploy to Vercel, follow the standard Next.js deployment flow; the site is compatible with Vercel and other static hosting providers.
+```bash
+cd express-api
+npm ci
+npm audit --audit-level=high
+```
 
-### ESP32 & Device integration (expanded)
+Python audits (repo root):
 
-The `scripts/esp32` folder contains a fully commented Arduino-style sketch showing device polling, JSON parsing, and how to POST status updates. Key production considerations repeated here:
+```bash
+python -m pip install --upgrade pip pip-audit
+pip-audit -r requirements.txt
+pip-audit -r models/requirements.txt
+```
 
--   Use HTTPS for all device-server communication. The sample sketch is simplified and may use HTTP for local testing.
--   Use token-based authentication or mTLS. Store tokens securely (preferably the device's secure storage or ephemeral tokens provisioned at device startup).
--   Hardware safety: do not modify the machine's mains circuitry unless you're an electrical safety professional. Prefer non-invasive actuators (servos, solenoids) to press the machine's button externally.
--   Calibration: calibrate ms_per_ml for each pump and measure thermal response to avoid overheating. Implement PID control for heater rather than naive on/off with fixed sleeps.
--   Firmware lifecycle: provide OTA updates using PlatformIO or a dedicated update service so devices can receive security patches.
+Windows note:
 
-### Developer notes and repository layout
+- If `pip-audit` is not recognized, run with `python -m pip_audit -r requirements.txt`.
 
-Top-level quick pointers:
+### Pass/fail policy
 
--   `src/` — Next.js app (App Router) and React components
--   `python_ai/` — AI and IoT backend (Flask, models, tokenizer, training scripts)
--   `scripts/esp32/` — Device code and device README
+The workflow fails when any of the following happen:
 
-Keep the Python components isolated in a virtual environment and install `python_ai/requirements.txt` before running the Flask server.
+- frontend lint or build fails
+- high severity npm vulnerabilities are detected in frontend or backend
+- `pip-audit` reports unresolved vulnerable Python dependencies
 
-### How the IoT flow ties to the frontend
+### Fast troubleshooting for CI failures
 
-1. A user selects an AI-generated recipe in the Next.js UI and asks to send it to a machine.
-2. The frontend calls the Flask endpoint `POST /api/commands/create` to store the command for the machine.
-3. The device polls `GET /api/commands/check/<MACHINE_ID>` and obtains a pending command.
-4. The device updates its status with `POST /api/commands/update/<command_id>` periodically.
+1. If frontend lint fails:
 
-This flow is intentionally simple to keep devices dumb and the server authoritative. For larger fleets, migrate to MQTT or long-polling with a persistent connection.
+- run `npm run lint` locally and fix exact file-level errors first
 
-### Security checklist (merged)
+2. If frontend build fails:
 
--   Enable HTTPS across all services (letsencrypt for small deployments, managed certs for cloud).
--   Use per-device credentials: API key or mTLS certificates.
--   Do not embed long-lived credentials in device firmware. Use short-lived tokens or provisioning.
--   Implement server-side rate-limits and device heartbeat monitoring.
--   Add audit logs for command creation and device acknowledgements.
+- run `npm run build` locally
+- verify environment-dependent code paths and API URL configuration
+
+3. If npm audit fails:
+
+- run `npm audit --audit-level=high`
+- update vulnerable packages with targeted upgrades
+- re-run lint/build after upgrades
+
+4. If pip-audit fails:
+
+- inspect vulnerable package/version in output
+- update `requirements.txt` and/or `models/requirements.txt`
+- rerun both `pip-audit` commands
+
+### Recommended CI expansion (next step)
+
+- add unit/integration tests for Express routes
+- add Next.js component/page tests
+- add E2E smoke tests (login, browse, cart, checkout)
+- add DB migration validation job for schema safety
+- add a status badge for CI visibility in this README
 
 ---
 
-## Changes summary (recent additions)
+## 20. Deployment Guide
 
--   Added optional SQLAlchemy-based IoT DB wrapper: `python_ai/iot_db_sqlalchemy.py` (recommended for production)
--   Added MariaDB Docker Compose for local testing: `python_ai/docker-compose.maria.yml`
--   Added migration SQL: `python_ai/migrations/create_commands_table.sql`
--   Added `.env.example` in `python_ai/` to document env variables and local testing defaults
--   Added integration test `python_ai/test_iot_db_sqlalchemy.py` that validates the SQLAlchemy SQLite fallback path
+### Production topology
+
+- Next.js web service/container
+- Express API service/container
+- Python AI service/container
+- PostgreSQL managed DB or HA cluster
+- reverse proxy and TLS termination
+
+### Deployment sequence
+
+1. Provision database and extensions
+2. Deploy Express and confirm /health
+3. Deploy Python AI and confirm /api/health
+4. Deploy Next.js and verify frontend integration
+5. Execute smoke flows: login, browse, cart, checkout, AI chat
+
+### Release checklist
+
+- environment variables verified
+- migrations/bootstrap validated
+- health checks green
+- rollback path prepared
+- backup snapshot taken before schema-impacting release
 
 ---
-````
+
+## 21. Troubleshooting Playbook
+
+### Frontend cannot fetch backend
+
+- verify NEXT_PUBLIC_API_URL
+- verify backend container status
+- verify CORS_ORIGIN allows current host/port
+
+### AI route fails from frontend
+
+- verify PYTHON_AI_HOST
+- check ai container logs
+- check model cache volume permissions
+
+### Stock conflict errors in cart
+
+- expected when request exceeds reservable stock
+- inspect reservation window and stock buffer settings
+- ensure variant IDs are canonical and not cross-mapped
+
+### Coffee page stock feels slow
+
+- verify browser network tab only shows one GET /api/products/coffee call on initial coffee page load
+- if two calls appear, ensure stock data is sourced from useCoffeeCollections instead of a separate stock fetch
+- in backend, verify coffee image metadata is populated (image_filename/image_extension) to avoid expensive runtime fallback logic
+- check database indexes for coffee_products(product_id), coffee_products(product_type), and coffee_products(category)
+- if needed, preload or cache product payloads at app startup for high-traffic environments
+
+### Docker stack unhealthy
+
+- run docker compose ps
+- inspect specific service logs
+- verify DB credentials and dependency ordering
+
+### Invoice PDF has missing signature
+
+- verify `public/images/Filspresso_Signature_Invoice.png` exists and is readable
+- verify `java-invoice-service/src/main/resources/signature/filspresso-signature.png` exists in the built image
+- rebuild invoice service with `docker compose up --build invoice_java -d`
+- check invoice service logs for resource-load failures
+
+### start_all script exits with code 1
+
+- run docker compose command directly and inspect output
+- run npm run dev manually to isolate frontend startup issue
+- ensure no conflicting process already occupies port 3000
+
+---
+
+## 22. Contributor Guidelines
+
+### Branching
+
+- create feature branch from active integration branch
+- keep commits scoped and reviewable
+- include migration notes if schema behavior changes
+
+### Coding standards
+
+- preserve API compatibility whenever possible
+- avoid optimistic UI messages when backend operation failed
+- keep security middleware enabled except intentional local diagnostics
+- write explicit and stable error payloads for frontend consumers
+
+### Documentation standards
+
+- update this README when adding services, route groups, env vars, or operational behavior
+- update screenshot section when UI pages materially change
+
+---
+
+## 23. Operational Runbook
+
+### Daily operations
+
+- verify service health endpoints
+- monitor incident event volume
+- inspect cart/order conflict trends for stock tuning
+
+### Weekly operations
+
+- review service incident retention status
+- verify backup restore path
+- refresh dependency security scans
+
+### Incident response outline
+
+1. detect via health endpoint degradation
+2. identify failing service and upstream dependency
+3. apply rollback or restart strategy
+4. verify functional smoke tests
+5. document postmortem and preventive fixes
+
+---
+
+## 24. Known Gaps And Suggested Next Improvements
+
+- Add OpenAPI specs for Express and Python APIs
+- Add route-level formal contracts (JSON schema)
+- Add CI job that captures screenshots for all pages and updates docs/screenshots automatically
+- Add full observability stack (metrics + traces + alerting)
+- Add canary/blue-green deployment strategy
+
+---
+
+## 25. Image Assets And Media Pipeline
+
+This section explains how image files are organized, used by the app, and maintained.
+
+### Public image structure
+
+- `public/images/Capsules/Original` and `public/images/Capsules/Vertuo` hold capsule product visuals.
+- `public/images/Machines/Original` and `public/images/Machines/Vertuo` hold machine product visuals.
+- `public/images/Payment` stores payment-brand logos shown in payment UX.
+- `public/images/svg` stores beverage-size and coffee-type icon assets.
+- `public/images/icons` stores generated/user icon outputs.
+- `public/images/Filspresso_Signature_Invoice.png` stores the invoice signature image used by the Java PDF renderer.
+
+### How images are consumed in the app
+
+- Catalog pages map product metadata to image paths under `public/images/...`.
+- Legal, account, and marketing surfaces use shared static brand/media assets.
+- Admin/backend flows can read and write image files through mounted volumes in Docker (`./public/images:/public/images`).
+
+### Docker and persistence implications
+
+- The backend service mounts the host `public/images` folder, so uploads/changes survive container restarts.
+- In multi-instance production setups, replace local filesystem assumptions with object storage (S3-compatible, Blob, etc.).
+
+### Image maintenance recommendations
+
+- Keep naming stable and lowercase where possible to avoid case-sensitivity issues across platforms.
+- Prefer modern compressed formats for photos (`.avif`, `.webp`) and SVG for icons.
+- Maintain consistent aspect ratios per category to avoid layout shift.
+- Add basic image QA checks during releases (missing files, broken paths, oversized assets).
+- Keep legal/brand-critical assets versioned and reviewed.
+
+---
+
+## 26. Why These New Languages And Where
+
+Filspresso keeps an Express-first architecture and adds other languages only for narrowly scoped workloads where they are clearly better.
+
+### Selection principles
+
+- Keep checkout, account, auth, and cart flows in Express to avoid fragmentation of core commerce logic.
+- Add a new runtime only when it gives a measurable gain in one domain (performance, tooling maturity, or maintainability).
+- Isolate each specialized runtime behind stable HTTP boundaries so it can evolve independently.
+
+### Language-to-domain mapping
+
+| Technology            | Where it is used                                               | Why it was chosen                                                             | Why not keep it in Node only                                                                      |
+| --------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Java 17 + Spring Boot | `java-invoice-service` (`/api/invoices/render`)                | Strong PDF ecosystem, reliable document rendering, predictable layout control | PDF generation quality and long-term maintainability are better with mature JVM PDF libraries     |
+| Kotlin + Spring Boot  | `kotlin-subscription-service` (`/api/subscriptions/*`)         | Null-safety and concise business-rule code for pricing/reconciliation         | Subscription rules grow quickly; Kotlin reduces boilerplate and runtime null bugs                 |
+| Go 1.22               | `go-ops-service` (`/events/ingest`, `/health`)                 | Fast startup, low memory use, simple concurrency model for ops/event traffic  | Operational/event paths benefit from lightweight services without Node event-loop coupling        |
+| C++ + WebAssembly     | `cpp-wasm` + frontend wrapper `src/lib/wasm/filspressoMath.ts` | Deterministic browser-side speed for numeric and pixel workloads              | JS is fine for orchestration, but heavy image/vector loops are faster and more consistent in Wasm |
+
+### C++/Wasm focus areas in this project
+
+- Image preprocessing before AI requests (RGBA to gray, binarization).
+- QR finder candidate scoring and pre-filtering.
+- Local vector similarity/ranking to reduce unnecessary network calls.
+
+### Why this polyglot split is intentional
+
+- It preserves stability in high-risk flows (payments/orders) by keeping them in the existing proven Express layer.
+- It avoids a big-bang rewrite and allows incremental migration by domain.
+- It improves performance where needed without overcomplicating every service.
+- It keeps ownership clear: each service has one primary responsibility.
+
+---
+
+## 27. Why PostgreSQL Over MySQL Or MariaDB Here
+
+PostgreSQL is the best fit for Filspresso because the platform combines commerce transactions, AI/vector retrieval, and chemistry-oriented extensions.
+
+### Direct comparison for this codebase
+
+| Requirement in Filspresso                  | PostgreSQL                                                                     | MySQL/MariaDB                                                        | Decision impact                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------- |
+| Vector retrieval and semantic similarity   | Mature pgvector workflows already integrated                                   | Requires different ecosystem and query rewrite patterns              | PostgreSQL minimizes implementation risk          |
+| Chemistry/extension-heavy stack            | Extension model aligns with current setup (including rdkit-oriented workflows) | Equivalent extension path is weaker or incompatible                  | PostgreSQL supports current architecture directly |
+| Checkout consistency and stock reservation | Strong transactional behavior used with lock-based flows (`FOR UPDATE`)        | Can be implemented, but would require retesting and query adaptation | PostgreSQL keeps current concurrency model stable |
+| Existing SQL, scripts, and migrations      | Current repo scripts and schema are PostgreSQL-oriented                        | Port would require broad SQL and behavior migration                  | PostgreSQL avoids expensive migration work        |
+
+### Why this matters operationally
+
+- Faster delivery: no database-porting project before shipping new features.
+- Lower risk: existing production logic remains aligned with tested DB behavior.
+- Better maintainability: one coherent data platform for AI + commerce + ops.
+
+### Practical conclusion
+
+For Filspresso, PostgreSQL is not only "good enough"; it is the database that best matches features already implemented and the roadmap (AI retrieval, extension use, transactional commerce).
+
+---
+
+## Appendix A: Command Reference
+
+### Root
+
+- npm run dev
+- npm run build
+- npm run start
+- npm run lint
+
+### Express
+
+- npm run dev
+- npm start
+
+### Docker
+
+- docker compose --profile build build
+- docker compose up --build -d
+- docker compose run --rm wasm_builder
+- docker compose logs -f backend
+- docker compose logs -f ai
+- docker compose down
+
+---
+
+## Appendix B: Important Files
+
+- docker-compose.yml
+- Dockerfile.express
+- cpp-wasm/Dockerfile
+- cpp-wasm/src/price_math.cpp
+- cpp-wasm/README.md
+- express-api/server.js
+- express-api/routes/operations.js
+- express-api/routes/cart.js
+- express-api/routes/orders.js
+- express-api/routes/products.js
+- express-api/routes/subscriptions_engine.js
+- express-api/data/schema.sql
+- go-ops-service/main.go
+- java-invoice-service/src/main/java/com/filspresso/invoice/InvoiceController.java
+- java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java
+- java-invoice-service/src/main/resources/signature/filspresso-signature.png
+- kotlin-subscription-service/src/main/kotlin/com/filspresso/subscriptions/SubscriptionController.kt
+- public/images/Filspresso_Signature_Invoice.png
+- src/app/page.tsx
+- src/app/terms-and-conditions/page.tsx
+- src/app/manage-subscription/privacy-policy/page.tsx
+- src/lib/wasm/filspressoMath.ts
+- proxy.ts
+- next.config.ts
+- app.py
+- iot_db.py
+
+---
+
+## Appendix C: Source File Index (Snapshot)
+
+This snapshot is source-focused and excludes generated/dependency-heavy directories such as `.next`, `node_modules`, `.git`, and virtual environments.
+
+### Root files
+
+- `.dockerignore`
+- `.env`
+- `.gitignore`
+- `app.py`
+- `docker-compose.yml`
+- `Dockerfile.ai`
+- `Dockerfile.db`
+- `Dockerfile.express`
+- `eslint.config.mjs`
+- `filspresso_next.code-workspace`
+- `FilspressoNext.session.sql`
+- `global.d.ts`
+- `iot_db.py`
+- `LICENSE`
+- `next-env.d.ts`
+- `next.config.ts`
+- `package.json`
+- `postcss.config.mjs`
+- `proxy.ts`
+- `README.md`
+- `requirements.txt`
+- `seed_vectors.py`
+- `tailwind.config.cjs`
+- `train.py`
+- `tsconfig.json`
+
+### docs/
+
+- `docs/SCREENSHOTS.md`
+- `docs/screenshots/` (gallery image folder)
+- `docs/uml/` (UML SVG snapshots)
+
+### express-api/
+
+- `express-api/server.js`
+- `express-api/package.json`
+- `express-api/data/extensions.sql`
+- `express-api/data/schema.sql`
+- `express-api/db/connection.js`
+- `express-api/middleware/auth.js`
+- `express-api/routes/accounts.js`
+- `express-api/routes/admin.js`
+- `express-api/routes/auth.js`
+- `express-api/routes/cards.js`
+- `express-api/routes/cart.js`
+- `express-api/routes/chat.js`
+- `express-api/routes/favorites.js`
+- `express-api/routes/kafelot.js`
+- `express-api/routes/orders.js`
+- `express-api/routes/products.js`
+- `express-api/routes/repairs.js`
+- `express-api/routes/subscriptions.js`
+- `express-api/routes/weather.js`
+- `express-api/scripts/check_db_status.js`
+- `express-api/scripts/debug_account_dates.js`
+- `express-api/scripts/diagnostic_columns.js`
+- `express-api/scripts/fix_schema.js`
+- `express-api/scripts/run_migration.js`
+- `express-api/scripts/setup_all_tables.js`
+- `express-api/scripts/setup_favorites_table.js`
+- `express-api/scripts/setup_full_db.js`
+- `express-api/scripts/test_login.js`
+- `express-api/scripts/update_admin_creds.js`
+- `express-api/utils/dockerManager.js`
+- `express-api/utils/encryption.js`
+- `express-api/utils/ensureAppSchema.js`
+
+### models/
+
+- `models/__init__.py`
+- `models/requirements.txt`
+- `models/tanka.py`
+- `models/data/capsule_volumes.json`
+- `models/data/chembl-molecules.json`
+- `models/data/coffee_chunks.json`
+- `models/model/swin_base_char_aux_200k.pth`
+
+### public/
+
+- `public/data/chembl-molecules.json`
+- `public/fonts/` (Poppins and calligraphy font assets)
+- `public/images/Capsules/Original`
+- `public/images/Capsules/Vertuo`
+- `public/images/Machines/Original`
+- `public/images/Machines/Vertuo`
+- `public/images/Payment`
+- `public/images/icons`
+- `public/images/svg`
+
+### scripts/
+
+- `scripts/addCoffeeNotes.mjs`
+- `scripts/extractCoffeeData.mjs`
+- `scripts/extractMachinesData.mjs`
+- `scripts/remove_render_graph.py`
+- `scripts/replace_sections.py`
+- `scripts/start_all.bat`
+- `scripts/esp32/esp32_coffeemachine.ino`
+
+### src/
+
+- `src/app/globals.css`
+- `src/app/layout.tsx`
+- `src/app/page.tsx`
+- `src/app/admin/page.tsx`
+- `src/app/favorites/page.tsx`
+- `src/app/kafelot-privacy/page.tsx`
+- `src/app/manage-subscription/layout.tsx`
+- `src/app/manage-subscription/page.tsx`
+- `src/app/manage-subscription/privacy-policy/page.tsx`
+- `src/app/payment/layout.tsx`
+- `src/app/payment/page.tsx`
+- `src/app/sales-refunds/page.tsx`
+- `src/app/services/page.tsx`
+- `src/app/terms-and-conditions/page.tsx`
+- `src/app/api/chat/route.ts`
+- `src/app/api/chat/save/route.ts`
+- `src/app/api/model/route.ts`
+- `src/app/api/python-chat/route.ts`
+- `src/app/api/python-health/route.ts`
+- `src/app/api/services-health/route.ts`
+- `src/app/api/subscribe/route.ts`
+- `src/data/chat_history.json`
+- `src/data/coffee.generated.json`
+- `src/data/coffee.ts`
+- `src/data/machines.generated.json`
+- `src/data/machines.ts`
+- `src/hooks/useCart.ts`
+- `src/hooks/useCoffeeCollections.ts`
+- `src/hooks/useMachineCollections.ts`
+- `src/components/` (feature modules and page content components)
+- `src/icons/` (large icon library)
+- `src/lib/`
+- `src/styles/`
+- `src/types/`
+
+For a refreshed snapshot, run the same tree command used during documentation updates and sync this appendix.
+
+---
+
+This README is intentionally extensive and operations-focused so new contributors, maintainers, and deployment engineers can use one document for onboarding, development, debugging, and release execution.

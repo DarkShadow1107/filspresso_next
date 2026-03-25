@@ -1,0 +1,27 @@
+flowchart TD
+    UB[User Browser] --> FE[Next.js Container :3000]
+    FE --> BE[Express Container :4000]
+    FE --> AI[Python AI Container :5000]
+
+    BE --> DB[(PostgreSQL Container :5432)]
+    BE --> INV[Java Invoice Container :8082]
+    BE --> OPS[Go Ops Container :8083]
+    BE --> SUB[Kotlin Subscriptions Container :8084]
+
+    AI --> DB
+
+    WB[Wasm Builder Profile] --> WASM[(public/wasm artifacts)]
+    FE --> WASM
+
+    IMG[(public/images volume)] --> BE
+    IMG --> INV
+
+    HF[(hf_cache)] --> AI
+    CLIP[(clip_cache)] --> AI
+    MOL[(molscribe_model)] --> AI
+
+    classDef app fill:#eef7ff,stroke:#3a7bd5,color:#111;
+    classDef data fill:#fff6e8,stroke:#c17d2d,color:#111;
+
+    class FE,BE,AI,INV,OPS,SUB,WB app;
+    class DB,WASM,IMG,HF,CLIP,MOL data;

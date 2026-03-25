@@ -1,60 +1,57 @@
 // Shared types for Account Management sections
+import React from "react";
+import {
+	CoffeeIcon,
+	StarIcon,
+	SparklesIcon,
+	ShieldCheck as ShieldCheckIcon,
+	RosetteDiscountIcon,
+	RosetteDiscountCheckIcon,
+	RocketIcon,
+	ChartBarIcon,
+	FileDescriptionIcon,
+	GearIcon,
+	ClockIcon,
+	PartyPopperIcon,
+	HistoryCircleIcon,
+} from "@/icons";
 
-export type AccountData = {
+import {
+	DBAccount,
+	DBUserCard,
+	DBOrder,
+	DBOrderItem,
+	DBUserSubscription,
+	DBRepair,
+	DBChatSession,
+	DBChatMessage,
+	Timestamp,
+} from "@/types/database";
+
+export type AccountData = Pick<DBAccount, "username" | "email" | "icon"> & {
 	full_name: string | null;
-	username: string;
-	email: string;
-	icon: string | null;
+	created_at?: Timestamp;
 };
 
-export type Message = { role: "user" | "assistant"; content: string; products?: any[] };
+export type Message = { role: DBChatMessage["role"]; content: string; products?: any[] };
 export type ChatHistory = {
 	id: string;
 	timestamp: number;
 	messages: Message[];
 	preview: string;
-	model: "tanka" | "villanelle" | "ode";
+	model: DBChatSession["model_type"];
 	category: "coffee" | "chemistry" | "general";
 };
 
 export type SubscriptionTier = "none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate";
 
-export type SavedCard = {
-	id: number;
-	card_holder: string;
-	card_type: string;
-	card_last_four: string;
-	card_expiry: string;
-	is_default: boolean;
-	created_at: string;
-};
+export type SavedCard = DBUserCard;
 
-export type OrderItem = {
-	id: number;
-	product_type?: string;
-	product_id?: string;
-	product_name: string;
-	product_image: string | null;
-	quantity: number;
-	unit_price: number;
-	total_price: number;
-};
+export type OrderItem = DBOrderItem;
 
-export type Order = {
-	id: number;
-	order_number: string;
-	status: string;
-	subtotal: number;
-	shipping_cost: number;
-	tax: number;
-	total: number;
-	payment_method: string;
-	created_at: string;
+export type Order = DBOrder & {
 	items?: OrderItem[];
 	item_count?: number;
-	weather_condition?: "clear" | "rain" | "snow" | "normal";
-	estimated_delivery?: string;
-	expected_delivery_date?: string;
 	discount_tier?: string | null;
 	discount_percent?: number;
 	discount_amount?: number;
@@ -62,15 +59,8 @@ export type Order = {
 	card_last_four?: string;
 };
 
-export type Subscription = {
-	id?: number;
+export type Subscription = Partial<DBUserSubscription> & {
 	tier: string;
-	billing_cycle: "monthly" | "annual" | null;
-	price_ron: number;
-	start_date: string | null;
-	renewal_date: string | null;
-	is_active: boolean;
-	auto_renew: boolean;
 	card?: {
 		id: number;
 		last_four: string;
@@ -78,9 +68,8 @@ export type Subscription = {
 	} | null;
 };
 
-export type UserMachine = {
-	id: number;
-	order_id: number;
+export type UserMachine = DBRepair & {
+	model?: string;
 	order_number: string;
 	product_type: string;
 	product_id: string;
@@ -119,6 +108,8 @@ export type CapsuleStats = {
 	totalCapsules: number;
 	originalCapsules: number;
 	vertuoCapsules: number;
+	totalOrders: number;
+	totalRepairs: number;
 	machineStats: {
 		total: number;
 		original: number;
@@ -176,11 +167,15 @@ export type MaintenanceInfo = {
 };
 
 // Shared constants
-export const API_BASE = "http://localhost:4000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
-export const TIER_BENEFITS: Record<string, { icon: string; discount: number; benefits: string[] }> = {
+export const TIER_BENEFITS: Record<
+	string,
+	{ icon: string; iconComponent: React.ElementType; discount: number; benefits: string[] }
+> = {
 	None: {
 		icon: "☕",
+		iconComponent: CoffeeIcon,
 		discount: 0,
 		benefits: [
 			"Order your first capsules to unlock member benefits!",
@@ -190,6 +185,7 @@ export const TIER_BENEFITS: Record<string, { icon: string; discount: number; ben
 	},
 	Connoisseur: {
 		icon: "🎖️",
+		iconComponent: RosetteDiscountIcon,
 		discount: 5,
 		benefits: [
 			"5% discount on all orders",
@@ -201,6 +197,7 @@ export const TIER_BENEFITS: Record<string, { icon: string; discount: number; ben
 	},
 	Expert: {
 		icon: "⭐",
+		iconComponent: StarIcon,
 		discount: 10,
 		benefits: [
 			"10% discount on all orders",
@@ -215,6 +212,7 @@ export const TIER_BENEFITS: Record<string, { icon: string; discount: number; ben
 	},
 	Master: {
 		icon: "🏆",
+		iconComponent: RosetteDiscountCheckIcon,
 		discount: 15,
 		benefits: [
 			"15% discount on all orders",
@@ -230,6 +228,7 @@ export const TIER_BENEFITS: Record<string, { icon: string; discount: number; ben
 	},
 	Virtuoso: {
 		icon: "💎",
+		iconComponent: SparklesIcon,
 		discount: 18,
 		benefits: [
 			"18% discount on all orders",
@@ -248,6 +247,7 @@ export const TIER_BENEFITS: Record<string, { icon: string; discount: number; ben
 	},
 	Ambassador: {
 		icon: "👑",
+		iconComponent: ShieldCheckIcon,
 		discount: 20,
 		benefits: [
 			"20% discount on all orders",
@@ -299,13 +299,40 @@ export const REPAIR_COSTS: Record<RepairType, { min: number; max: number; descri
 // Shared helper functions
 export const getIconUrl = (icon: string | null) => {
 	if (!icon) return null;
-	if (icon.startsWith("/") || icon.startsWith("http")) {
-		if (icon.startsWith("/api/icons/")) {
-			return icon.replace("/api/icons/", "/images/icons/");
+	let url = icon.trim();
+
+	// Prevent double-prefixing if it already contains the target path
+	if (url.startsWith("/images/icons/") || url.startsWith("images/icons/")) {
+		if (!url.startsWith("/")) url = "/" + url;
+	} else if (url.startsWith("/") || url.startsWith("http") || url.startsWith("data:")) {
+		// Convert old /api/icons/ paths if they exist
+		if (url.startsWith("/api/icons/")) {
+			url = url.replace("/api/icons/", "/images/icons/");
 		}
-		return icon;
+	} else {
+		// Otherwise it's just a filename, construct the full relative path
+		url = `/images/icons/${url}`;
 	}
-	return `/images/icons/${icon}`;
+
+	// Force lowercase and .svg extension for internal icon paths
+	if (url.startsWith("/images/icons/") && !url.startsWith("data:")) {
+		url = url.toLowerCase();
+		if (!url.endsWith(".svg")) {
+			url = `${url}.svg`;
+		}
+	}
+
+	// Safety check: if it's a relative path with spaces, encode it
+	if (url.startsWith("/") && !url.startsWith("data:")) {
+		try {
+			if (url.includes(" ") || url.includes("[") || url.includes("]")) {
+				return encodeURI(url);
+			}
+		} catch (e) {
+			return url;
+		}
+	}
+	return url;
 };
 
 export const getCardTypeImage = (cardType: string): string => {
@@ -320,14 +347,14 @@ export const getCardTypeImage = (cardType: string): string => {
 	return imageMap[type] || "/images/Payment/Visa.png";
 };
 
-export const formatDate = (dateString: string | number) => {
+export const formatDate = (dateString: string | number | Date) => {
 	try {
 		const date = new Date(dateString);
 		if (isNaN(date.getTime())) return "Date unavailable";
 		return date.toLocaleDateString("en-US", {
-			weekday: "short",
+			weekday: "long",
 			year: "numeric",
-			month: "short",
+			month: "long",
 			day: "numeric",
 		});
 	} catch (e) {

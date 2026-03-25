@@ -11,10 +11,24 @@ const { authenticate } = require("../middleware/auth");
 
 const router = express.Router();
 
+async function ensureInvoicePreferenceColumn(client) {
+	const result = await client.query(
+		`SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_name = 'accounts' AND column_name = 'invoice_include_product_view'
+		) AS has_column`,
+	);
+
+	if (!result.rows[0]?.has_column) {
+		await client.query("ALTER TABLE accounts ADD COLUMN invoice_include_product_view BOOLEAN DEFAULT TRUE");
+	}
+}
+
 /**
  * Get account details
  */
-router.get("/:id", authenticate, async (req, res) => {
+router.get("/:id(\\d+)", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
 
@@ -23,18 +37,20 @@ router.get("/:id", authenticate, async (req, res) => {
 			return res.status(403).json({ error: "Access denied" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [account] = await conn.query(
+			const result = await client.query(
 				`SELECT a.id, a.username, a.email, a.name, a.icon, a.subscription_id,
                 a.email_verified, a.last_login, a.created_at,
                 s.name as subscription_name, s.description as subscription_description,
                 s.price_ron as subscription_price, s.features as subscription_features
         FROM accounts a
         LEFT JOIN subscriptions s ON a.subscription_id = s.id
-        WHERE a.id = ?`,
-				[accountId]
+        WHERE a.id = $1`,
+				[accountId],
 			);
+
+			const account = result.rows[0];
 
 			if (!account) {
 				return res.status(404).json({ error: "Account not found" });
@@ -42,7 +58,7 @@ router.get("/:id", authenticate, async (req, res) => {
 
 			res.json({ account });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get account error:", error);
@@ -53,7 +69,7 @@ router.get("/:id", authenticate, async (req, res) => {
 /**
  * Update account details
  */
-router.put("/:id", authenticate, async (req, res) => {
+router.put("/:id(\\d+)", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
 
@@ -63,15 +79,15 @@ router.put("/:id", authenticate, async (req, res) => {
 
 		const { name, icon, username } = req.body;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Check if new username is taken (if changing)
 			if (username && username !== req.user.username) {
-				const [existing] = await conn.query("SELECT id FROM accounts WHERE username = ? AND id != ?", [
+				const result = await client.query("SELECT id FROM accounts WHERE username = $1 AND id != $2", [
 					username.toLowerCase(),
 					accountId,
 				]);
-				if (existing) {
+				if (result.rows.length > 0) {
 					return res.status(409).json({ error: "Username already taken" });
 				}
 			}
@@ -79,17 +95,18 @@ router.put("/:id", authenticate, async (req, res) => {
 			// Build update query dynamically
 			const updates = [];
 			const params = [];
+			let paramIdx = 1;
 
 			if (name !== undefined) {
-				updates.push("name = ?");
+				updates.push(`name = $${paramIdx++}`);
 				params.push(name);
 			}
 			if (icon !== undefined) {
-				updates.push("icon = ?");
+				updates.push(`icon = $${paramIdx++}`);
 				params.push(icon);
 			}
 			if (username !== undefined) {
-				updates.push("username = ?");
+				updates.push(`username = $${paramIdx++}`);
 				params.push(username.toLowerCase());
 			}
 
@@ -99,17 +116,18 @@ router.put("/:id", authenticate, async (req, res) => {
 
 			params.push(accountId);
 
-			await conn.query(`UPDATE accounts SET ${updates.join(", ")}, updated_at = NOW() WHERE id = ?`, params);
+			await client.query(`UPDATE accounts SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${paramIdx}`, params);
 
 			// Get updated account
-			const [account] = await conn.query(
-				"SELECT id, username, email, name, icon, subscription_id FROM accounts WHERE id = ?",
-				[accountId]
+			const result = await client.query(
+				"SELECT id, username, email, name, icon, subscription_id FROM accounts WHERE id = $1",
+				[accountId],
 			);
+			const account = result.rows[0];
 
 			res.json({ message: "Account updated", account });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Update account error:", error);
@@ -120,7 +138,7 @@ router.put("/:id", authenticate, async (req, res) => {
 /**
  * Delete account
  */
-router.delete("/:id", authenticate, async (req, res) => {
+router.delete("/:id(\\d+)", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
 
@@ -128,12 +146,12 @@ router.delete("/:id", authenticate, async (req, res) => {
 			return res.status(403).json({ error: "Access denied" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			await conn.query("DELETE FROM accounts WHERE id = ?", [accountId]);
+			await client.query("DELETE FROM accounts WHERE id = $1", [accountId]);
 			res.json({ message: "Account deleted successfully" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Delete account error:", error);
@@ -144,7 +162,7 @@ router.delete("/:id", authenticate, async (req, res) => {
 /**
  * Update subscription
  */
-router.put("/:id/subscription", authenticate, async (req, res) => {
+router.put("/:id(\\d+)/subscription", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
 
@@ -154,16 +172,17 @@ router.put("/:id/subscription", authenticate, async (req, res) => {
 
 		const { subscriptionId } = req.body;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Verify subscription exists
-			const [subscription] = await conn.query("SELECT id, name FROM subscriptions WHERE id = ?", [subscriptionId]);
+			const result = await client.query("SELECT id, name FROM subscriptions WHERE id = $1", [subscriptionId]);
+			const subscription = result.rows[0];
 
 			if (!subscription) {
 				return res.status(404).json({ error: "Subscription not found" });
 			}
 
-			await conn.query("UPDATE accounts SET subscription_id = ?, updated_at = NOW() WHERE id = ?", [
+			await client.query("UPDATE accounts SET subscription_id = $1, updated_at = NOW() WHERE id = $2", [
 				subscriptionId,
 				accountId,
 			]);
@@ -173,7 +192,7 @@ router.put("/:id/subscription", authenticate, async (req, res) => {
 				subscription: subscription.name,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Update subscription error:", error);
@@ -184,28 +203,41 @@ router.put("/:id/subscription", authenticate, async (req, res) => {
 /**
  * Update account preferences (graph theme, etc.)
  */
-router.put("/preferences", async (req, res) => {
+router.put("/preferences", authenticate, async (req, res) => {
 	try {
-		const { accountId, graph_theme } = req.body;
-
-		if (!accountId) {
-			return res.status(400).json({ error: "Account ID is required" });
-		}
+		const { graph_theme, invoice_include_product_view } = req.body;
+		const accountId = req.user.id;
+		const hasGraphTheme = Object.prototype.hasOwnProperty.call(req.body, "graph_theme");
+		const hasInvoicePreference = Object.prototype.hasOwnProperty.call(req.body, "invoice_include_product_view");
 
 		// Validate theme
 		const validThemes = ["classic", "neon", "minimal", "gradient", "monochrome"];
-		if (graph_theme && !validThemes.includes(graph_theme)) {
+		if (hasGraphTheme && graph_theme && !validThemes.includes(graph_theme)) {
 			return res.status(400).json({ error: "Invalid theme" });
 		}
 
-		const conn = await pool.getConnection();
+		if (hasInvoicePreference && typeof invoice_include_product_view !== "boolean") {
+			return res.status(400).json({ error: "invoice_include_product_view must be a boolean" });
+		}
+
+		const client = await pool.connect();
 		try {
+			if (hasInvoicePreference) {
+				await ensureInvoicePreferenceColumn(client);
+			}
+
 			const updates = [];
 			const params = [];
+			let paramIdx = 1;
 
-			if (graph_theme) {
-				updates.push("graph_theme = ?");
-				params.push(graph_theme);
+			if (hasGraphTheme) {
+				updates.push(`graph_theme = $${paramIdx++}`);
+				params.push(graph_theme || "classic");
+			}
+
+			if (hasInvoicePreference) {
+				updates.push(`invoice_include_product_view = $${paramIdx++}`);
+				params.push(invoice_include_product_view);
 			}
 
 			if (updates.length === 0) {
@@ -214,11 +246,20 @@ router.put("/preferences", async (req, res) => {
 
 			params.push(accountId);
 
-			await conn.query(`UPDATE accounts SET ${updates.join(", ")}, updated_at = NOW() WHERE id = ?`, params);
+			await client.query(`UPDATE accounts SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${paramIdx}`, params);
 
-			res.json({ message: "Preferences updated", graph_theme });
+			const result = await client.query(
+				"SELECT graph_theme, COALESCE((to_jsonb(accounts)->>'invoice_include_product_view')::boolean, TRUE) AS invoice_include_product_view FROM accounts WHERE id = $1",
+				[accountId],
+			);
+
+			res.json({
+				message: "Preferences updated",
+				graph_theme: result.rows[0]?.graph_theme || "classic",
+				invoice_include_product_view: result.rows[0]?.invoice_include_product_view !== false,
+			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Update preferences error:", error);
@@ -229,21 +270,31 @@ router.put("/preferences", async (req, res) => {
 /**
  * Get account preferences
  */
-router.get("/preferences/:id", async (req, res) => {
+router.get("/preferences/:id", authenticate, async (req, res) => {
 	try {
 		const accountId = parseInt(req.params.id);
 
-		const conn = await pool.getConnection();
-		try {
-			const rows = await conn.query("SELECT graph_theme FROM accounts WHERE id = ?", [accountId]);
+		if (!Number.isInteger(accountId) || accountId !== req.user.id) {
+			return res.status(403).json({ error: "Access denied" });
+		}
 
-			if (!rows || rows.length === 0) {
+		const client = await pool.connect();
+		try {
+			const result = await client.query(
+				"SELECT graph_theme, COALESCE((to_jsonb(accounts)->>'invoice_include_product_view')::boolean, TRUE) AS invoice_include_product_view FROM accounts WHERE id = $1",
+				[accountId],
+			);
+
+			if (result.rows.length === 0) {
 				return res.status(404).json({ error: "Account not found" });
 			}
 
-			res.json({ graph_theme: rows[0].graph_theme || "classic" });
+			res.json({
+				graph_theme: result.rows[0].graph_theme || "classic",
+				invoice_include_product_view: result.rows[0].invoice_include_product_view !== false,
+			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get preferences error:", error);

@@ -2,12 +2,28 @@
 
 import Image from "next/image";
 import { Repair, formatDate, gradientTextStyle, getCardTypeImage } from "./types";
+import {
+	ArrowNarrowLeftIcon,
+	ArrowNarrowRightIcon,
+	ClockIcon,
+	TruckElectricIcon,
+	MagnifierIcon,
+	GearIcon,
+	BulbSvg,
+	CheckedIcon,
+	PartyPopperIcon,
+	XIcon,
+} from "@/icons";
+import React from "react";
 
 type RepairsHistoryProps = {
 	repairs: Repair[];
+	page?: number;
+	totalPages?: number;
+	onPageChange?: (page: number) => void;
 };
 
-export function RepairsHistory({ repairs }: RepairsHistoryProps) {
+export function RepairsHistory({ repairs, page = 1, totalPages = 1, onPageChange }: RepairsHistoryProps) {
 	const getRepairStatusColor = (status: string) => {
 		const colors: Record<string, string> = {
 			pending: "#f59e0b",
@@ -23,17 +39,17 @@ export function RepairsHistory({ repairs }: RepairsHistoryProps) {
 	};
 
 	const getRepairStatusIcon = (status: string) => {
-		const icons: Record<string, string> = {
-			pending: "⏳",
-			received: "📦",
-			diagnosing: "🔍",
-			repairing: "🔧",
-			testing: "🧪",
-			ready: "✅",
-			completed: "🎉",
-			cancelled: "❌",
+		const icons: Record<string, React.ElementType> = {
+			pending: ClockIcon,
+			received: TruckElectricIcon,
+			diagnosing: MagnifierIcon,
+			repairing: GearIcon,
+			testing: BulbSvg,
+			ready: CheckedIcon,
+			completed: PartyPopperIcon,
+			cancelled: XIcon,
 		};
-		return icons[status] || "🔧";
+		return icons[status] || GearIcon;
 	};
 
 	const getRepairTypeLabel = (type: string) => {
@@ -47,13 +63,98 @@ export function RepairsHistory({ repairs }: RepairsHistoryProps) {
 		return labels[type] || type;
 	};
 
+	const renderPager = () => {
+		if (!onPageChange || totalPages <= 1) return null;
+		return (
+			<div
+				style={{
+					display: "flex",
+					justifyContent: "flex-end",
+					alignItems: "center",
+					gap: "0.65rem",
+					marginTop: "0.75rem",
+					padding: "0.35rem 0.5rem",
+					borderRadius: 12,
+					background: "linear-gradient(135deg, rgba(196,167,125,0.08), rgba(166,124,82,0.12))",
+					border: "1px solid #2d2d2d",
+					boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+					backdropFilter: "blur(6px)",
+				}}
+			>
+				<button
+					onClick={() => onPageChange(Math.max(1, page - 1))}
+					disabled={page === 1}
+					style={{
+						padding: "8px 12px",
+						borderRadius: 10,
+						border: "1px solid #3a3a3a",
+						background: page === 1 ? "#1a1a1a" : "linear-gradient(135deg, #c4a77d 0%, #a67c52 100%)",
+						color: page === 1 ? "#666" : "#0f0f0f",
+						cursor: page === 1 ? "not-allowed" : "pointer",
+						fontWeight: 700,
+						transition: "transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease",
+						boxShadow: page === 1 ? "none" : "0 8px 16px rgba(166,124,82,0.35)",
+						filter: page === 1 ? "grayscale(0.6)" : "none",
+					}}
+					onMouseEnter={(e) => {
+						if (page === 1) return;
+						e.currentTarget.style.transform = "translateY(-2px)";
+						e.currentTarget.style.boxShadow = "0 12px 20px rgba(166,124,82,0.45)";
+					}}
+					onMouseLeave={(e) => {
+						e.currentTarget.style.transform = "translateY(0)";
+						e.currentTarget.style.boxShadow = page === 1 ? "none" : "0 8px 16px rgba(166,124,82,0.35)";
+					}}
+				>
+					<ArrowNarrowLeftIcon size={16} />
+				</button>
+				<span style={{ alignSelf: "center", color: "#aaa", fontSize: "0.9rem" }}>
+					Page {page} of {totalPages}
+				</span>
+				<button
+					onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+					disabled={page === totalPages}
+					style={{
+						padding: "8px 12px",
+						borderRadius: 10,
+						border: "1px solid #3a3a3a",
+						background: page === totalPages ? "#1a1a1a" : "linear-gradient(135deg, #c4a77d 0%, #a67c52 100%)",
+						color: page === totalPages ? "#666" : "#0f0f0f",
+						cursor: page === totalPages ? "not-allowed" : "pointer",
+						fontWeight: 700,
+						transition: "transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease",
+						boxShadow: page === totalPages ? "none" : "0 8px 16px rgba(166,124,82,0.35)",
+						filter: page === totalPages ? "grayscale(0.6)" : "none",
+					}}
+					onMouseEnter={(e) => {
+						if (page === totalPages) return;
+						e.currentTarget.style.transform = "translateY(-2px)";
+						e.currentTarget.style.boxShadow = "0 12px 20px rgba(166,124,82,0.45)";
+					}}
+					onMouseLeave={(e) => {
+						e.currentTarget.style.transform = "translateY(0)";
+						e.currentTarget.style.boxShadow = page === totalPages ? "none" : "0 8px 16px rgba(166,124,82,0.35)";
+					}}
+				>
+					<ArrowNarrowRightIcon size={16} />
+				</button>
+			</div>
+		);
+	};
+
 	return (
 		<div className="card" style={{ marginBottom: "2rem" }}>
-			<h2>🔧 Repairs History</h2>
+			<h2 style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+				<GearIcon size={24} /> Repairs History
+			</h2>
 			{repairs.length === 0 ? (
 				<p className="empty-state">No repair requests found. Submit a repair request from the Machines tab.</p>
 			) : (
-				<div className="repairs-list" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+				<div
+					key={`repairs-page-${page}`}
+					className="repairs-list"
+					style={{ display: "flex", flexDirection: "column", gap: "1rem", animation: "pager-fade-slide 0.35s ease" }}
+				>
 					{repairs.map((repair) => {
 						const cost = Number(repair.estimated_cost) || 0;
 						const pickupDate = repair.pickup_date ? new Date(repair.pickup_date) : null;
@@ -94,7 +195,7 @@ export function RepairsHistory({ repairs }: RepairsHistoryProps) {
 												fontSize: "1.5rem",
 											}}
 										>
-											{getRepairStatusIcon(repair.status)}
+											{React.createElement(getRepairStatusIcon(repair.status), { size: 24 })}
 										</div>
 
 										<div>
@@ -263,7 +364,7 @@ export function RepairsHistory({ repairs }: RepairsHistoryProps) {
 											)}
 											{pickupDate && repair.status !== "completed" && repair.status !== "cancelled" && (
 												<div style={{ fontSize: "0.8rem", color: "#888", marginTop: "4px" }}>
-													Est. ready: {formatDate(pickupDate.toISOString())}
+													Estimated ready: {formatDate(pickupDate.toISOString())}
 												</div>
 											)}
 											{repair.completion_date && repair.status === "completed" && (
@@ -386,6 +487,8 @@ export function RepairsHistory({ repairs }: RepairsHistoryProps) {
 					})}
 				</div>
 			)}
+
+			{renderPager()}
 		</div>
 	);
 }

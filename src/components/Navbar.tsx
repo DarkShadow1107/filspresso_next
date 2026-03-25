@@ -4,13 +4,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { buildPageHref, type PageSlug, DEFAULT_PAGE_SLUG } from "@/lib/pages";
+import { UsersIcon, ShoppingCartIcon, HeartIcon } from "@/icons";
 
 type NavLink = {
 	slug: PageSlug;
 	label: string;
 };
 
-type IconLink = NavLink & { iconClass: string };
+type IconLink = NavLink & { icon: React.ElementType };
 
 const links: NavLink[] = [
 	{ slug: DEFAULT_PAGE_SLUG, label: "About" },
@@ -21,8 +22,9 @@ const links: NavLink[] = [
 ];
 
 const iconLinks: IconLink[] = [
-	{ slug: "account", label: "Account", iconClass: "fa fa-user-circle" },
-	{ slug: "shopping-bag", label: "Bag", iconClass: "fa fa-shopping-bag" },
+	{ slug: "account", label: "Account", icon: UsersIcon },
+	{ slug: "favorites", label: "Favorites", icon: HeartIcon },
+	{ slug: "shopping-bag", label: "Bag", icon: ShoppingCartIcon },
 ];
 
 const MOBILE_BREAKPOINT = 1104;
@@ -119,20 +121,45 @@ export default function Navbar() {
 	// Account state: read from sessionStorage (set on signup/login)
 	const [accountName, setAccountName] = useState<string | null>(null);
 	const [accountIcon, setAccountIcon] = useState<string | null>(null);
+	const lastFailedUrlRef = useRef<string | null>(null);
 
-	// Helper to get icon URL from stored value
 	const getIconUrl = (icon: string | null) => {
 		if (!icon) return null;
-		// If it's already a full path, use it
-		if (icon.startsWith("/") || icon.startsWith("http")) {
-			// Convert old /api/icons/ paths
-			if (icon.startsWith("/api/icons/")) {
-				return icon.replace("/api/icons/", "/images/icons/");
+		let url = icon.trim();
+
+		// Prevent double-prefixing if it already contains the target path
+		if (url.startsWith("/images/icons/") || url.startsWith("images/icons/")) {
+			if (!url.startsWith("/")) url = "/" + url;
+		} else if (url.startsWith("/") || url.startsWith("http") || url.startsWith("data:")) {
+			// Convert old /api/icons/ paths if they exist
+			if (url.startsWith("/api/icons/")) {
+				url = url.replace("/api/icons/", "/images/icons/");
 			}
-			return icon;
+		} else {
+			// Otherwise it's just a filename, construct the full relative path
+			url = `/images/icons/${url}`;
 		}
-		// Otherwise it's just a filename, construct the path
-		return `/images/icons/${icon}`;
+
+		// Force lowercase and .svg extension for internal icon paths
+		if (url.startsWith("/images/icons/") && !url.startsWith("data:")) {
+			// Only lowercase the part after /images/icons/ to be safe, though the whole path is fine here
+			url = url.toLowerCase();
+			if (!url.endsWith(".svg")) {
+				url = `${url}.svg`;
+			}
+		}
+
+		// Safety check: if it's a relative path with spaces, encode it
+		if (url.startsWith("/") && !url.startsWith("data:")) {
+			try {
+				if (url.includes(" ") || url.includes("[") || url.includes("]")) {
+					return encodeURI(url);
+				}
+			} catch (e) {
+				return url;
+			}
+		}
+		return url;
 	};
 
 	useEffect(() => {
@@ -140,16 +167,18 @@ export default function Navbar() {
 		const checkSession = () => {
 			try {
 				const a = sessionStorage.getItem("account_session");
-				console.log("Navbar session check:", a);
 				if (a) {
 					const obj = JSON.parse(a);
-					console.log("Navbar parsed session:", obj);
-					console.log("Icon value:", obj.icon, "-> URL:", getIconUrl(obj.icon));
+					const iconUrl = getIconUrl(obj.icon);
 					setAccountName(obj.username || obj.full_name || null);
-					setAccountIcon(getIconUrl(obj.icon) || null);
+					// Only update icon if it's not the one that just failed
+					if (iconUrl !== lastFailedUrlRef.current) {
+						setAccountIcon(iconUrl || null);
+					}
 				} else {
 					setAccountName(null);
 					setAccountIcon(null);
+					lastFailedUrlRef.current = null;
 				}
 			} catch (e) {
 				console.error("Navbar session error:", e);
@@ -188,7 +217,7 @@ export default function Navbar() {
 				borderBottom: "1px solid rgba(174, 137, 102, 0.35)",
 				maxHeight: "calc(100vh - clamp(70px, 12vh, 110px))",
 				overflowY: "auto",
-		  }
+			}
 		: undefined;
 
 	const navListStyle: CSSProperties | undefined = isSmallScreen
@@ -199,7 +228,7 @@ export default function Navbar() {
 				gap: "clamp(0.75rem, 4vw, 1.5rem)",
 				margin: 0,
 				padding: 0,
-		  }
+			}
 		: undefined;
 
 	const navLinkStyle: CSSProperties | undefined = isSmallScreen
@@ -213,7 +242,7 @@ export default function Navbar() {
 				transform: "none",
 				color: "inherit",
 				textDecoration: "none",
-		  }
+			}
 		: undefined;
 
 	const iconStyle: CSSProperties | undefined = isSmallScreen ? { marginRight: "0.5rem" } : undefined;
@@ -233,9 +262,9 @@ export default function Navbar() {
 						href={buildPageHref(DEFAULT_PAGE_SLUG)}
 						onClick={handleNavigate}
 						className="logo"
-						style={{ pointerEvents: "auto", display: "block" }}
+						style={{ pointerEvents: "auto", display: "inline-flex" }}
 					>
-						<img src="/images/Logo_filspresso_web.png" alt="Filspresso" />
+						FILSPRESSO
 					</Link>
 				</div>
 				<button
@@ -266,7 +295,7 @@ export default function Navbar() {
 									</Link>
 								</li>
 							))}
-							{iconLinks.map(({ slug, label, iconClass }) => (
+							{iconLinks.map(({ slug, label, icon: IconComponent }) => (
 								<li key={slug}>
 									{slug === "account" ? (
 										<Link
@@ -285,31 +314,83 @@ export default function Navbar() {
 													<img
 														src={accountIcon}
 														alt="account"
+														className="nav-account-icon"
 														style={{
-															width: 24,
-															height: 24,
-															borderRadius: 6,
-															marginRight: 8,
+															marginRight: 10,
 															display: "inline-block",
 														}}
-														onError={(e) => console.error("Icon load error:", e)}
+														onError={(e) => {
+															console.error("Icon load error for:", accountIcon, e);
+															lastFailedUrlRef.current = accountIcon;
+															setAccountIcon(null);
+														}}
 														onLoad={() => console.log("Icon loaded successfully")}
 													/>
-													<span style={{ display: "inline" }}>{accountName || label}</span>
+													<span style={{ display: "inline-block", verticalAlign: "middle" }}>
+														{accountName || label}
+													</span>
 												</>
 											) : (
 												<>
-													<i className={iconClass} aria-hidden="true" style={iconStyle} />
-													{label}
+													<div
+														style={{
+															display: "flex",
+															alignItems: "center",
+															justifyContent: "center",
+															marginRight: isSmallScreen ? "0.5rem" : "12px",
+														}}
+													>
+														<IconComponent size={32} className="nav-icon-animated" />
+													</div>
+													<span style={{ fontSize: "1.1rem", fontWeight: 500 }}>{label}</span>
 												</>
 											)}
 										</Link>
+									) : slug === "favorites" ? (
+										<Link
+											href={buildPageHref(slug)}
+											onClick={handleNavigate}
+											style={{
+												...(navLinkStyle || {}),
+												display: "flex",
+												alignItems: "center",
+												justifyContent: isSmallScreen ? "flex-start" : "center",
+												gap: "8px",
+												width: isSmallScreen ? "100%" : "auto",
+											}}
+										>
+											<div
+												style={{
+													display: "flex",
+													alignItems: "center",
+													justifyContent: "center",
+													height: 24,
+													width: 24,
+												}}
+											>
+												<IconComponent
+													size={24}
+													className="nav-icon-animated"
+													style={{ width: "24px", height: "24px" }}
+												/>
+											</div>
+											<span style={{ fontSize: "1.05rem", fontWeight: 500, lineHeight: 1 }}>{label}</span>
+										</Link>
 									) : (
-										<Link href={buildPageHref(slug)} onClick={handleNavigate} style={navLinkStyle}>
-											<>
-												<i className={iconClass} aria-hidden="true" style={iconStyle} />
-												{label}
-											</>
+										<Link
+											href={buildPageHref(slug)}
+											onClick={handleNavigate}
+											style={{
+												...(navLinkStyle || {}),
+												display: "flex",
+												alignItems: "center",
+												justifyContent: isSmallScreen ? "flex-start" : "center",
+												gap: "8px",
+												width: isSmallScreen ? "100%" : "auto",
+											}}
+										>
+											<IconComponent size={24} className="nav-icon-animated" />
+											<span style={{ fontSize: "1.05rem", fontWeight: 500 }}>{label}</span>
 										</Link>
 									)}
 								</li>

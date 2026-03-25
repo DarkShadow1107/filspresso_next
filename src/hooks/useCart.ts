@@ -5,7 +5,7 @@ import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
 
-const API_BASE = "http://localhost:4000/api";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000") + "/api";
 
 export type CartItem = {
 	id: string;
@@ -71,6 +71,7 @@ export default function useCart() {
 				headers: {
 					Authorization: `Bearer ${token}`,
 				},
+				keepalive: true,
 			});
 
 			if (res.ok) {
@@ -91,7 +92,7 @@ export default function useCart() {
 						qty: item.quantity,
 						image: item.image,
 						productType: item.productType,
-					})
+					}),
 				);
 				setItems(cartItems);
 				setCurrentSum(data.subtotalAfterDiscount ?? data.subtotal ?? computeSum(cartItems));
@@ -107,7 +108,7 @@ export default function useCart() {
 				setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
 			}
 		} catch (error) {
-			console.error("Failed to fetch cart:", error);
+			console.warn("Cart API unavailable. Retrying automatically.");
 		} finally {
 			setLoading(false);
 		}
@@ -152,6 +153,7 @@ export default function useCart() {
 					headers: {
 						Authorization: `Bearer ${token}`,
 					},
+					keepalive: true,
 				});
 				setItems([]);
 				setCurrentSum(0);
@@ -164,7 +166,7 @@ export default function useCart() {
 				notify("Failed to clear cart.", 5000, "error", "bag");
 			}
 		},
-		[notify]
+		[notify],
 	);
 
 	const placeOrder = useCallback(() => {
@@ -264,7 +266,7 @@ export default function useCart() {
 					],
 					persist: true,
 				});
-				return;
+				return false;
 			}
 
 			const qty = item.qty ?? 1;
@@ -285,21 +287,25 @@ export default function useCart() {
 						unitPrice: item.price,
 						quantity: qty,
 					}),
+					keepalive: true,
 				});
 
 				if (res.ok) {
 					// Refresh cart from server to get proper discounted total
 					await fetchCart();
+					return true;
 				} else {
 					const data = await res.json();
 					notify(data.error || "Failed to add item to cart.", 5000, "error", "bag");
+					return false;
 				}
 			} catch (error) {
 				console.error("Failed to add to cart:", error);
 				notify("Failed to add item to cart.", 5000, "error", "bag");
+				return false;
 			}
 		},
-		[notify, router, fetchCart]
+		[notify, router, fetchCart],
 	);
 
 	const removeItem = useCallback(
@@ -316,6 +322,7 @@ export default function useCart() {
 				// First, get the cart to find the database ID
 				const cartRes = await fetch(`${API_BASE}/cart`, {
 					headers: { Authorization: `Bearer ${token}` },
+					keepalive: true,
 				});
 
 				if (cartRes.ok) {
@@ -326,6 +333,7 @@ export default function useCart() {
 						await fetch(`${API_BASE}/cart/${dbItem.id}`, {
 							method: "DELETE",
 							headers: { Authorization: `Bearer ${token}` },
+							keepalive: true,
 						});
 					}
 				}
@@ -337,7 +345,7 @@ export default function useCart() {
 				notify("Failed to remove item from cart.", 5000, "error", "bag");
 			}
 		},
-		[items, notify, fetchCart]
+		[items, notify, fetchCart],
 	);
 
 	const updateQuantity = useCallback(
@@ -351,6 +359,7 @@ export default function useCart() {
 				// Get the cart to find the database ID
 				const cartRes = await fetch(`${API_BASE}/cart`, {
 					headers: { Authorization: `Bearer ${token}` },
+					keepalive: true,
 				});
 
 				if (cartRes.ok) {
@@ -358,14 +367,28 @@ export default function useCart() {
 					const dbItem = cartData.items.find((item: { productId: string; id: number }) => item.productId === id);
 
 					if (dbItem) {
-						await fetch(`${API_BASE}/cart/${dbItem.id}`, {
+						const updateRes = await fetch(`${API_BASE}/cart/${dbItem.id}`, {
 							method: "PUT",
 							headers: {
 								"Content-Type": "application/json",
 								Authorization: `Bearer ${token}`,
 							},
 							body: JSON.stringify({ quantity: newQty }),
+							keepalive: true,
 						});
+
+						if (!updateRes.ok) {
+							let message = "Failed to update cart.";
+							try {
+								const data = await updateRes.json();
+								if (data?.error) {
+									message = data.error;
+								}
+							} catch {
+								// Ignore malformed/non-JSON error payloads
+							}
+							notify(message, 5000, "error", "bag");
+						}
 					}
 				}
 
@@ -376,7 +399,7 @@ export default function useCart() {
 				notify("Failed to update cart.", 5000, "error", "bag");
 			}
 		},
-		[items, notify, fetchCart]
+		[items, notify, fetchCart],
 	);
 
 	return {

@@ -29,6 +29,8 @@ export type WeatherData = {
 	longitude: number;
 	timezone: string;
 	timezone_abbreviation: string;
+	city: string | null;
+	country: string | null;
 	current: CurrentWeather | null;
 	hourly: HourlyWeather | null;
 	recommendation: WeatherRecommendation | null;
@@ -113,16 +115,16 @@ export function getWeatherDescription(code: number): string {
  * Get weather icon based on WMO weather code and day/night
  */
 export function getWeatherIcon(code: number, isDay: boolean = true): string {
-	if (code === 0) return isDay ? "☀️" : "🌙";
-	if (code <= 3) return isDay ? "⛅" : "☁️";
-	if (code <= 48) return "🌫️";
-	if (code <= 55) return "🌧️";
-	if (code <= 67) return "🌧️";
-	if (code <= 77) return "❄️";
-	if (code <= 82) return "🌧️";
-	if (code <= 86) return "🌨️";
-	if (code >= 95) return "⛈️";
-	return "🌤️";
+	if (code === 0) return isDay ? "clear-day" : "clear-night";
+	if (code <= 3) return isDay ? "partly-cloudy-day" : "partly-cloudy-night";
+	if (code <= 48) return "fog";
+	if (code <= 55) return "drizzle";
+	if (code <= 67) return "rain";
+	if (code <= 77) return "snow";
+	if (code <= 82) return "rain-showers";
+	if (code <= 86) return "snow-showers";
+	if (code >= 95) return "thunderstorm";
+	return "clear-day";
 }
 
 /**

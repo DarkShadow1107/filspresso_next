@@ -6,6 +6,28 @@ import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+import {
+	ClockIcon,
+	TrashIcon,
+	LockIcon,
+	HistoryCircleIcon,
+	RosetteDiscountIcon,
+	ArrowNarrowUpIcon,
+	ArrowNarrowDownIcon,
+	SparklesIcon,
+	FlameIcon,
+	CpuIcon,
+	ChartBarIcon,
+	SimpleCheckedIcon,
+	CoffeeIcon,
+	BrandGeminiIcon,
+	BrandOllamaIcon,
+	BrandGrokIcon,
+	PenIcon,
+} from "@/icons";
+
 type CurrentSubscription = {
 	tier: string;
 	billing_cycle: "monthly" | "annual" | null;
@@ -31,7 +53,7 @@ const plans = [
 		title: "Ultimate",
 		priceRon: 599.99,
 		priceRonYearly: 6299.99,
-		kafelotModel: "ode" as const,
+		kafelotModel: "tanka" as const,
 		color: "red",
 		recommended: false,
 		tier: 5,
@@ -39,14 +61,11 @@ const plans = [
 			"200 capsules par mois",
 			"Espressor Gran Lattissima Noir Élégant",
 			"1x Suport capsules Mia Lume",
-			"🎼 Kafelot Ode - 50 prompts/month",
-			"⚡ Kafelot Villanelle - 100 prompts/month",
 			"🤖 Kafelot Tanka - 1000 prompts/month",
 			"💾 200-conversation memory",
-			"🧠 Expert-level deep analysis",
-			"🧬 Chemistry Mode - 10,000+ molecules visualization (ChEMBL)",
-			"🔬 2D/3D molecular visualization with RDKit & Py3Dmol",
-			"📊 Advanced molecular property analysis",
+			"📷 CLIP Image Search - 50 queries/month",
+			"🧬 Molecule Helper (MolScribe AI — 10,000+ molecules)",
+			"✏️ Edit prompt feature",
 		],
 	},
 	{
@@ -54,7 +73,7 @@ const plans = [
 		title: "Max",
 		priceRon: 279.99,
 		priceRonYearly: 2699.99,
-		kafelotModel: "villanelle" as const,
+		kafelotModel: "tanka" as const,
 		color: "purple",
 		recommended: true,
 		tier: 4,
@@ -62,9 +81,10 @@ const plans = [
 			"120 capsules par mois",
 			"Espressor Vertuo Next C Rouge Cerise",
 			"1x Suport des bonbons",
-			"⚡ Kafelot Villanelle - 20 prompts/month",
 			"🤖 Kafelot Tanka - 300 prompts/month",
 			"💾 100-conversation memory",
+			"📷 CLIP Image Search - 25 queries/month",
+			"✏️ Edit prompt feature",
 		],
 	},
 	{
@@ -82,6 +102,7 @@ const plans = [
 			"1x Suport des bonbons",
 			"🤖 Kafelot Tanka - 150 prompts/month",
 			"💾 50-conversation memory",
+			"📷 CLIP Image Search - 10 queries/month",
 		],
 	},
 	{
@@ -116,6 +137,21 @@ const plans = [
 			"💾 5-conversation memory",
 		],
 	},
+	{
+		id: "free",
+		title: "Free",
+		priceRon: 0,
+		priceRonYearly: 0,
+		kafelotModel: "tanka" as const,
+		color: "grey",
+		recommended: false,
+		tier: 0,
+		benefits: [
+			"🤖 Kafelot Tanka - 5 prompts/month (anonymous)",
+			"🤖 Kafelot Tanka - 15 prompts/month (with account)",
+			"Default for all accounts",
+		],
+	},
 ] as const;
 
 function formatRon(value: number) {
@@ -147,7 +183,7 @@ export default function SubscriptionPageContent() {
 		if (session) {
 			try {
 				const { token } = JSON.parse(session);
-				fetch("http://localhost:4000/api/subscriptions", {
+				fetch(`${API_BASE}/api/subscriptions`, {
 					headers: { Authorization: `Bearer ${token}` },
 				})
 					.then((res) => res.json())
@@ -189,7 +225,7 @@ export default function SubscriptionPageContent() {
 	// Get CTA button text based on plan status (shown normally)
 	const getButtonText = (plan: (typeof plans)[number]): string => {
 		const action = getPlanAction(plan);
-		if (action === "current") return "✓ Current Plan";
+		if (action === "current") return "Current Plan";
 		// For users without subscription, show "Get Started" for basic and "Get {Plan}" for others
 		if (!currentSubscription) {
 			return plan.id === "basic" ? "Get Started" : `Get ${plan.title}`;
@@ -202,7 +238,7 @@ export default function SubscriptionPageContent() {
 	// Get CTA hover text (shown in overlay on hover)
 	const getHoverText = (plan: (typeof plans)[number]): string => {
 		const action = getPlanAction(plan);
-		if (action === "current") return "✓ Current Plan";
+		if (action === "current") return "Current Plan";
 		if (!currentSubscription) {
 			return plan.id === "basic" ? "Get Started" : `Get ${plan.title}`;
 		}
@@ -252,7 +288,7 @@ export default function SubscriptionPageContent() {
 			const { token } = JSON.parse(session);
 			const billingCycle = billingPeriod === "yearly" ? "annual" : "monthly";
 
-			const res = await fetch("http://localhost:4000/api/subscriptions/change", {
+			const res = await fetch(`${API_BASE}/api/subscriptions/change`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -285,8 +321,8 @@ export default function SubscriptionPageContent() {
 									status: "ending",
 									end_date: data.currentEnds,
 									auto_renew: false,
-							  }
-							: null
+								}
+							: null,
 					);
 					setScheduledSubscription(data.scheduled);
 				}
@@ -474,14 +510,39 @@ export default function SubscriptionPageContent() {
 							</p>
 							<p
 								style={{
-									margin: "0.25rem 0 0 0",
+									margin: "0.4rem 0 0 0",
 									color: currentSubscription.status === "ending" ? "#ef4444" : "#c4a77d",
 									fontSize: "1.25rem",
 									fontWeight: 600,
+									display: "flex",
+									alignItems: "center",
+									gap: "8px",
 								}}
 							>
-								{currentSubscription.tier.charAt(0).toUpperCase() + currentSubscription.tier.slice(1)} (
-								{currentSubscription.billing_cycle === "annual" ? "Yearly" : "Monthly"})
+								{currentSubscription.tier.charAt(0).toUpperCase() + currentSubscription.tier.slice(1)}
+								<span
+									style={{
+										display: "inline-flex",
+										alignItems: "center",
+										gap: "4px",
+										fontSize: "0.95rem",
+										opacity: 0.8,
+										background: "rgba(196, 167, 125, 0.1)",
+										padding: "2px 8px",
+										borderRadius: "4px",
+										marginLeft: "4px",
+									}}
+								>
+									{currentSubscription.billing_cycle === "annual" ? (
+										<span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+											<HistoryCircleIcon size={20} color="#ae8966" /> Yearly
+										</span>
+									) : (
+										<span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+											<ClockIcon size={20} color="#ae8966" /> Monthly
+										</span>
+									)}
+								</span>
 							</p>
 						</div>
 						<div style={{ textAlign: "right" }}>
@@ -490,7 +551,7 @@ export default function SubscriptionPageContent() {
 									<>
 										<span style={{ color: "#ef4444" }}>Ends</span>{" "}
 										{new Date(
-											currentSubscription.end_date || currentSubscription.renewal_date || ""
+											currentSubscription.end_date || currentSubscription.renewal_date || "",
 										).toLocaleDateString()}
 									</>
 								) : (
@@ -542,7 +603,18 @@ export default function SubscriptionPageContent() {
 						}}
 					>
 						<div>
-							<p style={{ margin: 0, color: "#888", fontSize: "0.85rem" }}>📅 Scheduled Plan</p>
+							<p
+								style={{
+									margin: 0,
+									color: "#888",
+									fontSize: "0.85rem",
+									display: "flex",
+									alignItems: "center",
+									gap: "8px",
+								}}
+							>
+								<ClockIcon size={20} /> Scheduled Plan
+							</p>
 							<p style={{ margin: "0.25rem 0 0 0", color: "#10b981", fontSize: "1.25rem", fontWeight: 600 }}>
 								{scheduledSubscription.tier.charAt(0).toUpperCase() + scheduledSubscription.tier.slice(1)} (
 								{scheduledSubscription.billing_cycle === "annual" ? "Yearly" : "Monthly"})
@@ -561,23 +633,40 @@ export default function SubscriptionPageContent() {
 					</div>
 				)}
 
-				{/* Billing Period Toggle */}
 				<div className="billing-toggle-container">
-					<div className="billing-toggle">
+					<div className="billing-toggle" style={{ padding: "0.6rem", gap: "0.8rem" }}>
 						<button
 							className={`toggle-btn ${billingPeriod === "monthly" ? "active" : ""}`}
 							onClick={() => setBillingPeriod("monthly")}
+							style={{ minWidth: "160px" }}
 						>
-							📅 Monthly
+							<ClockIcon size={26} color="white" />
+							<span>Monthly</span>
 						</button>
 						<button
 							className={`toggle-btn ${billingPeriod === "yearly" ? "active" : ""}`}
 							onClick={() => setBillingPeriod("yearly")}
+							style={{ minWidth: "160px" }}
 						>
-							📆 Yearly
+							<HistoryCircleIcon size={26} color="white" />
+							<span>Yearly</span>
 						</button>
 					</div>
-					{billingPeriod === "yearly" && <div className="savings-notice">💰 Save up to 40% with yearly billing!</div>}
+					<div
+						className="savings-notice"
+						style={{
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+							gap: "0.5rem",
+							marginTop: "1.5rem",
+							opacity: billingPeriod === "yearly" ? 1 : 0,
+							transition: "opacity 0.3s ease",
+						}}
+					>
+						<RosetteDiscountIcon size={22} color="white" />
+						<span>Save up to 40% with yearly billing!</span>
+					</div>
 				</div>
 
 				<div className="cards">
@@ -607,14 +696,84 @@ export default function SubscriptionPageContent() {
 										<span className="card_savings-badge">Save {savings}%</span>
 									)}
 									<h2 className="card_heading">{plan.title}</h2>
-									<p className="card_price">{formatRon(currentPrice)}</p>
-									{billingPeriod === "yearly" && (
+							<p className="card_price">{plan.priceRon === 0 ? "Free" : formatRon(currentPrice)}</p>
+							{billingPeriod === "yearly" && plan.priceRon > 0 && (
 										<p className="card_price-breakdown">{formatRon(currentPrice / 12)}/month</p>
 									)}
-									<ul className="card_bullets">
-										{plan.benefits.map((benefit) => (
-											<li key={benefit}>{benefit}</li>
-										))}
+									<ul className="card_bullets" style={{ padding: 0, listStyle: "none" }}>
+										{(plan.id === "free"
+											? [
+												"Kafelot Tanka - 5 prompts/month (anonymous)",
+												"Kafelot Tanka - 15 prompts/month (with account)",
+													"Default for all accounts",
+											]
+											: (plan.benefits as readonly string[])
+										).map((benefit) => {
+											const getIcon = () => {
+												const iconSize = 20;
+												const iconColor = "#ae8966";
+												if (benefit.includes("🎼"))
+													return <BrandGrokIcon size={iconSize} color={iconColor} />;
+												if (benefit.includes("⚡"))
+													return <BrandOllamaIcon size={iconSize} color={iconColor} />;
+												if (benefit.includes("🤖"))
+													return <BrandGeminiIcon size={iconSize} color={iconColor} />;
+												if (benefit.includes("💾"))
+													return <HistoryCircleIcon size={iconSize} color={iconColor} />;
+												// CLIP Image Search → Ollama icon
+												if (benefit.includes("📷"))
+													return <BrandOllamaIcon size={iconSize} color={iconColor} />;
+												// Molecule Helper (MolScribe) → Grok icon
+												if (benefit.includes("🧬"))
+													return <BrandGrokIcon size={iconSize} color={iconColor} />;
+												if (benefit.includes("📊"))
+													return <ChartBarIcon size={iconSize} color={iconColor} />;
+										if (benefit.includes("✏️"))
+											return <PenIcon size={iconSize} color={iconColor} />;
+										if (benefit.toLowerCase().includes("kafelot") || benefit.toLowerCase().includes("prompts"))
+											return <BrandGeminiIcon size={iconSize} color={iconColor} />;
+										if (benefit.toLowerCase().includes("suport"))
+											return <SimpleCheckedIcon size={iconSize} color={iconColor} />;
+										if (benefit.toLowerCase().includes("capsules"))
+											return <CoffeeIcon size={iconSize} color={iconColor} />;
+										if (benefit.toLowerCase().includes("espressor"))
+											return <SparklesIcon size={iconSize} color={iconColor} />;
+												return <SimpleCheckedIcon size={iconSize} color={iconColor} />;
+											};
+											const cleanBenefit = benefit.replace(/[🎼⚡🤖💾📷🧬📊✏️]\s*/g, "");
+											return (
+												<li
+													key={benefit}
+													style={{
+														display: "flex",
+														alignItems: "center",
+														gap: "12px",
+														marginBottom: "12px",
+													}}
+												>
+													<span
+														style={{
+															flexShrink: 0,
+															width: "24px",
+															display: "flex",
+															alignItems: "center",
+															justifyContent: "center",
+														}}
+													>
+														{getIcon()}
+													</span>
+													<span
+														style={{
+															fontSize: "0.95rem",
+															color: "rgba(221, 221, 221, 0.9)",
+															lineHeight: "1.4",
+														}}
+													>
+														{cleanBenefit}
+													</span>
+												</li>
+											);
+										})}
 									</ul>
 									<button
 										type="button"
@@ -628,7 +787,7 @@ export default function SubscriptionPageContent() {
 														background: "rgba(196, 167, 125, 0.2)",
 														cursor: "default",
 														opacity: 0.8,
-												  }
+													}
 												: undefined
 										}
 									>
@@ -669,8 +828,27 @@ export default function SubscriptionPageContent() {
 							border: "1px solid #333",
 						}}
 					>
-						<h3 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#fff", marginBottom: "1rem" }}>
-							{getPlanAction(pendingPlan) === "upgrade" ? "⬆️ Upgrade" : "⬇️ Downgrade"} to {pendingPlan.title}?
+						<h3
+							style={{
+								fontSize: "1.5rem",
+								fontWeight: 700,
+								color: "#fff",
+								marginBottom: "1rem",
+								display: "flex",
+								alignItems: "center",
+								gap: "8px",
+							}}
+						>
+							{getPlanAction(pendingPlan) === "upgrade" ? (
+								<div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+									<ArrowNarrowUpIcon size={24} color="#ae8966" /> Upgrade
+								</div>
+							) : (
+								<div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+									<ArrowNarrowDownIcon size={24} color="#ae8966" /> Downgrade
+								</div>
+							)}{" "}
+							to {pendingPlan.title}?
 						</h3>
 						<div style={{ color: "#888", marginBottom: "1.5rem", lineHeight: 1.6 }}>
 							<p style={{ marginBottom: "1rem" }}>

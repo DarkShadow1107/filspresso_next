@@ -5,9 +5,22 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import emailjs from "@emailjs/browser";
+import fx from "money";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { buildPageHref } from "@/lib/pages";
+import CreditCard from "@/icons/credit-card";
+import LockIcon from "@/icons/lock-icon";
+import {
+	CURRENCY_CONFIG,
+	FX_FETCH_CODES,
+	SUPPORTED_DESTINATIONS,
+	formatMoney,
+	roundCurrency,
+	type SupportedCurrencyCode,
+} from "@/lib/paymentCurrency";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 type CardType = {
 	name: string;
@@ -174,6 +187,16 @@ export default function PaymentPageContent() {
 	const [selectedSavedCard, setSelectedSavedCard] = useState<any | null>(null);
 	const [shouldSaveCard, setShouldSaveCard] = useState(false);
 	const [isCardDropdownOpen, setIsCardDropdownOpen] = useState(false);
+	const [isDestinationDropdownOpen, setIsDestinationDropdownOpen] = useState(false);
+	const [isCurrencyDropdownOpen, setIsCurrencyDropdownOpen] = useState(false);
+	const [selectedDestinationCode, setSelectedDestinationCode] = useState("RO");
+	const [selectedCurrency, setSelectedCurrency] = useState<SupportedCurrencyCode>("RON");
+	const [isCurrencyManuallySelected, setIsCurrencyManuallySelected] = useState(false);
+	const [fxRates, setFxRates] = useState<Partial<Record<SupportedCurrencyCode, number>>>({ RON: 1 });
+	const [fxUpdatedAt, setFxUpdatedAt] = useState<string | null>(null);
+	const [fxError, setFxError] = useState<string | null>(null);
+	const destinationDropdownRef = useRef<HTMLDivElement | null>(null);
+	const currencyDropdownRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => {
 		// Fetch saved cards from Express API
@@ -182,7 +205,7 @@ export default function PaymentPageContent() {
 			try {
 				const { token } = JSON.parse(session);
 				if (token) {
-					fetch("http://localhost:4000/api/cards", {
+					fetch(`${API_BASE}/api/cards`, {
 						headers: { Authorization: `Bearer ${token}` },
 					})
 						.then((res) => res.json())
@@ -198,6 +221,70 @@ export default function PaymentPageContent() {
 			}
 		}
 	}, []);
+
+	useEffect(() => {
+		let isActive = true;
+
+		const loadRates = async () => {
+			try {
+				setFxError(null);
+				const response = await fetch(`https://api.frankfurter.app/latest?from=RON&to=${FX_FETCH_CODES}`, {
+					cache: "no-store",
+				});
+
+				if (!response.ok) {
+					throw new Error(`FX request failed with status ${response.status}`);
+				}
+
+				const data = (await response.json()) as {
+					date?: string;
+					rates?: Partial<Record<SupportedCurrencyCode, number>>;
+				};
+
+				if (!isActive) return;
+
+				setFxRates({ RON: 1, ...(data.rates || {}) });
+				setFxUpdatedAt(data.date ?? new Date().toISOString().slice(0, 10));
+			} catch (error) {
+				console.error("Failed to load currency rates", error);
+				if (!isActive) return;
+				setFxError("Live exchange rates are temporarily unavailable. RON payments remain available.");
+			}
+		};
+
+		loadRates();
+
+		const refreshTimer = window.setInterval(loadRates, 6 * 60 * 60 * 1000);
+
+		return () => {
+			isActive = false;
+			window.clearInterval(refreshTimer);
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!isDestinationDropdownOpen && !isCurrencyDropdownOpen) {
+			return;
+		}
+
+		const handleOutsideClick = (event: MouseEvent) => {
+			const clickedDestination = destinationDropdownRef.current?.contains(event.target as Node);
+			const clickedCurrency = currencyDropdownRef.current?.contains(event.target as Node);
+
+			if (!clickedDestination) {
+				setIsDestinationDropdownOpen(false);
+			}
+
+			if (!clickedCurrency) {
+				setIsCurrencyDropdownOpen(false);
+			}
+		};
+
+		document.addEventListener("mousedown", handleOutsideClick);
+		return () => {
+			document.removeEventListener("mousedown", handleOutsideClick);
+		};
+	}, [isDestinationDropdownOpen, isCurrencyDropdownOpen]);
 
 	const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -273,7 +360,7 @@ export default function PaymentPageContent() {
 				}
 			}
 		},
-		[savedCards, notify]
+		[savedCards, notify],
 	);
 
 	const handleCardInput = useCallback(
@@ -281,7 +368,7 @@ export default function PaymentPageContent() {
 			const target = event.currentTarget;
 			formatCreditCard(target.value);
 		},
-		[formatCreditCard]
+		[formatCreditCard],
 	);
 
 	const handleExpiryChange = useCallback((event: FormEvent<HTMLInputElement>) => {
@@ -305,13 +392,15 @@ export default function PaymentPageContent() {
 
 			setExpiry((prev) => formatExpirySpacing(prev));
 		},
-		[expiry, formatExpirySpacing]
+		[expiry, formatExpirySpacing],
 	);
 
 	useEffect(() => {
 		if (typeof document !== "undefined") {
+			document.documentElement.classList.add("payment-page-html");
 			document.body.classList.add("payment-page-body");
 			return () => {
+				document.documentElement.classList.remove("payment-page-html");
 				document.body.classList.remove("payment-page-body");
 			};
 		}
@@ -353,6 +442,66 @@ export default function PaymentPageContent() {
 		return null;
 	}, [ccType]);
 
+	const selectedDestination =
+		SUPPORTED_DESTINATIONS.find((destination) => destination.code === selectedDestinationCode) ?? SUPPORTED_DESTINATIONS[0];
+
+	useEffect(() => {
+		if (isCurrencyManuallySelected) {
+			return;
+		}
+
+		setSelectedCurrency(selectedDestination.defaultCurrency as SupportedCurrencyCode);
+	}, [selectedDestination, isCurrencyManuallySelected]);
+
+	const baseHasFreeShipping = ["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) || currentSum >= 200;
+	const baseShippingCost = baseHasFreeShipping ? 0 : 24.99;
+	const selectedRate = selectedCurrency === "RON" ? 1 : Number(fxRates[selectedCurrency] || 0);
+	const canConvertCurrency = selectedCurrency === "RON" || selectedRate > 0;
+
+	if (canConvertCurrency) {
+		fx.base = "RON";
+		fx.rates = { RON: 1, ...(fxRates as Record<string, number>) };
+	}
+
+	const convertedSubtotal = roundCurrency(
+		selectedCurrency === "RON" || !canConvertCurrency ? currentSum : fx(currentSum).from("RON").to(selectedCurrency),
+	);
+	const convertedShippingCost = roundCurrency(
+		selectedCurrency === "RON" || !canConvertCurrency
+			? baseShippingCost
+			: fx(baseShippingCost).from("RON").to(selectedCurrency),
+	);
+	const conversionFeePercent = CURRENCY_CONFIG[selectedCurrency].feePercent;
+	const subtotalA = roundCurrency(items.reduce((sum, item) => sum + item.price * item.qty, 0));
+	const discountAmount = roundCurrency(memberDiscount.amount || 0);
+	const subtotalB = roundCurrency(Math.max(0, subtotalA - discountAmount));
+	const exchangeTaxAmountRon = selectedCurrency === "RON" ? 0 : roundCurrency(subtotalB * (conversionFeePercent / 100));
+	const totalBeforeVatRon = roundCurrency(subtotalB + exchangeTaxAmountRon);
+	const vatAmountRon = roundCurrency(totalBeforeVatRon * 0.21);
+	const chargedTotalDisplay =
+		selectedCurrency === "RON" ? roundCurrency(totalBeforeVatRon) : roundCurrency(totalBeforeVatRon * selectedRate);
+	const conversionFeeAmount =
+		selectedCurrency === "RON"
+			? 0
+			: roundCurrency((convertedSubtotal + convertedShippingCost) * (conversionFeePercent / 100));
+	const chargedTotal = roundCurrency(convertedSubtotal + convertedShippingCost + conversionFeeAmount);
+	const ronEquivalentSubtotal = roundCurrency(currentSum);
+	const ronEquivalentShipping = roundCurrency(baseShippingCost);
+	const ronEquivalentConversionFee =
+		selectedCurrency === "RON"
+			? 0
+			: roundCurrency((ronEquivalentSubtotal + ronEquivalentShipping) * (conversionFeePercent / 100));
+	const ronEquivalentTotal = roundCurrency(ronEquivalentSubtotal + ronEquivalentShipping + ronEquivalentConversionFee);
+	const shipmentRuleMessage =
+		selectedDestination.shippingRegion === "exception"
+			? `${selectedDestination.name} ships as an explicit exception to the standard EU-only shipment rule.`
+			: `${selectedDestination.name} is covered by the standard EU shipment rule.`;
+	const shippingAutoDetectLabel =
+		selectedDestination.shippingRegion === "eu"
+			? `Auto-detected: ${selectedDestination.name} is in the EU shipping zone.`
+			: `Auto-detected: ${selectedDestination.name} is an approved non-EU shipping exception.`;
+	const exchangeRateLabel = canConvertCurrency ? `1 RON = ${selectedRate.toFixed(4)} ${selectedCurrency}` : "Rate unavailable";
+
 	const sendPaymentConfirmationEmail = useCallback(async () => {
 		try {
 			const session = sessionStorage.getItem("account_session");
@@ -380,7 +529,7 @@ export default function PaymentPageContent() {
 					to_name: userName ?? "",
 					items_list: [],
 				},
-				"T-VQxrMdcr_OdDWSa"
+				"T-VQxrMdcr_OdDWSa",
 			);
 		} catch (error) {
 			console.error("Error sending email:", error);
@@ -392,10 +541,18 @@ export default function PaymentPageContent() {
 		const cardDigits = removeAllSpaces(ccNum);
 		const cvvNumber = cvv;
 
-		// Calculate shipping and total - free shipping for Master+ tiers or orders over 200 RON
-		const hasFreeShipping = ["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) || currentSum >= 200;
-		const shippingCost = hasFreeShipping ? 0 : 24.99;
-		const paymentTotal = currentSum + shippingCost;
+		if (selectedCurrency !== "RON" && !canConvertCurrency) {
+			notify(
+				"Live exchange rates are required for non-RON payments. Please try again or switch back to RON.",
+				6000,
+				"error",
+				"payment",
+			);
+			return;
+		}
+
+		const shippingCost = baseShippingCost;
+		const paymentTotal = chargedTotal;
 
 		// Check session storage for login state
 		const session = sessionStorage.getItem("account_session");
@@ -418,7 +575,7 @@ export default function PaymentPageContent() {
 						"You need to enter a card number formed of 16 digits or 15 digits if it is an American Express card!",
 						5000,
 						"error",
-						"payment"
+						"payment",
 					);
 					return;
 				} else if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
@@ -426,7 +583,7 @@ export default function PaymentPageContent() {
 						"Your CVV code should be formed of 3 digits or 4 if it is an American Express card!",
 						5000,
 						"error",
-						"payment"
+						"payment",
 					);
 					return;
 				}
@@ -442,7 +599,7 @@ export default function PaymentPageContent() {
 
 			if (shouldSaveCard && !selectedSavedCard && token) {
 				try {
-					await fetch("http://localhost:4000/api/cards", {
+					await fetch(`${API_BASE}/api/cards`, {
 						method: "POST",
 						headers: {
 							"Content-Type": "application/json",
@@ -473,7 +630,7 @@ export default function PaymentPageContent() {
 
 				// Create subscription via API
 				try {
-					const subResponse = await fetch("http://localhost:4000/api/subscriptions", {
+					const subResponse = await fetch(`${API_BASE}/api/subscriptions`, {
 						method: "POST",
 						headers: {
 							"Content-Type": "application/json",
@@ -490,26 +647,26 @@ export default function PaymentPageContent() {
 						const subData = await subResponse.json();
 						const renewalDate = subData.subscription?.renewal_date
 							? new Date(subData.subscription.renewal_date).toLocaleDateString("en-US", {
-									weekday: "short",
+									weekday: "long",
 									year: "numeric",
-									month: "short",
+									month: "long",
 									day: "numeric",
-							  })
+								})
 							: "";
 
 						// Show subscription-specific notification (no delivery, confirmed immediately)
 						notify(
-							`🎉 Subscription confirmed! Your ${
+							`Subscription confirmed! Your ${
 								subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)
 							} plan is now active. Next renewal: ${renewalDate}`,
 							6000,
 							"success",
-							"payment"
+							"payment",
 						);
 
 						// Also create an order record for the subscription
 						try {
-							await fetch("http://localhost:4000/api/orders", {
+							await fetch(`${API_BASE}/api/orders`, {
 								method: "POST",
 								headers: {
 									"Content-Type": "application/json",
@@ -527,10 +684,22 @@ export default function PaymentPageContent() {
 										},
 									],
 									shippingCost: 0,
-									total: subscriptionItem.price,
-									paymentMethod: cType || "Card",
+									total: ronEquivalentTotal,
+									paymentMethod: `${cType || "Card"} (${selectedCurrency})`,
 									cardId: selectedSavedCard?.id || null,
 									isSubscription: true,
+									currencyCode: selectedCurrency,
+									exchangeRate: selectedRate || 1,
+									conversionFeePercent,
+									chargedSubtotal: convertedSubtotal,
+									chargedShippingCost: 0,
+									chargedTax: conversionFeeAmount,
+									chargedTotal: paymentTotal,
+									destinationCountry: selectedDestination.name,
+									shippingAddress: {
+										country: selectedDestination.name,
+										region: selectedDestination.shippingRegion,
+									},
 								}),
 							});
 						} catch (e) {
@@ -553,18 +722,16 @@ export default function PaymentPageContent() {
 			} else {
 				// Regular product order
 				notify(
-					`Your ${cType} card will be charged ${paymentTotal.toFixed(
-						2
-					)} RON, and the package will be delivered as soon as possible!`,
+					`Your ${cType} card will be charged ${formatMoney(paymentTotal, selectedCurrency)}. ${shipmentRuleMessage}`,
 					4000,
 					"success",
-					"payment"
+					"payment",
 				);
 
 				// Save order to backend
 				try {
 					if (token && items.length > 0) {
-						await fetch("http://localhost:4000/api/orders", {
+						await fetch(`${API_BASE}/api/orders`, {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
@@ -580,9 +747,21 @@ export default function PaymentPageContent() {
 									productImage: item.image,
 								})),
 								shippingCost: shippingCost,
-								total: paymentTotal,
-								paymentMethod: cType || "Card",
+								total: ronEquivalentTotal,
+								paymentMethod: `${cType || "Card"} (${selectedCurrency})`,
 								cardId: selectedSavedCard?.id || null,
+								currencyCode: selectedCurrency,
+								exchangeRate: selectedRate || 1,
+								conversionFeePercent,
+								chargedSubtotal: convertedSubtotal,
+								chargedShippingCost: convertedShippingCost,
+								chargedTax: conversionFeeAmount,
+								chargedTotal: paymentTotal,
+								destinationCountry: selectedDestination.name,
+								shippingAddress: {
+									country: selectedDestination.name,
+									region: selectedDestination.shippingRegion,
+								},
 							}),
 						});
 					}
@@ -632,6 +811,17 @@ export default function PaymentPageContent() {
 		expiry,
 		shouldSaveCard,
 		selectedSavedCard,
+		selectedCurrency,
+		selectedDestination,
+		selectedRate,
+		convertedSubtotal,
+		convertedShippingCost,
+		conversionFeeAmount,
+		conversionFeePercent,
+		chargedTotal,
+		ronEquivalentTotal,
+		canConvertCurrency,
+		baseShippingCost,
 		reset,
 		router,
 		sendPaymentConfirmationEmail,
@@ -652,6 +842,181 @@ export default function PaymentPageContent() {
 				</Link>
 			</div>
 			<div className="payment-card">
+				<div className="payment-summary-card">
+					<div className="payment-meta-grid">
+						<label className="payment-field payment-span-1 payment-destination-field">
+							<span className="payment-field__title">Shipping destination</span>
+							<p className="payment-field__helper">EU destinations plus Switzerland and Turkey are supported.</p>
+							<div
+								className={`payment-input-wrapper payment-custom-dropdown ${isDestinationDropdownOpen ? "is-open" : ""}`}
+								ref={destinationDropdownRef}
+							>
+								<button
+									type="button"
+									className="payment-select payment-select--themed payment-select-trigger"
+									onClick={() => setIsDestinationDropdownOpen((prev) => !prev)}
+									aria-haspopup="listbox"
+									aria-expanded={isDestinationDropdownOpen}
+								>
+									<span>
+										{selectedDestination.name}{" "}
+										{selectedDestination.shippingRegion === "eu" ? "- EU" : "- Exception"}
+									</span>
+								</button>
+								{isDestinationDropdownOpen && (
+									<div
+										className="payment-dropdown-menu payment-scrollbar-theme"
+										role="listbox"
+										aria-label="Shipping destination"
+									>
+										{SUPPORTED_DESTINATIONS.map((destination) => (
+											<button
+												key={destination.code}
+												type="button"
+												className={`payment-dropdown-option ${
+													selectedDestinationCode === destination.code ? "is-selected" : ""
+												}`}
+												onClick={() => {
+													setSelectedDestinationCode(destination.code);
+													setIsDestinationDropdownOpen(false);
+												}}
+												role="option"
+												aria-selected={selectedDestinationCode === destination.code}
+											>
+												<span>{destination.name}</span>
+												<small>{destination.shippingRegion === "eu" ? "EU" : "Exception"}</small>
+											</button>
+										))}
+									</div>
+								)}
+							</div>
+							<p className="payment-field__helper payment-field__helper--status">{shippingAutoDetectLabel}</p>
+						</label>
+						<label className="payment-field payment-span-1 payment-currency-field">
+							<span className="payment-field__title">Payment currency</span>
+							<p className="payment-field__helper">
+								RON is the base currency. Other currencies include a daily FX conversion tax.
+							</p>
+							<div
+								className={`payment-input-wrapper payment-custom-dropdown ${isCurrencyDropdownOpen ? "is-open" : ""}`}
+								ref={currencyDropdownRef}
+							>
+								<button
+									type="button"
+									className="payment-select payment-select--themed payment-select-trigger"
+									onClick={() => setIsCurrencyDropdownOpen((prev) => !prev)}
+									aria-haspopup="listbox"
+									aria-expanded={isCurrencyDropdownOpen}
+								>
+									<span>
+										{selectedCurrency} · {CURRENCY_CONFIG[selectedCurrency].label}
+									</span>
+								</button>
+								{isCurrencyDropdownOpen && (
+									<div
+										className="payment-dropdown-menu payment-scrollbar-theme"
+										role="listbox"
+										aria-label="Payment currency"
+									>
+										{(
+											Object.entries(CURRENCY_CONFIG) as Array<
+												[SupportedCurrencyCode, (typeof CURRENCY_CONFIG)[SupportedCurrencyCode]]
+											>
+										).map(([currencyCode, currencyMeta]) => (
+											<button
+												key={currencyCode}
+												type="button"
+												className={`payment-dropdown-option ${selectedCurrency === currencyCode ? "is-selected" : ""}`}
+												onClick={() => {
+													setIsCurrencyManuallySelected(true);
+													setSelectedCurrency(currencyCode);
+													setIsCurrencyDropdownOpen(false);
+												}}
+												role="option"
+												aria-selected={selectedCurrency === currencyCode}
+											>
+												<span>{currencyCode}</span>
+												<small>{currencyMeta.label}</small>
+											</button>
+										))}
+									</div>
+								)}
+							</div>
+							<p className="payment-field__helper payment-field__helper--status">
+								{isCurrencyManuallySelected
+									? "Currency manually selected for this checkout."
+									: "Currency auto-matched from shipping destination."}
+							</p>
+						</label>
+					</div>
+
+					<div className="payment-summary-banner">
+						<div>
+							<strong>{shipmentRuleMessage}</strong>
+							<span>{fxUpdatedAt ? `Daily FX reference: ${fxUpdatedAt}.` : "Daily FX reference pending."}</span>
+						</div>
+						<div>
+							<strong>{exchangeRateLabel}</strong>
+							<span>
+								Exchange tax: {conversionFeePercent}%{" "}
+								{selectedCurrency === "RON" ? "not applied for RON." : "applied to the converted total."}
+							</span>
+						</div>
+					</div>
+
+					{fxError && <div className="payment-summary-warning">{fxError}</div>}
+
+					<div className="payment-breakdown">
+						<div className="payment-breakdown__row">
+							<span>Subtotal A</span>
+							<div className="payment-breakdown__value">
+								<strong>{formatMoney(subtotalA, "RON")}</strong>
+							</div>
+						</div>
+						{discountAmount > 0 && (
+							<div className="payment-breakdown__row">
+								<span>Discount</span>
+								<div className="payment-breakdown__value">
+									<strong>- {formatMoney(discountAmount, "RON")}</strong>
+								</div>
+							</div>
+						)}
+						<div className="payment-breakdown__row">
+							<span>Subtotal B</span>
+							<div className="payment-breakdown__value">
+								<strong>{formatMoney(subtotalB, "RON")}</strong>
+							</div>
+						</div>
+						<div className="payment-breakdown__row">
+							<span>Exchange tax ({conversionFeePercent}%)</span>
+							<div className="payment-breakdown__value">
+								<strong>{formatMoney(exchangeTaxAmountRon, "RON")}</strong>
+							</div>
+						</div>
+						<div className="payment-breakdown__row payment-breakdown__row--total">
+							<span>Total to charge</span>
+							<div className="payment-breakdown__value">
+								<strong>{formatMoney(totalBeforeVatRon, "RON")}</strong>
+							</div>
+						</div>
+						<div className="payment-breakdown__row">
+							<span>VAT (21%)</span>
+							<div className="payment-breakdown__value">
+								<strong>{formatMoney(vatAmountRon, "RON")}</strong>
+							</div>
+						</div>
+						<div className="payment-breakdown__row payment-breakdown__row--total">
+							<span>Charged total</span>
+							<div className="payment-breakdown__value">
+								<strong>{formatMoney(chargedTotalDisplay, selectedCurrency)}</strong>
+							</div>
+						</div>
+						<div className="payment-breakdown__footnote">
+							RON ledger equivalent: {formatMoney(totalBeforeVatRon, "RON")}
+						</div>
+					</div>
+				</div>
+
 				{savedCards.length > 0 && (
 					<div
 						className="saved-cards-selector"
@@ -695,7 +1060,11 @@ export default function PaymentPageContent() {
 										color: selectedSavedCard ? "#fff" : "#888",
 									}}
 								>
-									{selectedSavedCard ? "💳" : "💳"}
+									<CreditCard
+										size={18}
+										color={selectedSavedCard ? "#f7f7f7" : "#a0a0a0"}
+										className="payment-inline-animated-icon"
+									/>
 								</div>
 								<div>
 									<div
@@ -732,6 +1101,7 @@ export default function PaymentPageContent() {
 						{/* Dropdown Menu */}
 						{isCardDropdownOpen && (
 							<div
+								className="payment-scrollbar-theme"
 								style={{
 									position: "absolute",
 									top: "calc(100% + 8px)",
@@ -746,55 +1116,57 @@ export default function PaymentPageContent() {
 									animation: "fadeIn 0.2s ease-out",
 								}}
 							>
-								{savedCards.map((card) => (
-									<div
-										key={card.id}
-										onClick={() => {
-											handleSelectCard(card.id.toString());
-											setIsCardDropdownOpen(false);
-										}}
-										style={{
-											padding: "1rem 1.25rem",
-											display: "flex",
-											alignItems: "center",
-											justifyContent: "space-between",
-											cursor: "pointer",
-											background: selectedSavedCard?.id === card.id ? "#1a1a1a" : "transparent",
-											borderBottom: "1px solid #222",
-											transition: "background 0.2s",
-										}}
-										onMouseEnter={(e) => (e.currentTarget.style.background = "#1a1a1a")}
-										onMouseLeave={(e) =>
-											(e.currentTarget.style.background =
-												selectedSavedCard?.id === card.id ? "#1a1a1a" : "transparent")
-										}
-									>
-										<div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-											<div
-												style={{
-													fontFamily: "'Courier New', monospace",
-													color: "#fff",
-													fontSize: "1rem",
-													letterSpacing: "1px",
-												}}
-											>
-												•••• {card.card_last_four}
+								<div style={{ maxHeight: "15.5rem", overflowY: "auto" }} className="payment-scrollbar-theme">
+									{savedCards.map((card) => (
+										<div
+											key={card.id}
+											onClick={() => {
+												handleSelectCard(card.id.toString());
+												setIsCardDropdownOpen(false);
+											}}
+											style={{
+												padding: "1rem 1.25rem",
+												display: "flex",
+												alignItems: "center",
+												justifyContent: "space-between",
+												cursor: "pointer",
+												background: selectedSavedCard?.id === card.id ? "#1a1a1a" : "transparent",
+												borderBottom: "1px solid #222",
+												transition: "background 0.2s",
+											}}
+											onMouseEnter={(e) => (e.currentTarget.style.background = "#1a1a1a")}
+											onMouseLeave={(e) =>
+												(e.currentTarget.style.background =
+													selectedSavedCard?.id === card.id ? "#1a1a1a" : "transparent")
+											}
+										>
+											<div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+												<div
+													style={{
+														fontFamily: "'Courier New', monospace",
+														color: "#fff",
+														fontSize: "1rem",
+														letterSpacing: "1px",
+													}}
+												>
+													•••• {card.card_last_four}
+												</div>
+												<div
+													style={{
+														background: "#222",
+														padding: "2px 8px",
+														borderRadius: "4px",
+														fontSize: "0.75rem",
+														color: "#aaa",
+													}}
+												>
+													{card.card_type}
+												</div>
 											</div>
-											<div
-												style={{
-													background: "#222",
-													padding: "2px 8px",
-													borderRadius: "4px",
-													fontSize: "0.75rem",
-													color: "#aaa",
-												}}
-											>
-												{card.card_type}
-											</div>
+											{selectedSavedCard?.id === card.id && <span style={{ color: "#c4a77d" }}>✓</span>}
 										</div>
-										{selectedSavedCard?.id === card.id && <span style={{ color: "#c4a77d" }}>✓</span>}
-									</div>
-								))}
+									))}
+								</div>
 
 								<div
 									onClick={() => {
@@ -993,15 +1365,23 @@ export default function PaymentPageContent() {
 													border: shouldSaveCard ? "none" : "1px solid #333",
 												}}
 											>
-												<span
-													style={{
-														fontSize: "2rem", // Increased font size
-														transition: "transform 0.3s ease",
-														transform: shouldSaveCard ? "scale(1.1)" : "scale(1)",
-													}}
-												>
-													{shouldSaveCard ? "🔒" : "💳"}
-												</span>
+												<div className={`payment-save-icon ${shouldSaveCard ? "is-active" : ""}`}>
+													<span className="payment-save-icon__main payment-save-icon__main--svg">
+														{shouldSaveCard ? (
+															<LockIcon
+																size={31}
+																color="#f8f8f8"
+																className="payment-inline-animated-icon"
+															/>
+														) : (
+															<CreditCard
+																size={31}
+																color="#f8f8f8"
+																className="payment-inline-animated-icon"
+															/>
+														)}
+													</span>
+												</div>
 											</div>
 											{/* Checkmark badge */}
 											{shouldSaveCard && (
@@ -1046,7 +1426,7 @@ export default function PaymentPageContent() {
 													gap: "0.5rem",
 												}}
 											>
-												<span style={{ fontSize: "1rem" }}>🔐</span>
+												<LockIcon size={16} color="#9f9f9f" className="payment-inline-animated-icon" />
 												<span>256-bit encrypted • One-click payments</span>
 											</div>
 										</div>
@@ -1090,8 +1470,14 @@ export default function PaymentPageContent() {
 						)}
 					</div>
 				</form>
-				<button type="button" onClick={handlePayment} id="pay" className="payment-pay-button">
-					Pay
+				<button
+					type="button"
+					onClick={handlePayment}
+					id="pay"
+					className="payment-pay-button"
+					disabled={selectedCurrency !== "RON" && !canConvertCurrency}
+				>
+					Pay {formatMoney(chargedTotal, selectedCurrency)}
 				</button>
 			</div>
 			<div className="payment-built-with">

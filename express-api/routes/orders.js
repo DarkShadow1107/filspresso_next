@@ -10,11 +10,46 @@
  */
 
 const express = require("express");
+const fs = require("fs");
 const pool = require("../db/connection");
 const { authenticate } = require("../middleware/auth");
 const { v4: uuidv4 } = require("uuid");
 
+let sharp = null;
+try {
+	sharp = require("sharp");
+} catch (error) {
+	console.warn("sharp is not available; invoice AVIF conversion disabled", error?.message || error);
+}
+
 const router = express.Router();
+const INVOICE_SERVICE_URL = process.env.INVOICE_SERVICE_URL || "http://localhost:8082";
+
+function invoiceServiceUrlCandidates() {
+	const seen = new Set();
+	const candidates = [];
+
+	const pushCandidate = (value) => {
+		if (!value || typeof value !== "string") return;
+		const trimmed = value.trim().replace(/\/$/, "");
+		if (!trimmed || seen.has(trimmed)) return;
+		seen.add(trimmed);
+		candidates.push(trimmed);
+	};
+
+	pushCandidate(INVOICE_SERVICE_URL);
+
+	// Spring/Tomcat may reject Host headers that include underscores.
+	if (INVOICE_SERVICE_URL.includes("invoice_java")) {
+		pushCandidate(INVOICE_SERVICE_URL.replace("invoice_java", "invoice-java"));
+	}
+
+	pushCandidate("http://invoice-java:8082");
+	pushCandidate("http://invoice_java:8082");
+	pushCandidate("http://localhost:8082");
+
+	return candidates;
+}
 
 // Tier discount percentages
 const TIER_DISCOUNTS = {
@@ -39,13 +74,222 @@ const TIER_THRESHOLDS = [
 const FREE_SHIPPING_TIERS = ["Master", "Virtuoso", "Ambassador"];
 const FREE_SHIPPING_THRESHOLD_TIERS = { Expert: 150 };
 
+function resolveInventoryTable(productType) {
+	if (productType === "capsule") return "coffee_products";
+	if (productType === "machine" || productType === "accessory") return "machine_products";
+	return null;
+}
+
+function createHttpError(status, message, details) {
+	const error = new Error(message);
+	error.status = status;
+	error.details = details;
+	return error;
+}
+
+function formatAddress(address) {
+	if (!address) return "";
+	if (typeof address === "string") return address;
+	if (typeof address === "object") {
+		const chunks = [
+			address.fullName,
+			address.name,
+			address.line1,
+			address.line2,
+			address.street,
+			address.city,
+			address.state,
+			address.postalCode,
+			address.zip,
+			address.country,
+		];
+		return chunks
+			.filter((chunk) => typeof chunk === "string" && chunk.trim().length > 0)
+			.map((chunk) => chunk.trim())
+			.join(", ");
+	}
+	return "";
+}
+
+function sanitizeInvoiceProductName(rawName) {
+	if (!rawName || typeof rawName !== "string") return "Product";
+	return rawName
+		.trim()
+		.replace(/\s*-\s*\d+(?:[.,]\d{1,2})?\s*(?:RON|EUR|USD|CHF|GBP)\s*$/i, "")
+		.replace(/\s{2,}/g, " ");
+}
+
+function deriveCapsuleSystem({ productType, productId, productImage, productName, capsuleSystem }) {
+	if (typeof capsuleSystem === "string") {
+		const normalized = capsuleSystem.trim().toLowerCase();
+		if (normalized === "original" || normalized === "vertuo") {
+			return normalized;
+		}
+	}
+
+	if (productType !== "capsule") {
+		return null;
+	}
+
+	const haystack = [productId, productImage, productName]
+		.filter((value) => typeof value === "string")
+		.join(" ")
+		.toLowerCase();
+
+	if (haystack.includes("vertuo")) return "vertuo";
+	if (haystack.includes("original")) return "original";
+
+	return null;
+}
+
+function normalizeInvoiceImagePath(rawImagePath) {
+	if (!rawImagePath || typeof rawImagePath !== "string") return null;
+	const trimmed = rawImagePath.trim();
+	if (!trimmed) return null;
+	if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+	if (trimmed.startsWith("/")) return trimmed;
+	return `/${trimmed}`;
+}
+
+function buildCoffeeImagePath(productRow) {
+	if (!productRow) return null;
+	const filename = typeof productRow.image_filename === "string" ? productRow.image_filename.trim() : "";
+	if (!filename) return null;
+
+	if (filename.startsWith("/") || filename.includes("/")) {
+		return normalizeInvoiceImagePath(filename);
+	}
+
+	const typeRaw = (productRow.product_type || "original").toString().trim().toLowerCase();
+	const categoryRaw = (productRow.category || "General").toString().trim();
+	const typeSegment = typeRaw === "vertuo" ? "Vertuo" : "Original";
+	const extRaw = (productRow.image_extension || "").toString().trim().replace(/^\./, "");
+	const hasKnownExt = /\.(png|avif|webp|jpg|jpeg|svg)$/i.test(filename);
+	const fullName = hasKnownExt || !extRaw ? filename : `${filename}.${extRaw}`;
+
+	return `/images/Capsules/${typeSegment}/${categoryRaw}/${fullName}`;
+}
+
+const invoiceImageDataUriCache = new Map();
+
+function toPublicImageFilePath(imagePath) {
+	if (!imagePath || typeof imagePath !== "string") return null;
+	const normalized = imagePath.trim().replace(/\\/g, "/");
+	if (!normalized) return null;
+
+	if (normalized.startsWith("/images/")) {
+		return `/public${normalized}`;
+	}
+	if (normalized.startsWith("images/")) {
+		return `/public/${normalized}`;
+	}
+	if (normalized.startsWith("/public/images/")) {
+		return normalized;
+	}
+	if (normalized.startsWith("public/images/")) {
+		return `/${normalized}`;
+	}
+
+	return null;
+}
+
+async function resolveInvoiceProductImagePath(imagePath) {
+	if (!imagePath || typeof imagePath !== "string") return null;
+	const normalized = normalizeInvoiceImagePath(imagePath);
+	if (!normalized) return null;
+
+	if (normalized.startsWith("data:image/")) {
+		return normalized;
+	}
+
+	if (!/\.avif($|\?)/i.test(normalized) || !sharp) {
+		return normalized;
+	}
+
+	const cacheHit = invoiceImageDataUriCache.get(normalized);
+	if (cacheHit) {
+		return cacheHit;
+	}
+
+	const filePath = toPublicImageFilePath(normalized);
+	if (!filePath || !fs.existsSync(filePath)) {
+		return normalized;
+	}
+
+	try {
+		const pngBuffer = await sharp(filePath).png({ compressionLevel: 9 }).toBuffer();
+		const dataUri = `data:image/png;base64,${pngBuffer.toString("base64")}`;
+		invoiceImageDataUriCache.set(normalized, dataUri);
+		return dataUri;
+	} catch (error) {
+		console.warn(`Failed to convert AVIF for invoice view (${normalized})`, error?.message || error);
+		return normalized;
+	}
+}
+
+async function buildInvoiceImageFallbacks(client, orderItems) {
+	const fallbackByKey = new Map();
+	if (!Array.isArray(orderItems) || orderItems.length === 0) {
+		return fallbackByKey;
+	}
+
+	const capsuleIds = [];
+	const machineLikeIds = [];
+
+	for (const item of orderItems) {
+		const productId = typeof item.product_id === "string" ? item.product_id.trim() : "";
+		if (!productId) continue;
+		if (item.product_type === "capsule") {
+			capsuleIds.push(productId);
+		} else if (item.product_type === "machine" || item.product_type === "accessory") {
+			machineLikeIds.push(productId);
+		}
+	}
+
+	if (capsuleIds.length > 0) {
+		const coffeeResult = await client.query(
+			`SELECT product_id, product_type, category, image_filename, image_extension
+			 FROM coffee_products
+			 WHERE product_id = ANY($1::text[])`,
+			[capsuleIds],
+		);
+
+		for (const row of coffeeResult.rows) {
+			const imagePath = buildCoffeeImagePath(row);
+			if (imagePath) {
+				fallbackByKey.set(`capsule::${row.product_id}`, imagePath);
+			}
+		}
+	}
+
+	if (machineLikeIds.length > 0) {
+		const machineResult = await client.query(
+			`SELECT product_id, image
+			 FROM machine_products
+			 WHERE product_id = ANY($1::text[])`,
+			[machineLikeIds],
+		);
+
+		for (const row of machineResult.rows) {
+			const imagePath = normalizeInvoiceImagePath(row.image);
+			if (imagePath) {
+				fallbackByKey.set(`machine::${row.product_id}`, imagePath);
+				fallbackByKey.set(`accessory::${row.product_id}`, imagePath);
+			}
+		}
+	}
+
+	return fallbackByKey;
+}
+
 /**
  * Get user's member tier
  */
-async function getUserTier(conn, accountId) {
+async function getUserTier(client, accountId) {
 	try {
 		// First try to get from member_status table
-		const [status] = await conn.query("SELECT current_tier FROM member_status WHERE account_id = ?", [accountId]);
+		const result = await client.query("SELECT current_tier FROM member_status WHERE account_id = $1", [accountId]);
+		const status = result.rows[0];
 
 		if (status && status.current_tier) {
 			return status.current_tier;
@@ -57,17 +301,17 @@ async function getUserTier(conn, accountId) {
 
 	// Fallback: Calculate tier from orders
 	try {
-		const [result] = await conn.query(
+		const result = await client.query(
 			`SELECT COALESCE(SUM(oi.quantity), 0) as total_capsules
         FROM orders o
         JOIN order_items oi ON o.id = oi.order_id
-        WHERE o.account_id = ? 
+        WHERE o.account_id = $1 
         AND o.status IN ('confirmed', 'shipped', 'delivered')
         AND oi.product_type = 'capsule'`,
-			[accountId]
+			[accountId],
 		);
 
-		const totalCapsules = Number(result?.total_capsules || 0) * 10; // sleeves * 10
+		const totalCapsules = Number(result.rows[0]?.total_capsules || 0) * 10; // sleeves * 10
 
 		for (const threshold of TIER_THRESHOLDS) {
 			if (totalCapsules >= threshold.min) {
@@ -128,7 +372,7 @@ async function getWeatherDeliveryEstimate() {
 function calculateExpectedDeliveryDate(daysMax) {
 	const date = new Date();
 	date.setDate(date.getDate() + daysMax);
-	// Format as YYYY-MM-DD for MySQL DATE type
+	// Format as YYYY-MM-DD for PostgreSQL DATE type
 	return date.toISOString().split("T")[0];
 }
 
@@ -161,10 +405,10 @@ router.get("/popular", async (req, res) => {
 	try {
 		const limit = Math.min(parseInt(req.query.limit) || 5, 20);
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			// Get most ordered capsule products
-			const results = await conn.query(
+			// Get most ordered capsule products from real order history
+			const result = await client.query(
 				`SELECT 
 					oi.product_id, 
 					oi.product_name,
@@ -175,18 +419,18 @@ router.get("/popular", async (req, res) => {
 				WHERE oi.product_type = 'capsule'
 				GROUP BY oi.product_id, oi.product_name, oi.product_image
 				ORDER BY total_ordered DESC
-				LIMIT ?`,
-				[limit]
+				LIMIT $1`,
+				[limit],
 			);
 
-			const products = serializeBigInt(results);
+			const products = serializeBigInt(result.rows);
 
 			res.json({
 				products,
 				total: products.length,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get popular products error:", error);
@@ -201,14 +445,14 @@ router.get("/popular", async (req, res) => {
  */
 router.get("/machines", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get all machine items from user's orders
 			// We look for items where:
 			// 1. product_type = 'machine' OR
 			// 2. product_name contains machine-related keywords
 			// Matching: Machine, Forfait, Vertuo Next, Vertuo Pop, pack
-			const machines = await conn.query(
+			const result = await client.query(
 				`SELECT 
 					oi.id,
 					o.id as order_id,
@@ -220,8 +464,8 @@ router.get("/machines", authenticate, async (req, res) => {
 					oi.unit_price,
 					oi.quantity,
 					o.created_at as purchase_date,
-					DATE_ADD(o.created_at, INTERVAL 3 YEAR) as warranty_end_date,
-					CASE WHEN DATE_ADD(o.created_at, INTERVAL 3 YEAR) > NOW() THEN TRUE ELSE FALSE END as is_under_warranty,
+					(o.created_at + INTERVAL '3 years') as warranty_end_date,
+					CASE WHEN (o.created_at + INTERVAL '3 years') > NOW() THEN TRUE ELSE FALSE END as is_under_warranty,
 					CASE 
 						WHEN oi.product_id LIKE 'pack-%' OR oi.product_id LIKE 'forfait-%' 
 							OR LOWER(oi.product_name) LIKE '%forfait%'
@@ -229,7 +473,7 @@ router.get("/machines", authenticate, async (req, res) => {
 					END as is_forfait
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type != 'service'
 					AND (
@@ -249,15 +493,17 @@ router.get("/machines", authenticate, async (req, res) => {
 						OR oi.product_id LIKE 'forfait-%'
 					)
 				ORDER BY o.created_at DESC`,
-				[req.user.id]
+				[req.user.id],
 			);
 
+			const machines = serializeBigInt(result.rows);
+
 			res.json({
-				machines: serializeBigInt(machines),
+				machines,
 				total: machines.length,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get machines error:", error);
@@ -272,81 +518,127 @@ router.get("/machines", authenticate, async (req, res) => {
  */
 router.get("/spending", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get total from all orders
-			const [ordersResult] = await conn.query(
+			const ordersResult = await client.query(
 				`SELECT COALESCE(SUM(total), 0) as orders_total
 				FROM orders 
-				WHERE account_id = ? AND status != 'cancelled'`,
-				[req.user.id]
+				WHERE account_id = $1 AND status != 'cancelled'`,
+				[req.user.id],
 			);
 
-			// Get subscription spending (from order_items with product_type = 'subscription')
-			const [subscriptionResult] = await conn.query(
-				`SELECT COALESCE(SUM(oi.total_price), 0) as subscriptions_total
-				FROM order_items oi
-				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? AND oi.product_type = 'subscription' AND o.status != 'cancelled'`,
-				[req.user.id]
+			const taxesResult = await client.query(
+				`SELECT COALESCE(SUM(tax), 0) as taxes_total
+				FROM orders
+				WHERE account_id = $1 AND status != 'cancelled'`,
+				[req.user.id],
 			);
 
-			// Get machines AND forfaits spending
-			// Same patterns as /machines endpoint
-			const [machinesResult] = await conn.query(
-				`SELECT COALESCE(SUM(oi.total_price), 0) as machines_total
-				FROM order_items oi
-				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
-					AND o.status != 'cancelled'
-					AND (
-						oi.product_type = 'machine'
-						OR LOWER(oi.product_name) LIKE '%machine%'
-						OR LOWER(oi.product_name) LIKE '%forfait%'
-						OR LOWER(oi.product_name) LIKE '%vertuo next%'
-						OR LOWER(oi.product_name) LIKE '%vertuo pop%'
-						OR LOWER(oi.product_name) LIKE '%vertuo plus%'
-						OR LOWER(oi.product_name) LIKE '%essenza%'
-						OR LOWER(oi.product_name) LIKE '%pixie%'
-						OR LOWER(oi.product_name) LIKE '%citiz%'
-						OR LOWER(oi.product_name) LIKE '%lattissima%'
-						OR LOWER(oi.product_name) LIKE '%creatista%'
-						OR LOWER(oi.product_name) LIKE '%inissia%'
-						OR oi.product_id LIKE 'pack-%'
-						OR oi.product_id LIKE 'forfait-%'
-					)`,
-				[req.user.id]
+			// Category totals should reflect actual paid item value after order-level discounts.
+			const categorySpendingResult = await client.query(
+				`WITH categorized_items AS (
+					SELECT
+						oi.product_type,
+						COALESCE(LOWER(oi.product_name), '') as product_name,
+						oi.product_id,
+						CASE
+							WHEN COALESCE(o.subtotal, 0) > 0 THEN
+								oi.total_price * GREATEST((o.subtotal - COALESCE(o.discount_amount, 0)) / o.subtotal, 0)
+							ELSE oi.total_price
+						END as adjusted_total
+					FROM order_items oi
+					JOIN orders o ON oi.order_id = o.id
+					WHERE o.account_id = $1
+						AND o.status != 'cancelled'
+				)
+				SELECT
+					COALESCE(SUM(CASE WHEN product_type = 'subscription' THEN adjusted_total ELSE 0 END), 0) as subscriptions_total,
+					COALESCE(SUM(CASE
+						WHEN (
+							product_type = 'machine'
+							OR product_name LIKE '%machine%'
+							OR product_name LIKE '%forfait%'
+							OR product_name LIKE '%vertuo next%'
+							OR product_name LIKE '%vertuo pop%'
+							OR product_name LIKE '%vertuo plus%'
+							OR product_name LIKE '%essenza%'
+							OR product_name LIKE '%pixie%'
+							OR product_name LIKE '%citiz%'
+							OR product_name LIKE '%lattissima%'
+							OR product_name LIKE '%creatista%'
+							OR product_name LIKE '%inissia%'
+							OR product_id LIKE 'pack-%'
+							OR product_id LIKE 'forfait-%'
+						) THEN adjusted_total
+						ELSE 0
+					END), 0) as machines_total,
+					COALESCE(SUM(CASE
+						WHEN product_type != 'subscription'
+							AND product_type != 'machine'
+							AND product_name NOT LIKE '%machine%'
+							AND product_name NOT LIKE '%forfait%'
+							AND product_name NOT LIKE '%vertuo next%'
+							AND product_name NOT LIKE '%vertuo pop%'
+							AND product_name NOT LIKE '%vertuo plus%'
+							AND product_name NOT LIKE '%essenza%'
+							AND product_name NOT LIKE '%pixie%'
+							AND product_name NOT LIKE '%citiz%'
+							AND product_name NOT LIKE '%lattissima%'
+							AND product_name NOT LIKE '%creatista%'
+							AND product_name NOT LIKE '%inissia%'
+							AND product_id NOT LIKE 'pack-%'
+							AND product_id NOT LIKE 'forfait-%'
+						THEN adjusted_total
+						ELSE 0
+					END), 0) as products_total
+				FROM categorized_items`,
+				[req.user.id],
 			);
 
-			// Get capsules/accessories spending (everything that's not a machine/forfait and not a subscription)
-			const [productsResult] = await conn.query(
-				`SELECT COALESCE(SUM(oi.total_price), 0) as products_total
-				FROM order_items oi
-				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
-					AND o.status != 'cancelled'
-					AND oi.product_type != 'subscription'
-					AND oi.product_type != 'machine'
-					AND LOWER(oi.product_name) NOT LIKE '%machine%'
-					AND LOWER(oi.product_name) NOT LIKE '%forfait%'
-					AND LOWER(oi.product_name) NOT LIKE '%vertuo next%'
-					AND LOWER(oi.product_name) NOT LIKE '%vertuo pop%'
-					AND LOWER(oi.product_name) NOT LIKE '%vertuo plus%'
-					AND LOWER(oi.product_name) NOT LIKE '%essenza%'
-					AND LOWER(oi.product_name) NOT LIKE '%pixie%'
-					AND LOWER(oi.product_name) NOT LIKE '%citiz%'
-					AND LOWER(oi.product_name) NOT LIKE '%lattissima%'
-					AND LOWER(oi.product_name) NOT LIKE '%creatista%'
-					AND LOWER(oi.product_name) NOT LIKE '%inissia%'
-					AND oi.product_id NOT LIKE 'pack-%'
-					AND oi.product_id NOT LIKE 'forfait-%'`,
-				[req.user.id]
+			const currencyUsageResult = await client.query(
+				`SELECT
+					UPPER(COALESCE(currency_code, 'RON')) as currency_code,
+					COUNT(*)::int as order_count,
+					COALESCE(SUM(charged_total), 0) as charged_total,
+					COALESCE(SUM(total), 0) as ron_equivalent_total,
+					COALESCE(SUM(tax), 0) as conversion_taxes_ron
+				FROM orders
+				WHERE account_id = $1 AND status != 'cancelled'
+				GROUP BY UPPER(COALESCE(currency_code, 'RON'))
+				ORDER BY ron_equivalent_total DESC, charged_total DESC`,
+				[req.user.id],
 			);
 
-			const ordersTotal = Number(ordersResult.orders_total) || 0;
-			const subscriptionsTotal = Number(subscriptionResult.subscriptions_total) || 0;
-			const machinesTotal = Number(machinesResult.machines_total) || 0;
-			const productsTotal = Number(productsResult.products_total) || 0;
+			const ordersTotal = Number(ordersResult.rows[0].orders_total) || 0;
+			const taxesTotal = Number(taxesResult.rows[0].taxes_total) || 0;
+			const subscriptionsTotal = Number(categorySpendingResult.rows[0].subscriptions_total) || 0;
+			const machinesTotal = Number(categorySpendingResult.rows[0].machines_total) || 0;
+			const productsTotal = Number(categorySpendingResult.rows[0].products_total) || 0;
+			const totalCurrencyOrders = currencyUsageResult.rows.reduce((sum, row) => sum + (Number(row.order_count) || 0), 0);
+			const totalRonEquivalentAcrossCurrencies = currencyUsageResult.rows.reduce(
+				(sum, row) => sum + (Number(row.ron_equivalent_total) || 0),
+				0,
+			);
+
+			const currencyUsage = currencyUsageResult.rows.map((row) => {
+				const orderCount = Number(row.order_count) || 0;
+				const ronEquivalentTotal = Number(row.ron_equivalent_total) || 0;
+				const percentage =
+					totalRonEquivalentAcrossCurrencies > 0
+						? Math.round((ronEquivalentTotal / totalRonEquivalentAcrossCurrencies) * 10000) / 100
+						: 0;
+				return {
+					currencyCode: row.currency_code,
+					orderCount,
+					chargedTotal: Number(row.charged_total) || 0,
+					ronEquivalentTotal,
+					conversionTaxesRon: Number(row.conversion_taxes_ron) || 0,
+					percentage,
+				};
+			});
+
+			const preferredCurrency = currencyUsage[0]?.currencyCode || "RON";
 
 			res.json({
 				spending: {
@@ -354,11 +646,18 @@ router.get("/spending", authenticate, async (req, res) => {
 					subscriptions: subscriptionsTotal,
 					machines: machinesTotal,
 					products: productsTotal,
+					taxes: taxesTotal,
 					total: ordersTotal,
+				},
+				currency: {
+					preferredCurrency,
+					totalOrders: totalCurrencyOrders,
+					multiCurrency: currencyUsage.length > 1,
+					usage: currencyUsage,
 				},
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get spending error:", error);
@@ -382,10 +681,11 @@ router.get("/spending", authenticate, async (req, res) => {
  */
 router.get("/capsule-stats", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get account creation date
-			const [accountInfo] = await conn.query(`SELECT created_at FROM accounts WHERE id = ?`, [req.user.id]);
+			const accountInfoResult = await client.query(`SELECT created_at FROM accounts WHERE id = $1`, [req.user.id]);
+			const accountInfo = accountInfoResult.rows[0];
 
 			const accountCreatedAt = accountInfo?.created_at || new Date();
 			const accountYear = new Date(accountCreatedAt).getFullYear();
@@ -396,7 +696,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 
 			// Get total sleeves ordered all-time, split by Original vs Vertuo
 			// product_id or product_image path indicates Original vs Vertuo
-			const [totalResult] = await conn.query(
+			const totalResultRaw = await client.query(
 				`SELECT 
 					COALESCE(SUM(oi.quantity), 0) as total_sleeves,
 					COALESCE(SUM(CASE 
@@ -409,20 +709,34 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) as vertuo_sleeves
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type = 'capsule'`,
-				[req.user.id]
+				[req.user.id],
 			);
+			const totalResult = totalResultRaw.rows[0];
 
 			const totalCapsules = (Number(totalResult?.total_sleeves) || 0) * CAPSULES_PER_SLEEVE;
 			const originalCapsules = (Number(totalResult?.original_sleeves) || 0) * CAPSULES_PER_SLEEVE;
 			const vertuoCapsules = (Number(totalResult?.vertuo_sleeves) || 0) * CAPSULES_PER_SLEEVE;
 
+			// Total orders (non-cancelled, excluding repairs) and repairs (order_number starts with REP-)
+			const totalOrdersResultRaw = await client.query(
+				`SELECT COUNT(*) as total_orders FROM orders WHERE account_id = $1 AND status != 'cancelled' AND order_number NOT LIKE 'REP-%'`,
+				[req.user.id],
+			);
+			const totalOrdersResult = totalOrdersResultRaw.rows[0];
+
+			const totalRepairsResultRaw = await client.query(
+				`SELECT COUNT(*) as total_repairs FROM orders WHERE account_id = $1 AND status != 'cancelled' AND order_number LIKE 'REP-%'`,
+				[req.user.id],
+			);
+			const totalRepairsResult = totalRepairsResultRaw.rows[0];
+
 			// Get sleeves ordered per year (from account creation year to now)
-			const yearlyStats = await conn.query(
+			const yearlyStatsResult = await client.query(
 				`SELECT 
-					YEAR(o.created_at) as year,
+					EXTRACT(YEAR FROM o.created_at) as year,
 					COALESCE(SUM(oi.quantity), 0) as sleeves_ordered,
 					COALESCE(SUM(CASE 
 						WHEN LOWER(oi.product_id) LIKE 'original-%' 
@@ -435,14 +749,15 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 					COUNT(DISTINCT o.id) as order_count
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type = 'capsule'
-					AND YEAR(o.created_at) >= ?
-				GROUP BY YEAR(o.created_at)
+					AND EXTRACT(YEAR FROM o.created_at) >= $2
+				GROUP BY EXTRACT(YEAR FROM o.created_at)
 				ORDER BY year DESC`,
-				[req.user.id, accountYear]
+				[req.user.id, accountYear],
 			);
+			const yearlyStats = yearlyStatsResult.rows;
 
 			// Get sleeves ordered in current anniversary year
 			const createdDate = new Date(accountCreatedAt);
@@ -456,7 +771,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 			const anniversaryEnd = new Date(anniversaryStart);
 			anniversaryEnd.setFullYear(anniversaryEnd.getFullYear() + 1);
 
-			const [currentPeriodResult] = await conn.query(
+			const currentPeriodResultRaw = await client.query(
 				`SELECT 
 					COALESCE(SUM(oi.quantity), 0) as sleeves_this_period,
 					COALESCE(SUM(CASE 
@@ -469,13 +784,14 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) as vertuo_sleeves
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type = 'capsule'
-					AND o.created_at >= ?
-					AND o.created_at < ?`,
-				[req.user.id, anniversaryStart.toISOString().split("T")[0], anniversaryEnd.toISOString().split("T")[0]]
+					AND o.created_at >= $2
+					AND o.created_at < $3`,
+				[req.user.id, anniversaryStart.toISOString().split("T")[0], anniversaryEnd.toISOString().split("T")[0]],
 			);
+			const currentPeriodResult = currentPeriodResultRaw.rows[0];
 
 			const currentPeriodCapsules = (Number(currentPeriodResult?.sleeves_this_period) || 0) * CAPSULES_PER_SLEEVE;
 			const currentPeriodOriginal = (Number(currentPeriodResult?.original_sleeves) || 0) * CAPSULES_PER_SLEEVE;
@@ -506,18 +822,41 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 			// Build yearly history with highest tier achieved each year
 			const yearlyHistory = [];
 			for (const yearData of serializeBigInt(yearlyStats)) {
-				const capsules = yearData.sleeves_ordered * CAPSULES_PER_SLEEVE;
+				const normalizedYear = Number(yearData.year);
+				const sleevesOrdered = Number(yearData.sleeves_ordered) || 0;
+				const originalSleeves = Number(yearData.original_sleeves) || 0;
+				const vertuoSleeves = Number(yearData.vertuo_sleeves) || 0;
+				const orderCount = Number(yearData.order_count) || 0;
+				const capsules = sleevesOrdered * CAPSULES_PER_SLEEVE;
 				const tier = getTier(capsules);
 				yearlyHistory.push({
-					year: yearData.year,
+					year: normalizedYear,
 					capsules: capsules,
-					originalCapsules: yearData.original_sleeves * CAPSULES_PER_SLEEVE,
-					vertuoCapsules: yearData.vertuo_sleeves * CAPSULES_PER_SLEEVE,
-					orders: yearData.order_count,
+					originalCapsules: originalSleeves * CAPSULES_PER_SLEEVE,
+					vertuoCapsules: vertuoSleeves * CAPSULES_PER_SLEEVE,
+					orders: orderCount,
 					tier: tier?.name || null,
 					tierLevel: tier?.level || 0,
 				});
 			}
+
+			// Some DB adapters return duplicate yearly rows or mixed year types; keep only the strongest row per year.
+			const yearlyHistoryByYear = new Map();
+			for (const yearData of yearlyHistory) {
+				const existing = yearlyHistoryByYear.get(yearData.year);
+				if (
+					!existing ||
+					yearData.capsules > existing.capsules ||
+					(yearData.capsules === existing.capsules && yearData.tierLevel > existing.tierLevel) ||
+					(yearData.capsules === existing.capsules &&
+						yearData.tierLevel === existing.tierLevel &&
+						yearData.orders > existing.orders)
+				) {
+					yearlyHistoryByYear.set(yearData.year, yearData);
+				}
+			}
+			yearlyHistory.length = 0;
+			yearlyHistory.push(...yearlyHistoryByYear.values());
 
 			// Fill in missing years with 0 capsules (no tier)
 			for (let year = accountYear; year <= currentYear; year++) {
@@ -540,25 +879,27 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 
 			// Save/update member_status in database
 			try {
-				await conn.query(
+				await client.query(
 					`INSERT INTO member_status 
 						(account_id, total_capsules, original_capsules, vertuo_capsules, current_tier, 
 						current_year_capsules, current_year_start, highest_tier_achieved)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-					ON DUPLICATE KEY UPDATE 
-						total_capsules = VALUES(total_capsules),
-						original_capsules = VALUES(original_capsules),
-						vertuo_capsules = VALUES(vertuo_capsules),
-						current_tier = VALUES(current_tier),
-						current_year_capsules = VALUES(current_year_capsules),
-						current_year_start = VALUES(current_year_start),
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+					ON CONFLICT (account_id) DO UPDATE SET 
+						total_capsules = EXCLUDED.total_capsules,
+						original_capsules = EXCLUDED.original_capsules,
+						vertuo_capsules = EXCLUDED.vertuo_capsules,
+						current_tier = EXCLUDED.current_tier,
+						current_year_capsules = EXCLUDED.current_year_capsules,
+						current_year_start = EXCLUDED.current_year_start,
 						highest_tier_achieved = CASE 
-							WHEN highest_tier_achieved IS NULL THEN VALUES(current_tier)
-							WHEN VALUES(current_tier) IS NULL THEN highest_tier_achieved
-							WHEN FIELD(VALUES(current_tier), 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') > 
-								FIELD(highest_tier_achieved, 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') 
-							THEN VALUES(current_tier)
-							ELSE highest_tier_achieved
+							WHEN member_status.highest_tier_achieved IS NULL THEN EXCLUDED.current_tier
+							WHEN EXCLUDED.current_tier IS NULL THEN member_status.highest_tier_achieved
+							WHEN (CASE EXCLUDED.current_tier 
+									WHEN 'Connoisseur' THEN 1 WHEN 'Expert' THEN 2 WHEN 'Master' THEN 3 WHEN 'Virtuoso' THEN 4 WHEN 'Ambassador' THEN 5 ELSE 0 END) > 
+								 (CASE member_status.highest_tier_achieved 
+									WHEN 'Connoisseur' THEN 1 WHEN 'Expert' THEN 2 WHEN 'Master' THEN 3 WHEN 'Virtuoso' THEN 4 WHEN 'Ambassador' THEN 5 ELSE 0 END) 
+							THEN EXCLUDED.current_tier
+							ELSE member_status.highest_tier_achieved
 						END,
 						updated_at = NOW()`,
 					[
@@ -570,28 +911,30 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						currentPeriodCapsules,
 						anniversaryStart.toISOString().split("T")[0],
 						currentTier?.name || null,
-					]
+					],
 				);
 
 				// Update yearly history in member_status_history
 				for (const yearData of yearlyHistory) {
 					if (yearData.capsules > 0 || yearData.year === currentYear) {
-						await conn.query(
+						await client.query(
 							`INSERT INTO member_status_history 
 								(account_id, year, capsules_ordered, original_capsules, vertuo_capsules, order_count, highest_tier)
-							VALUES (?, ?, ?, ?, ?, ?, ?)
-							ON DUPLICATE KEY UPDATE 
-								capsules_ordered = VALUES(capsules_ordered),
-								original_capsules = VALUES(original_capsules),
-								vertuo_capsules = VALUES(vertuo_capsules),
-								order_count = VALUES(order_count),
+							VALUES ($1, $2, $3, $4, $5, $6, $7)
+							ON CONFLICT (account_id, year) DO UPDATE SET 
+								capsules_ordered = EXCLUDED.capsules_ordered,
+								original_capsules = EXCLUDED.original_capsules,
+								vertuo_capsules = EXCLUDED.vertuo_capsules,
+								order_count = EXCLUDED.order_count,
 								highest_tier = CASE 
-									WHEN highest_tier IS NULL THEN VALUES(highest_tier)
-									WHEN VALUES(highest_tier) IS NULL THEN highest_tier
-									WHEN FIELD(VALUES(highest_tier), 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') > 
-										FIELD(highest_tier, 'Connoisseur', 'Expert', 'Master', 'Virtuoso', 'Ambassador') 
-									THEN VALUES(highest_tier)
-									ELSE highest_tier
+									WHEN member_status_history.highest_tier IS NULL THEN EXCLUDED.highest_tier
+									WHEN EXCLUDED.highest_tier IS NULL THEN member_status_history.highest_tier
+									WHEN (CASE EXCLUDED.highest_tier 
+											WHEN 'Connoisseur' THEN 1 WHEN 'Expert' THEN 2 WHEN 'Master' THEN 3 WHEN 'Virtuoso' THEN 4 WHEN 'Ambassador' THEN 5 ELSE 0 END) > 
+										 (CASE member_status_history.highest_tier 
+											WHEN 'Connoisseur' THEN 1 WHEN 'Expert' THEN 2 WHEN 'Master' THEN 3 WHEN 'Virtuoso' THEN 4 WHEN 'Ambassador' THEN 5 ELSE 0 END) 
+									THEN EXCLUDED.highest_tier
+									ELSE member_status_history.highest_tier
 								END,
 								updated_at = NOW()`,
 							[
@@ -602,7 +945,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 								yearData.vertuoCapsules,
 								yearData.orders,
 								yearData.tier,
-							]
+							],
 						);
 					}
 				}
@@ -612,7 +955,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 			}
 
 			// Get machines breakdown by Original vs Vertuo
-			const [machineStats] = await conn.query(
+			const machineStatsResult = await client.query(
 				`SELECT 
 					COUNT(*) as total_machines,
 					COALESCE(SUM(CASE 
@@ -636,7 +979,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) as vertuo_machines
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND (
 						oi.product_type = 'machine'
@@ -651,13 +994,16 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 						OR LOWER(oi.product_name) LIKE '%creatista%'
 						OR LOWER(oi.product_name) LIKE '%inissia%'
 					)`,
-				[req.user.id]
+				[req.user.id],
 			);
+			const machineStats = machineStatsResult.rows[0];
 
 			res.json({
 				totalCapsules,
 				originalCapsules,
 				vertuoCapsules,
+				totalOrders: Number(totalOrdersResult?.total_orders) || 0,
+				totalRepairs: Number(totalRepairsResult?.total_repairs) || 0,
 				machineStats: {
 					total: Number(machineStats?.total_machines) || 0,
 					original: Number(machineStats?.original_machines) || 0,
@@ -677,7 +1023,7 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 				accountCreatedAt: accountCreatedAt,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get capsule stats error:", error);
@@ -687,45 +1033,53 @@ router.get("/capsule-stats", authenticate, async (req, res) => {
 
 router.get("/", authenticate, async (req, res) => {
 	try {
-		const { status, limit = 20, offset = 0 } = req.query;
+		const rawLimit = parseInt(req.query.limit) || 1000;
+		const limit = Math.min(rawLimit, 1000);
+		const offset = parseInt(req.query.offset) || 0;
+		const { status } = req.query;
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			let query = `
         SELECT o.id, o.order_number, o.status, o.subtotal, o.shipping_cost, 
                 o.tax, o.total, o.created_at, o.weather_condition, o.estimated_delivery,
                 o.expected_delivery_date,
                 o.discount_tier, o.discount_percent, o.discount_amount,
+		o.currency_code, o.exchange_rate, o.conversion_fee_percent,
+		o.charged_subtotal, o.charged_shipping_cost, o.charged_tax, o.charged_total,
+		o.destination_country,
                 uc.card_type, uc.card_last_four,
                 (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
         FROM orders o
         LEFT JOIN user_cards uc ON o.card_id = uc.id
-        WHERE o.account_id = ?
+        WHERE o.account_id = $1
         `;
 			const params = [req.user.id];
 
 			if (status) {
-				query += " AND o.status = ?";
+				query += " AND o.status = $2";
 				params.push(status);
 			}
 
-			query += " ORDER BY o.created_at DESC LIMIT ? OFFSET ?";
-			params.push(parseInt(limit), parseInt(offset));
+			const limitParamIndex = params.length + 1;
+			const offsetParamIndex = params.length + 2;
+			query += ` ORDER BY o.created_at DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`;
+			params.push(limit, offset);
 
-			const ordersRaw = await conn.query(query, params);
-			const orders = serializeBigInt(ordersRaw);
+			const result = await client.query(query, params);
+			const orders = serializeBigInt(result.rows);
 
 			// Get total count
-			const [countResult] = await conn.query("SELECT COUNT(*) as total FROM orders WHERE account_id = ?", [req.user.id]);
+			const countResult = await client.query("SELECT COUNT(*) as total FROM orders WHERE account_id = $1", [req.user.id]);
 
 			res.json({
 				orders,
-				total: Number(countResult.total),
-				limit: parseInt(limit),
-				offset: parseInt(offset),
+				total: Number(countResult.rows[0].total),
+				limit,
+				offset,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get orders error:", error);
@@ -740,14 +1094,14 @@ router.get("/", authenticate, async (req, res) => {
  */
 router.get("/consumption-history", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get account creation date to start the graph
-			const [accountInfo] = await conn.query(`SELECT created_at FROM accounts WHERE id = ?`, [req.user.id]);
-			const accountCreatedAt = accountInfo?.created_at || new Date();
+			const accountInfoResult = await client.query(`SELECT created_at FROM accounts WHERE id = $1`, [req.user.id]);
+			const accountCreatedAt = accountInfoResult.rows[0]?.created_at || new Date();
 
 			// Daily capsule stats
-			const capsuleStats = await conn.query(
+			const capsuleStatsResult = await client.query(
 				`SELECT 
 					DATE(o.created_at) as date,
 					COALESCE(SUM(CASE 
@@ -760,16 +1114,16 @@ router.get("/consumption-history", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) * 10 as vertuo_capsules
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND oi.product_type = 'capsule'
 				GROUP BY DATE(o.created_at)
 				ORDER BY date ASC`,
-				[req.user.id]
+				[req.user.id],
 			);
 
 			// Daily machine stats
-			const machineStats = await conn.query(
+			const machineStatsResult = await client.query(
 				`SELECT 
 					DATE(o.created_at) as date,
 					COALESCE(SUM(CASE 
@@ -793,7 +1147,7 @@ router.get("/consumption-history", authenticate, async (req, res) => {
 						THEN oi.quantity ELSE 0 END), 0) as vertuo_machines
 				FROM order_items oi
 				JOIN orders o ON oi.order_id = o.id
-				WHERE o.account_id = ? 
+				WHERE o.account_id = $1 
 					AND o.status != 'cancelled'
 					AND (
 						oi.product_type = 'machine'
@@ -810,20 +1164,179 @@ router.get("/consumption-history", authenticate, async (req, res) => {
 					)
 				GROUP BY DATE(o.created_at)
 				ORDER BY date ASC`,
-				[req.user.id]
+				[req.user.id],
 			);
 
 			res.json({
 				accountCreatedAt,
-				capsules: serializeBigInt(capsuleStats),
-				machines: serializeBigInt(machineStats),
+				capsules: serializeBigInt(capsuleStatsResult.rows),
+				machines: serializeBigInt(machineStatsResult.rows),
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get consumption history error:", error);
 		res.status(500).json({ error: "Failed to get consumption history" });
+	}
+});
+
+/**
+ * Download invoice PDF (generated by Java invoice service)
+ */
+router.get("/:id/invoice", authenticate, async (req, res) => {
+	let client;
+	try {
+		const orderId = parseInt(req.params.id, 10);
+		if (!Number.isInteger(orderId) || orderId <= 0) {
+			return res.status(400).json({ error: "Invalid order id" });
+		}
+
+		client = await pool.connect();
+
+		const orderResult = await client.query(
+			`SELECT o.*, uc.card_type, uc.card_last_four,
+					COALESCE(a.name, a.username, 'Filspresso Customer') AS customer_name,
+					a.email AS customer_email
+			 FROM orders o
+			 LEFT JOIN user_cards uc ON uc.id = o.card_id
+			 JOIN accounts a ON a.id = o.account_id
+			 WHERE o.id = $1 AND o.account_id = $2`,
+			[orderId, req.user.id],
+		);
+
+		const order = orderResult.rows[0];
+		if (!order) {
+			return res.status(404).json({ error: "Order not found" });
+		}
+
+		const itemsResult = await client.query(
+			`SELECT product_name, product_id, product_type, product_image, quantity, unit_price, total_price
+			 FROM order_items
+			 WHERE order_id = $1
+			 ORDER BY id ASC`,
+			[orderId],
+		);
+
+		const imageFallbacks = await buildInvoiceImageFallbacks(client, itemsResult.rows);
+
+		let accountInvoiceIncludeProductView = true;
+		try {
+			const prefResult = await client.query(
+				"SELECT COALESCE(invoice_include_product_view, TRUE) AS invoice_include_product_view FROM accounts WHERE id = $1",
+				[req.user.id],
+			);
+			accountInvoiceIncludeProductView = prefResult.rows[0]?.invoice_include_product_view !== false;
+		} catch (prefError) {
+			// Keep a safe default for old schemas where the preference column is not present.
+			console.warn("Invoice preference column unavailable, defaulting includeProductView=true", prefError?.message);
+		}
+
+		const includeProductView = accountInvoiceIncludeProductView;
+
+		const itemsPayload = await Promise.all(
+			itemsResult.rows.map(async (item) => {
+				const directImage = normalizeInvoiceImagePath(item.product_image);
+				const fallbackImage = imageFallbacks.get(`${item.product_type}::${item.product_id}`) || null;
+				const resolvedImage = directImage || fallbackImage;
+				const invoiceImagePath = await resolveInvoiceProductImagePath(resolvedImage);
+
+				return {
+					name: sanitizeInvoiceProductName(item.product_name),
+					sku: item.product_id,
+					productImage: invoiceImagePath,
+					capsuleSystem: deriveCapsuleSystem({
+						productType: item.product_type,
+						productId: item.product_id,
+						productImage: resolvedImage,
+						productName: item.product_name,
+					}),
+					quantity: Number(item.quantity || 1),
+					unitPrice: Number(item.unit_price || 0),
+					totalPrice: Number(item.total_price || 0),
+				};
+			}),
+		);
+
+		const payload = {
+			invoiceNumber: `INV-${order.order_number}`,
+			orderNumber: order.order_number,
+			orderDate: order.created_at,
+			generatedAt: new Date().toISOString(),
+			status: order.status,
+			destinationCountry: order.destination_country || "Romania",
+			customerName: order.customer_name,
+			customerEmail: order.customer_email,
+			billingAddress: formatAddress(order.billing_address),
+			shippingAddress: formatAddress(order.shipping_address),
+			paymentSummary:
+				order.card_type && order.card_last_four
+					? `${order.card_type.toUpperCase()} •••• ${order.card_last_four}`
+					: order.payment_method || "Card",
+			baseCurrencyCode: "RON",
+			currencyCode: (order.currency_code || "RON").toUpperCase(),
+			exchangeRate: Number(order.exchange_rate || 1),
+			conversionFeePercent: Number(order.conversion_fee_percent || 0),
+			subtotal: Number(order.subtotal || 0),
+			discountAmount: Number(order.discount_amount || 0),
+			shippingCost: Number(order.shipping_cost || 0),
+			tax: Number(order.tax || 0),
+			total: Number(order.total || 0),
+			chargedSubtotal: Number(order.charged_subtotal || order.subtotal || 0),
+			chargedShippingCost: Number(order.charged_shipping_cost || order.shipping_cost || 0),
+			chargedTax: Number(order.charged_tax || order.tax || 0),
+			chargedTotal: Number(order.charged_total || order.total || 0),
+			includeProductView,
+			items: itemsPayload,
+		};
+
+		let invoiceResponse = null;
+		const attempts = invoiceServiceUrlCandidates();
+
+		for (const baseUrl of attempts) {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 10000);
+			try {
+				const response = await fetch(`${baseUrl}/api/invoices/render`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Accept: "application/pdf",
+					},
+					body: JSON.stringify(payload),
+					signal: controller.signal,
+				});
+
+				if (response.ok) {
+					invoiceResponse = response;
+					break;
+				}
+
+				const errorBody = await response.text().catch(() => "");
+				console.error(`Invoice service non-OK via ${baseUrl}:`, response.status, errorBody);
+			} catch (serviceError) {
+				console.error(`Invoice service unreachable via ${baseUrl}:`, serviceError?.message || serviceError);
+			} finally {
+				clearTimeout(timeout);
+			}
+		}
+
+		if (!invoiceResponse) {
+			return res.status(502).json({ error: "Invoice generation service failed" });
+		}
+
+		const pdfBuffer = Buffer.from(await invoiceResponse.arrayBuffer());
+		const fileName = `filspresso-invoice-${order.order_number}.pdf`;
+
+		res.setHeader("Content-Type", "application/pdf");
+		res.setHeader("Content-Disposition", `attachment; filename=\"${fileName}\"`);
+		return res.send(pdfBuffer);
+	} catch (error) {
+		const message = error?.name === "AbortError" ? "Invoice generation timed out" : "Failed to generate invoice";
+		console.error("Get invoice error:", error);
+		return res.status(500).json({ error: message });
+	} finally {
+		if (client) client.release();
 	}
 });
 
@@ -834,35 +1347,44 @@ router.get("/:id", authenticate, async (req, res) => {
 	try {
 		const orderId = parseInt(req.params.id);
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get order
-			const [order] = await conn.query(
+			const result = await client.query(
 				`SELECT o.*, 
                 uc.card_holder, uc.card_type, uc.card_last_four
         FROM orders o
         LEFT JOIN user_cards uc ON o.card_id = uc.id
-        WHERE o.id = ? AND o.account_id = ?`,
-				[orderId, req.user.id]
+        WHERE o.id = $1 AND o.account_id = $2`,
+				[orderId, req.user.id],
 			);
+			const order = result.rows[0];
 
 			if (!order) {
 				return res.status(404).json({ error: "Order not found" });
 			}
 
 			// Get order items
-			const items = await conn.query(
+			const itemsResult = await client.query(
 				`SELECT id, product_type, product_id, product_name, product_image,
                 quantity, unit_price, total_price
-        FROM order_items WHERE order_id = ?`,
-				[orderId]
+        FROM order_items WHERE order_id = $1`,
+				[orderId],
 			);
 
-			order.items = items;
+			order.items = itemsResult.rows.map((item) => ({
+				...item,
+				capsule_system: deriveCapsuleSystem({
+					productType: item.product_type,
+					productId: item.product_id,
+					productImage: item.product_image,
+					productName: item.product_name,
+				}),
+			}));
 
 			res.json({ order });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get order error:", error);
@@ -875,8 +1397,25 @@ router.get("/:id", authenticate, async (req, res) => {
  */
 router.post("/", authenticate, async (req, res) => {
 	try {
-		const { items, shippingAddress, billingAddress, paymentMethod, cardId, notes, shippingCost, total, isSubscription } =
-			req.body;
+		const {
+			items,
+			shippingAddress,
+			billingAddress,
+			paymentMethod,
+			cardId,
+			notes,
+			shippingCost,
+			total,
+			isSubscription,
+			currencyCode,
+			exchangeRate,
+			conversionFeePercent,
+			chargedSubtotal,
+			chargedShippingCost,
+			chargedTax,
+			chargedTotal,
+			destinationCountry,
+		} = req.body;
 
 		if (!items || items.length === 0) {
 			return res.status(400).json({ error: "Order must contain at least one item" });
@@ -901,12 +1440,64 @@ router.post("/", authenticate, async (req, res) => {
 			expectedDeliveryDate = calculateExpectedDeliveryDate(deliveryInfo.daysMax);
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			await conn.beginTransaction();
+			await client.query("BEGIN");
+
+			const mergedItemsByProduct = new Map();
+			for (const item of items) {
+				const quantity = Number.parseInt(item.quantity, 10);
+				const unitPrice = Number(item.unitPrice);
+				if (!item.productType || !item.productId || !item.productName || !Number.isInteger(quantity) || quantity < 1) {
+					throw createHttpError(400, "Order contains invalid item payload");
+				}
+				if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+					throw createHttpError(400, "Order contains invalid item price");
+				}
+
+				const key = `${item.productType}::${item.productId}`;
+				const existing = mergedItemsByProduct.get(key);
+				if (existing) {
+					existing.quantity += quantity;
+				} else {
+					mergedItemsByProduct.set(key, {
+						productType: item.productType,
+						productId: item.productId,
+						productName: item.productName,
+						quantity,
+					});
+				}
+			}
+
+			for (const mergedItem of mergedItemsByProduct.values()) {
+				const inventoryTable = resolveInventoryTable(mergedItem.productType);
+				if (!inventoryTable) continue;
+
+				const stockResult = await client.query(
+					`SELECT stock
+					 FROM ${inventoryTable}
+					 WHERE product_id = $1
+					 FOR UPDATE`,
+					[mergedItem.productId],
+				);
+
+				if (stockResult.rows.length === 0) {
+					throw createHttpError(404, `Product ${mergedItem.productId} was not found in inventory`);
+				}
+
+				const stock = Number(stockResult.rows[0].stock) || 0;
+				if (stock < mergedItem.quantity) {
+					throw createHttpError(409, `Insufficient stock for ${mergedItem.productName}`, {
+						productId: mergedItem.productId,
+						productName: mergedItem.productName,
+						requestedQuantity: mergedItem.quantity,
+						availableQuantity: stock,
+					});
+				}
+			}
 
 			// Get user's member tier for discount calculation
-			const memberTier = await getUserTier(conn, req.user.id);
+			const memberTier = await getUserTier(client, req.user.id);
 			const discountPercent = TIER_DISCOUNTS[memberTier] || 0;
 
 			// Calculate subtotal from items
@@ -934,27 +1525,43 @@ router.post("/", authenticate, async (req, res) => {
 			const finalShippingCost = isSubscription
 				? 0
 				: shippingCost !== undefined
-				? shippingCost
-				: tierBasedFreeShipping || subtotalAfterDiscount >= 200
-				? 0
-				: 24.99;
-			// Use total from frontend, or calculate as discounted subtotal + shipping (VAT is included in prices)
-			const finalTotal = total !== undefined ? total : subtotalAfterDiscount + finalShippingCost;
-			// Tax is 21% of total (included in price, calculated for display purposes)
-			const tax = Math.round(finalTotal * 0.21 * 100) / 100;
+					? shippingCost
+					: tierBasedFreeShipping || subtotalAfterDiscount >= 200
+						? 0
+						: 24.99;
+			const normalizedCurrencyCode =
+				typeof currencyCode === "string" && currencyCode.length === 3 ? currencyCode.toUpperCase() : "RON";
+			const normalizedExchangeRate = Number(exchangeRate) > 0 ? Number(exchangeRate) : 1;
+			const normalizedFeePercent = Number(conversionFeePercent) > 0 ? Number(conversionFeePercent) : 0;
+			const normalizedChargedSubtotal = Number(chargedSubtotal) > 0 ? Number(chargedSubtotal) : subtotalAfterDiscount;
+			const normalizedChargedShippingCost =
+				Number(chargedShippingCost) >= 0 ? Number(chargedShippingCost) : finalShippingCost;
+			const normalizedChargedTax = Number(chargedTax) > 0 ? Number(chargedTax) : 0;
+			const normalizedChargedTotal =
+				Number(chargedTotal) > 0
+					? Number(chargedTotal)
+					: normalizedChargedSubtotal + normalizedChargedShippingCost + normalizedChargedTax;
+
+			const tax =
+				normalizedCurrencyCode === "RON" ? 0 : Math.round((normalizedChargedTax / normalizedExchangeRate) * 100) / 100;
+			const calculatedRonTotal = Math.round((subtotalAfterDiscount + finalShippingCost + tax) * 100) / 100;
+			const finalTotal = total !== undefined ? Number(total) : calculatedRonTotal;
 
 			// Generate order number - use SUB prefix for subscriptions
 			const orderPrefix = isSubscription ? "SUB" : "ORD";
 			const orderNumber = `${orderPrefix}-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
 
 			// Create order with discount info
-			const orderResult = await conn.query(
+			const orderResult = await client.query(
 				`INSERT INTO orders 
         (account_id, order_number, status, subtotal, shipping_cost, tax, total,
         shipping_address, billing_address, payment_method, card_id, notes,
         weather_condition, estimated_delivery, expected_delivery_date,
-        discount_tier, discount_percent, discount_amount)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		discount_tier, discount_percent, discount_amount, currency_code, exchange_rate,
+		conversion_fee_percent, charged_subtotal, charged_shipping_cost, charged_tax,
+		charged_total, destination_country)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+        RETURNING id`,
 				[
 					req.user.id,
 					orderNumber,
@@ -974,72 +1581,98 @@ router.post("/", authenticate, async (req, res) => {
 					memberTier !== "None" ? memberTier : null, // discount_tier
 					discountPercent, // discount_percent
 					discountAmount, // discount_amount
-				]
+					normalizedCurrencyCode,
+					normalizedExchangeRate,
+					normalizedFeePercent,
+					normalizedChargedSubtotal,
+					normalizedChargedShippingCost,
+					normalizedChargedTax,
+					normalizedChargedTotal,
+					destinationCountry || shippingAddress?.country || null,
+				],
 			);
 
-			const orderId = Number(orderResult.insertId);
+			const orderId = orderResult.rows[0].id;
 
 			// Create order items and update stock
 			for (const item of items) {
-				await conn.query(
+				const normalizedQuantity = Number.parseInt(item.quantity, 10);
+				const normalizedUnitPrice = Number(item.unitPrice);
+				await client.query(
 					`INSERT INTO order_items 
             (order_id, product_type, product_id, product_name, product_image, 
             quantity, unit_price, total_price)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 					[
 						orderId,
 						item.productType,
 						item.productId,
 						item.productName,
 						item.productImage || null,
-						item.quantity,
-						item.unitPrice,
-						item.unitPrice * item.quantity,
-					]
+						normalizedQuantity,
+						normalizedUnitPrice,
+						normalizedUnitPrice * normalizedQuantity,
+					],
 				);
 
 				// Update stock in products table based on product type
 				if (item.productType === "capsule") {
 					// Update coffee_products stock
-					await conn.query(
+					const stockUpdateResult = await client.query(
 						`UPDATE coffee_products 
-						SET stock = GREATEST(0, stock - ?) 
-						WHERE product_id = ?`,
-						[item.quantity, item.productId]
+						SET stock = stock - $1
+						WHERE product_id = $2
+						  AND stock >= $1`,
+						[normalizedQuantity, item.productId],
 					);
-				} else if (item.productType === "machine") {
-					// Update machine_products stock
-					await conn.query(
+					if (stockUpdateResult.rowCount === 0) {
+						throw createHttpError(409, `Insufficient stock for ${item.productName}`);
+					}
+				} else if (item.productType === "machine" || item.productType === "accessory") {
+					// Update machine/accessory stock
+					const stockUpdateResult = await client.query(
 						`UPDATE machine_products 
-						SET stock = GREATEST(0, stock - ?) 
-						WHERE product_id = ?`,
-						[item.quantity, item.productId]
+						SET stock = stock - $1
+						WHERE product_id = $2
+						  AND stock >= $1`,
+						[normalizedQuantity, item.productId],
 					);
+					if (stockUpdateResult.rowCount === 0) {
+						throw createHttpError(409, `Insufficient stock for ${item.productName}`);
+					}
 				}
 			}
 
 			// Clear user's cart
-			await conn.query("DELETE FROM cart_items WHERE account_id = ?", [req.user.id]);
+			await client.query("DELETE FROM cart_items WHERE account_id = $1", [req.user.id]);
 
-			await conn.commit();
+			await client.query("COMMIT");
 
 			res.status(201).json({
 				message: "Order created successfully",
 				order: {
 					id: orderId,
 					orderNumber,
-					status: "pending",
-					total,
+					status: orderStatus,
+					total: finalTotal,
+					currencyCode: normalizedCurrencyCode,
+					chargedTotal: normalizedChargedTotal,
 				},
 			});
 		} catch (error) {
-			await conn.rollback();
+			await client.query("ROLLBACK");
 			throw error;
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Create order error:", error);
+		if (error?.status) {
+			return res.status(error.status).json({
+				error: error.message,
+				...(error.details ? { details: error.details } : {}),
+			});
+		}
 		res.status(500).json({ error: "Failed to create order" });
 	}
 });
@@ -1051,12 +1684,13 @@ router.put("/:id/cancel", authenticate, async (req, res) => {
 	try {
 		const orderId = parseInt(req.params.id);
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [order] = await conn.query("SELECT id, status FROM orders WHERE id = ? AND account_id = ?", [
+			const result = await client.query("SELECT id, status FROM orders WHERE id = $1 AND account_id = $2", [
 				orderId,
 				req.user.id,
 			]);
+			const order = result.rows[0];
 
 			if (!order) {
 				return res.status(404).json({ error: "Order not found" });
@@ -1067,33 +1701,35 @@ router.put("/:id/cancel", authenticate, async (req, res) => {
 			}
 
 			// Restore stock for cancelled order items
-			const orderItems = await conn.query("SELECT product_type, product_id, quantity FROM order_items WHERE order_id = ?", [
-				orderId,
-			]);
+			const itemsResult = await client.query(
+				"SELECT product_type, product_id, quantity FROM order_items WHERE order_id = $1",
+				[orderId],
+			);
+			const orderItems = itemsResult.rows;
 
 			for (const item of orderItems) {
 				if (item.product_type === "capsule") {
-					await conn.query(
+					await client.query(
 						`UPDATE coffee_products 
-						SET stock = stock + ? 
-						WHERE product_id = ?`,
-						[item.quantity, item.product_id]
+						SET stock = stock + $1 
+						WHERE product_id = $2`,
+						[item.quantity, item.product_id],
 					);
 				} else if (item.product_type === "machine") {
-					await conn.query(
+					await client.query(
 						`UPDATE machine_products 
-						SET stock = stock + ? 
-						WHERE product_id = ?`,
-						[item.quantity, item.product_id]
+						SET stock = stock + $1 
+						WHERE product_id = $2`,
+						[item.quantity, item.product_id],
 					);
 				}
 			}
 
-			await conn.query("UPDATE orders SET status = ?, updated_at = NOW() WHERE id = ?", ["cancelled", orderId]);
+			await client.query("UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2", ["cancelled", orderId]);
 
 			res.json({ message: "Order cancelled successfully" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Cancel order error:", error);

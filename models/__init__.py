@@ -1,0 +1,1 @@
+from .tanka import TankaModel

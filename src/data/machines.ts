@@ -25,7 +25,7 @@ export type MachineCollection = {
 	groups: MachineGroup[];
 };
 
-import rawMachinesJson from "./machines.generated.json" assert { type: "json" };
+import rawMachinesJson from "./machines.generated.json" with { type: "json" };
 
 type RawMachineProduct = {
 	id: string;

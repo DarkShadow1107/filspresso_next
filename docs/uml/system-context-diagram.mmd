@@ -1,0 +1,11 @@
+flowchart LR
+    U[User Browser] --> N[Next.js App Router\nPort 3000]
+    N --> E[Express API\nPort 4000]
+    N --> P[Python AI Service\nPort 5000]
+    N --> W[Wasm runtime in browser\n/public/wasm]
+    E --> D[(PostgreSQL\nPort 5432)]
+    E --> J[Java Invoice\nPort 8082]
+    E --> K[Kotlin Subscriptions\nPort 8084]
+    E --> G[Go Ops\nPort 8083]
+    P --> D
+    I[IoT Device] --> P

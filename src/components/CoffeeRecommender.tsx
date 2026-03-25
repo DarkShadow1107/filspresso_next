@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import useCart from "@/hooks/useCart";
-import { coffeeCollections, type CoffeeProduct } from "@/data/coffee";
+import type { CoffeeProduct } from "@/data/coffee";
+import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import {
@@ -16,20 +17,99 @@ import {
 } from "@/lib/moleculeSearch";
 import KafelotStats from "./kafelot/KafelotStats";
 import KafelotUsage from "./kafelot/KafelotUsage";
+import {
+	LockIcon,
+	TrashIcon,
+	ChartBarIcon,
+	ClockIcon,
+	HistoryCircleIcon,
+	GithubCopilotIcon,
+	SparklesIcon,
+	FlameIcon,
+	MessageCircleIcon,
+	MagnifierIcon,
+	BulbSvg,
+	RocketIcon,
+	VinylIcon,
+	FileDescriptionIcon,
+	RefreshIcon,
+	CpuIcon,
+	InfoCircleIcon,
+	ArrowNarrowDownIcon,
+	ShoppingCartIcon,
+	CoffeeIcon,
+	BrandGrokIcon,
+	BrandOllamaIcon,
+	BrandAnthropicIcon,
+	LogoutIcon,
+	XIcon,
+	CameraIcon,
+	SendHorizontalIcon,
+	PenIcon,
+} from "@/icons";
+
+// Parse **bold** and *italic* markdown in chat messages
+function formatMarkdown(text: string): React.ReactNode[] {
+	const parts: React.ReactNode[] = [];
+	// Match **bold** or *italic* patterns
+	const regex = /\*\*(.+?)\*\*|\*([^*]+?)\*/g;
+	let lastIndex = 0;
+	let match: RegExpExecArray | null;
+	while ((match = regex.exec(text)) !== null) {
+		if (match.index > lastIndex) {
+			parts.push(text.slice(lastIndex, match.index));
+		}
+		if (match[1] !== undefined) {
+			parts.push(<em key={match.index}>{match[1]}</em>);
+		} else if (match[2] !== undefined) {
+			parts.push(<em key={match.index}>{match[2]}</em>);
+		}
+		lastIndex = match.index + match[0].length;
+	}
+	if (lastIndex < text.length) {
+		parts.push(text.slice(lastIndex));
+	}
+	return parts;
+}
 
 // Memoize product flattening for performance
-const allProducts = coffeeCollections.flatMap((c) => c.groups.flatMap((g) => g.products));
+function useAllProducts(): CoffeeProduct[] {
+	const { collections } = useCoffeeCollections();
+	return collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [];
+}
 
 // Stock data type
-type StockData = Record<string, { price: number; stock: number }>;
+type StockData = Record<string, { price: number; stock: number; stockStatus?: "in_stock" | "low_stock" | "out_of_stock" }>;
 
-type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[] };
+type CapsuleVariant = "original" | "vertuo";
+
+const buildVariantStockKey = (productId: string, variant: CapsuleVariant) => `${productId}::${variant}`;
+
+const detectVariantFromImageOrId = (image?: string | null, productId?: string | null): CapsuleVariant => {
+	const img = (image || "").toLowerCase();
+	const pid = (productId || "").toLowerCase();
+	if (img.includes("/vertuo/") || /-(vertuo|vl)$/.test(pid)) return "vertuo";
+	return "original";
+};
+
+const getVariantStock = (stockData: StockData, productId: string, image?: string | null, forcedVariant?: CapsuleVariant) => {
+	const variant = forcedVariant || detectVariantFromImageOrId(image, productId);
+	const baseId = productId.replace(/-(original|vertuo|vl)$/i, "");
+	return (
+		stockData[buildVariantStockKey(productId, variant)] ||
+		stockData[buildVariantStockKey(baseId, variant)] ||
+		stockData[buildVariantStockKey(`${baseId}-${variant === "vertuo" ? "vertuo" : "original"}`, variant)] ||
+		stockData[buildVariantStockKey(`${baseId}-vl`, variant)]
+	);
+};
+
+type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[]; image?: string };
 type ChatHistory = {
 	id: string;
 	timestamp: number;
 	messages: Message[];
 	preview: string;
-	model: "tanka" | "villanelle" | "ode";
+	model: "tanka";
 	category: "coffee" | "chemistry" | "general";
 };
 
@@ -56,6 +136,7 @@ async function saveChatHistory(history: ChatHistory[]) {
 }
 
 export default function CoffeeRecommender() {
+	const allProducts = useAllProducts();
 	const [mounted, setMounted] = useState(false);
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<"greeting" | "prefs" | "results" | "chat" | "history" | "stats">("greeting");
@@ -74,7 +155,7 @@ export default function CoffeeRecommender() {
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 	const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
 	const [chatMode, setChatMode] = useState<"coffee" | "general">("coffee");
-	const [selectedModel, setSelectedModel] = useState<"tanka" | "villanelle" | "ode">("tanka");
+	const [selectedModel, setSelectedModel] = useState<"tanka">("tanka");
 	const [chemistryMode, setChemistryMode] = useState(false);
 	const [useTankaModel, setUseTankaModel] = useState(false); // Toggle Tanka model ON/OFF in chemistry mode
 	const [visualizationMode, setVisualizationMode] = useState<"text" | "2d" | "3d" | "both">("both");
@@ -87,10 +168,25 @@ export default function CoffeeRecommender() {
 	} | null>(null);
 	const [smarterAIAvailable, setSmarterAIAvailable] = useState(false);
 	const [isLoggedIn, setIsLoggedIn] = useState(false); // User login state
-	const [userSubscription, setUserSubscription] = useState<"none" | "basic" | "plus" | "pro" | "max" | "ultimate">("none");
+	const [userSubscription, setUserSubscription] = useState<"none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate">(
+		"free",
+	);
 	const [isTyping, setIsTyping] = useState(false);
 	const abortControllerRef = useRef<AbortController | null>(null);
 	const currentRequestIdRef = useRef<string | null>(null);
+	const [chatImage, setChatImage] = useState<File | null>(null);
+
+	// Prompt limit tracking
+	const [promptsRemaining, setPromptsRemaining] = useState<number | null>(null);
+	const [promptsLimit, setPromptsLimit] = useState<number | null>(null);
+	const [promptResetDate, setPromptResetDate] = useState<string | null>(null);
+	const [limitReached, setLimitReached] = useState(false);
+	const fingerprintRef = useRef<string>("");
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const recommenderRef = useRef<HTMLDivElement>(null);
+	const editingMessageIdxRef = useRef<number | null>(null);
+	const [editingMessageIdx, setEditingMessageIdx] = useState<number | null>(null);
 	const { addItem } = useCart();
 	const { notify } = useNotifications();
 
@@ -105,25 +201,54 @@ export default function CoffeeRecommender() {
 
 	const stats = useMemo(() => {
 		const categoryCounts = { coffee: 0, chemistry: 0, general: 0 };
-		const modelCounts = { tanka: 0, villanelle: 0, ode: 0 };
+		const modelCounts = { tanka: 0 };
 		const total = chatHistory.length;
 
 		chatHistory.forEach((chat) => {
 			if (chat.category) categoryCounts[chat.category]++;
 			else categoryCounts.general++;
 
-			if (chat.model) modelCounts[chat.model]++;
-			else modelCounts.tanka++;
+			modelCounts.tanka++;
 		});
 
 		const modelPercentages = {
-			tanka: total ? Math.round((modelCounts.tanka / total) * 100) : 0,
-			villanelle: total ? Math.round((modelCounts.villanelle / total) * 100) : 0,
-			ode: total ? Math.round((modelCounts.ode / total) * 100) : 0,
+			tanka: total ? 100 : 0,
 		};
 
 		return { categoryCounts, modelCounts, modelPercentages, total };
 	}, [chatHistory]);
+
+	// ── Fingerprint (anonymous identity for prompt tracking) ──────────────────
+	// Stored in localStorage so it persists across sessions without login.
+	function getOrCreateFingerprint(): string {
+		if (typeof window === "undefined") return "";
+		let fp = localStorage.getItem("kafelot_fp");
+		if (!fp) {
+			fp = crypto.randomUUID ? crypto.randomUUID() : `fp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			localStorage.setItem("kafelot_fp", fp);
+		}
+		return fp;
+	}
+
+	async function fetchPromptStatus(token?: string) {
+		try {
+			const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+			const fp = getOrCreateFingerprint();
+			fingerprintRef.current = fp;
+			const headers: Record<string, string> = { "x-kafelot-fingerprint": fp };
+			if (token) headers["authorization"] = `Bearer ${token}`;
+			const res = await fetch(`${API_BASE}/api/kafelot/status`, { headers });
+			if (res.ok) {
+				const data = (await res.json()) as { prompts_remaining: number; prompts_limit: number; reset_date?: string };
+				setPromptsRemaining(data.prompts_remaining);
+				setPromptsLimit(data.prompts_limit);
+				setPromptResetDate(data.reset_date ?? null);
+				setLimitReached(data.prompts_remaining <= 0);
+			}
+		} catch {
+			// Silently ignore – limits won't block usage on infra failure
+		}
+	}
 
 	// Fix hydration: only render portal after mount
 	useEffect(() => {
@@ -132,17 +257,39 @@ export default function CoffeeRecommender() {
 		// Fetch stock data for coffee products
 		const fetchStockData = async () => {
 			try {
-				const res = await fetch("http://localhost:4000/api/products/coffee");
+				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+				const res = await fetch(`${API_BASE}/api/products/coffee`);
 				if (res.ok) {
 					const data = await res.json();
 					const stockMap: StockData = {};
-					data.products?.forEach((p: { product_id: string; price: number; stock: number }) => {
-						stockMap[p.product_id] = { price: p.price, stock: p.stock };
-					});
+					data.products?.forEach(
+						(p: {
+							productId?: string;
+							product_id?: string;
+							productType?: string;
+							price: number;
+							stock: number;
+							stockStatus?: string;
+						}) => {
+							const pid = p.productId || p.product_id;
+							if (!pid) return;
+							const entry = {
+								price: p.price,
+								stock: p.stock,
+								stockStatus: p.stockStatus as StockData[string]["stockStatus"],
+							};
+							const variant: CapsuleVariant = p.productType === "vertuo" ? "vertuo" : "original";
+							const base = pid.replace(/-(original|vertuo|vl)$/i, "");
+							stockMap[buildVariantStockKey(pid, variant)] = entry;
+							if (base !== pid) {
+								stockMap[buildVariantStockKey(base, variant)] = entry;
+							}
+						},
+					);
 					setStockData(stockMap);
 				}
 			} catch (error) {
-				console.error("Failed to fetch stock data:", error);
+				console.warn("Coffee stock endpoint unavailable for recommender.");
 			}
 		};
 		fetchStockData();
@@ -158,23 +305,19 @@ export default function CoffeeRecommender() {
 				if (session) {
 					const { token } = JSON.parse(session);
 					if (token) {
+						// Fetch prompt status with the user's token
+						fetchPromptStatus(token);
 						// Primary: Fetch subscription tier from subscriptions API (database)
 						fetch("http://localhost:4000/api/subscriptions", {
 							headers: { Authorization: `Bearer ${token}` },
 						})
 							.then((res) => res.json())
 							.then((data) => {
-								const tier = data.subscription?.tier?.toLowerCase() || "none";
-								setUserSubscription(tier as "none" | "basic" | "plus" | "pro" | "max" | "ultimate");
+								const tier = data.subscription?.tier?.toLowerCase() || "free";
+								setUserSubscription(tier as "none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate");
 
-								// Auto-select model based on subscription tier from DB
-								if (tier === "ultimate") {
-									setSelectedModel("ode");
-								} else if (tier === "max") {
-									setSelectedModel("villanelle");
-								} else {
-									setSelectedModel("tanka");
-								}
+								// All tiers use Kafelot Tanka exclusively
+								setSelectedModel("tanka");
 							})
 							.catch(() => {
 								// Fallback to /api/auth/me if subscriptions API fails
@@ -185,14 +328,8 @@ export default function CoffeeRecommender() {
 									.then((data) => {
 										const sub = data.user?.subscription_name?.toLowerCase() || "none";
 										setUserSubscription(sub as "none" | "basic" | "plus" | "pro" | "max" | "ultimate");
-
-										if (sub === "ultimate") {
-											setSelectedModel("ode");
-										} else if (sub === "max") {
-											setSelectedModel("villanelle");
-										} else {
-											setSelectedModel("tanka");
-										}
+										// All tiers use Kafelot Tanka exclusively
+										setSelectedModel("tanka");
 									})
 									.catch(() => {
 										setUserSubscription("none");
@@ -203,6 +340,11 @@ export default function CoffeeRecommender() {
 				}
 			} catch {
 				// ignore errors
+			}
+			// Load prompt status for anonymous users (no session)
+			const sessionForFp = sessionStorage.getItem("account_session");
+			if (!sessionForFp) {
+				fetchPromptStatus();
 			}
 			// Load chat history only if logged in
 			const session = sessionStorage.getItem("account_session");
@@ -313,9 +455,61 @@ export default function CoffeeRecommender() {
 		return () => document.body.classList.remove(cls);
 	}, [open]);
 
+	// Isolate wheel/scroll events inside the recommender window — momentum-based smooth scrolling
+	useEffect(() => {
+		const el = recommenderRef.current;
+		if (!el) return;
+		let velocity = 0;
+		let rafId: number | null = null;
+		let scrollEl: HTMLElement | null = null;
+		const tick = () => {
+			if (!scrollEl || Math.abs(velocity) < 0.5) {
+				velocity = 0;
+				rafId = null;
+				return;
+			}
+			scrollEl.scrollTop += velocity;
+			velocity *= 0.92; // friction for smooth deceleration
+			rafId = requestAnimationFrame(tick);
+		};
+		const handleWheel = (e: WheelEvent) => {
+			e.preventDefault();
+			let target = e.target as HTMLElement | null;
+			let found: HTMLElement | null = null;
+			while (target && target !== el) {
+				const { overflowY } = window.getComputedStyle(target);
+				if ((overflowY === "auto" || overflowY === "scroll") && target.scrollHeight > target.clientHeight) {
+					found = target;
+					break;
+				}
+				target = target.parentElement;
+			}
+			if (!found) found = el.querySelector(".recommender-body") as HTMLElement | null;
+			if (!found) return;
+			if (found !== scrollEl) {
+				velocity = 0;
+				scrollEl = found;
+			}
+			velocity += e.deltaY * 0.6;
+			if (!rafId) rafId = requestAnimationFrame(tick);
+		};
+		el.addEventListener("wheel", handleWheel, { passive: false });
+		return () => {
+			el.removeEventListener("wheel", handleWheel);
+			if (rafId) cancelAnimationFrame(rafId);
+		};
+	}, [open]);
+
 	const toggleNote = useCallback((note: string) => {
 		setSelected((s) => (s.includes(note) ? s.filter((x) => x !== note) : [...s, note]));
 	}, []);
+
+	// Reset textarea height when input is cleared (after send)
+	useEffect(() => {
+		if (chatInput === "" && textareaRef.current) {
+			textareaRef.current.style.height = "auto";
+		}
+	}, [chatInput]);
 
 	const recommend = useCallback(() => {
 		// Filter by collection first (Original vs Vertuo)
@@ -471,7 +665,7 @@ export default function CoffeeRecommender() {
 			setCurrentChatId(chat.id);
 			setStep("chat");
 		},
-		[chatHistory]
+		[chatHistory],
 	);
 
 	// Delete a chat from history
@@ -481,7 +675,7 @@ export default function CoffeeRecommender() {
 			setChatHistory(updated);
 			saveChatHistory(updated);
 		},
-		[chatHistory]
+		[chatHistory],
 	);
 
 	const handleConfirmCapsules = useCallback(
@@ -501,13 +695,13 @@ export default function CoffeeRecommender() {
 					`Added ${sleeves} sleeve${sleeves > 1 ? "s" : ""} (${capsules} capsules) of ${selectedProduct.name} to bag!`,
 					6000,
 					"success",
-					"coffee"
+					"coffee",
 				);
 			}
 			setPopupOpen(false);
 			setSelectedProduct(null);
 		},
-		[selectedProduct, addItem, notify]
+		[selectedProduct, addItem, notify],
 	);
 
 	// Fallback response generation for offline/error scenarios
@@ -536,8 +730,8 @@ export default function CoffeeRecommender() {
 				const sweet = allProducts
 					.filter((p) =>
 						p.notes?.some((n) =>
-							["chocolate", "caramel", "sweet", "honey"].some((kw) => n.toLowerCase().includes(kw))
-						)
+							["chocolate", "caramel", "sweet", "honey"].some((kw) => n.toLowerCase().includes(kw)),
+						),
 					)
 					.slice(0, 4);
 				response = "For sweet, chocolatey flavors, Kafelot suggests these:";
@@ -545,7 +739,7 @@ export default function CoffeeRecommender() {
 			} else if (input.includes("fruity") || input.includes("citrus") || input.includes("floral")) {
 				const fruity = allProducts
 					.filter((p) =>
-						p.notes?.some((n) => ["citrus", "floral", "fruity", "berry"].some((kw) => n.toLowerCase().includes(kw)))
+						p.notes?.some((n) => ["citrus", "floral", "fruity", "berry"].some((kw) => n.toLowerCase().includes(kw))),
 					)
 					.slice(0, 4);
 				response = "For bright, fruity notes, Kafelot recommends these great choices:";
@@ -554,7 +748,7 @@ export default function CoffeeRecommender() {
 				const tokens = input.split(/\s+/).filter((w) => w.length > 3);
 				const matches = allProducts
 					.filter((p) =>
-						tokens.some((t) => p.name.toLowerCase().includes(t) || p.description?.toLowerCase().includes(t))
+						tokens.some((t) => p.name.toLowerCase().includes(t) || p.description?.toLowerCase().includes(t)),
 					)
 					.slice(0, 4);
 				if (matches.length > 0) {
@@ -622,16 +816,54 @@ export default function CoffeeRecommender() {
 				return null;
 			}
 		},
-		[visualizationMode, notify]
+		[visualizationMode, notify],
 	);
 
 	// Smart AI-like chat handler
 	const handleChatSubmit = useCallback(async () => {
 		const prompt = chatInput.trim();
-		if (!prompt) return;
-		const userMsg: Message = { role: "user", content: prompt };
-		setChatMessages((m) => [...m, userMsg]);
+		if (!prompt && !chatImage) return;
+
+		// Check prompt limit before sending
+		if (limitReached) {
+			const resetText = promptResetDate
+				? ` Your limit resets on ${new Date(promptResetDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`
+				: " Your limit resets next month.";
+			const limitMsg: Message = {
+				role: "assistant",
+				content: `⚠️ You have reached your prompt limit for this month.${resetText} Please upgrade your subscription or wait for the reset.`,
+			};
+			setChatMessages((m) => [...m, limitMsg]);
+			return;
+		}
+
+		const imageDataUrl = await new Promise<string | null>((resolve) => {
+			if (!chatImage) {
+				resolve(null);
+				return;
+			}
+			const reader = new FileReader();
+			reader.onloadend = () => resolve(reader.result as string);
+			reader.onerror = () => resolve(null);
+			reader.readAsDataURL(chatImage);
+		});
+		const userMsg: Message = {
+			role: "user",
+			content: prompt || (imageDataUrl ? "" : "[Image attached]"),
+			...(imageDataUrl ? { image: imageDataUrl } : {}),
+		};
+		const editIdx = editingMessageIdxRef.current;
+		const messagesForApi = editIdx !== null ? chatMessages.slice(0, editIdx) : chatMessages;
+		if (editIdx !== null) {
+			setChatMessages((m) => [...m.slice(0, editIdx), userMsg]);
+			editingMessageIdxRef.current = null;
+			setEditingMessageIdx(null);
+		} else {
+			setChatMessages((m) => [...m, userMsg]);
+		}
 		setChatInput("");
+		const imageToSend = chatImage;
+		setChatImage(null);
 		setIsTyping(true);
 
 		const lowerPrompt = prompt.toLowerCase();
@@ -680,7 +912,7 @@ export default function CoffeeRecommender() {
 				} else {
 					// Search by name
 					const nameMatch = prompt.match(
-						/(?:show|display|find|search)\s+(?:me\s+)?(?:the\s+)?(?:molecule\s+)?(.+?)(?:\s+molecule|\s+structure)?$/i
+						/(?:show|display|find|search)\s+(?:me\s+)?(?:the\s+)?(?:molecule\s+)?(.+?)(?:\s+molecule|\s+structure)?$/i,
 					);
 					if (nameMatch) {
 						const moleculeName = nameMatch[1].trim();
@@ -724,7 +956,7 @@ export default function CoffeeRecommender() {
 		}
 
 		// When Tanka Model is ON: Let all queries go to the chat API
-		// All models now use TinyLlama v2 via Python backend
+		// All models now use MiniLM and ResNet-18 via Python backend
 
 		try {
 			// Create AbortController for this request
@@ -734,25 +966,80 @@ export default function CoffeeRecommender() {
 			const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 			currentRequestIdRef.current = requestId;
 
-			// Use Python chat endpoint for all models (TinyLlama v2)
+			// Use Python chat endpoint for all models (MiniLM / CLIP / MolScribe)
 			const shouldUsePython = smarterAIAvailable && (chemistryMode ? useTankaModel : true);
 			const endpoint = shouldUsePython ? "/api/python-chat" : "/api/chat";
-			const response = await fetch(endpoint, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					messages: [...chatMessages, userMsg],
+
+			let fetchBody: BodyInit;
+			let fetchHeaders: Record<string, string> = {};
+
+			// Always include fingerprint for prompt tracking
+			const fp = fingerprintRef.current || getOrCreateFingerprint();
+			fingerprintRef.current = fp;
+
+			// Include auth token if logged in
+			const sessionRaw = typeof window !== "undefined" ? sessionStorage.getItem("account_session") : null;
+			const sessionToken = sessionRaw
+				? (() => {
+						try {
+							return JSON.parse(sessionRaw).token as string | undefined;
+						} catch {
+							return undefined;
+						}
+					})()
+				: undefined;
+
+			if (imageToSend && shouldUsePython) {
+				const fd = new FormData();
+				fd.append("messages", JSON.stringify([...messagesForApi, userMsg]));
+				fd.append("mode", chatMode);
+				fd.append("model", selectedModel);
+				fd.append("subscription", userSubscription || "");
+				fd.append("chemistry_mode", String(chemistryMode && useTankaModel));
+				fd.append("request_id", requestId);
+				fd.append("image", imageToSend);
+				fetchBody = fd;
+				if (fp) fetchHeaders["x-kafelot-fingerprint"] = fp;
+				if (sessionToken) fetchHeaders["authorization"] = `Bearer ${sessionToken}`;
+			} else {
+				fetchHeaders = { "Content-Type": "application/json" };
+				if (fp) fetchHeaders["x-kafelot-fingerprint"] = fp;
+				if (sessionToken) fetchHeaders["authorization"] = `Bearer ${sessionToken}`;
+				fetchBody = JSON.stringify({
+					messages: [...messagesForApi, userMsg],
 					mode: chatMode,
 					model: selectedModel,
 					subscription: userSubscription,
 					chemistry_mode: chemistryMode && useTankaModel,
 					context: { products: allProducts },
 					request_id: requestId,
-				}),
+				});
+			}
+
+			const response = await fetch(endpoint, {
+				method: "POST",
+				headers: fetchHeaders,
+				body: fetchBody,
 				signal: abortControllerRef.current.signal,
 			});
 
-			if (!response.ok) throw new Error("Failed to get response");
+			if (!response.ok) {
+				const errorData = await response.json().catch(() => ({}) as { error?: string; reset_date?: string });
+				if (response.status === 429 || errorData.error === "PROMPT_LIMIT_REACHED") {
+					setLimitReached(true);
+					setPromptsRemaining(0);
+					const resetText = errorData.reset_date
+						? ` Your limit resets on ${new Date(errorData.reset_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`
+						: " Your limit resets next month.";
+					const limitMsg: Message = {
+						role: "assistant",
+						content: `⚠️ You have reached your prompt limit for this month.${resetText} Please upgrade your subscription or wait for the reset.`,
+					};
+					setChatMessages((m) => [...m, limitMsg]);
+					return;
+				}
+				throw new Error(errorData.error || `Failed to get response (Status: ${response.status})`);
+			}
 
 			const data = await response.json();
 
@@ -760,6 +1047,14 @@ export default function CoffeeRecommender() {
 			if (data.cancelled) {
 				return; // Silently exit, user cancelled
 			}
+
+			// Decrement local prompt count after a successful AI response
+			setPromptsRemaining((prev) => {
+				if (prev === null) return prev;
+				const next = Math.max(0, prev - 1);
+				if (next <= 0) setLimitReached(true);
+				return next;
+			});
 
 			const assistantMsg: Message = {
 				role: "assistant",
@@ -789,6 +1084,7 @@ export default function CoffeeRecommender() {
 		}
 	}, [
 		chatInput,
+		chatImage,
 		chatMessages,
 		chatMode,
 		selectedModel,
@@ -798,6 +1094,8 @@ export default function CoffeeRecommender() {
 		chemistryMode,
 		visualizationMode,
 		fetchMoleculeData,
+		limitReached,
+		promptResetDate,
 	]);
 
 	// Stop generation handler
@@ -832,30 +1130,36 @@ export default function CoffeeRecommender() {
 				handleChatSubmit();
 			}
 		},
-		[handleChatSubmit]
+		[handleChatSubmit],
 	);
 
 	const dock = (
-		<div className={`recommender-window ${open ? "open" : "closed"}`} role="dialog" aria-hidden={!open}>
+		<div ref={recommenderRef} className={`recommender-window ${open ? "open" : "closed"}`} role="dialog" aria-hidden={!open}>
 			<div className="recommender-header">
 				<div className="recommender-header-meta">
 					<strong>Kafelot</strong>
 					<div
 						className="smarter-ai-badge"
 						data-status={smarterAIAvailable ? "online" : "offline"}
-						title="Smarter AI (Python service) status"
+						title={`Smarter AI status: ${smarterAIAvailable ? "Online" : "Offline"}`}
 						aria-live="polite"
 					>
-						<span className="badge-icon">AI</span>
+						<span className="badge-icon">
+							<BrandAnthropicIcon size={14} />
+						</span>
 						<span className="badge-text">
-							<span className="badge-label">Smarter AI</span>
 							<span className="badge-status">{smarterAIAvailable ? "Online" : "Offline"}</span>
 						</span>
 					</div>
 				</div>
 				<div className="recommender-actions">
-					<button className="recommender-close" aria-label="Close" onClick={() => setOpen(false)}>
-						×
+					<button
+						className="recommender-close"
+						aria-label="Close"
+						onClick={() => setOpen(false)}
+						style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+					>
+						<XIcon size={24} />
 					</button>
 				</div>
 			</div>
@@ -863,20 +1167,36 @@ export default function CoffeeRecommender() {
 				{step === "greeting" && (
 					<div className="recommender-greeting">
 						<p>
-							👋 Hello! I&apos;m Kafelot, your coffee pilot explorer. I can recommend capsules based on your
+							Hello! I&apos;m Kafelot, your coffee pilot explorer. I can recommend capsules based on your
 							preferences, answer questions about coffee, and help you discover new flavors.
 						</p>
 						{!isLoggedIn && (
 							<div className="login-notice">
-								<p style={{ fontSize: "0.9rem", color: "rgba(250, 204, 144, 0.7)", margin: "0.5rem 0" }}>
-									💡 <strong>Tip:</strong> Log in to unlock chat history and access Kafelot Villanelle and
-									Kafelot Ode models with your subscription!
-								</p>
+								<div
+									style={{
+										fontSize: "0.9rem",
+										color: "rgba(250, 204, 144, 0.7)",
+										margin: "0.5rem 0",
+										display: "flex",
+										alignItems: "center",
+										gap: "0.5rem",
+									}}
+								>
+									<BulbSvg className="recommender-inline-icon" />{" "}
+									<div>
+										<strong>Tip:</strong> Log in to unlock chat history and the Molecule Helper (Ultimate
+										subscription)!
+									</div>
+								</div>
 							</div>
 						)}
-						<div className="recommender-cta">
-							<button onClick={() => setStep("chat")}>💬 Chat with me</button>
-							<button onClick={() => setStep("prefs")}>🔍 Advanced search</button>
+						<div className="recommender-cta recommender-tabs">
+							<button onClick={() => setStep("chat")}>
+								<MessageCircleIcon className="recommender-inline-icon" /> Chat with me
+							</button>
+							<button onClick={() => setStep("prefs")}>
+								<MagnifierIcon className="recommender-inline-icon" /> Advanced search
+							</button>
 							<button
 								onClick={async () => {
 									setStep("results");
@@ -890,7 +1210,7 @@ export default function CoffeeRecommender() {
 												// Map API products to CoffeeProduct objects
 												const popular = data.products
 													.map((p: { product_id: string }) =>
-														allProducts.find((prod) => prod.id === p.product_id)
+														allProducts.find((prod) => prod.id === p.product_id),
 													)
 													.filter(Boolean) as CoffeeProduct[];
 												if (popular.length > 0) {
@@ -906,12 +1226,18 @@ export default function CoffeeRecommender() {
 									setResults(allProducts.slice(0, 5));
 								}}
 							>
-								⭐ Show popular
+								<RocketIcon className="recommender-inline-icon" /> Show popular
 							</button>
 							{isLoggedIn && chatHistory.length > 0 && (
-								<button onClick={() => setStep("history")}>📜 Chat history</button>
+								<button onClick={() => setStep("history")}>
+									<HistoryCircleIcon className="recommender-inline-icon" /> Chat history
+								</button>
 							)}
-							{isLoggedIn && <button onClick={() => setStep("stats")}>📊 Stats</button>}
+							{isLoggedIn && (
+								<button onClick={() => setStep("stats")}>
+									<ChartBarIcon className="recommender-inline-icon" /> Stats
+								</button>
+							)}
 						</div>
 
 						{/* Demo login/logout for testing */}
@@ -938,11 +1264,11 @@ export default function CoffeeRecommender() {
 													full_name: "Demo Max User",
 													email: "demo_max@test.com",
 													token: "demo_token_max",
-												})
+												}),
 											);
 											setIsLoggedIn(true);
 											setUserSubscription("max");
-											setSelectedModel("villanelle");
+											setSelectedModel("tanka");
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
 									>
@@ -958,11 +1284,11 @@ export default function CoffeeRecommender() {
 													full_name: "Demo Ultimate User",
 													email: "demo_ultimate@test.com",
 													token: "demo_token_ultimate",
-												})
+												}),
 											);
 											setIsLoggedIn(true);
 											setUserSubscription("ultimate");
-											setSelectedModel("ode");
+											setSelectedModel("tanka");
 										}}
 										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
 									>
@@ -978,7 +1304,7 @@ export default function CoffeeRecommender() {
 													full_name: "Demo Basic User",
 													email: "demo_basic@test.com",
 													token: "demo_token_basic",
-												})
+												}),
 											);
 											setIsLoggedIn(true);
 											setUserSubscription("basic");
@@ -999,9 +1325,25 @@ export default function CoffeeRecommender() {
 										setChatHistory([]);
 										setChatMessages([]);
 									}}
-									style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem", margin: "0 auto", display: "block" }}
+									style={{
+										fontSize: "0.85rem",
+										padding: "0.4rem 1rem",
+										margin: "0 auto",
+										display: "flex",
+										alignItems: "center",
+										gap: "8px",
+										justifyContent: "center",
+										borderRadius: "6px",
+										backgroundColor: "rgba(255, 120, 120, 0.1)",
+										color: "#ff8080",
+										border: "1px solid rgba(255, 120, 120, 0.2)",
+										cursor: "pointer",
+										fontWeight: 600,
+										transition: "all 0.2s ease",
+									}}
+									className="logout-btn-recommender"
 								>
-									Logout
+									<LogoutIcon size={16} /> Log out
 								</button>
 							)}
 						</div>
@@ -1084,7 +1426,7 @@ export default function CoffeeRecommender() {
 												const percentage = ((newIntensity - 1) / (13 - 1)) * 100;
 												(e.currentTarget as HTMLInputElement).style.setProperty(
 													"--value",
-													`${percentage}%`
+													`${percentage}%`,
 												);
 											}}
 											disabled={!intensityEnabled}
@@ -1127,10 +1469,12 @@ export default function CoffeeRecommender() {
 						) : (
 							<div className="results-list">
 								{results.map((r) => {
-									const productStock = stockData[r.id];
-									const stock = productStock?.stock ?? 100; // Default to 100 if not loaded
-									const isOutOfStock = stock === 0;
-									const isLowStock = stock > 0 && stock < 10;
+									const forcedVariant =
+										collectionFilter === "all" ? undefined : (collectionFilter as CapsuleVariant);
+									const productStock = getVariantStock(stockData, r.id, r.image, forcedVariant);
+									const stock = productStock?.stock ?? 100; // fallback avoids false out-of-stock when API is unavailable
+									const isOutOfStock = productStock?.stockStatus === "out_of_stock" || stock <= 0;
+									const isLowStock = productStock?.stockStatus === "low_stock" || (stock > 0 && stock < 40);
 
 									return (
 										<div
@@ -1138,7 +1482,7 @@ export default function CoffeeRecommender() {
 											className={`result-item ${isOutOfStock ? "out-of-stock" : ""}`}
 											style={isOutOfStock ? { opacity: 0.5, filter: "grayscale(50%)" } : undefined}
 										>
-											<Image src={r.image} alt={r.name} width={70} height={48} />
+											<Image src={r.image} alt={r.name} width={70} height={48} unoptimized={true} />
 											<div className="result-meta">
 												<div className="result-name">{r.name}</div>
 												<div className="result-desc">{r.description}</div>
@@ -1163,16 +1507,16 @@ export default function CoffeeRecommender() {
 														backgroundColor: isOutOfStock
 															? "rgba(231, 76, 60, 0.2)"
 															: isLowStock
-															? "rgba(243, 156, 18, 0.2)"
-															: "rgba(46, 204, 113, 0.2)",
+																? "rgba(243, 156, 18, 0.2)"
+																: "rgba(46, 204, 113, 0.2)",
 														color: isOutOfStock ? "#e74c3c" : isLowStock ? "#f39c12" : "#2ecc71",
 													}}
 												>
 													{isOutOfStock
 														? "Out of stock"
 														: isLowStock
-														? `${stock} sleeves left`
-														: "In Stock"}
+															? `${stock} sleeves left`
+															: "In Stock"}
 												</div>
 												<div className="result-actions">
 													<button
@@ -1231,54 +1575,55 @@ export default function CoffeeRecommender() {
 								}}
 								title="Coffee Helper Mode - Focused on Nespresso recommendations"
 							>
-								☕ Coffee Helper
+								<CoffeeIcon size={16} /> Coffee Helper
 							</button>
-							<button
-								className={chatMode === "general" ? "active" : ""}
-								onClick={() => {
-									setChatMode("general");
-									setChemistryMode(false);
-								}}
-								title="Specialized AI Mode - Chat about anything, JS fallback available"
-							>
-								🤖 Specialized AI
-							</button>
+
 							<button
 								className={chemistryMode ? "active chemistry-mode" : "chemistry-mode"}
 								onClick={() => {
-									// Only allow toggle if Tanka + Ultimate
-									if (selectedModel === "tanka" && isLoggedIn && userSubscription === "ultimate") {
+									// Molecule Helper requires login + Ultimate subscription
+									if (isLoggedIn && userSubscription === "ultimate") {
 										setChatMode("general");
 										setChemistryMode(!chemistryMode);
-										// Automatically switch to Tanka when enabling chemistry mode
-										if (!chemistryMode) {
-											setSelectedModel("tanka");
-										}
 									}
 								}}
-								disabled={selectedModel !== "tanka" || !isLoggedIn || userSubscription !== "ultimate"}
+								disabled={!isLoggedIn || userSubscription !== "ultimate"}
 								title={
 									!isLoggedIn
-										? "Chemistry Mode - Login required"
+										? "Molecule Helper - Login required"
 										: userSubscription !== "ultimate"
-										? "Chemistry Mode - Ultimate subscription required 🔒"
-										: selectedModel !== "tanka"
-										? "Chemistry Mode - Switch to Tanka model first 🔒"
-										: "Chemistry Mode - Molecule visualization (Tanka + Ultimate)"
+											? "Molecule Helper - Ultimate subscription required 🔒"
+											: "Molecule Helper - MolScribe AI molecule visualization (Ultimate)"
 								}
 							>
-								🧪 Chemistry Mode{" "}
-								{(selectedModel !== "tanka" || !isLoggedIn || userSubscription !== "ultimate") && "🔒"}
+								<BrandGrokIcon size={16} /> Molecule Helper{" "}
+								{(!isLoggedIn || userSubscription !== "ultimate") && (
+									<span style={{ marginLeft: "4px" }}>
+										<LockIcon size={14} />
+									</span>
+								)}
 							</button>
 						</div>
 
-						{chatMode === "general" && (
+						{chemistryMode && (
 							<>
 								<div className="subscription-info-box">
 									{!isLoggedIn ? (
 										<div className="subscription-notice">
-											<p style={{ margin: 0, fontSize: "0.95rem", color: "rgba(250, 204, 144, 0.8)" }}>
-												🔓 <strong>Not logged in</strong> - Using Tanka (free)
+											<p
+												style={{
+													margin: 0,
+													fontSize: "0.95rem",
+													color: "rgba(250, 204, 144, 0.8)",
+													display: "flex",
+													alignItems: "center",
+													gap: "0.5rem",
+												}}
+											>
+												<InfoCircleIcon size={16} />{" "}
+												<span>
+													<strong>Not logged in</strong> - Using Tanka (free)
+												</span>
 											</p>
 											<p
 												style={{
@@ -1287,20 +1632,32 @@ export default function CoffeeRecommender() {
 													color: "rgba(250, 204, 144, 0.6)",
 												}}
 											>
-												Log in to access Villanelle and Ode models
+												Log in to unlock CLIP image search and Molecule Helper
 											</p>
 										</div>
 									) : (
 										<div className="subscription-status">
-											<p style={{ margin: 0, fontSize: "0.95rem", color: "rgba(250, 204, 144, 0.8)" }}>
-												🎫 <strong>Subscription:</strong>{" "}
-												{userSubscription === "none"
-													? "None (Tanka only)"
-													: userSubscription.charAt(0).toUpperCase() + userSubscription.slice(1)}
+											<p
+												style={{
+													margin: 0,
+													fontSize: "0.95rem",
+													color: "rgba(250, 204, 144, 0.8)",
+													display: "flex",
+													alignItems: "center",
+													gap: "0.5rem",
+												}}
+											>
+												<ShoppingCartIcon size={16} />{" "}
+												<span>
+													<strong>Subscription:</strong>{" "}
+													{userSubscription === "none"
+														? "None (Tanka only)"
+														: userSubscription.charAt(0).toUpperCase() + userSubscription.slice(1)}
+												</span>
 											</p>
 											{userSubscription === "none" ||
 											userSubscription === "basic" ||
-											userSubscription === "pro" ? (
+											userSubscription === "plus" ? (
 												<p
 													style={{
 														margin: "0.25rem 0 0 0",
@@ -1308,7 +1665,7 @@ export default function CoffeeRecommender() {
 														color: "rgba(250, 204, 144, 0.6)",
 													}}
 												>
-													Upgrade to Max for Villanelle or Ultimate for Ode
+													Upgrade to Pro or above for CLIP image search
 												</p>
 											) : null}
 										</div>
@@ -1316,83 +1673,60 @@ export default function CoffeeRecommender() {
 								</div>
 
 								<div className="model-selector">
-									<label>🧠 AI Model:</label>
+									<label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+										<CpuIcon size={16} /> AI Model:
+									</label>
 									<button
-										className={selectedModel === "tanka" ? "active" : ""}
-										onClick={() => setSelectedModel("tanka")}
-										title="Tanka - 🌿 Lightweight & Fast (~30M params) - Coffee-focused recommendations, quick responses, perfect for quick searches"
+										className="active"
+										title="Kafelot Tanka - Lightweight & Fast. Coffee-focused recommendations with instant responses."
 									>
-										🌿 Tanka
-									</button>
-									<button
-										className={selectedModel === "villanelle" ? "active" : ""}
-										onClick={() => setSelectedModel("villanelle")}
-										title={
-											chemistryMode
-												? "Villanelle - Not available in Chemistry Mode (Tanka only)"
-												: isLoggedIn && (userSubscription === "max" || userSubscription === "ultimate")
-												? "Villanelle - ⚡ Balanced & Smart (~60M params) - Deep flavor analysis, personalized insights, nuanced recommendations"
-												: "Villanelle - Requires Max or Ultimate subscription (locked)"
-										}
-										disabled={
-											chemistryMode ||
-											!isLoggedIn ||
-											(userSubscription !== "max" && userSubscription !== "ultimate")
-										}
-									>
-										⚡ Villanelle{" "}
-										{(chemistryMode ||
-											!isLoggedIn ||
-											(userSubscription !== "max" && userSubscription !== "ultimate")) &&
-											"🔒"}
-									</button>
-									<button
-										className={selectedModel === "ode" ? "active" : ""}
-										onClick={() => setSelectedModel("ode")}
-										title={
-											chemistryMode
-												? "Ode - Not available in Chemistry Mode (Tanka only)"
-												: isLoggedIn && userSubscription === "ultimate"
-												? "Ode - 🎼 Expert & Deep (~90M params) - Advanced flavor profiling, comprehensive analysis, literary flair"
-												: "Ode - Requires Ultimate subscription (locked)"
-										}
-										disabled={chemistryMode || !isLoggedIn || userSubscription !== "ultimate"}
-									>
-										🎼 Ode {(chemistryMode || !isLoggedIn || userSubscription !== "ultimate") && "🔒"}
+										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+											<BrandAnthropicIcon size={16} />
+										</span>
+										Kafelot Tanka
 									</button>
 								</div>
 
 								{chemistryMode && (
 									<div className="visualization-mode-selector" style={{ marginTop: "1rem" }}>
-										<label>🔬 Molecule Display:</label>
+										<label
+											style={{
+												display: "flex",
+												alignItems: "center",
+												gap: "0.5rem",
+												marginBottom: "0.5rem",
+											}}
+										>
+											<MagnifierIcon size={16} /> Molecule Display:
+										</label>
 										<div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
 											<button
 												className={visualizationMode === "text" ? "active" : ""}
 												onClick={() => setVisualizationMode("text")}
 												title="Text only - Show molecular properties without visualization"
 											>
-												📝 Text Only
+												<FileDescriptionIcon size={14} /> Text Only
 											</button>
 											<button
 												className={visualizationMode === "2d" ? "active" : ""}
 												onClick={() => setVisualizationMode("2d")}
 												title="2D Structure - SVG molecular diagram"
 											>
-												🖼️ 2D Structure
+												2D Structure
 											</button>
 											<button
 												className={visualizationMode === "3d" ? "active" : ""}
 												onClick={() => setVisualizationMode("3d")}
 												title="3D Model - SDF format for PyMOL"
 											>
-												🧊 3D Model
+												3D Model
 											</button>
 											<button
 												className={visualizationMode === "both" ? "active" : ""}
 												onClick={() => setVisualizationMode("both")}
 												title="Both 2D & 3D - Show all visualizations"
 											>
-												🔄 Both
+												<RefreshIcon size={14} /> Both
 											</button>
 										</div>
 									</div>
@@ -1400,7 +1734,16 @@ export default function CoffeeRecommender() {
 
 								{chemistryMode && (
 									<div className="tanka-model-toggle-section" style={{ marginTop: "1rem" }}>
-										<label style={{ display: "block", marginBottom: "0.5rem" }}>🤖 Tanka AI Model:</label>
+										<label
+											style={{
+												display: "flex",
+												alignItems: "center",
+												gap: "0.5rem",
+												marginBottom: "0.5rem",
+											}}
+										>
+											<GithubCopilotIcon size={16} /> Tanka AI Model:
+										</label>
 										<button
 											className={useTankaModel ? "active tanka-model-toggle" : "tanka-model-toggle"}
 											onClick={() => {
@@ -1413,10 +1756,10 @@ export default function CoffeeRecommender() {
 												!isLoggedIn
 													? "Use Tanka Model - Login required"
 													: userSubscription !== "ultimate"
-													? "Use Tanka Model - Ultimate subscription required 🔒"
-													: useTankaModel
-													? "Tanka Model ON - Chemistry chat with AI"
-													: "Tanka Model OFF - Pure molecule visualization only"
+														? "Use Tanka Model - Ultimate subscription required 🔒"
+														: useTankaModel
+															? "Tanka Model ON - Chemistry chat with AI"
+															: "Tanka Model OFF - Pure molecule visualization only"
 											}
 											style={{
 												padding: "0.5rem 1rem",
@@ -1431,64 +1774,48 @@ export default function CoffeeRecommender() {
 											}}
 										>
 											{useTankaModel
-												? "🤖 Tanka Model ON (Chemistry Chat)"
-												: "🔬 Visualization Only (No AI Chat)"}
-											{(!isLoggedIn || userSubscription !== "ultimate") && " 🔒"}
+												? "Tanka Model ON (Chemistry Chat)"
+												: "Visualization Only (No AI Chat)"}
+											{(!isLoggedIn || userSubscription !== "ultimate") && (
+												<LockIcon size={14} className="inline ml-1" />
+											)}
 										</button>
 										{!useTankaModel && (
-											<p
+											<div
 												style={{
 													fontSize: "0.85rem",
 													color: "rgba(250, 204, 144, 0.7)",
 													marginTop: "0.5rem",
+													display: "flex",
+													alignItems: "center",
+													gap: "0.25rem",
 												}}
 											>
-												💡 Uses RDKit, Py3Dmol, and Pillow for molecule visualization
-											</p>
+												<BulbSvg size={14} className="inline-flex" />
+												<span>Uses RDKit, Py3Dmol, and Pillow for molecule visualization</span>
+											</div>
 										)}
 									</div>
-								)}
-
-								{(selectedModel === "villanelle" || selectedModel === "ode") && (
-									<p
-										className="gemma-status"
-										style={{
-											marginTop: "0.75rem",
-											fontSize: "0.85rem",
-											color: "rgba(250, 204, 144, 0.7)",
-										}}
-										aria-live="polite"
-									>
-										{smarterAIAvailable ? "TinyLlama v2 model is ready." : "Connecting to TinyLlama v2..."}
-									</p>
 								)}
 
 								{/* Model descriptions below buttons */}
 								<div className="model-description">
 									{selectedModel === "tanka" && (
 										<div className="description-content">
-											<strong>🌿 Kafelot Tanka</strong>
+											<div
+												style={{
+													fontWeight: 700,
+													display: "flex",
+													alignItems: "center",
+													gap: "0.5rem",
+													marginBottom: "0.25rem",
+												}}
+											>
+												<BrandAnthropicIcon size={16} /> Kafelot Tanka
+											</div>
 											<p>
 												Lightweight &amp; Fast. Perfect for quick coffee searches. Focuses on Nespresso
 												capsule recommendations with instant responses.
-											</p>
-										</div>
-									)}
-									{selectedModel === "villanelle" && (
-										<div className="description-content">
-											<strong>⚡ Kafelot Villanelle</strong>
-											<p>
-												Balanced &amp; Smart. Provides deeper flavor analysis and personalized insights
-												based on your preferences. Great for discovering new favorites.
-											</p>
-										</div>
-									)}
-									{selectedModel === "ode" && (
-										<div className="description-content">
-											<strong>🎼 Kafelot Ode</strong>
-											<p>
-												Expert &amp; Deep. Advanced flavor profiling with comprehensive analysis. Crafts
-												poetic and detailed recommendations for the true coffee connoisseur.
 											</p>
 										</div>
 									)}
@@ -1501,9 +1828,10 @@ export default function CoffeeRecommender() {
 								<div className="chat-welcome">
 									{chatMode === "coffee" ? (
 										<>
-											<p>
-												☕ <strong>Coffee Helper Mode</strong>
-											</p>
+											<div style={{ fontWeight: 600 }}>
+												<CoffeeIcon size={16} className="inline mr-1" />{" "}
+												<strong>Coffee Helper Mode</strong>
+											</div>
 											<p>Ask me anything about Nespresso capsules! For example:</p>
 											<ul>
 												<li>&quot;I want something strong for the morning&quot;</li>
@@ -1515,10 +1843,13 @@ export default function CoffeeRecommender() {
 										</>
 									) : chemistryMode ? (
 										<>
-											<p>
-												🧪 <strong>Chemistry Mode</strong>{" "}
-												<span style={{ color: "rgba(250, 204, 144, 0.6)" }}>(Tanka + Ultimate)</span>
-											</p>
+											<div style={{ fontWeight: 600 }}>
+												<BrandGrokIcon size={16} className="inline mr-1" />{" "}
+												<strong>Molecule Helper</strong>{" "}
+												<span style={{ color: "rgba(250, 204, 144, 0.6)" }}>
+													(MolScribe AI — Ultimate)
+												</span>
+											</div>
 											<p>Explore molecular structures with 2D/3D visualizations! Try asking:</p>
 											<ul>
 												<li>&quot;Show me caffeine molecule&quot;</li>
@@ -1530,12 +1861,11 @@ export default function CoffeeRecommender() {
 										</>
 									) : (
 										<>
-											<p>
-												🤖 <strong>Specialized AI Mode</strong>
-											</p>
-											<p>
-												I can chat about coffee topics, brewing techniques, origins, and more. Try asking:
-											</p>
+											<div style={{ fontWeight: 600 }}>
+												<CoffeeIcon size={16} className="inline mr-1" />{" "}
+												<strong>Coffee Helper Mode</strong>
+											</div>
+											<p>Ask me anything about coffee topics, brewing techniques, and more. Try asking:</p>
 											<ul>
 												<li>&quot;How do different brewing methods affect flavor?&quot;</li>
 												<li>&quot;Tell me about single-origin vs blends&quot;</li>
@@ -1549,18 +1879,49 @@ export default function CoffeeRecommender() {
 							)}
 							{chatMessages.map((msg, idx) => (
 								<div key={idx} className={`chat-message ${msg.role}`}>
-									<div className="chat-bubble">
-										{msg.content.split("\n").map((line, i) => (
-											<React.Fragment key={i}>
-												{line}
-												{i < msg.content.split("\n").length - 1 && <br />}
-											</React.Fragment>
-										))}
-									</div>
+									{msg.role === "assistant" && (
+										<div className="chat-avatar">
+											<GithubCopilotIcon size={20} />
+										</div>
+									)}
+									{msg.role === "user" && msg.image && (
+										<div className="chat-bubble-image">
+											<img src={msg.image} alt="Attached image" />
+										</div>
+									)}
+									{msg.content && (
+										<>
+											<div className="chat-bubble-row">
+												{msg.role === "user" &&
+													(userSubscription === "max" || userSubscription === "ultimate") && (
+														<button
+															className="chat-msg-edit-btn"
+															onClick={() => {
+																setEditingMessageIdx(idx);
+																editingMessageIdxRef.current = idx;
+																setChatInput(msg.content);
+															}}
+															title="Edit message"
+														>
+															<PenIcon size={15} />
+														</button>
+													)}
+												<div className="chat-bubble">
+													{msg.content.split("\n").map((line, i) => (
+														<React.Fragment key={i}>
+															{formatMarkdown(line)}
+															{i < msg.content.split("\n").length - 1 && <br />}
+														</React.Fragment>
+													))}
+												</div>
+											</div>
+										</>
+									)}
 									{msg.products && msg.products.length > 0 && (
 										<div className="chat-products">
 											{msg.products.map((p) => {
-												const productStock = stockData[p.id];
+												if (!p || !p.id) return null;
+												const productStock = getVariantStock(stockData, p.id, p.image);
 												const stock = productStock?.stock ?? 100;
 												const isOutOfStock = stock === 0;
 
@@ -1572,7 +1933,15 @@ export default function CoffeeRecommender() {
 															isOutOfStock ? { opacity: 0.5, filter: "grayscale(50%)" } : undefined
 														}
 													>
-														<Image src={p.image} alt={p.name} width={50} height={35} />
+														{p.image && (
+															<Image
+																src={p.image}
+																alt={p.name}
+																width={50}
+																height={35}
+																unoptimized={true}
+															/>
+														)}
 														<div className="chat-product-info">
 															<strong>{p.name}</strong>
 															<span className="chat-product-intensity">
@@ -1588,11 +1957,14 @@ export default function CoffeeRecommender() {
 															className="chat-add-btn"
 															onClick={() => handleAdd(p)}
 															disabled={isOutOfStock}
-															style={
-																isOutOfStock ? { opacity: 0.5, cursor: "not-allowed" } : undefined
-															}
+															style={{
+																...(isOutOfStock ? { opacity: 0.5, cursor: "not-allowed" } : {}),
+																display: "flex",
+																alignItems: "center",
+																justifyContent: "center",
+															}}
 														>
-															{isOutOfStock ? "✕" : "+"}
+															{isOutOfStock ? <XIcon size={14} /> : "+"}
 														</button>
 													</div>
 												);
@@ -1614,13 +1986,17 @@ export default function CoffeeRecommender() {
 							{chemistryMode && currentMolecule && (
 								<div className="molecule-display">
 									<div className="molecule-header">
-										<h3>🧪 {currentMolecule.name || currentMolecule.chembl_id}</h3>
+										<h3>
+											<SparklesIcon size={20} className="inline mr-2" />{" "}
+											{currentMolecule.name || currentMolecule.chembl_id}
+										</h3>
 										<button
 											className="close-molecule"
 											onClick={() => setCurrentMolecule(null)}
 											title="Close molecule view"
+											style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
 										>
-											✕
+											<XIcon size={18} />
 										</button>
 									</div>
 
@@ -1699,10 +2075,20 @@ export default function CoffeeRecommender() {
 											) : (
 												// Fallback: SDF data for download
 												<div className="sdf-info">
-													<p>
-														📥 <strong>SDF Data Available</strong> - Use PyMOL or similar tools to
-														visualize
-													</p>
+													<div
+														style={{
+															display: "flex",
+															alignItems: "center",
+															gap: "0.5rem",
+															marginBottom: "0.5rem",
+														}}
+													>
+														<ArrowNarrowDownIcon size={18} />
+														<span>
+															<strong>SDF Data Available</strong> - Use PyMOL or similar tools to
+															visualize
+														</span>
+													</div>
 													<button
 														onClick={() => {
 															const blob = new Blob([currentMolecule.sdf || ""], {
@@ -1716,8 +2102,9 @@ export default function CoffeeRecommender() {
 															URL.revokeObjectURL(url);
 														}}
 														className="download-sdf-btn"
+														style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
 													>
-														⬇️ Download SDF
+														<ArrowNarrowDownIcon size={16} /> Download SDF
 													</button>
 													<pre className="sdf-preview">{currentMolecule.sdf?.substring(0, 500)}...</pre>
 												</div>
@@ -1728,47 +2115,160 @@ export default function CoffeeRecommender() {
 							)}
 						</div>
 						<div className="chat-input-area">
-							<textarea
-								value={chatInput}
-								onChange={(e) => setChatInput(e.target.value)}
-								onKeyDown={handleChatKeyDown}
-								placeholder={
-									chatMode === "coffee"
-										? "Ask about coffee capsules, flavors, or brewing..."
-										: "Ask me anything - coffee, tech, science, or just chat..."
-								}
-								rows={2}
+							{chatImage && (
+								<div className="chat-image-preview">
+									<img
+										src={URL.createObjectURL(chatImage)}
+										alt="Selected image"
+										style={{ maxHeight: "80px", borderRadius: "6px", objectFit: "contain" }}
+									/>
+									<button onClick={() => setChatImage(null)} className="chat-image-clear" title="Remove image">
+										×
+									</button>
+								</div>
+							)}
+							{editingMessageIdx !== null && (
+								<div className="chat-editing-indicator">
+									<PenIcon size={12} />
+									<span>Editing message</span>
+									<button
+										onClick={() => {
+											setEditingMessageIdx(null);
+											editingMessageIdxRef.current = null;
+											setChatInput("");
+										}}
+									>
+										<XIcon size={12} /> Cancel
+									</button>
+								</div>
+							)}
+							<div className="chat-input-row">
+								{!["none", "free", "basic", "plus"].includes(userSubscription) && (
+									<button
+										className="camera-btn"
+										onClick={() => fileInputRef.current?.click()}
+										title="Attach image"
+										aria-label="Attach image"
+										style={{ color: chatImage ? "var(--accent-gold, #f5c842)" : "currentColor" }}
+									>
+										<CameraIcon size={20} />
+									</button>
+								)}
+								<textarea
+									ref={textareaRef}
+									value={chatInput}
+									onChange={(e) => {
+										setChatInput(e.target.value);
+										e.target.style.height = "auto";
+										e.target.style.height = e.target.scrollHeight + "px";
+									}}
+									onKeyDown={handleChatKeyDown}
+									placeholder={
+										chatMode === "coffee"
+											? "Ask about coffee capsules, flavors, or brewing..."
+											: "Ask me anything - coffee, tech, science, or just chat..."
+									}
+									rows={1}
+								/>
+								<button
+									onClick={isTyping ? handleStopGeneration : handleChatSubmit}
+									disabled={!isTyping && !chatInput.trim() && !chatImage}
+									className={`send-btn${isTyping ? " stop-btn" : ""}`}
+									title={isTyping ? "Stop generation" : "Send message"}
+									aria-label={isTyping ? "Stop generation" : "Send message"}
+								>
+									{isTyping ? (
+										<span
+											style={{
+												display: "inline-block",
+												width: 14,
+												height: 14,
+												background: "currentColor",
+												borderRadius: 2,
+											}}
+										/>
+									) : (
+										<SendHorizontalIcon size={18} />
+									)}
+								</button>
+							</div>
+							<input
+								ref={fileInputRef}
+								type="file"
+								accept="image/*"
+								style={{ display: "none" }}
+								onChange={(e) => {
+									const file = e.target.files?.[0];
+									if (file) setChatImage(file);
+									e.target.value = "";
+								}}
 							/>
-							<button
-								onClick={isTyping ? handleStopGeneration : handleChatSubmit}
-								disabled={!isTyping && !chatInput.trim()}
-								className={isTyping ? "stop-btn" : ""}
-							>
-								{isTyping ? "⏹ Stop" : "Send"}
-							</button>
 						</div>
 						<div className="recommender-cta">
-							<button onClick={startNewChat}>🆕 New Chat</button>
+							<button onClick={startNewChat}>
+								<RefreshIcon size={16} className="inline mr-1" /> New Chat
+							</button>
 							<button
 								onClick={() => {
 									saveCurrentChat();
 									setStep("history");
 								}}
 							>
-								📜 History
+								<HistoryCircleIcon size={16} /> History
 							</button>
 							<button onClick={() => setStep("greeting")}>Back</button>
+						</div>
+
+						{/* Prompt usage counter */}
+						{promptsLimit !== null && (
+							<div className="kafelot-prompt-counter">
+								{promptsRemaining !== null && promptsRemaining > 0 ? (
+									<span>
+										{promptsRemaining} / {promptsLimit} prompts remaining this month
+									</span>
+								) : (
+									<span className="limit-hit">
+										Prompt limit reached — resets{" "}
+										{promptResetDate
+											? new Date(promptResetDate).toLocaleDateString("en-US", {
+													month: "long",
+													day: "numeric",
+												})
+											: "next month"}
+									</span>
+								)}
+							</div>
+						)}
+
+						{/* Disclaimer */}
+						<div className="kafelot-disclaimer">
+							Kafelot is AI and can make mistakes, including about people.{" "}
+							<a href="/kafelot-privacy" target="_blank" rel="noopener noreferrer">
+								Your privacy &amp; Kafelot
+							</a>
 						</div>
 					</div>
 				)}
 
 				{step === "history" && (
 					<div className="recommender-history">
-						<h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>Chat History 📜</h3>
+						<h3 style={{ margin: "0 0 12px 0", fontSize: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
+							Chat History <ClockIcon size={18} />
+						</h3>
 						{!isLoggedIn ? (
 							<div style={{ textAlign: "center", padding: "2rem 1rem" }}>
-								<p style={{ color: "rgba(250, 204, 144, 0.8)", fontSize: "1.1rem", margin: "0 0 0.5rem 0" }}>
-									🔒 Chat history is locked
+								<p
+									style={{
+										color: "rgba(250, 204, 144, 0.8)",
+										fontSize: "1.1rem",
+										margin: "0 0 0.5rem 0",
+										display: "flex",
+										alignItems: "center",
+										justifyContent: "center",
+										gap: "8px",
+									}}
+								>
+									<LockIcon size={20} /> Chat history is locked
 								</p>
 								<p style={{ color: "rgba(250, 204, 144, 0.6)", fontSize: "0.9rem", margin: 0 }}>
 									Please log in to access your saved conversations
@@ -1797,7 +2297,7 @@ export default function CoffeeRecommender() {
 											onClick={() => deleteChat(chat.id)}
 											aria-label="Delete chat"
 										>
-											🗑️
+											<TrashIcon size={16} />
 										</button>
 									</div>
 								))}
@@ -1811,7 +2311,9 @@ export default function CoffeeRecommender() {
 
 				{step === "stats" && (
 					<div className="recommender-stats">
-						<h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>Your Kafelot Stats 📊</h3>
+						<h3 style={{ margin: "0 0 12px 0", fontSize: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
+							Your Kafelot Stats <ChartBarIcon size={18} />
+						</h3>
 						<KafelotStats stats={stats} />
 						<KafelotUsage stats={stats} />
 						<div className="recommender-cta">
@@ -1832,7 +2334,7 @@ export default function CoffeeRecommender() {
 				onClick={() => setOpen((v) => !v)}
 				title="Kafelot - Your coffee pilot explorer"
 			>
-				<Image src="/Kafelot.svg" alt="Kafelot" width={24} height={24} priority />
+				<GithubCopilotIcon size={24} />
 			</button>
 			{mounted ? createPortal(dock, document.body) : null}
 			{selectedProduct && (

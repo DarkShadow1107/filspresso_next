@@ -50,33 +50,35 @@ function calculateRenewalDate(billingCycle, fromDate = new Date()) {
  */
 router.get("/", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Get current active or ending subscription
-			const [currentSub] = await conn.query(
+			const currentResult = await client.query(
 				`SELECT us.id, us.subscription_tier, us.billing_cycle, us.price_ron, 
                         us.start_date, us.renewal_date, us.end_date, us.is_active, us.auto_renew, us.status,
                         us.card_id, uc.card_last_four, uc.card_type
                 FROM user_subscriptions us
                 LEFT JOIN user_cards uc ON us.card_id = uc.id
-                WHERE us.account_id = ? AND us.is_active = TRUE AND us.status IN ('active', 'ending')
+                WHERE us.account_id = $1 AND us.is_active = TRUE AND us.status IN ('active', 'ending')
                 ORDER BY us.created_at DESC
                 LIMIT 1`,
 				[req.user.id]
 			);
+			const currentSub = currentResult.rows[0];
 
 			// Get scheduled subscription (if any)
-			const [scheduledSub] = await conn.query(
+			const scheduledResult = await client.query(
 				`SELECT us.id, us.subscription_tier, us.billing_cycle, us.price_ron, 
                         us.start_date, us.renewal_date, us.is_active, us.status,
                         us.card_id, uc.card_last_four, uc.card_type
                 FROM user_subscriptions us
                 LEFT JOIN user_cards uc ON us.card_id = uc.id
-                WHERE us.account_id = ? AND us.status = 'scheduled'
+                WHERE us.account_id = $1 AND us.status = 'scheduled'
                 ORDER BY us.start_date ASC
                 LIMIT 1`,
 				[req.user.id]
 			);
+			const scheduledSub = scheduledResult.rows[0];
 
 			if (!currentSub) {
 				// Return default free subscription
@@ -114,7 +116,7 @@ router.get("/", authenticate, async (req, res) => {
 								id: currentSub.card_id,
 								last_four: currentSub.card_last_four,
 								type: currentSub.card_type,
-						}
+						  }
 						: null,
 				},
 				scheduled: scheduledSub
@@ -131,15 +133,15 @@ router.get("/", authenticate, async (req, res) => {
 										id: scheduledSub.card_id,
 										last_four: scheduledSub.card_last_four,
 										type: scheduledSub.card_type,
-								}
+								  }
 								: null,
-					}
+					  }
 					: null,
 			};
 
 			res.json(response);
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Get subscription error:", error);
@@ -166,36 +168,36 @@ router.post("/", authenticate, async (req, res) => {
 		const startDate = new Date().toISOString().split("T")[0];
 		const renewalDate = tier === "free" ? null : calculateRenewalDate(billingCycle);
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			await conn.beginTransaction();
+			await client.query("BEGIN");
 
 			// Deactivate any existing subscriptions and remove scheduled ones
-			await conn.query("UPDATE user_subscriptions SET is_active = FALSE, status = 'cancelled' WHERE account_id = ?", [
+			await client.query("UPDATE user_subscriptions SET is_active = FALSE, status = 'cancelled' WHERE account_id = $1", [
 				req.user.id,
 			]);
 
 			// Create new subscription
-			const result = await conn.query(
+			const result = await client.query(
 				`INSERT INTO user_subscriptions 
                 (account_id, subscription_tier, billing_cycle, price_ron, 
                 start_date, renewal_date, is_active, auto_renew, status, card_id)
-                VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, 'active', ?)`,
+                VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 'active', $8) RETURNING id`,
 				[req.user.id, tier, billingCycle || "monthly", price, startDate, renewalDate, tier !== "free", cardId || null]
 			);
 
 			// Update account subscription field
-			await conn.query("UPDATE accounts SET subscription = ? WHERE id = ?", [
+			await client.query("UPDATE accounts SET subscription = $1 WHERE id = $2", [
 				tier.charAt(0).toUpperCase() + tier.slice(1),
 				req.user.id,
 			]);
 
-			await conn.commit();
+			await client.query("COMMIT");
 
 			res.status(201).json({
 				message: "Subscription created successfully",
 				subscription: {
-					id: Number(result.insertId),
+					id: Number(result.rows[0].id),
 					tier,
 					billing_cycle: billingCycle,
 					price_ron: price,
@@ -207,10 +209,10 @@ router.post("/", authenticate, async (req, res) => {
 				},
 			});
 		} catch (error) {
-			await conn.rollback();
+			await client.query("ROLLBACK");
 			throw error;
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Create subscription error:", error);
@@ -233,20 +235,21 @@ router.post("/change", authenticate, async (req, res) => {
 			return res.status(400).json({ error: "Invalid billing cycle" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			await conn.beginTransaction();
+			await client.query("BEGIN");
 
 			// Get current active subscription
-			const [currentSub] = await conn.query(
+			const currentResult = await client.query(
 				`SELECT id, subscription_tier, renewal_date, card_id FROM user_subscriptions 
-				WHERE account_id = ? AND is_active = TRUE AND status IN ('active', 'ending')
+				WHERE account_id = $1 AND is_active = TRUE AND status IN ('active', 'ending')
 				LIMIT 1`,
 				[req.user.id]
 			);
+			const currentSub = currentResult.rows[0];
 
 			if (!currentSub) {
-				await conn.rollback();
+				await client.query("ROLLBACK");
 				return res.status(400).json({ error: "No active subscription to change from" });
 			}
 
@@ -255,7 +258,7 @@ router.post("/change", authenticate, async (req, res) => {
 			const isUpgrade = newTierLevel > currentTierLevel;
 
 			// Remove any existing scheduled subscriptions
-			await conn.query(`DELETE FROM user_subscriptions WHERE account_id = ? AND status = 'scheduled'`, [req.user.id]);
+			await client.query(`DELETE FROM user_subscriptions WHERE account_id = $1 AND status = 'scheduled'`, [req.user.id]);
 
 			const price = SUBSCRIPTION_PRICES[tier][billingCycle];
 			const useCardId = cardId || currentSub.card_id;
@@ -263,9 +266,9 @@ router.post("/change", authenticate, async (req, res) => {
 			if (isUpgrade) {
 				// For upgrades: activate immediately
 				// Mark current as ending now
-				await conn.query(
-					`UPDATE user_subscriptions SET status = 'ending', end_date = CURDATE(), auto_renew = FALSE, is_active = FALSE
-					WHERE id = ?`,
+				await client.query(
+					`UPDATE user_subscriptions SET status = 'ending', end_date = CURRENT_DATE, auto_renew = FALSE, is_active = FALSE
+					WHERE id = $1`,
 					[currentSub.id]
 				);
 
@@ -273,27 +276,27 @@ router.post("/change", authenticate, async (req, res) => {
 				const renewalDate = calculateRenewalDate(billingCycle);
 
 				// Create new active subscription
-				const result = await conn.query(
+				const result = await client.query(
 					`INSERT INTO user_subscriptions 
 					(account_id, subscription_tier, billing_cycle, price_ron, 
 					start_date, renewal_date, is_active, auto_renew, status, card_id)
-					VALUES (?, ?, ?, ?, ?, ?, TRUE, TRUE, 'active', ?)`,
+					VALUES ($1, $2, $3, $4, $5, $6, TRUE, TRUE, 'active', $7) RETURNING id`,
 					[req.user.id, tier, billingCycle, price, startDate, renewalDate, useCardId]
 				);
 
 				// Update account subscription field
-				await conn.query("UPDATE accounts SET subscription = ? WHERE id = ?", [
+				await client.query("UPDATE accounts SET subscription = $1 WHERE id = $2", [
 					tier.charAt(0).toUpperCase() + tier.slice(1),
 					req.user.id,
 				]);
 
-				await conn.commit();
+				await client.query("COMMIT");
 
 				res.status(201).json({
 					message: "Subscription upgraded successfully! Your new plan is now active.",
 					isUpgrade: true,
 					subscription: {
-						id: Number(result.insertId),
+						id: Number(result.rows[0].id),
 						tier,
 						billing_cycle: billingCycle,
 						price_ron: price,
@@ -307,9 +310,9 @@ router.post("/change", authenticate, async (req, res) => {
 				// For downgrades: schedule for when current subscription ends
 				// Mark current as ending
 				const endDate = currentSub.renewal_date;
-				await conn.query(
-					`UPDATE user_subscriptions SET status = 'ending', end_date = ?, auto_renew = FALSE
-					WHERE id = ?`,
+				await client.query(
+					`UPDATE user_subscriptions SET status = 'ending', end_date = $1, auto_renew = FALSE
+					WHERE id = $2`,
 					[endDate, currentSub.id]
 				);
 
@@ -317,22 +320,22 @@ router.post("/change", authenticate, async (req, res) => {
 				const startDate = currentSub.renewal_date;
 				const renewalDate = calculateRenewalDate(billingCycle, new Date(startDate));
 
-				const result = await conn.query(
+				const result = await client.query(
 					`INSERT INTO user_subscriptions 
 					(account_id, subscription_tier, billing_cycle, price_ron, 
 					start_date, renewal_date, is_active, auto_renew, status, card_id)
-					VALUES (?, ?, ?, ?, ?, ?, FALSE, TRUE, 'scheduled', ?)`,
+					VALUES ($1, $2, $3, $4, $5, $6, FALSE, TRUE, 'scheduled', $7) RETURNING id`,
 					[req.user.id, tier, billingCycle, price, startDate, renewalDate, useCardId]
 				);
 
-				await conn.commit();
+				await client.query("COMMIT");
 
 				res.status(201).json({
 					message: `Plan change scheduled. Your current plan continues until ${endDate}, then ${tier} will activate.`,
 					isUpgrade: false,
 					currentEnds: endDate,
 					scheduled: {
-						id: Number(result.insertId),
+						id: Number(result.rows[0].id),
 						tier,
 						billing_cycle: billingCycle,
 						price_ron: price,
@@ -343,10 +346,10 @@ router.post("/change", authenticate, async (req, res) => {
 				});
 			}
 		} catch (error) {
-			await conn.rollback();
+			await client.query("ROLLBACK");
 			throw error;
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Change subscription error:", error);
@@ -359,31 +362,32 @@ router.post("/change", authenticate, async (req, res) => {
  */
 router.put("/cancel", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [subscription] = await conn.query(
+			const result = await client.query(
 				`SELECT id FROM user_subscriptions 
-                WHERE account_id = ? AND is_active = TRUE`,
+                WHERE account_id = $1 AND is_active = TRUE`,
 				[req.user.id]
 			);
+			const subscription = result.rows[0];
 
 			if (!subscription) {
 				return res.status(404).json({ error: "No active subscription found" });
 			}
 
-			await conn.query(
+			await client.query(
 				`UPDATE user_subscriptions 
                 SET auto_renew = FALSE, updated_at = NOW() 
-                WHERE id = ?`,
+                WHERE id = $1`,
 				[subscription.id]
 			);
 
 			// Revert to free tier on account
-			await conn.query("UPDATE accounts SET subscription = 'Free' WHERE id = ?", [req.user.id]);
+			await client.query("UPDATE accounts SET subscription = 'Free' WHERE id = $1", [req.user.id]);
 
 			res.json({ message: "Subscription cancelled. Access continues until renewal date." });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Cancel subscription error:", error);
@@ -402,26 +406,30 @@ router.put("/update-card", authenticate, async (req, res) => {
 			return res.status(400).json({ error: "Card ID is required" });
 		}
 
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
 			// Verify the card belongs to the user
-			const [card] = await conn.query("SELECT id FROM user_cards WHERE id = ? AND account_id = ?", [cardId, req.user.id]);
+			const result = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [
+				cardId,
+				req.user.id,
+			]);
+			const card = result.rows[0];
 
 			if (!card) {
 				return res.status(404).json({ error: "Card not found" });
 			}
 
 			// Update subscription with new card
-			await conn.query(
+			await client.query(
 				`UPDATE user_subscriptions 
-				SET card_id = ?, updated_at = NOW() 
-				WHERE account_id = ? AND is_active = TRUE`,
+				SET card_id = $1, updated_at = NOW() 
+				WHERE account_id = $2 AND is_active = TRUE`,
 				[cardId, req.user.id]
 			);
 
 			res.json({ message: "Payment method updated successfully" });
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Update card error:", error);
@@ -434,13 +442,14 @@ router.put("/update-card", authenticate, async (req, res) => {
  */
 router.put("/toggle-auto-renew", authenticate, async (req, res) => {
 	try {
-		const conn = await pool.getConnection();
+		const client = await pool.connect();
 		try {
-			const [subscription] = await conn.query(
+			const result = await client.query(
 				`SELECT id, auto_renew FROM user_subscriptions 
-				WHERE account_id = ? AND is_active = TRUE`,
+				WHERE account_id = $1 AND is_active = TRUE`,
 				[req.user.id]
 			);
+			const subscription = result.rows[0];
 
 			if (!subscription) {
 				return res.status(404).json({ error: "No active subscription found" });
@@ -448,10 +457,10 @@ router.put("/toggle-auto-renew", authenticate, async (req, res) => {
 
 			const newAutoRenew = !subscription.auto_renew;
 
-			await conn.query(
+			await client.query(
 				`UPDATE user_subscriptions 
-				SET auto_renew = ?, updated_at = NOW() 
-				WHERE id = ?`,
+				SET auto_renew = $1, updated_at = NOW() 
+				WHERE id = $2`,
 				[newAutoRenew, subscription.id]
 			);
 
@@ -460,7 +469,7 @@ router.put("/toggle-auto-renew", authenticate, async (req, res) => {
 				auto_renew: newAutoRenew,
 			});
 		} finally {
-			conn.release();
+			client.release();
 		}
 	} catch (error) {
 		console.error("Toggle auto-renew error:", error);

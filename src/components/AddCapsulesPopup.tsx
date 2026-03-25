@@ -2,6 +2,7 @@
 
 import React from "react";
 import { createPortal } from "react-dom";
+import { XIcon } from "@/icons";
 
 const CAPSULE_OPTIONS = Array.from({ length: 11 }, (_, idx) => idx * 10);
 
@@ -114,8 +115,14 @@ export default function AddCapsulesPopup({ open, productName, defaultValue = 10,
 			>
 				<header className="capsules-popup__header">
 					<h2 id={titleId}>Choose capsules</h2>
-					<button type="button" className="capsules-popup__close" onClick={onClose} aria-label="Close popup">
-						<span aria-hidden="true">×</span>
+					<button
+						type="button"
+						className="capsules-popup__close"
+						onClick={onClose}
+						aria-label="Close popup"
+						style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+					>
+						<XIcon size={20} />
 					</button>
 				</header>
 				<p className="capsules-popup__subtitle">Select how many capsules of {productName} you&apos;d like to add.</p>

@@ -1,13 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
-import { coffeeCollections, type CoffeeProduct } from "@/data/coffee";
+import type { CoffeeProduct } from "@/data/coffee";
+import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
 import type { WeatherData } from "@/lib/weather";
+import {
+	ShoppingCartIcon,
+	TrashIcon,
+	RocketIcon,
+	TriangleAlertIcon,
+	StarIcon,
+	CoffeeIcon,
+	SimpleCheckedIcon,
+	FlameIcon,
+	XIcon,
+} from "@/icons";
 
 type PopularProduct = {
 	product_id: string;
@@ -16,21 +28,47 @@ type PopularProduct = {
 	total_ordered: number;
 };
 
+type StockInfo = {
+	stock: number;
+	stockStatus: "in_stock" | "low_stock" | "out_of_stock";
+};
+
+type CapsuleVariant = "original" | "vertuo";
+
 function formatRon(value: number) {
 	return `${value.toFixed(2).replace(".", ",")} RON`;
 }
 
+function normalizePath(value?: string | null) {
+	return (value || "").trim().toLowerCase();
+}
+
+function buildVariantStockKey(productId: string, variant: CapsuleVariant) {
+	return `${productId}::${variant}`;
+}
+
+function inferVariantFromImageOrId(productImage: string | null, productId: string): CapsuleVariant {
+	const image = normalizePath(productImage);
+	const id = normalizePath(productId);
+	if (image.includes("/vertuo/") || /-(vertuo|vl)$/i.test(id)) return "vertuo";
+	return "original";
+}
+
+function parsePopularNameAndPrice(raw: string) {
+	const parts = (raw || "").split(" - ");
+	const name = parts[0]?.trim() || raw || "Unknown product";
+	const priceToken = parts.length > 1 ? parts[parts.length - 1] : "";
+	const parsed = Number(priceToken.replace(/[^0-9,.-]/g, "").replace(",", "."));
+	return {
+		name,
+		priceRon: Number.isFinite(parsed) ? parsed : null,
+	};
+}
+
 // Helper function to get product image from data
-function getProductImage(productId: string): string | undefined {
-	// Search in coffee collections
-	for (const collection of coffeeCollections) {
-		for (const group of collection.groups) {
-			for (const product of group.products) {
-				if (product.id === productId) {
-					return product.image;
-				}
-			}
-		}
+function getProductImage(productId: string, coffeeData: CoffeeProduct[]): string | undefined {
+	for (const product of coffeeData) {
+		if (product.id === productId) return product.image;
 	}
 
 	// Search in machine collections
@@ -47,21 +85,23 @@ function getProductImage(productId: string): string | undefined {
 	return undefined;
 }
 
-// Helper function to get full product data by ID
-function getProductData(productId: string): CoffeeProduct | undefined {
-	for (const collection of coffeeCollections) {
-		for (const group of collection.groups) {
-			for (const product of group.products) {
-				if (product.id === productId) {
-					return product;
-				}
-			}
-		}
-	}
-	return undefined;
+function getProductDataByIdAndImage(
+	productId: string,
+	productImage: string | null,
+	coffeeData: CoffeeProduct[],
+): CoffeeProduct | undefined {
+	const idMatches = coffeeData.filter((p) => p.id === productId);
+	if (idMatches.length <= 1) return idMatches[0];
+
+	const wantedImage = normalizePath(productImage);
+	if (!wantedImage) return idMatches[0];
+
+	return idMatches.find((p) => normalizePath(p.image) === wantedImage) || idMatches[0];
 }
 
 export default function Cart() {
+	const { collections } = useCoffeeCollections();
+	const coffeeData = collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [];
 	const { items, currentSum, memberDiscount, reset, placeOrder, removeItem, updateQuantity, addItem } = useCart();
 	const { notify } = useNotifications();
 	const router = useRouter();
@@ -69,7 +109,9 @@ export default function Cart() {
 	const [isHydrated, setIsHydrated] = useState(false);
 	const [weather, setWeather] = useState<WeatherData | null>(null);
 	const [popularProducts, setPopularProducts] = useState<PopularProduct[]>([]);
+	const [stockMap, setStockMap] = useState<Record<string, StockInfo>>({});
 	const hasItems = items.length > 0;
+	const getProductImageForId = useCallback((productId: string) => getProductImage(productId, coffeeData), [coffeeData]);
 
 	// Calculate subtotal before discount (for display purposes)
 	const subtotalBeforeDiscount = items.reduce((sum, item) => sum + item.price * item.qty, 0);
@@ -85,7 +127,7 @@ export default function Cart() {
 		const fetchWeather = async () => {
 			try {
 				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-				const res = await fetch(`${API_BASE}/api/weather`);
+				const res = await fetch(`${API_BASE}/api/weather`, { keepalive: true });
 				if (res.ok) {
 					const data = await res.json();
 					setWeather(data);
@@ -100,7 +142,7 @@ export default function Cart() {
 		const fetchPopular = async () => {
 			try {
 				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-				const res = await fetch(`${API_BASE}/api/orders/popular?limit=7`);
+				const res = await fetch(`${API_BASE}/api/orders/popular?limit=7`, { keepalive: true });
 				if (res.ok) {
 					const data = await res.json();
 					setPopularProducts(data.products || []);
@@ -110,20 +152,73 @@ export default function Cart() {
 			}
 		};
 		fetchPopular();
+
+		// Fetch coffee stock for recommendations
+		const fetchStock = async () => {
+			try {
+				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+				const res = await fetch(`${API_BASE}/api/products/coffee`, { keepalive: true });
+				if (res.ok) {
+					const data = await res.json();
+					const map: Record<string, StockInfo> = {};
+					for (const p of data.products || []) {
+						const variant: CapsuleVariant = p.productType === "vertuo" ? "vertuo" : "original";
+						const info = { stock: p.stock, stockStatus: p.stockStatus } as StockInfo;
+						map[buildVariantStockKey(p.productId, variant)] = info;
+						// Database uses -vl for vertuo products, not -vertuo
+						const base = p.productId.replace(/-(original|vertuo|vl)$/i, "");
+						if (base !== p.productId) {
+							map[buildVariantStockKey(base, variant)] = info;
+						}
+					}
+					setStockMap(map);
+				}
+			} catch {
+				// Silent fail - stock info optional
+			}
+		};
+		fetchStock();
 	}, []);
 
-	const handleAddPopularItem = (productId: string) => {
-		const product = getProductData(productId);
-		if (product) {
-			addItem({
-				id: product.id,
-				name: product.name,
-				price: product.priceRon,
-				qty: 1,
-				image: product.image,
-			});
-			notify(`Added ${product.name} to bag!`, 3000, "success", "bag");
+	const handleAddPopularItem = async (popular: PopularProduct) => {
+		const product = getProductDataByIdAndImage(popular.product_id, popular.product_image, coffeeData);
+		const parsed = parsePopularNameAndPrice(popular.product_name);
+		const itemName = product?.name || parsed.name;
+		const itemPrice = product?.priceRon ?? parsed.priceRon;
+		const itemImage = product?.image || popular.product_image || undefined;
+
+		if (itemPrice === null || itemPrice <= 0) {
+			notify(`Couldn't determine price for ${itemName}.`, 4000, "error", "bag");
+			return;
 		}
+
+		const added = await addItem({
+			id: popular.product_id,
+			name: itemName,
+			price: itemPrice,
+			qty: 1,
+			image: itemImage,
+		});
+		if (added) {
+			notify(`Added ${itemName} to bag!`, 3000, "success", "bag");
+		}
+	};
+
+	const renderStockBadge = (productId: string, productImage: string | null) => {
+		const variant = inferVariantFromImageOrId(productImage, productId);
+		const base = productId.replace(/-(original|vertuo|vl)$/i, "");
+		const info =
+			stockMap[buildVariantStockKey(productId, variant)] ||
+			stockMap[buildVariantStockKey(base, variant)] ||
+			stockMap[buildVariantStockKey(`${base}-${variant === "vertuo" ? "vertuo" : "original"}`, variant)] ||
+			stockMap[buildVariantStockKey(`${base}-vl`, variant)];
+		const stock = info?.stock ?? 0;
+		const isOutOfStock = info?.stockStatus === "out_of_stock" || stock <= 0;
+		const isLowStock = info?.stockStatus === "low_stock" || (stock > 0 && stock < 40);
+
+		if (isOutOfStock) return <span className="popular-stock out">Out of stock</span>;
+		if (isLowStock) return <span className="popular-stock low">{stock} left in stock</span>;
+		return <span className="popular-stock in">In stock</span>;
 	};
 
 	const handlePlaceOrder = () => {
@@ -146,6 +241,7 @@ export default function Cart() {
 			});
 			return;
 		}
+
 		placeOrder();
 	};
 
@@ -156,21 +252,13 @@ export default function Cart() {
 	const shippingFee = hasFreeShipping ? 0 : 24.99;
 	const finalTotal = currentSum + shippingFee;
 
-	// Tier icons for display
-	const tierIcons: Record<string, string> = {
-		None: "☕",
-		Connoisseur: "🎖️",
-		Expert: "⭐",
-		Master: "🏆",
-		Virtuoso: "💎",
-		Ambassador: "👑",
-	};
-
 	return (
 		<>
 			<div className="cart-container">
 				<div className="cart-summary-box">
-					<h2 className="cart-title">🛍️ Shopping Bag Summary</h2>
+					<h2 className="cart-title" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+						<ShoppingCartIcon size={24} /> Shopping Bag Summary
+					</h2>
 					<div className="cart-stats">
 						<div className="stat-item" suppressHydrationWarning>
 							<span className="stat-label">Items:</span>
@@ -193,7 +281,7 @@ export default function Cart() {
 								}}
 							>
 								<span className="stat-label" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-									<span>{tierIcons[memberDiscount.tier] || "🎖️"}</span>
+									<StarIcon size={16} />
 									<span>
 										{memberDiscount.tier} Discount ({memberDiscount.percent}%):
 									</span>
@@ -209,7 +297,12 @@ export default function Cart() {
 							<span className="stat-value shipping-info">
 								{shippingFee === 0 ? (
 									<>
-										<span className="free-shipping">FREE ✓</span>
+										<span
+											className="free-shipping"
+											style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
+										>
+											FREE <SimpleCheckedIcon size={14} />
+										</span>
 										{["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) &&
 											currentSum < 200 && (
 												<span className="shipping-note" style={{ color: "rgba(100, 255, 150, 0.8)" }}>
@@ -233,7 +326,7 @@ export default function Cart() {
 					</div>
 					{weather?.hourly && weather.hourly.precipitation_probability[0] > 50 && (
 						<div className="weather-shipping-warning">
-							<span className="weather-warning-icon">🌧️</span>
+							<TriangleAlertIcon size={18} />
 							<span className="weather-warning-text">
 								{weather.hourly.precipitation_probability[0] >= 80
 									? "Heavy rain expected – delivery may be delayed"
@@ -249,10 +342,18 @@ export default function Cart() {
 							onClick={handlePlaceOrder}
 							disabled={!hasItems}
 						>
-							{hasItems ? "🚀 Place Order" : "🛒 Bag is Empty"}
+							{hasItems ? (
+								<>
+									<RocketIcon size={22} /> <span>Place Order</span>
+								</>
+							) : (
+								<>
+									<ShoppingCartIcon size={22} /> <span>Bag is Empty</span>
+								</>
+							)}
 						</button>
 						<button id="resetButton" type="button" onClick={() => reset()} disabled={!hasItems}>
-							🗑️ Empty Bag
+							<TrashIcon size={22} /> <span>Empty Bag</span>
 						</button>
 					</div>
 				</div>
@@ -313,10 +414,12 @@ export default function Cart() {
 								}
 
 								// Get image from item or look up from product data
-								const itemImage = item.image || getProductImage(item.id);
+								const itemImage = item.image || getProductImageForId(item.id);
+
+								const cartRowKey = `${item.id}::${normalizePath(item.image)}::${index}`;
 
 								return (
-									<div key={item.id} className="cart-item-card">
+									<div key={cartRowKey} className="cart-item-card">
 										{itemImage && (
 											<div className="cart-item-image">
 												<img
@@ -365,8 +468,9 @@ export default function Cart() {
 												onClick={() => removeItem(item.id)}
 												aria-label="Remove item"
 												title="Remove from bag"
+												style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
 											>
-												×
+												<XIcon size={18} />
 											</button>
 										</div>
 									</div>
@@ -376,8 +480,12 @@ export default function Cart() {
 					</div>
 				) : (
 					<div className="empty-cart-message">
-						<div className="empty-icon">🛒</div>
-						<p className="empty-text">Your shopping bag is empty</p>
+						<div className="empty-icon-row">
+							<div className="empty-icon">
+								<ShoppingCartIcon size={40} color="#ae8966" />
+							</div>
+							<p className="empty-text">Your shopping bag is empty</p>
+						</div>
 						<p className="empty-subtext">Add some delicious coffee capsules to get started!</p>
 					</div>
 				)}
@@ -385,17 +493,25 @@ export default function Cart() {
 				{/* Members Also Buy Section */}
 				{popularProducts.length > 0 && (
 					<div className="members-also-buy">
-						<h3 className="members-also-buy-title">☕ Members Also Buy</h3>
+						<h3 className="members-also-buy-title">
+							<CoffeeIcon size={24} /> Members Also Buy
+						</h3>
 						<div className="popular-products-carousel">
-							{popularProducts.map((pop) => {
-								const product = getProductData(pop.product_id);
-								const img = pop.product_image || product?.image || getProductImage(pop.product_id);
-								const alreadyInCart = items.some((item) => item.id === pop.product_id);
+							{popularProducts.map((pop, index) => {
+								const product = getProductDataByIdAndImage(pop.product_id, pop.product_image, coffeeData);
+								const parsed = parsePopularNameAndPrice(pop.product_name);
+								const img = pop.product_image || product?.image || getProductImageForId(pop.product_id);
+								const alreadyInCart = items.some(
+									(item) => item.id === pop.product_id && normalizePath(item.image) === normalizePath(img),
+								);
 								// Extract just the product name without price (API returns "Name - Price")
-								const displayName = product?.name || pop.product_name.split(" - ")[0];
+								const displayName = product?.name || parsed.name;
+								const displayPrice = product?.priceRon ?? parsed.priceRon;
+								const stockBadge = renderStockBadge(pop.product_id, pop.product_image);
+								const popularKey = `${pop.product_id}::${normalizePath(pop.product_image || img)}::${index}`;
 
 								return (
-									<div key={pop.product_id} className="popular-product-card">
+									<div key={popularKey} className="popular-product-card">
 										{img && (
 											<div className="popular-product-image">
 												<img src={img} alt={displayName} />
@@ -405,18 +521,25 @@ export default function Cart() {
 											<div className="popular-product-name" title={displayName}>
 												{displayName}
 											</div>
-											{product && (
-												<div className="popular-product-price">{formatRon(product.priceRon)}</div>
+											{displayPrice !== null && (
+												<div className="popular-product-price">{formatRon(displayPrice)}</div>
 											)}
-											<div className="popular-product-orders">🔥 {pop.total_ordered} ordered</div>
+											{stockBadge}
+											<div
+												className="popular-product-orders"
+												style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}
+											>
+												<FlameIcon size={14} /> {pop.total_ordered} ordered
+											</div>
 										</div>
 										<button
 											className="popular-add-btn"
-											onClick={() => handleAddPopularItem(pop.product_id)}
+											onClick={() => handleAddPopularItem(pop)}
 											disabled={alreadyInCart}
 											title={alreadyInCart ? "Already in bag" : "Add to bag"}
+											style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
 										>
-											{alreadyInCart ? "✓" : "+"}
+											{alreadyInCart ? <SimpleCheckedIcon size={16} /> : "+"}
 										</button>
 									</div>
 								);

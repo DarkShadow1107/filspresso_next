@@ -1,6 +1,17 @@
-"use client";
+﻿"use client";
 
 import { ChatHistory } from "./types";
+import {
+	MessageCircleIcon,
+	ClockIcon,
+	TrashIcon,
+	CoffeeIcon,
+	BulbSvg,
+	GithubCopilotIcon,
+	SparklesIcon,
+	ShoppingCartIcon,
+	FileDescriptionIcon,
+} from "@/icons";
 
 type ChatHistorySectionProps = {
 	chatHistory: ChatHistory[];
@@ -61,8 +72,18 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 				</div>
 
 				{chatHistory.length === 0 ? (
-					<div style={{ textAlign: "center", padding: "3rem" }}>
-						<div style={{ fontSize: "3rem", marginBottom: "1rem" }}>💬</div>
+					<div
+						style={{
+							textAlign: "center",
+							padding: "3rem",
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
+						}}
+					>
+						<div style={{ marginBottom: "1rem" }}>
+							<MessageCircleIcon size={64} />
+						</div>
 						<p style={{ color: "#888", fontSize: "1.1rem", margin: "0 0 0.5rem 0" }}>No chat history yet</p>
 						<p style={{ color: "#666", fontSize: "0.9rem", margin: 0 }}>
 							Start a conversation with Kafelot to see your history here
@@ -117,15 +138,20 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 														chat.category === "chemistry"
 															? "rgba(139, 92, 246, 0.15)"
 															: chat.category === "coffee"
-															? "rgba(196, 167, 125, 0.15)"
-															: "rgba(59, 130, 246, 0.15)",
+																? "rgba(196, 167, 125, 0.15)"
+																: "rgba(59, 130, 246, 0.15)",
 													display: "flex",
 													alignItems: "center",
 													justifyContent: "center",
-													fontSize: "1.3rem",
 												}}
 											>
-												{chat.category === "chemistry" ? "🧪" : chat.category === "coffee" ? "☕" : "🤖"}
+												{chat.category === "chemistry" ? (
+													<BulbSvg size={24} />
+												) : chat.category === "coffee" ? (
+													<CoffeeIcon size={24} />
+												) : (
+													<GithubCopilotIcon size={24} />
+												)}
 											</div>
 											<div>
 												<div
@@ -149,7 +175,7 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 												>
 													<span>
 														{new Date(chat.timestamp).toLocaleDateString("en-US", {
-															month: "short",
+															month: "long",
 															day: "numeric",
 															year: "numeric",
 														})}
@@ -169,31 +195,20 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 										<div
 											style={{
 												background:
-													chat.model === "ode"
-														? "linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(124, 58, 237, 0.2) 100%)"
-														: chat.model === "villanelle"
-														? "linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.2) 100%)"
-														: "linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.2) 100%)",
-												border:
-													chat.model === "ode"
-														? "1px solid rgba(139, 92, 246, 0.4)"
-														: chat.model === "villanelle"
-														? "1px solid rgba(59, 130, 246, 0.4)"
-														: "1px solid rgba(16, 185, 129, 0.4)",
-												color:
-													chat.model === "ode"
-														? "#a78bfa"
-														: chat.model === "villanelle"
-														? "#60a5fa"
-														: "#34d399",
+													"linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.2) 100%)",
+												border: "1px solid rgba(16, 185, 129, 0.4)",
+												color: "#34d399",
 												padding: "4px 10px",
 												borderRadius: "6px",
 												fontSize: "0.75rem",
 												fontWeight: 600,
 												textTransform: "capitalize",
+												display: "flex",
+												alignItems: "center",
+												gap: "0.4rem",
 											}}
 										>
-											{chat.model === "ode" ? "🎼 " : chat.model === "villanelle" ? "⚡ " : "🌿 "}
+											<SparklesIcon size={14} />
 											{chat.model}
 										</div>
 									</div>
@@ -216,7 +231,7 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 												fontSize: "0.85rem",
 											}}
 										>
-											<span style={{ color: "#888" }}>💬</span>
+											<MessageCircleIcon size={14} color="#888" />
 											<span style={{ color: "#aaa" }}>{messageCount} messages</span>
 											<span style={{ color: "#666", fontSize: "0.75rem" }}>
 												({userMessages} you, {assistantMessages} AI)
@@ -231,7 +246,7 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 													fontSize: "0.85rem",
 												}}
 											>
-												<span style={{ color: "#888" }}>🛒</span>
+												<ShoppingCartIcon size={14} color="#888" />
 												<span style={{ color: "#aaa" }}>Product recommendations</span>
 											</div>
 										)}
@@ -243,15 +258,15 @@ export function ChatHistorySection({ chatHistory, isLoadingHistory }: ChatHistor
 												fontSize: "0.85rem",
 											}}
 										>
-											<span style={{ color: "#888" }}>📂</span>
+											<FileDescriptionIcon size={14} color="#888" />
 											<span
 												style={{
 													color:
 														chat.category === "chemistry"
 															? "#a78bfa"
 															: chat.category === "coffee"
-															? "#c4a77d"
-															: "#60a5fa",
+																? "#c4a77d"
+																: "#60a5fa",
 													textTransform: "capitalize",
 												}}
 											>

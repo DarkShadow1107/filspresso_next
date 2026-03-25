@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { coffeeCollections, type CoffeeProduct } from "@/data/coffee";
+import { coffeeCollections } from "@/data/coffee";
+import type { CoffeeProduct } from "@/data/coffee";
 import tankaFallback from "@/app/data/coffee-fallback-tanka.json";
-import villanelleFallback from "@/app/data/coffee-fallback-villanelle.json";
-import odeFallback from "@/app/data/coffee-fallback-ode.json";
 
-type ModelTier = "tanka" | "villanelle" | "ode";
+type ModelTier = "tanka";
 
 interface ModelConfig {
 	name: string;
@@ -25,24 +24,6 @@ const MODEL_CONFIGS: Record<ModelTier, ModelConfig> = {
 		responseDetail: "basic",
 		specializations: ["Quick answers", "Recipe suggestions", "Basic brewing tips"],
 		description: "Fast and efficient for common coffee questions.",
-	},
-	villanelle: {
-		name: "Villanelle",
-		parameters: "60M",
-		contextWindow: 28,
-		knowledgeDepth: 0.88,
-		responseDetail: "balanced",
-		specializations: ["Detailed recommendations", "Processing insights", "Sensory descriptions"],
-		description: "Balanced expertise for most coffee conversations.",
-	},
-	ode: {
-		name: "Ode",
-		parameters: "90M",
-		contextWindow: 48,
-		knowledgeDepth: 0.96,
-		responseDetail: "comprehensive",
-		specializations: ["Coffee chemistry", "Biology and effects", "Historical context"],
-		description: "Deep coffee knowledge and comprehensive explanations.",
 	},
 };
 
@@ -68,13 +49,15 @@ type CoffeeFallbackModelData = {
 
 const FALLBACK_DATA: Record<ModelTier, CoffeeFallbackModelData> = {
 	tanka: tankaFallback as CoffeeFallbackModelData,
-	villanelle: villanelleFallback as CoffeeFallbackModelData,
-	ode: odeFallback as CoffeeFallbackModelData,
 };
 
-function generateCoffeeResponseByModel(input: string, model: ModelTier): { response: string; products: CoffeeProduct[] } {
+async function generateCoffeeResponseByModel(
+	input: string,
+	model: ModelTier,
+): Promise<{ response: string; products: CoffeeProduct[] }> {
 	const lower = input.toLowerCase();
-	const allProducts = coffeeCollections.flatMap((c) => c.groups.flatMap((g) => g.products));
+	const collections = coffeeCollections;
+	const allProducts = collections.flatMap((c) => c.groups.flatMap((g) => g.products));
 	const config = MODEL_CONFIGS[model];
 	const modelData = FALLBACK_DATA[model];
 	const answers = modelData.answers;
@@ -104,7 +87,7 @@ function generateCoffeeResponseByModel(input: string, model: ModelTier): { respo
 
 	if (
 		/origin|terroir|ethiopia|colombia|brazil|kenya|region|country|single\s*origin|where\s+(does|do|should).*(coffee)?\s*grow/i.test(
-			lower
+			lower,
 		)
 	) {
 		response = answers.origins;
@@ -157,7 +140,9 @@ function generateCoffeeResponseByModel(input: string, model: ModelTier): { respo
 
 	if (/recommend|suggest|best|popular|favorite|top/i.test(lower)) {
 		const topPicks = allProducts.filter((p) =>
-			["livanto", "arpeggio", "volluto", "ethiopia", "kazaar", "paris"].some((name) => p.name?.toLowerCase().includes(name))
+			["livanto", "arpeggio", "volluto", "ethiopia", "kazaar", "paris"].some((name) =>
+				p.name?.toLowerCase().includes(name),
+			),
 		);
 		response = answers.recommendation;
 		suggestedProducts = topPicks.slice(0, 5);
@@ -170,8 +155,8 @@ function generateCoffeeResponseByModel(input: string, model: ModelTier): { respo
 			(t) =>
 				p.name?.toLowerCase().includes(t) ||
 				p.description?.toLowerCase().includes(t) ||
-				p.notes?.some((n) => n.toLowerCase().includes(t))
-		)
+				p.notes?.some((n) => n.toLowerCase().includes(t)),
+		),
 	);
 
 	if (matches.length > 0) {
@@ -184,33 +169,53 @@ function generateCoffeeResponseByModel(input: string, model: ModelTier): { respo
 	return { response, products: suggestedProducts };
 }
 
-type UserSubscription = "none" | "basic" | "pro" | "max" | "ultimate";
+async function checkPromptLimit(
+	request: NextRequest,
+): Promise<{ allowed: boolean; errorResponse?: ReturnType<typeof NextResponse.json> }> {
+	try {
+		const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+		const headers: Record<string, string> = { "Content-Type": "application/json" };
+		const authHeader = request.headers.get("authorization");
+		if (authHeader) headers["authorization"] = authHeader;
+		const fingerprint = request.headers.get("x-kafelot-fingerprint");
+		if (fingerprint) headers["x-kafelot-fingerprint"] = fingerprint;
+		const forwarded = request.headers.get("x-forwarded-for");
+		if (forwarded) headers["x-forwarded-for"] = forwarded;
 
-function getModelAccessLevel(subscription: UserSubscription): ModelTier {
-	switch (subscription) {
-		case "ultimate":
-			return "ode";
-		case "max":
-			return "villanelle";
-		default:
-			return "tanka";
+		const res = await fetch(`${API_BASE}/api/kafelot/check-and-use`, {
+			method: "POST",
+			headers,
+			body: JSON.stringify({}),
+		});
+
+		if (res.status === 429) {
+			const data = (await res.json()) as { reset_date?: string; prompts_limit?: number };
+			return {
+				allowed: false,
+				errorResponse: NextResponse.json(
+					{ error: "PROMPT_LIMIT_REACHED", reset_date: data.reset_date, prompts_limit: data.prompts_limit },
+					{ status: 429 },
+				),
+			};
+		}
+		return { allowed: true };
+	} catch {
+		// On infra error, allow the request to proceed
+		return { allowed: true };
 	}
 }
 
 export async function POST(request: NextRequest) {
 	try {
-		const { messages, model, subscription } = (await request.json()) as {
+		const limitCheck = await checkPromptLimit(request);
+		if (!limitCheck.allowed) return limitCheck.errorResponse!;
+
+		const { messages } = (await request.json()) as {
 			messages: Array<{ role: string; content: string }>;
-			model?: ModelTier;
-			subscription?: UserSubscription;
 		};
 		const userMessage = messages[messages.length - 1]?.content || "";
-		const requestedModel = model || "villanelle";
-		const maxAllowedModel = getModelAccessLevel(subscription || "none");
-		const modelHierarchy: Record<ModelTier, number> = { tanka: 1, villanelle: 2, ode: 3 };
-		const canAccess = modelHierarchy[requestedModel] <= modelHierarchy[maxAllowedModel];
-		const selectedModel: ModelTier = canAccess ? requestedModel : maxAllowedModel;
-		const result = generateCoffeeResponseByModel(userMessage, selectedModel);
+		const selectedModel: ModelTier = "tanka";
+		const result = await generateCoffeeResponseByModel(userMessage, selectedModel);
 		return NextResponse.json({
 			response: result.response,
 			products: result.products,

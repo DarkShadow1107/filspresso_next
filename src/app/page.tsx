@@ -20,6 +20,7 @@ const pageTitles: Record<PageSlug, string> = {
 	machines: "Filspresso - Machines",
 	subscription: "Filspresso - Subscription",
 	"shopping-bag": "Filspresso - Bag",
+	favorites: "Filspresso - Favorites",
 	account: "Filspresso - Account",
 	payment: "Filspresso - Card Payment",
 	"coffee-machine-animation": "Filspresso - Coffee Machine Animation",
@@ -52,6 +53,7 @@ const pageLoaders: Record<PageSlug, () => Promise<{ default: ComponentType }>> =
 	payment: () => import("@/app/api/pages/payment/page"),
 	"shopping-bag": () => import("@/app/api/pages/shopping-bag/page"),
 	subscription: () => import("@/app/api/pages/subscription/page"),
+	favorites: () => import("@/app/api/pages/favorites/page"),
 };
 
 export default async function Page({ searchParams }: PageProps) {
@@ -71,6 +73,7 @@ export default async function Page({ searchParams }: PageProps) {
 	}
 
 	const PageComponent = (await pageLoaders[slug]()).default;
+
 	// Add key to force remount when page changes to prevent stale content
 	return <PageComponent key={slug} />;
 }

@@ -8,6 +8,7 @@ export const PAGE_SLUGS = [
 	"payment",
 	"shopping-bag",
 	"subscription",
+	"favorites",
 ] as const;
 
 export type PageSlug = (typeof PAGE_SLUGS)[number];
