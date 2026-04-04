@@ -6,15 +6,17 @@ const pool = new Pool({
 	port: parseInt(process.env.DB_PORT || "5432"),
 	database: process.env.DB_NAME || "filspresso",
 	user: process.env.DB_USER || "filspresso_user",
-	password: process.env.DB_PASSWORD || "filspresso_secure_2024",
+	password: process.env.DB_PASSWORD,
 });
 
 async function updateAdmin() {
 	let client;
 	try {
-		// Default credentials if not in env - but the goal is to store them in DB
 		const username = (process.env.ADMIN_USERNAME || "admin").toLowerCase();
-		const password = process.env.ADMIN_PASSWORD || "FilspressoNext";
+		const password = process.env.ADMIN_PASSWORD;
+		if (!password) {
+			throw new Error("ADMIN_PASSWORD environment variable is required");
+		}
 		const email = "admin@filspresso.com";
 		const hash = await bcrypt.hash(password, 10);
 
@@ -41,7 +43,6 @@ async function updateAdmin() {
 		}
 
 		console.log(`Admin user updated in database: ${username} (Email: ${email})`);
-		console.log("You can now login with these credentials even if you remove them from .env");
 	} catch (err) {
 		console.error("Error updating admin:", err);
 	} finally {

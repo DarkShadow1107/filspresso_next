@@ -21,6 +21,32 @@ const pool = require("../db/connection");
 const { encrypt, decrypt } = require("../utils/encryption");
 
 const router = express.Router();
+const ADMIN_SENSITIVE_VIEW_COOKIE_NAME = "admin_sensitive_view";
+const ADMIN_SENSITIVE_VIEW_TIMEOUT_MS = 10 * 60 * 1000;
+const RESTRICTED_ADMIN_TABLES = new Set([
+	"auth_login_attempts",
+	"auth_security_events",
+	"admin_mfa_challenges",
+	"user_mfa_challenges",
+	"user_sessions",
+	"user_cards",
+]);
+const SENSITIVE_ADMIN_COLUMNS = new Set([
+	"password_hash",
+	"session_token",
+	"challenge_token_hash",
+	"admin_mfa_secret_encrypted",
+	"user_mfa_secret_encrypted",
+	"temp_secret_encrypted",
+	"access_token",
+	"refresh_token",
+	"client_secret",
+	"api_key",
+	"jwt_secret",
+	"encryption_key",
+	"google_oauth_client_secret",
+	"google_oauth_refresh_token",
+]);
 const ADMIN_SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 const ADMIN_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const IS_NON_PROD = process.env.NODE_ENV !== "production";
@@ -50,6 +76,103 @@ const ADMIN_IP_ALLOWLIST = String(process.env.ADMIN_IP_ALLOWLIST || "")
 	.split(",")
 	.map((entry) => entry.trim())
 	.filter(Boolean);
+
+function normalizeAdminIdentifier(value) {
+	return String(value || "")
+		.trim()
+		.toLowerCase();
+}
+
+function isRestrictedAdminTable(table) {
+	return RESTRICTED_ADMIN_TABLES.has(normalizeAdminIdentifier(table));
+}
+
+function isSensitiveAdminColumn(columnName) {
+	const normalized = normalizeAdminIdentifier(columnName);
+	return (
+		SENSITIVE_ADMIN_COLUMNS.has(normalized) ||
+		normalized.endsWith("_secret") ||
+		normalized.endsWith("_secret_encrypted") ||
+		normalized.endsWith("_token") ||
+		normalized.endsWith("_token_hash")
+	);
+}
+
+function getVisibleAdminColumns(columns) {
+	return columns.filter((column) => !isSensitiveAdminColumn(column.name));
+}
+
+function getCookieValue(req, name) {
+	const rawCookie = String(req.headers.cookie || "");
+	if (!rawCookie) return "";
+	for (const part of rawCookie.split(";")) {
+		const [key, ...rest] = part.split("=");
+		if (key && key.trim() === name) {
+			return decodeURIComponent(rest.join("=").trim() || "");
+		}
+	}
+	return "";
+}
+
+function getSensitiveViewSecret() {
+	return String(process.env.JWT_SECRET || process.env.ENCRYPTION_KEY || "").trim();
+}
+
+function buildSensitiveViewTokenPayload(session) {
+	return {
+		scope: "admin_sensitive_view",
+		userId: session.userId,
+		username: session.username,
+		iat: Date.now(),
+		exp: Date.now() + ADMIN_SENSITIVE_VIEW_TIMEOUT_MS,
+	};
+}
+
+function signSensitiveViewToken(payload) {
+	const secret = getSensitiveViewSecret();
+	if (!secret) return "";
+	const serialized = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+	const signature = crypto.createHmac("sha256", secret).update(serialized).digest("base64url");
+	return `${serialized}.${signature}`;
+}
+
+function verifySensitiveViewToken(token) {
+	const secret = getSensitiveViewSecret();
+	if (!secret || typeof token !== "string" || !token.includes(".")) return null;
+	const [serialized, signature] = token.split(".");
+	if (!serialized || !signature) return null;
+	const expectedSignature = crypto.createHmac("sha256", secret).update(serialized).digest("base64url");
+	if (expectedSignature !== signature) return null;
+	try {
+		const payload = JSON.parse(Buffer.from(serialized, "base64url").toString("utf8"));
+		if (!payload || payload.scope !== "admin_sensitive_view" || !Number.isFinite(payload.exp) || payload.exp < Date.now()) {
+			return null;
+		}
+		return payload;
+	} catch {
+		return null;
+	}
+}
+
+function setSensitiveViewCookie(res, token) {
+	res.cookie(ADMIN_SENSITIVE_VIEW_COOKIE_NAME, token, {
+		httpOnly: true,
+		secure: process.env.NODE_ENV === "production",
+		sameSite: "lax",
+		path: "/api/admin",
+		maxAge: ADMIN_SENSITIVE_VIEW_TIMEOUT_MS,
+	});
+}
+
+function clearSensitiveViewCookie(res) {
+	res.cookie(ADMIN_SENSITIVE_VIEW_COOKIE_NAME, "", {
+		httpOnly: true,
+		secure: process.env.NODE_ENV === "production",
+		sameSite: "lax",
+		path: "/api/admin",
+		maxAge: 0,
+	});
+}
 
 const adminLoginLimiter = rateLimit({
 	windowMs: ADMIN_LOGIN_WINDOW_MS,
@@ -433,6 +556,13 @@ async function authenticateAdmin(req, res, next) {
 			userId: session.account_id,
 			expiresAt: expiresAt.getTime(),
 		};
+		const sensitiveViewToken = getCookieValue(req, ADMIN_SENSITIVE_VIEW_COOKIE_NAME);
+		const sensitiveViewPayload = verifySensitiveViewToken(sensitiveViewToken);
+		req.adminSensitiveView = Boolean(
+			sensitiveViewPayload &&
+			sensitiveViewPayload.userId === session.account_id &&
+			sensitiveViewPayload.username === session.username,
+		);
 
 		const startedAt = Date.now();
 		res.on("finish", () => {
@@ -469,7 +599,48 @@ async function authenticateAdmin(req, res, next) {
 	}
 }
 
-async function getPublicTables(client) {
+router.post("/sensitive/unlock", authenticateAdmin, async (req, res) => {
+	try {
+		const password = String(req.body?.password || "").trim();
+		if (!password) {
+			return res.status(400).json({ error: "Password is required" });
+		}
+
+		const client = await pool.connect();
+		try {
+			const result = await client.query("SELECT password_hash FROM accounts WHERE id = $1 AND role = 'admin'", [
+				req.adminSession.userId,
+			]);
+			const admin = result.rows[0];
+			if (!admin || !(await bcrypt.compare(password, admin.password_hash))) {
+				return res.status(401).json({ error: "Invalid password" });
+			}
+
+			const token = signSensitiveViewToken(buildSensitiveViewTokenPayload(req.adminSession));
+			if (!token) {
+				return res.status(500).json({ error: "Unable to enable sensitive mode" });
+			}
+
+			setSensitiveViewCookie(res, token);
+			return res.json({
+				status: "success",
+				sensitiveViewEnabled: true,
+				expiresIn: Math.floor(ADMIN_SENSITIVE_VIEW_TIMEOUT_MS / 1000),
+			});
+		} finally {
+			client.release();
+		}
+	} catch (error) {
+		return res.status(500).json({ error: error.message || "Failed to unlock sensitive mode" });
+	}
+});
+
+router.post("/sensitive/lock", authenticateAdmin, async (req, res) => {
+	clearSensitiveViewCookie(res);
+	return res.json({ status: "success", sensitiveViewEnabled: false });
+});
+
+async function getPublicTables(client, includeSensitive = false) {
 	const result = await client.query(
 		`SELECT relname AS name
 		 FROM pg_class c
@@ -478,10 +649,16 @@ async function getPublicTables(client) {
 		 ORDER BY relname`,
 	);
 
-	return result.rows.map((row) => row.name);
+	return includeSensitive
+		? result.rows.map((row) => row.name)
+		: result.rows.map((row) => row.name).filter((table) => !isRestrictedAdminTable(table));
 }
 
-async function assertPublicTable(client, table) {
+async function assertPublicTable(client, table, includeSensitive = false) {
+	if (!includeSensitive && isRestrictedAdminTable(table)) {
+		return false;
+	}
+
 	const result = await client.query(
 		`SELECT EXISTS (
 			SELECT 1
@@ -548,12 +725,17 @@ async function getPrimaryKey(client, table) {
 	return result.rows[0]?.name || "id";
 }
 
-function sanitizeRowData(data, columns) {
-	const editableColumns = new Map(columns.filter((column) => !column.isAutoIncrement).map((column) => [column.name, column]));
+function sanitizeRowData(data, columns, includeSensitive = false) {
+	const editableColumns = new Map(
+		columns
+			.filter((column) => !column.isAutoIncrement)
+			.filter((column) => includeSensitive || !isSensitiveAdminColumn(column.name))
+			.map((column) => [column.name, column]),
+	);
 
 	const sanitized = {};
 	for (const [key, value] of Object.entries(data || {})) {
-		if (editableColumns.has(key)) {
+		if (editableColumns.has(key) && (includeSensitive || !isSensitiveAdminColumn(key))) {
 			sanitized[key] = value;
 		}
 	}
@@ -987,6 +1169,7 @@ router.post("/upload/coffee-image", authenticateAdmin, (req, res) => {
  */
 router.get("/tables", authenticateAdmin, async (req, res) => {
 	try {
+		const includeSensitive = Boolean(req.adminSensitiveView);
 		const client = await pool.connect();
 		try {
 			// Get table names and comments
@@ -1004,8 +1187,15 @@ router.get("/tables", authenticateAdmin, async (req, res) => {
 				return res.json({ status: "success", tables: [] });
 			}
 
+			const visibleTables = includeSensitive
+				? metaResult.rows
+				: metaResult.rows.filter((table) => !isRestrictedAdminTable(table.name));
+			if (visibleTables.length === 0) {
+				return res.json({ status: "success", tables: [] });
+			}
+
 			// Build a single UNION ALL query for accurate row counts
-			const countQuery = metaResult.rows
+			const countQuery = visibleTables
 				.map((t) => `SELECT '${t.name}' as name, COUNT(*)::bigint as row_count FROM "${t.name}"`)
 				.join(" UNION ALL ");
 
@@ -1017,7 +1207,7 @@ router.get("/tables", authenticateAdmin, async (req, res) => {
 
 			res.json({
 				status: "success",
-				tables: metaResult.rows.map((t) => ({
+				tables: visibleTables.map((t) => ({
 					name: t.name,
 					rowCount: countMap[t.name] ?? 0,
 					comment: t.comment || "",
@@ -1041,10 +1231,11 @@ router.get("/table-info/:table", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}
@@ -1091,12 +1282,15 @@ router.get("/table-info/:table", authenticateAdmin, async (req, res) => {
 			);
 
 			const primaryKey = pkResult.rows.length > 0 ? pkResult.rows[0].name : "id";
+			const visibleColumns = includeSensitive
+				? columnsResult.rows
+				: columnsResult.rows.filter((column) => !isSensitiveAdminColumn(column.name));
 
 			res.json({
 				status: "success",
 				table,
 				primaryKey,
-				columns: columnsResult.rows.map((c) => ({
+				columns: visibleColumns.map((c) => ({
 					name: c.name,
 					type: c.type,
 					nullable: c.nullable === "YES",
@@ -1125,6 +1319,7 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 		const page = parseInt(req.query.page) || 1;
 		const limit = Math.min(parseInt(req.query.limit) || 50, 200);
 		const offset = (page - 1) * limit;
@@ -1137,18 +1332,22 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}
 
 			const tableColumns = await getTableColumns(client, table);
-			const columnNames = new Set(tableColumns.map((column) => column.name));
+			const visibleColumns = includeSensitive ? tableColumns : getVisibleAdminColumns(tableColumns);
+			if (visibleColumns.length === 0) {
+				return res.status(404).json({ error: "Table not found" });
+			}
+			const columnNames = new Set(visibleColumns.map((column) => column.name));
 			const sortBy = columnNames.has(requestedSortBy) ? requestedSortBy : await getPrimaryKey(client, table);
 
 			// Get total count
 			let countQuery = `SELECT COUNT(*) as total FROM "${table}"`;
-			let dataQuery = `SELECT * FROM "${table}"`;
+			let dataQuery = `SELECT ${visibleColumns.map((column) => `"${column.name}"`).join(", ")} FROM "${table}"`;
 			const params = [];
 			let paramIdx = 1;
 
@@ -1163,12 +1362,17 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 				);
 
 				if (columnsResult.rows.length > 0) {
-					const searchConditions = columnsResult.rows
+					const searchableColumns = includeSensitive
+						? columnsResult.rows
+						: columnsResult.rows.filter((column) => columnNames.has(column.column_name));
+					const searchConditions = searchableColumns
 						.map((c) => `"${c.column_name}"::text ILIKE $${paramIdx++}`)
 						.join(" OR ");
-					countQuery += ` WHERE (${searchConditions})`;
-					dataQuery += ` WHERE (${searchConditions})`;
-					columnsResult.rows.forEach(() => params.push(`%${search}%`));
+					if (searchConditions) {
+						countQuery += ` WHERE (${searchConditions})`;
+						dataQuery += ` WHERE (${searchConditions})`;
+						searchableColumns.forEach(() => params.push(`%${search}%`));
+					}
 				}
 			}
 
@@ -1210,17 +1414,18 @@ router.post("/tables/:table", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 		const data = req.body;
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}
 
 			const tableColumns = await getTableColumns(client, table);
-			const sanitized = sanitizeRowData(data, tableColumns);
+			const sanitized = sanitizeRowData(data, tableColumns, includeSensitive);
 
 			if (!sanitized || Object.keys(sanitized).length === 0) {
 				return res.status(400).json({ error: "No editable data provided" });
@@ -1263,17 +1468,18 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 		const data = req.body;
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}
 
 			const tableColumns = await getTableColumns(client, table);
-			const sanitized = sanitizeRowData(data, tableColumns);
+			const sanitized = sanitizeRowData(data, tableColumns, includeSensitive);
 
 			if (!sanitized || Object.keys(sanitized).length === 0) {
 				return res.status(400).json({ error: "No editable data provided" });
@@ -1331,10 +1537,11 @@ router.delete("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}

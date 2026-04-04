@@ -7,7 +7,7 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } fr
 import fx from "money";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
-import { writeAccountSession } from "@/lib/accountSession";
+import { readAccountSession, writeAccountSession } from "@/lib/accountSession";
 import { buildPageHref } from "@/lib/pages";
 import CreditCard from "@/icons/credit-card";
 import LockIcon from "@/icons/lock-icon";
@@ -202,25 +202,18 @@ export default function PaymentPageContent() {
 
 	useEffect(() => {
 		// Fetch saved cards from Express API
-		const session = sessionStorage.getItem("account_session");
-		if (session) {
-			try {
-				const { token } = JSON.parse(session);
-				if (token) {
-					fetch(`${API_BASE}/api/cards`, {
-						headers: { Authorization: `Bearer ${token}` },
-					})
-						.then((res) => res.json())
-						.then((data) => {
-							if (data.cards && Array.isArray(data.cards)) {
-								setSavedCards(data.cards);
-							}
-						})
-						.catch((err) => console.error("Failed to load cards", err));
-				}
-			} catch (e) {
-				console.error("Failed to parse session", e);
-			}
+		const token = readAccountSession()?.token || "";
+		if (token) {
+			fetch(`${API_BASE}/api/cards`, {
+				headers: { Authorization: `Bearer ${token}` },
+			})
+				.then((res) => res.json())
+				.then((data) => {
+					if (data.cards && Array.isArray(data.cards)) {
+						setSavedCards(data.cards);
+					}
+				})
+				.catch((err) => console.error("Failed to load cards", err));
 		}
 	}, []);
 
@@ -554,9 +547,9 @@ export default function PaymentPageContent() {
 		const shippingCost = baseShippingCost;
 		const paymentTotal = chargedTotal;
 
-		// Check session storage for login state
-		const session = sessionStorage.getItem("account_session");
-		const isLoggedIn = !!session;
+		const accountSession = readAccountSession();
+		const token = accountSession?.token || "";
+		const isLoggedIn = Boolean(token);
 
 		if (isLoggedIn) {
 			// Validation for saved card
@@ -594,9 +587,6 @@ export default function PaymentPageContent() {
 				window.sessionStorage.removeItem("allow_payment_ts");
 			} catch {}
 
-			const accountData = JSON.parse(session);
-			const token = accountData.token;
-
 			if (shouldSaveCard && !selectedSavedCard && token) {
 				try {
 					await fetch(`${API_BASE}/api/cards`, {
@@ -610,7 +600,7 @@ export default function PaymentPageContent() {
 							expiry,
 							cvv,
 							cardType: cType,
-							cardHolder: accountData.full_name || accountData.username || "Valued Customer",
+							cardHolder: accountSession?.full_name || accountSession?.username || "Valued Customer",
 						}),
 					});
 					notify("Card saved securely!", 3000, "success", "payment");

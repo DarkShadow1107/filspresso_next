@@ -5,7 +5,8 @@
 	"main": "server.js",
 	"scripts": {
 		"start": "node server.js",
-		"dev": "nodemon server.js"
+		"dev": "nodemon server.js",
+		"import:molecules": "node scripts/import_molecules_to_db.js"
 	},
 	"dependencies": {
 		"@react-email/components": "^0.5.7",

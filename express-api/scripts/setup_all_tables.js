@@ -8,7 +8,7 @@ const pool = mariadb.createPool({
 	port: parseInt(process.env.DB_PORT || "3306"),
 	database: process.env.DB_NAME || "filspresso",
 	user: process.env.DB_USER || "filspresso_user",
-	password: process.env.DB_PASSWORD || "filspresso_secure_2024",
+	password: process.env.DB_PASSWORD,
 	multipleStatements: true,
 });
 
@@ -63,8 +63,11 @@ async function setupFullDb() {
 
 		// 6. Ensure Admin User
 		console.log("Ensuring Admin user exists and has correct password...");
-		const password = "FilspressoNext";
-		const username = "Admin";
+		const username = (process.env.ADMIN_USERNAME || "admin").toLowerCase();
+		const password = process.env.ADMIN_PASSWORD;
+		if (!password) {
+			throw new Error("ADMIN_PASSWORD environment variable is required");
+		}
 		const hash = await bcrypt.hash(password, 10);
 
 		// Check if admin exists (by role or username)
@@ -86,7 +89,7 @@ async function setupFullDb() {
 				"admin",
 			]);
 		}
-		console.log(`✅ Admin user set: ${username} / ${password}`);
+		console.log(`✅ Admin user set: ${username}`);
 
 		console.log("\n🎉 All database scripts executed successfully.");
 	} catch (err) {

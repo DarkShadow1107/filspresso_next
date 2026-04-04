@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useNotifications } from "./NotificationsProvider";
+import { readAccountSession } from "@/lib/accountSession";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000") + "/api";
 
@@ -23,16 +24,7 @@ const FavoritesContext = createContext<FavoritesContextType | undefined>(undefin
 
 function getAuthToken(): string | null {
 	if (typeof window === "undefined") return null;
-	try {
-		const account = sessionStorage.getItem("account_session");
-		if (account) {
-			const parsed = JSON.parse(account);
-			return parsed.token || null;
-		}
-	} catch {
-		return null;
-	}
-	return null;
+	return readAccountSession()?.token || null;
 }
 
 export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

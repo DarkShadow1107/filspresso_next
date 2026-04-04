@@ -7,7 +7,7 @@ const pool = mariadb.createPool({
 	port: parseInt(process.env.DB_PORT || "3306"),
 	database: process.env.DB_NAME || "filspresso",
 	user: process.env.DB_USER || "filspresso_user",
-	password: process.env.DB_PASSWORD || "filspresso_secure_2024",
+	password: process.env.DB_PASSWORD,
 	multipleStatements: true, // Important for running the full SQL file
 });
 

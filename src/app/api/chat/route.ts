@@ -171,8 +171,24 @@ async function generateCoffeeResponseByModel(
 
 async function checkPromptLimit(
 	request: NextRequest,
-): Promise<{ allowed: boolean; errorResponse?: ReturnType<typeof NextResponse.json> }> {
+	dryRun: boolean,
+): Promise<{
+	allowed: boolean;
+	errorResponse?: ReturnType<typeof NextResponse.json>;
+	prompts_remaining?: number;
+	prompts_limit?: number;
+	tier?: string;
+	scope?: "general" | "molecule_helper";
+}> {
 	try {
+		const normalizePromptScope = (value: unknown): "general" | "molecule_helper" => {
+			const normalized = String(value || "")
+				.trim()
+				.toLowerCase();
+			return normalized === "molecule_helper" ? "molecule_helper" : "general";
+		};
+
+		const scope = normalizePromptScope(request.headers.get("x-kafelot-scope"));
 		const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 		const headers: Record<string, string> = { "Content-Type": "application/json" };
 		const authHeader = request.headers.get("authorization");
@@ -181,23 +197,67 @@ async function checkPromptLimit(
 		if (fingerprint) headers["x-kafelot-fingerprint"] = fingerprint;
 		const forwarded = request.headers.get("x-forwarded-for");
 		if (forwarded) headers["x-forwarded-for"] = forwarded;
+		headers["x-kafelot-scope"] = scope;
 
 		const res = await fetch(`${API_BASE}/api/kafelot/check-and-use`, {
 			method: "POST",
 			headers,
-			body: JSON.stringify({}),
+			body: JSON.stringify({ dry_run: dryRun, scope }),
 		});
 
-		if (res.status === 429) {
-			const data = (await res.json()) as { reset_date?: string; prompts_limit?: number };
+		if (res.status === 401 && authHeader) {
 			return {
 				allowed: false,
 				errorResponse: NextResponse.json(
-					{ error: "PROMPT_LIMIT_REACHED", reset_date: data.reset_date, prompts_limit: data.prompts_limit },
-					{ status: 429 },
+					{ error: "AUTH_SESSION_INVALID", message: "Authentication session expired or invalid" },
+					{ status: 401 },
 				),
 			};
 		}
+
+		if (res.status === 429) {
+			const data = (await res.json()) as {
+				reset_date?: string;
+				prompts_limit?: number;
+				prompts_remaining?: number;
+				tier?: string;
+				scope?: string;
+			};
+			return {
+				allowed: false,
+				errorResponse: NextResponse.json(
+					{
+						error: "PROMPT_LIMIT_REACHED",
+						reset_date: data.reset_date,
+						prompts_limit: data.prompts_limit,
+						prompts_remaining: data.prompts_remaining,
+						tier: data.tier,
+						scope: data.scope || scope,
+					},
+					{ status: 429 },
+				),
+				prompts_remaining: data.prompts_remaining,
+				prompts_limit: data.prompts_limit,
+				tier: data.tier,
+				scope: normalizePromptScope(data.scope || scope),
+			};
+		}
+		if (res.ok) {
+			const data = (await res.json()) as {
+				prompts_remaining?: number;
+				prompts_limit?: number;
+				tier?: string;
+				scope?: string;
+			};
+			return {
+				allowed: true,
+				prompts_remaining: data.prompts_remaining,
+				prompts_limit: data.prompts_limit,
+				tier: data.tier,
+				scope: normalizePromptScope(data.scope || scope),
+			};
+		}
+
 		return { allowed: true };
 	} catch {
 		// On infra error, allow the request to proceed
@@ -207,7 +267,7 @@ async function checkPromptLimit(
 
 export async function POST(request: NextRequest) {
 	try {
-		const limitCheck = await checkPromptLimit(request);
+		const limitCheck = await checkPromptLimit(request, true);
 		if (!limitCheck.allowed) return limitCheck.errorResponse!;
 
 		const { messages } = (await request.json()) as {
@@ -216,12 +276,30 @@ export async function POST(request: NextRequest) {
 		const userMessage = messages[messages.length - 1]?.content || "";
 		const selectedModel: ModelTier = "tanka";
 		const result = await generateCoffeeResponseByModel(userMessage, selectedModel);
+
+		const consumed = await checkPromptLimit(request, false);
+		const promptsRemaining =
+			typeof consumed.prompts_remaining === "number"
+				? consumed.prompts_remaining
+				: typeof limitCheck.prompts_remaining === "number"
+					? limitCheck.prompts_remaining
+					: undefined;
+		const promptsLimit =
+			typeof consumed.prompts_limit === "number"
+				? consumed.prompts_limit
+				: typeof limitCheck.prompts_limit === "number"
+					? limitCheck.prompts_limit
+					: undefined;
+
 		return NextResponse.json({
 			response: result.response,
 			products: result.products,
 			model: selectedModel,
+			model_used: `Local ${selectedModel} fallback`,
 			mode: "coffee",
 			smarterAI: false,
+			...(typeof promptsRemaining === "number" ? { prompts_remaining: promptsRemaining } : {}),
+			...(typeof promptsLimit === "number" ? { prompts_limit: promptsLimit } : {}),
 		});
 	} catch (error) {
 		console.error("Chat API error:", error);

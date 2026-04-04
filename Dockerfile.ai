@@ -1,6 +1,9 @@
+# syntax=docker/dockerfile:1.7
 FROM python:3.11-slim
 
 WORKDIR /app
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install system dependencies (gcc for psycopg2, git for CLIP install from GitHub)
 RUN apt-get update && apt-get install -y \
@@ -8,42 +11,66 @@ RUN apt-get update && apt-get install -y \
     g++ \
     libpq-dev \
     libffi-dev \
+    libxrender1 \
+    libxext6 \
+    libsm6 \
     git \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Install base Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Install CLIP dependencies (ftfy, regex, tqdm) then CLIP itself from GitHub
 # This mirrors: pip install ftfy regex tqdm && pip install git+https://github.com/openai/CLIP.git
 # (conda pytorch=1.7.1 cudatoolkit=11.0 is handled by the torch wheel above via requirements.txt)
-RUN pip install --no-cache-dir ftfy regex tqdm
-RUN pip install --no-cache-dir git+https://github.com/openai/CLIP.git
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install ftfy regex tqdm
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install git+https://github.com/openai/CLIP.git
 
 # Install MolScribe and its dependencies.
-# - molscribe/OpenNMT-py/SmilesPE are installed --no-deps to avoid torch<2.0,
-#   torchtext==0.5.0, and fastprogress->python-fasthtml dep chain conflicts.
-# - Safe non-conflicting deps are installed normally first.
+# - Keep compatibility pins for MolScribe/OpenNMT runtime while preserving
+#   the project torch runtime from requirements.txt.
+# - molscribe/OpenNMT-py/SmilesPE are installed --no-deps to avoid forcing
+#   torch<2.0 and old transitive constraints.
 COPY models/requirements.txt ./models/requirements.txt
-RUN pip install --no-cache-dir \
-        "opencv-python-headless>=4.5.5" \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install \
+        "numpy>=1.25,<2.0" \
+        "opencv-python-headless==4.11.0.86" \
         "albumentations==1.1.0" \
-        "timm>=0.9.0" \
+        "timm==0.4.12" \
         "einops>=0.6.0" \
         "configargparse" \
         "pyonmttok>=1.23,<2" \
-        "rdkit-pypi>=2021.03.2" && \
-    pip install --no-cache-dir "SmilesPE==0.0.3" --no-deps && \
-    pip install --no-cache-dir "OpenNMT-py==2.2.0" --no-deps && \
-    pip install --no-cache-dir molscribe --no-deps
+        "rdkit-pypi>=2021.03.2" \
+        "pandas>=2.0.0" \
+        "torchtext==0.6.0" && \
+    pip install "SmilesPE==0.0.3" --no-deps && \
+    pip install "OpenNMT-py==2.2.0" --no-deps && \
+    pip install molscribe --no-deps
 
 # Copy AI source files
 COPY app.py .
 COPY iot_db.py .
 COPY seed_vectors.py .
 COPY models/ ./models/
+RUN mkdir -p /app/models/qwen && \
+    for src in /app/models/model/*.safetensors /app/models/conf/*.safetensors; do \
+        if [ -f "$src" ]; then cp "$src" /app/models/qwen/; fi; \
+    done && \
+    if [ -f /app/models/conf/config.json ]; then cp /app/models/conf/config.json /app/models/qwen/; fi && \
+    if [ -f /app/models/conf/generation_config.json ]; then cp /app/models/conf/generation_config.json /app/models/qwen/; fi && \
+    if [ -f /app/models/conf/tokenizer.json ]; then cp /app/models/conf/tokenizer.json /app/models/qwen/; fi && \
+    if [ -f /app/models/conf/tokenizer.model ]; then cp /app/models/conf/tokenizer.model /app/models/qwen/; fi && \
+    if [ -f /app/models/conf/tokenizer_config.json ]; then cp /app/models/conf/tokenizer_config.json /app/models/qwen/; fi && \
+    if [ -f /app/models/conf/vocab.json ]; then cp /app/models/conf/vocab.json /app/models/qwen/; fi && \
+    if [ -f /app/models/model/config.json ]; then cp /app/models/model/config.json /app/models/qwen/; fi && \
+    if [ -f /app/models/model/tokenizer.json ]; then cp /app/models/model/tokenizer.json /app/models/qwen/; fi && \
+    if [ -f /app/models/model/tokenizer.model ]; then cp /app/models/model/tokenizer.model /app/models/qwen/; fi
 
 # Expose Flask port
 EXPOSE 5000

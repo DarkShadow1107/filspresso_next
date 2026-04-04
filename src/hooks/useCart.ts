@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
+import { readAccountSession } from "@/lib/accountSession";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000") + "/api";
 
@@ -29,16 +30,7 @@ function computeSum(items: CartItem[]): number {
 // Helper to get auth token
 function getAuthToken(): string | null {
 	if (typeof window === "undefined") return null;
-	try {
-		const account = sessionStorage.getItem("account_session");
-		if (account) {
-			const parsed = JSON.parse(account);
-			return parsed.token || null;
-		}
-	} catch {
-		// ignore
-	}
-	return null;
+	return readAccountSession()?.token || null;
 }
 
 // Helper to check if user is logged in
@@ -122,14 +114,19 @@ export default function useCart() {
 		const handleStorageChange = () => {
 			fetchCart();
 		};
+		const handleSessionUpdate = () => {
+			fetchCart();
+		};
 
 		window.addEventListener("storage", handleStorageChange);
+		window.addEventListener("session-update", handleSessionUpdate);
 
 		// Poll for cart updates
 		const interval = setInterval(fetchCart, 30000); // Refresh every 30 seconds
 
 		return () => {
 			window.removeEventListener("storage", handleStorageChange);
+			window.removeEventListener("session-update", handleSessionUpdate);
 			clearInterval(interval);
 		};
 	}, [fetchCart]);

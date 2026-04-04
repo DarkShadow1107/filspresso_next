@@ -29,15 +29,29 @@ async function ensureAppSchema() {
 				id SERIAL PRIMARY KEY,
 				account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
 				month_year VARCHAR(7) NOT NULL,
+				usage_scope VARCHAR(32) NOT NULL DEFAULT 'general',
 				prompts_used INTEGER DEFAULT 0,
 				prompts_limit INTEGER DEFAULT 15,
 				subscription_tier VARCHAR(50) DEFAULT 'free',
 				reset_date DATE NOT NULL,
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-				UNIQUE (account_id, month_year)
+				UNIQUE (account_id, month_year, usage_scope)
 			)
 		`);
+
+		await client.query(`ALTER TABLE kafelot_prompt_usage ADD COLUMN IF NOT EXISTS usage_scope VARCHAR(32)`);
+		await client.query(`ALTER TABLE kafelot_prompt_usage ALTER COLUMN usage_scope SET DEFAULT 'general'`);
+		await client.query(
+			`UPDATE kafelot_prompt_usage SET usage_scope = 'general' WHERE usage_scope IS NULL OR usage_scope = ''`,
+		);
+		await client.query(`ALTER TABLE kafelot_prompt_usage ALTER COLUMN usage_scope SET NOT NULL`);
+		await client.query(
+			`ALTER TABLE kafelot_prompt_usage DROP CONSTRAINT IF EXISTS kafelot_prompt_usage_account_id_month_year_key`,
+		);
+		await client.query(
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_account_month_scope ON kafelot_prompt_usage(account_id, month_year, usage_scope)`,
+		);
 
 		await client.query(`
 			CREATE TABLE IF NOT EXISTS service_health_incidents (
@@ -158,6 +172,7 @@ async function ensureAppSchema() {
 
 		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_account ON kafelot_prompt_usage(account_id)`);
 		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_month ON kafelot_prompt_usage(month_year)`);
+		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_scope ON kafelot_prompt_usage(usage_scope)`);
 
 		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency_code VARCHAR(3) NOT NULL DEFAULT 'RON'`);
 		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000`);

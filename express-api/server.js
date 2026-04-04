@@ -256,14 +256,22 @@ app.use(
 // Rate limiting
 const API_RATE_LIMIT_WINDOW_MS = Math.max(60_000, Number.parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || "900000", 10));
 const API_RATE_LIMIT_MAX = Math.max(100, Number.parseInt(process.env.API_RATE_LIMIT_MAX || "1200", 10));
+const GLOBAL_RATE_LIMIT_EXCLUDED_PATHS = new Set([
+	"/auth/login",
+	"/auth/register",
+	"/admin/login",
+	"/kafelot/check-and-use",
+	"/kafelot/status",
+]);
 const limiter = rateLimit({
 	windowMs: API_RATE_LIMIT_WINDOW_MS,
 	max: API_RATE_LIMIT_MAX,
 	standardHeaders: true,
 	legacyHeaders: false,
 	message: { error: "Too many requests, please try again later." },
-	// /api/auth/login, /api/auth/register, and /api/admin/login already use dedicated strict limiters.
-	skip: (req) => req.path === "/auth/login" || req.path === "/auth/register" || req.path === "/admin/login",
+	// Auth/admin endpoints have dedicated strict limiters, while Kafelot prompt endpoints
+	// use a dedicated high-throughput burst limiter in routes/kafelot.js.
+	skip: (req) => GLOBAL_RATE_LIMIT_EXCLUDED_PATHS.has(req.path),
 });
 
 // Development-friendly behavior: allow disabling the rate-limiter while

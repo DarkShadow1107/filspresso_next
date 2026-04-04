@@ -4,7 +4,11 @@
 
 const CryptoJS = require("crypto-js");
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || "your-32-character-encryption-key!";
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+
+if (!ENCRYPTION_KEY) {
+	throw new Error("ENCRYPTION_KEY environment variable is required");
+}
 
 /**
  * Encrypt sensitive data

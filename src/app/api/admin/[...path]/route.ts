@@ -38,6 +38,11 @@ async function forwardAdminRequest(request: Request, context: RouteContext, meth
 		headers.set("Content-Type", contentType);
 	}
 
+	const cookie = request.headers.get("cookie");
+	if (cookie) {
+		headers.set("Cookie", cookie);
+	}
+
 	const body = method === "GET" || method === "HEAD" ? undefined : Buffer.from(await request.arrayBuffer());
 	const backendResponse = await fetch(upstreamUrl, {
 		method,
@@ -56,6 +61,11 @@ async function forwardAdminRequest(request: Request, context: RouteContext, meth
 	const upstreamContentType = backendResponse.headers.get("content-type");
 	if (upstreamContentType) {
 		responseHeaders.set("Content-Type", upstreamContentType);
+	}
+
+	const setCookieHeader = backendResponse.headers.get("set-cookie");
+	if (setCookieHeader) {
+		responseHeaders.set("Set-Cookie", setCookieHeader);
 	}
 
 	return new NextResponse(backendResponse.body, {

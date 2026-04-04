@@ -5,6 +5,7 @@ import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
+import { readAccountSession } from "@/lib/accountSession";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -25,6 +26,7 @@ import {
 	BrandGeminiIcon,
 	BrandOllamaIcon,
 	BrandGrokIcon,
+	BrandQwenIcon,
 	PenIcon,
 } from "@/icons";
 
@@ -62,9 +64,11 @@ const plans = [
 			"Espressor Gran Lattissima Noir Élégant",
 			"1x Suport capsules Mia Lume",
 			"🤖 Kafelot Tanka - 1000 prompts/month",
+			"🤖 Qwen 3 access + Thinking access",
+			"🧠 MiniLM access (fallback)",
 			"💾 200-conversation memory",
 			"📷 CLIP Image Search - 50 queries/month",
-			"🧬 Molecule Helper (MolScribe AI — 10,000+ molecules)",
+			"🧬 Molecule Helper - 200 prompts/month (MolScribe AI)",
 			"✏️ Edit prompt feature",
 		],
 	},
@@ -82,6 +86,8 @@ const plans = [
 			"Espressor Vertuo Next C Rouge Cerise",
 			"1x Suport des bonbons",
 			"🤖 Kafelot Tanka - 300 prompts/month",
+			"🤖 Qwen 3 access",
+			"🧠 MiniLM access (fallback)",
 			"💾 100-conversation memory",
 			"📷 CLIP Image Search - 25 queries/month",
 			"✏️ Edit prompt feature",
@@ -101,6 +107,8 @@ const plans = [
 			"Espressor Vertuo Next C Rouge Cerise",
 			"1x Suport des bonbons",
 			"🤖 Kafelot Tanka - 150 prompts/month",
+			"🤖 Qwen 3 access",
+			"🧠 MiniLM access (fallback)",
 			"💾 50-conversation memory",
 			"📷 CLIP Image Search - 10 queries/month",
 		],
@@ -118,6 +126,7 @@ const plans = [
 			"30 capsules par mois",
 			"Espressor Essenza Mini Piano Noir C30",
 			"🤖 Kafelot Tanka - 100 prompts/month",
+			"🧠 MiniLM access",
 			"💾 20-conversation memory",
 		],
 	},
@@ -134,6 +143,7 @@ const plans = [
 			"10 capsules par mois",
 			"Espressor Essenza Mini Piano Noir C30",
 			"🤖 Kafelot Tanka - 50 prompts/month",
+			"🧠 MiniLM access",
 			"💾 5-conversation memory",
 		],
 	},
@@ -149,6 +159,7 @@ const plans = [
 		benefits: [
 			"🤖 Kafelot Tanka - 5 prompts/month (anonymous)",
 			"🤖 Kafelot Tanka - 15 prompts/month (with account)",
+			"🧠 MiniLM access",
 			"Default for all accounts",
 		],
 	},
@@ -175,14 +186,13 @@ export default function SubscriptionPageContent() {
 
 	useEffect(() => {
 		if (typeof window === "undefined") return;
-		// Check sessionStorage for login state
-		const session = sessionStorage.getItem("account_session");
-		setIsLoggedIn(!!session);
+		const accountSession = readAccountSession();
+		const token = accountSession?.token || "";
+		setIsLoggedIn(Boolean(token));
 
 		// Fetch current subscription if logged in
-		if (session) {
+		if (token) {
 			try {
-				const { token } = JSON.parse(session);
 				fetch(`${API_BASE}/api/subscriptions`, {
 					headers: { Authorization: `Bearer ${token}` },
 				})
@@ -278,14 +288,13 @@ export default function SubscriptionPageContent() {
 	const confirmPlanChange = async () => {
 		if (!pendingPlan) return;
 
-		const session = sessionStorage.getItem("account_session");
-		if (!session) {
+		const token = readAccountSession()?.token || "";
+		if (!token) {
 			notify("Please log in to change your plan", 5000, "error", "subscription");
 			return;
 		}
 
 		try {
-			const { token } = JSON.parse(session);
 			const billingCycle = billingPeriod === "yearly" ? "annual" : "monthly";
 
 			const res = await fetch(`${API_BASE}/api/subscriptions/change`, {
@@ -696,28 +705,34 @@ export default function SubscriptionPageContent() {
 										<span className="card_savings-badge">Save {savings}%</span>
 									)}
 									<h2 className="card_heading">{plan.title}</h2>
-							<p className="card_price">{plan.priceRon === 0 ? "Free" : formatRon(currentPrice)}</p>
-							{billingPeriod === "yearly" && plan.priceRon > 0 && (
+									<p className="card_price">{plan.priceRon === 0 ? "Free" : formatRon(currentPrice)}</p>
+									{billingPeriod === "yearly" && plan.priceRon > 0 && (
 										<p className="card_price-breakdown">{formatRon(currentPrice / 12)}/month</p>
 									)}
 									<ul className="card_bullets" style={{ padding: 0, listStyle: "none" }}>
 										{(plan.id === "free"
 											? [
-												"Kafelot Tanka - 5 prompts/month (anonymous)",
-												"Kafelot Tanka - 15 prompts/month (with account)",
+													"Kafelot Tanka - 5 prompts/month (anonymous)",
+													"Kafelot Tanka - 15 prompts/month (with account)",
+													"MiniLM access",
 													"Default for all accounts",
-											]
+												]
 											: (plan.benefits as readonly string[])
 										).map((benefit) => {
 											const getIcon = () => {
 												const iconSize = 20;
 												const iconColor = "#ae8966";
+												if (benefit.toLowerCase().includes("qwen"))
+													return <BrandQwenIcon size={iconSize} color={iconColor} />;
+												if (benefit.toLowerCase().includes("minilm"))
+													return <CpuIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("🎼"))
 													return <BrandGrokIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("⚡"))
 													return <BrandOllamaIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("🤖"))
 													return <BrandGeminiIcon size={iconSize} color={iconColor} />;
+												if (benefit.includes("🧠")) return <CpuIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("💾"))
 													return <HistoryCircleIcon size={iconSize} color={iconColor} />;
 												// CLIP Image Search → Ollama icon
@@ -728,19 +743,21 @@ export default function SubscriptionPageContent() {
 													return <BrandGrokIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("📊"))
 													return <ChartBarIcon size={iconSize} color={iconColor} />;
-										if (benefit.includes("✏️"))
-											return <PenIcon size={iconSize} color={iconColor} />;
-										if (benefit.toLowerCase().includes("kafelot") || benefit.toLowerCase().includes("prompts"))
-											return <BrandGeminiIcon size={iconSize} color={iconColor} />;
-										if (benefit.toLowerCase().includes("suport"))
-											return <SimpleCheckedIcon size={iconSize} color={iconColor} />;
-										if (benefit.toLowerCase().includes("capsules"))
-											return <CoffeeIcon size={iconSize} color={iconColor} />;
-										if (benefit.toLowerCase().includes("espressor"))
-											return <SparklesIcon size={iconSize} color={iconColor} />;
+												if (benefit.includes("✏️")) return <PenIcon size={iconSize} color={iconColor} />;
+												if (
+													benefit.toLowerCase().includes("kafelot") ||
+													benefit.toLowerCase().includes("prompts")
+												)
+													return <BrandGeminiIcon size={iconSize} color={iconColor} />;
+												if (benefit.toLowerCase().includes("suport"))
+													return <SimpleCheckedIcon size={iconSize} color={iconColor} />;
+												if (benefit.toLowerCase().includes("capsules"))
+													return <CoffeeIcon size={iconSize} color={iconColor} />;
+												if (benefit.toLowerCase().includes("espressor"))
+													return <SparklesIcon size={iconSize} color={iconColor} />;
 												return <SimpleCheckedIcon size={iconSize} color={iconColor} />;
 											};
-											const cleanBenefit = benefit.replace(/[🎼⚡🤖💾📷🧬📊✏️]\s*/g, "");
+											const cleanBenefit = benefit.replace(/[🎼⚡🤖🧠💾📷🧬📊✏️]\s*/g, "");
 											return (
 												<li
 													key={benefit}

@@ -53,10 +53,23 @@ type Pagination = {
 	totalPages: number;
 };
 
+const SENSITIVE_TABLE_NAMES = new Set([
+	"auth_login_attempts",
+	"auth_security_events",
+	"admin_mfa_challenges",
+	"user_mfa_challenges",
+	"user_sessions",
+	"user_cards",
+]);
+
 export default function AdminPage() {
 	const router = useRouter();
 	const [isAuthenticated, setIsAuthenticated] = useState(false);
 	const [adminToken, setAdminToken] = useState<string | null>(null);
+	const [sensitiveModeEnabled, setSensitiveModeEnabled] = useState(false);
+	const [sensitivePassword, setSensitivePassword] = useState("");
+	const [sensitiveUnlockError, setSensitiveUnlockError] = useState("");
+	const [isSensitiveUnlocking, setIsSensitiveUnlocking] = useState(false);
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
@@ -127,6 +140,10 @@ export default function AdminPage() {
 			}
 			setAdminToken(null);
 			setIsAuthenticated(false);
+			setSensitiveModeEnabled(false);
+			setSensitivePassword("");
+			setSensitiveUnlockError("");
+			setIsSensitiveUnlocking(false);
 			setSelectedTable(null);
 			setTables([]);
 			setColumns([]);
@@ -252,6 +269,59 @@ export default function AdminPage() {
 			}
 		} catch {
 			console.error("Failed to fetch tables");
+		}
+	};
+
+	const handleUnlockSensitiveMode = async (e: React.FormEvent) => {
+		e.preventDefault();
+		setSensitiveUnlockError("");
+		setIsSensitiveUnlocking(true);
+
+		try {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/sensitive/unlock`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ password: sensitivePassword }),
+			});
+			if (!res) return;
+
+			const data = await res.json();
+			if (!res.ok) {
+				setSensitiveUnlockError(data.error || "Failed to unlock sensitive mode");
+				return;
+			}
+
+			setSensitiveModeEnabled(true);
+			setSensitivePassword("");
+			fetchTables();
+			if (selectedTable) {
+				fetchTableInfo(selectedTable);
+				fetchTableData(selectedTable);
+			}
+		} catch {
+			setSensitiveUnlockError("Failed to connect to server");
+		} finally {
+			setIsSensitiveUnlocking(false);
+		}
+	};
+
+	const handleLockSensitiveMode = async () => {
+		try {
+			await authenticatedAdminFetch(`${ADMIN_API_BASE}/sensitive/lock`, { method: "POST" });
+		} catch {
+			// Ignore lock errors
+		} finally {
+			setSensitiveModeEnabled(false);
+			setSensitivePassword("");
+			setSensitiveUnlockError("");
+			setSelectedTable(null);
+			setColumns([]);
+			setTableData([]);
+			fetchTables();
+			if (selectedTable) {
+				fetchTableInfo(selectedTable);
+				fetchTableData(selectedTable);
+			}
 		}
 	};
 
@@ -641,6 +711,9 @@ export default function AdminPage() {
 		}
 		return String(value);
 	};
+
+	const visibleTables = tables.filter((table) => !SENSITIVE_TABLE_NAMES.has(table.name));
+	const sensitiveTables = tables.filter((table) => SENSITIVE_TABLE_NAMES.has(table.name));
 
 	// Dropdown options for specific fields
 	const PRODUCT_TYPE_OPTIONS = ["original", "vertuo"];
@@ -1100,6 +1173,7 @@ export default function AdminPage() {
 					<span className="admin-subtitle">Database Management</span>
 				</div>
 				<div className="admin-header-right">
+					{sensitiveModeEnabled ? <span className="admin-status-pill">Sensitive mode</span> : null}
 					<span className="admin-status-pill">Live workspace</span>
 					<span className="admin-user">
 						<span className="admin-icon">
@@ -1116,7 +1190,47 @@ export default function AdminPage() {
 			<div className="admin-main">
 				{/* Sidebar - Table List */}
 				<aside className="admin-sidebar">
-					<div className="admin-sidebar-header">
+					<div className="admin-sidebar-header" style={{ marginBottom: "1rem" }}>
+						<h2>
+							<span className="admin-icon">
+								<LockIcon size={16} />
+							</span>
+							Sensitive Mode
+						</h2>
+						<p>Unlock to view masked credentials, MFA secrets, and other privileged fields.</p>
+						{!sensitiveModeEnabled ? (
+							<form
+								onSubmit={handleUnlockSensitiveMode}
+								className="admin-login-form"
+								style={{ marginTop: "0.75rem" }}
+							>
+								<div className="form-group">
+									<label htmlFor="sensitive-password">Re-enter admin password</label>
+									<input
+										id="sensitive-password"
+										type="password"
+										value={sensitivePassword}
+										onChange={(e) => setSensitivePassword(e.target.value)}
+										placeholder="Password"
+										autoComplete="current-password"
+										required
+									/>
+								</div>
+								{sensitiveUnlockError && <div className="error-message">{sensitiveUnlockError}</div>}
+								<button type="submit" className="login-button" disabled={isSensitiveUnlocking}>
+									{isSensitiveUnlocking ? "Unlocking..." : "Unlock Sensitive Mode"}
+								</button>
+							</form>
+						) : (
+							<div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "0.75rem" }}>
+								<div className="action-success">Sensitive mode is enabled for this session.</div>
+								<button type="button" className="logout-button" onClick={handleLockSensitiveMode}>
+									Lock Sensitive Mode
+								</button>
+							</div>
+						)}
+					</div>
+					<div className="admin-sidebar-header" style={{ marginTop: "1.25rem" }}>
 						<h2>
 							<span className="admin-icon">
 								<ChartBarIcon size={16} />
@@ -1124,9 +1238,10 @@ export default function AdminPage() {
 							Tables
 						</h2>
 						<p>Browse and manage the live tables used by the storefront and account flows.</p>
+						{!sensitiveModeEnabled && <p>Enable sensitive mode to inspect privileged tables and hidden fields.</p>}
 					</div>
 					<ul className="table-list">
-						{tables.map((table) => (
+						{visibleTables.map((table) => (
 							<li
 								key={table.name}
 								className={`table-item ${selectedTable === table.name ? "active" : ""}`}
@@ -1141,6 +1256,35 @@ export default function AdminPage() {
 							</li>
 						))}
 					</ul>
+					{sensitiveModeEnabled && sensitiveTables.length > 0 ? (
+						<>
+							<div className="admin-sidebar-header" style={{ marginTop: "1.5rem" }}>
+								<h2>
+									<span className="admin-icon">
+										<LockIcon size={16} />
+									</span>
+									Sensitive Data
+								</h2>
+								<p>Secret-bearing tables and card storage. Keep this locked unless you need it.</p>
+							</div>
+							<ul className="table-list">
+								{sensitiveTables.map((table) => (
+									<li
+										key={table.name}
+										className={`table-item ${selectedTable === table.name ? "active" : ""}`}
+										onClick={() => {
+											setSelectedTable(table.name);
+											setPagination((p) => ({ ...p, page: 1 }));
+											setSearchQuery("");
+										}}
+									>
+										<span className="table-name">{table.name}</span>
+										<span className="table-count">{table.rowCount}</span>
+									</li>
+								))}
+							</ul>
+						</>
+					) : null}
 				</aside>
 
 				{/* Main Content */}

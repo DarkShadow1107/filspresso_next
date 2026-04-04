@@ -12,7 +12,7 @@ const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 const pool = require("../db/connection");
-const { generateToken, authenticate } = require("../middleware/auth");
+const { generateToken, authenticate, buildSessionExpiryDate } = require("../middleware/auth");
 const { encrypt, decrypt } = require("../utils/encryption");
 const {
 	sendTransactionalEmail,
@@ -29,11 +29,11 @@ const RELAX_AUTH_LIMITS_IN_DEV =
 	IS_NON_PROD && process.env.ENABLE_STRICT_AUTH_LIMITS !== "true" && process.env.DISABLE_RATE_LIMIT !== "false";
 
 const AUTH_WINDOW_MS = Math.max(60_000, Number.parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || "900000", 10));
-const AUTH_MAX_ATTEMPTS = Math.max(5, Number.parseInt(process.env.AUTH_RATE_LIMIT_MAX || "30", 10));
-const AUTH_LOCK_THRESHOLD = Math.max(3, Number.parseInt(process.env.AUTH_LOCK_THRESHOLD || "5", 10));
-const AUTH_FAILURE_WINDOW_MINUTES = Math.max(1, Number.parseInt(process.env.AUTH_FAILURE_WINDOW_MINUTES || "30", 10));
-const AUTH_LOCK_BASE_SECONDS = Math.max(5, Number.parseInt(process.env.AUTH_LOCK_BASE_SECONDS || "60", 10));
-const AUTH_LOCK_MAX_SECONDS = Math.max(AUTH_LOCK_BASE_SECONDS, Number.parseInt(process.env.AUTH_LOCK_MAX_SECONDS || "1800", 10));
+const AUTH_MAX_ATTEMPTS = Math.max(20, Number.parseInt(process.env.AUTH_RATE_LIMIT_MAX || "120", 10));
+const AUTH_LOCK_THRESHOLD = Math.max(5, Number.parseInt(process.env.AUTH_LOCK_THRESHOLD || "10", 10));
+const AUTH_FAILURE_WINDOW_MINUTES = Math.max(1, Number.parseInt(process.env.AUTH_FAILURE_WINDOW_MINUTES || "20", 10));
+const AUTH_LOCK_BASE_SECONDS = Math.max(5, Number.parseInt(process.env.AUTH_LOCK_BASE_SECONDS || "30", 10));
+const AUTH_LOCK_MAX_SECONDS = Math.max(AUTH_LOCK_BASE_SECONDS, Number.parseInt(process.env.AUTH_LOCK_MAX_SECONDS || "900", 10));
 const USER_MFA_ISSUER = String(process.env.USER_MFA_ISSUER || "Filspresso").slice(0, 64);
 const FRONTEND_ORIGIN =
 	process.env.FRONTEND_ORIGIN ||
@@ -729,8 +729,7 @@ router.get("/oauth/:provider/callback", async (req, res) => {
 		await client.query("UPDATE accounts SET last_login = NOW(), updated_at = NOW() WHERE id = $1", [account.id]);
 
 		const token = generateToken(account);
-		const expiresAt = new Date();
-		expiresAt.setDate(expiresAt.getDate() + 7);
+		const expiresAt = buildSessionExpiryDate();
 		await client.query(
 			"INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)",
 			[account.id, token, expiresAt, req.ip, req.get("user-agent")],
@@ -888,8 +887,7 @@ router.post("/register", authAttemptLimiter, async (req, res) => {
 			const token = generateToken(user);
 
 			// Record session in database so JWT is bound to an active server-side session.
-			const expiresAt = new Date();
-			expiresAt.setDate(expiresAt.getDate() + 7);
+			const expiresAt = buildSessionExpiryDate();
 			await client.query(
 				"INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)",
 				[user.id, token, expiresAt, req.ip, req.get("user-agent")],
@@ -1028,6 +1026,12 @@ router.post("/login", authAttemptLimiter, async (req, res) => {
 			}
 
 			await clearFailedAttempts(client, loginKey);
+			if (user.email) {
+				await clearFailedAttempts(client, String(user.email).toLowerCase());
+			}
+			if (user.username) {
+				await clearFailedAttempts(client, String(user.username).toLowerCase());
+			}
 			await invalidateExpiredUserMfaChallenges(client);
 
 			if (user.user_mfa_enabled && user.user_mfa_secret_encrypted) {
@@ -1060,8 +1064,7 @@ router.post("/login", authAttemptLimiter, async (req, res) => {
 			const token = generateToken(user);
 
 			// Record session in database
-			const expiresAt = new Date();
-			expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+			const expiresAt = buildSessionExpiryDate();
 			await client.query(
 				"INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)",
 				[user.id, token, expiresAt, req.ip, req.get("user-agent")],
@@ -1172,8 +1175,7 @@ router.post("/login/mfa-verify", authAttemptLimiter, async (req, res) => {
 			await client.query("UPDATE accounts SET last_login = NOW() WHERE id = $1", [user.id]);
 
 			const token = generateToken(user);
-			const expiresAt = new Date();
-			expiresAt.setDate(expiresAt.getDate() + 7);
+			const expiresAt = buildSessionExpiryDate();
 
 			await client.query(
 				"INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)",

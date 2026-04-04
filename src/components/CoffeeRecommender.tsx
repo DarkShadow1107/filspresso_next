@@ -8,14 +8,8 @@ import type { CoffeeProduct } from "@/data/coffee";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
-import {
-	smartSearchMolecule,
-	getMoleculeVisualization,
-	isMoleculeQuery,
-	extractMoleculeQuery,
-	getMoleculeCard,
-} from "@/lib/moleculeSearch";
-import { clearAccountSession, writeAccountSession } from "@/lib/accountSession";
+import { smartSearchMolecule, isMoleculeQuery, extractMoleculeQuery } from "@/lib/moleculeSearch";
+import { clearAccountSession, readAccountSession } from "@/lib/accountSession";
 import KafelotStats from "./kafelot/KafelotStats";
 import KafelotUsage from "./kafelot/KafelotUsage";
 import {
@@ -34,7 +28,6 @@ import {
 	VinylIcon,
 	FileDescriptionIcon,
 	RefreshIcon,
-	CpuIcon,
 	InfoCircleIcon,
 	ArrowNarrowDownIcon,
 	ShoppingCartIcon,
@@ -42,7 +35,8 @@ import {
 	BrandGrokIcon,
 	BrandOllamaIcon,
 	BrandAnthropicIcon,
-	LogoutIcon,
+	BrandGeminiIcon,
+	BrandQwenIcon,
 	XIcon,
 	CameraIcon,
 	SendHorizontalIcon,
@@ -104,7 +98,71 @@ const getVariantStock = (stockData: StockData, productId: string, image?: string
 	);
 };
 
-type Message = { role: "user" | "assistant"; content: string; products?: CoffeeProduct[]; image?: string };
+type MoleculeMessageView = {
+	chembl_id?: string;
+	name?: string;
+	smiles?: string;
+	molecular_formula?: string;
+	molecular_weight?: number;
+	svg?: string;
+	sdf?: string;
+	[key: string]: any;
+};
+
+type Message = {
+	role: "user" | "assistant";
+	content: string;
+	products?: CoffeeProduct[];
+	image?: string;
+	modelUsed?: string;
+	molecule?: MoleculeMessageView;
+};
+
+type StylizedModelInfo = {
+	label: string;
+	accent: "qwen" | "minilm" | "molscribe" | "clip" | "tanka";
+};
+
+function isHighDemandUnavailableModel(rawModel?: string): boolean {
+	const normalized = String(rawModel || "")
+		.trim()
+		.toLowerCase();
+	if (!normalized) return false;
+	return normalized.includes("unavailable") && normalized.includes("high-demand");
+}
+
+function getStylizedModelInfo(rawModel?: string): StylizedModelInfo {
+	const source = String(rawModel || "").trim();
+	const normalized = source.toLowerCase();
+
+	if (normalized.includes("molscribe") || normalized.includes("swin_base")) {
+		return { label: "MolScribe", accent: "molscribe" };
+	}
+	if (normalized.includes("clip")) {
+		return { label: "CLIP Vision", accent: "clip" };
+	}
+	if (normalized.includes("qwen3") && normalized.includes("unavailable")) {
+		return { label: "Qwen 3 (Unavailable)", accent: "qwen" };
+	}
+	if (normalized.includes("qwen3") && normalized.includes("unauthorized")) {
+		return { label: "Qwen 3 (Locked)", accent: "qwen" };
+	}
+	if (normalized.includes("qwen3-local") && normalized.includes("thinking")) {
+		return { label: "Qwen 3 Thinking", accent: "qwen" };
+	}
+	if (normalized.includes("qwen3")) {
+		return { label: "Qwen 3 0.6B", accent: "qwen" };
+	}
+	if (normalized.includes("minilm")) {
+		if (normalized.includes("fallback")) {
+			return { label: "MiniLM (Fallback)", accent: "minilm" };
+		}
+		return { label: "MiniLM", accent: "minilm" };
+	}
+
+	return { label: "Kafelot Tanka", accent: "tanka" };
+}
+
 type ChatHistory = {
 	id: string;
 	timestamp: number;
@@ -114,8 +172,86 @@ type ChatHistory = {
 	category: "coffee" | "chemistry" | "general";
 };
 
+type HelperMode = "coffee_helper" | "molecule_helper";
+type HelperConversationSnapshot = {
+	chatId: string | null;
+	messages: Message[];
+};
+
+type UserSubscriptionTier = "none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate";
+
+const KNOWN_SUBSCRIPTION_TIERS = new Set<UserSubscriptionTier>(["none", "free", "basic", "plus", "pro", "max", "ultimate"]);
+
+const GENERAL_PROMPT_LIMIT_BY_TIER: Record<UserSubscriptionTier, number> = {
+	none: 15,
+	free: 15,
+	basic: 50,
+	plus: 100,
+	pro: 150,
+	max: 300,
+	ultimate: 1000,
+};
+
+const MOLECULE_PROMPT_LIMIT_BY_TIER: Record<UserSubscriptionTier, number> = {
+	none: 200,
+	free: 200,
+	basic: 200,
+	plus: 200,
+	pro: 200,
+	max: 200,
+	ultimate: 200,
+};
+
+function expectedPromptLimit(tier: UserSubscriptionTier, scope: "general" | "molecule_helper", loggedIn: boolean): number {
+	if (!loggedIn) {
+		return scope === "molecule_helper" ? 25 : 25;
+	}
+	return scope === "molecule_helper" ? MOLECULE_PROMPT_LIMIT_BY_TIER[tier] : GENERAL_PROMPT_LIMIT_BY_TIER[tier];
+}
+
+function normalizePromptCounters(
+	inputRemaining: unknown,
+	inputLimit: unknown,
+	tier: UserSubscriptionTier,
+	loggedIn: boolean,
+	scope: "general" | "molecule_helper",
+): { promptsRemaining: number; promptsLimit: number } {
+	const expectedLimitValue = expectedPromptLimit(tier, scope, loggedIn);
+	const incomingLimit = Number(inputLimit);
+	const hasReasonableIncomingLimit =
+		Number.isFinite(incomingLimit) && incomingLimit > 0 && incomingLimit <= expectedLimitValue * 3;
+	const promptsLimit = hasReasonableIncomingLimit ? incomingLimit : expectedLimitValue;
+
+	const incomingRemaining = Number(inputRemaining);
+	const promptsRemaining = Number.isFinite(incomingRemaining)
+		? Math.max(0, Math.min(incomingRemaining, promptsLimit))
+		: promptsLimit;
+
+	return { promptsRemaining, promptsLimit };
+}
+
+function normalizeUserSubscriptionTier(rawTier: unknown, fallback: UserSubscriptionTier = "none"): UserSubscriptionTier {
+	const normalized = typeof rawTier === "string" ? rawTier.trim().toLowerCase() : "";
+	if (!normalized) return fallback;
+	if (normalized === "none") return "free";
+	if (KNOWN_SUBSCRIPTION_TIERS.has(normalized as UserSubscriptionTier)) {
+		return normalized as UserSubscriptionTier;
+	}
+	return fallback;
+}
+
+function shouldEnableThinkingForPrompt(prompt: string, hasThinkingAccess: boolean, toggleEnabled: boolean): boolean {
+	if (!hasThinkingAccess) return false;
+	const hasThinkDirective = /(?:^|\s)\/think(?:\s|$)/i.test(prompt || "");
+	const hasNoThinkDirective = /(?:^|\s)\/no_think(?:\s|$)/i.test(prompt || "");
+	if (hasNoThinkDirective) return false;
+	if (hasThinkDirective) return true;
+	return toggleEnabled;
+}
+
 const STORAGE_KEY = "coffee-recommender-history";
 const MAX_HISTORY = 50; // Increased history limit
+let lastSavedHistoryPayload = "";
 
 function loadChatHistory(): ChatHistory[] {
 	// Chat history is now loaded from the server, not localStorage
@@ -124,13 +260,19 @@ function loadChatHistory(): ChatHistory[] {
 
 async function saveChatHistory(history: ChatHistory[]) {
 	if (typeof window === "undefined") return;
+	const payload = JSON.stringify({ history });
+	if (payload === lastSavedHistoryPayload) return;
 	try {
 		// Save to server only
-		await fetch("/api/chat/save", {
+		const response = await fetch("/api/chat/save", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ history }),
+			body: payload,
 		});
+		if (!response.ok) {
+			throw new Error(`Failed to save chat history: ${response.status}`);
+		}
+		lastSavedHistoryPayload = payload;
 	} catch (e) {
 		console.error("Failed to save chat history", e);
 	}
@@ -155,26 +297,27 @@ export default function CoffeeRecommender() {
 	const [chatInput, setChatInput] = useState("");
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 	const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
+	const helperConversationsRef = useRef<Record<HelperMode, HelperConversationSnapshot>>({
+		coffee_helper: { chatId: null, messages: [] },
+		molecule_helper: { chatId: null, messages: [] },
+	});
 	const [chatMode, setChatMode] = useState<"coffee" | "general">("coffee");
 	const [selectedModel, setSelectedModel] = useState<"tanka">("tanka");
 	const [chemistryMode, setChemistryMode] = useState(false);
-	const [useTankaModel, setUseTankaModel] = useState(false); // Toggle Tanka model ON/OFF in chemistry mode
+	const [thinkingEnabledByHelper, setThinkingEnabledByHelper] = useState<Record<HelperMode, boolean>>({
+		coffee_helper: false,
+		molecule_helper: false,
+	});
 	const [visualizationMode, setVisualizationMode] = useState<"text" | "2d" | "3d" | "both">("both");
-	const [currentMolecule, setCurrentMolecule] = useState<{
-		chembl_id: string;
-		name: string;
-		svg?: string;
-		sdf?: string;
-		[key: string]: any;
-	} | null>(null);
+	const [mediaLightbox, setMediaLightbox] = useState<{ type: "image" | "html"; src: string; title?: string } | null>(null);
 	const [smarterAIAvailable, setSmarterAIAvailable] = useState(false);
 	const [isLoggedIn, setIsLoggedIn] = useState(false); // User login state
-	const [userSubscription, setUserSubscription] = useState<"none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate">(
-		"free",
-	);
+	const [userSubscription, setUserSubscription] = useState<UserSubscriptionTier>("free");
 	const [isTyping, setIsTyping] = useState(false);
 	const abortControllerRef = useRef<AbortController | null>(null);
 	const currentRequestIdRef = useRef<string | null>(null);
+	const submitCooldownRef = useRef<number>(0);
+	const moleculeVizCacheRef = useRef<Record<string, { molecule: any; svg?: string; sdf?: string }>>({});
 	const [chatImage, setChatImage] = useState<File | null>(null);
 
 	// Prompt limit tracking
@@ -187,6 +330,7 @@ export default function CoffeeRecommender() {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const recommenderRef = useRef<HTMLDivElement>(null);
 	const editingMessageIdxRef = useRef<number | null>(null);
+	const lastSavedConversationSignatureRef = useRef<string>("");
 	const [editingMessageIdx, setEditingMessageIdx] = useState<number | null>(null);
 	const { addItem } = useCart();
 	const { notify } = useNotifications();
@@ -219,6 +363,17 @@ export default function CoffeeRecommender() {
 		return { categoryCounts, modelCounts, modelPercentages, total };
 	}, [chatHistory]);
 
+	const hasQwenAccess = useMemo(() => ["pro", "max", "ultimate"].includes(userSubscription), [userSubscription]);
+	const hasQwenThinkingAccess = useMemo(() => userSubscription === "ultimate", [userSubscription]);
+	const activeHelperMode: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
+	const thinkingEnabledForActiveHelper = thinkingEnabledByHelper[activeHelperMode];
+
+	const subscriptionTierLabel = useMemo(() => {
+		if (!isLoggedIn) return "Guest";
+		if (userSubscription === "none") return "None";
+		return userSubscription.charAt(0).toUpperCase() + userSubscription.slice(1);
+	}, [isLoggedIn, userSubscription]);
+
 	// ── Fingerprint (anonymous identity for prompt tracking) ──────────────────
 	// Stored in localStorage so it persists across sessions without login.
 	function getOrCreateFingerprint(): string {
@@ -231,20 +386,51 @@ export default function CoffeeRecommender() {
 		return fp;
 	}
 
-	async function fetchPromptStatus(token?: string) {
+	async function fetchPromptStatus(token?: string, scope: "general" | "molecule_helper" = "general") {
 		try {
 			const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+			const normalizedScope = scope === "molecule_helper" ? "molecule_helper" : "general";
 			const fp = getOrCreateFingerprint();
 			fingerprintRef.current = fp;
-			const headers: Record<string, string> = { "x-kafelot-fingerprint": fp };
+			const headers: Record<string, string> = {
+				"x-kafelot-fingerprint": fp,
+				"x-kafelot-scope": normalizedScope,
+			};
 			if (token) headers["authorization"] = `Bearer ${token}`;
-			const res = await fetch(`${API_BASE}/api/kafelot/status`, { headers });
+			const res = await fetch(`${API_BASE}/api/kafelot/status?scope=${normalizedScope}`, { headers });
+			if (token && res.status === 401) {
+				setIsLoggedIn(false);
+				setUserSubscription("none");
+				clearAccountSession();
+				return;
+			}
 			if (res.ok) {
-				const data = (await res.json()) as { prompts_remaining: number; prompts_limit: number; reset_date?: string };
-				setPromptsRemaining(data.prompts_remaining);
-				setPromptsLimit(data.prompts_limit);
+				const data = (await res.json()) as {
+					prompts_remaining: number;
+					prompts_limit: number;
+					reset_date?: string;
+					tier?: string;
+				};
+				const backendTier = token ? normalizeUserSubscriptionTier(data.tier, userSubscription) : "free";
+				const effectiveTier = backendTier === "none" ? (token ? userSubscription : "free") : backendTier;
+				const normalizedCounters = normalizePromptCounters(
+					data.prompts_remaining,
+					data.prompts_limit,
+					effectiveTier,
+					!!token,
+					normalizedScope,
+				);
+
+				setPromptsRemaining(normalizedCounters.promptsRemaining);
+				setPromptsLimit(normalizedCounters.promptsLimit);
 				setPromptResetDate(data.reset_date ?? null);
-				setLimitReached(data.prompts_remaining <= 0);
+				setLimitReached(normalizedCounters.promptsRemaining <= 0);
+				if (token && typeof data.tier === "string") {
+					const backendTier = normalizeUserSubscriptionTier(data.tier, userSubscription);
+					if (backendTier !== "none") {
+						setUserSubscription(backendTier);
+					}
+				}
 			}
 		} catch {
 			// Silently ignore – limits won't block usage on infra failure
@@ -298,42 +484,87 @@ export default function CoffeeRecommender() {
 		// Load user session and subscription from sessionStorage
 		if (typeof window !== "undefined") {
 			try {
-				const session = sessionStorage.getItem("account_session");
-				const storedIsLoggedIn = !!session;
+				const accountSession = readAccountSession();
+				const storedIsLoggedIn = !!accountSession;
 				setIsLoggedIn(storedIsLoggedIn);
 
 				// Fetch subscription from DB via /api/subscriptions if logged in
-				if (session) {
-					const { token } = JSON.parse(session);
+				if (accountSession) {
+					const token = accountSession.token;
 					if (token) {
+						const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+						const authHeaders = { Authorization: `Bearer ${token}` };
+						const expireSession = () => {
+							clearAccountSession();
+							setIsLoggedIn(false);
+							setUserSubscription("none");
+							setSelectedModel("tanka");
+							fetchPromptStatus(undefined, "general");
+						};
+
 						// Fetch prompt status with the user's token
-						fetchPromptStatus(token);
+						fetchPromptStatus(token, "general");
 						// Primary: Fetch subscription tier from subscriptions API (database)
-						fetch("http://localhost:4000/api/subscriptions", {
-							headers: { Authorization: `Bearer ${token}` },
+						fetch(`${API_BASE}/api/subscriptions`, {
+							headers: authHeaders,
 						})
-							.then((res) => res.json())
+							.then(async (res) => {
+								if (res.status === 401) {
+									throw new Error("AUTH_EXPIRED");
+								}
+								if (!res.ok) {
+									throw new Error(`SUBSCRIPTIONS_REQUEST_FAILED_${res.status}`);
+								}
+								return res.json();
+							})
 							.then((data) => {
-								const tier = data.subscription?.tier?.toLowerCase() || "free";
-								setUserSubscription(tier as "none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate");
+								const tier = normalizeUserSubscriptionTier(data?.subscription?.tier, "none");
+								if (tier === "none") {
+									throw new Error("SUBSCRIPTIONS_TIER_MISSING");
+								}
+								setUserSubscription(tier);
 
 								// All tiers use Kafelot Tanka exclusively
 								setSelectedModel("tanka");
 							})
-							.catch(() => {
+							.catch((subscriptionError) => {
+								if ((subscriptionError as Error)?.message === "AUTH_EXPIRED") {
+									expireSession();
+									return;
+								}
+
 								// Fallback to /api/auth/me if subscriptions API fails
-								fetch("http://localhost:4000/api/auth/me", {
-									headers: { Authorization: `Bearer ${token}` },
+								fetch(`${API_BASE}/api/auth/me`, {
+									headers: authHeaders,
 								})
-									.then((res) => res.json())
+									.then(async (res) => {
+										if (res.status === 401) {
+											throw new Error("AUTH_EXPIRED");
+										}
+										if (!res.ok) {
+											throw new Error(`AUTH_ME_REQUEST_FAILED_${res.status}`);
+										}
+										return res.json();
+									})
 									.then((data) => {
-										const sub = data.user?.subscription_name?.toLowerCase() || "none";
-										setUserSubscription(sub as "none" | "basic" | "plus" | "pro" | "max" | "ultimate");
+										const sub = normalizeUserSubscriptionTier(
+											data?.user?.subscription ?? data?.user?.subscription_name,
+											"none",
+										);
+										if (sub === "none") {
+											throw new Error("AUTH_ME_SUBSCRIPTION_MISSING");
+										}
+										setUserSubscription(sub);
 										// All tiers use Kafelot Tanka exclusively
 										setSelectedModel("tanka");
 									})
-									.catch(() => {
-										setUserSubscription("none");
+									.catch((authError) => {
+										if ((authError as Error)?.message === "AUTH_EXPIRED") {
+											expireSession();
+											return;
+										}
+										const sessionTier = normalizeUserSubscriptionTier(accountSession.subscription, "free");
+										setUserSubscription(sessionTier);
 										setSelectedModel("tanka");
 									});
 							});
@@ -343,19 +574,20 @@ export default function CoffeeRecommender() {
 				// ignore errors
 			}
 			// Load prompt status for anonymous users (no session)
-			const sessionForFp = sessionStorage.getItem("account_session");
-			if (!sessionForFp) {
-				fetchPromptStatus();
+			const accountSessionForFp = readAccountSession();
+			if (!accountSessionForFp) {
+				fetchPromptStatus(undefined, "general");
 			}
 			// Load chat history only if logged in
-			const session = sessionStorage.getItem("account_session");
-			if (session) {
+			const accountSessionForHistory = readAccountSession();
+			if (accountSessionForHistory) {
 				// Load from server
 				fetch("/api/chat/save")
 					.then((res) => res.json())
 					.then((data) => {
 						if (data.history && Array.isArray(data.history)) {
 							setChatHistory(data.history);
+							lastSavedHistoryPayload = JSON.stringify({ history: data.history });
 						}
 					})
 					.catch(() => {
@@ -365,22 +597,49 @@ export default function CoffeeRecommender() {
 		}
 	}, []);
 
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const accountSession = readAccountSession();
+		const token = accountSession?.token ?? undefined;
+		const scope = chemistryMode ? "molecule_helper" : "general";
+		fetchPromptStatus(token, scope);
+	}, [chemistryMode, isLoggedIn, userSubscription]);
+
+	useEffect(() => {
+		const activeHelper: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
+		helperConversationsRef.current[activeHelper] = {
+			chatId: currentChatId,
+			messages: [...chatMessages],
+		};
+	}, [chatMessages, currentChatId, chemistryMode]);
+
 	// Disable chemistry mode if user switches away from Tanka
 	useEffect(() => {
 		if (chemistryMode && selectedModel !== "tanka") {
 			setChemistryMode(false);
-			setCurrentMolecule(null);
 		}
 	}, [selectedModel, chemistryMode]);
 
 	useEffect(() => {
+		if (!hasQwenThinkingAccess) {
+			setThinkingEnabledByHelper({ coffee_helper: false, molecule_helper: false });
+		}
+	}, [hasQwenThinkingAccess]);
+
+	useEffect(() => {
 		// close on Escape
 		function onKey(e: KeyboardEvent) {
-			if (e.key === "Escape") setOpen(false);
+			if (e.key === "Escape") {
+				if (mediaLightbox) {
+					setMediaLightbox(null);
+					return;
+				}
+				setOpen(false);
+			}
 		}
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, []);
+	}, [mediaLightbox]);
 
 	// Check Python AI health up to three times per page load
 	useEffect(() => {
@@ -423,13 +682,13 @@ export default function CoffeeRecommender() {
 			});
 
 		const runChecks = async () => {
-			for (let attempt = 0; attempt < 3 && !cancelled; attempt += 1) {
+			for (let attempt = 0; attempt < 2 && !cancelled; attempt += 1) {
 				const healthy = await checkHealth();
 				if (cancelled || healthy) {
 					break;
 				}
-				if (attempt < 2) {
-					await wait(4000);
+				if (attempt < 1) {
+					await wait(6000);
 				}
 			}
 		};
@@ -464,13 +723,13 @@ export default function CoffeeRecommender() {
 		let rafId: number | null = null;
 		let scrollEl: HTMLElement | null = null;
 		const tick = () => {
-			if (!scrollEl || Math.abs(velocity) < 0.5) {
+			if (!scrollEl || Math.abs(velocity) < 0.28) {
 				velocity = 0;
 				rafId = null;
 				return;
 			}
 			scrollEl.scrollTop += velocity;
-			velocity *= 0.92; // friction for smooth deceleration
+			velocity *= 0.82; // stronger friction for slower deceleration
 			rafId = requestAnimationFrame(tick);
 		};
 		const handleWheel = (e: WheelEvent) => {
@@ -491,7 +750,7 @@ export default function CoffeeRecommender() {
 				velocity = 0;
 				scrollEl = found;
 			}
-			velocity += e.deltaY * 0.6;
+			velocity += e.deltaY * 0.28;
 			if (!rafId) rafId = requestAnimationFrame(tick);
 		};
 		el.addEventListener("wheel", handleWheel, { passive: false });
@@ -504,6 +763,14 @@ export default function CoffeeRecommender() {
 	const toggleNote = useCallback((note: string) => {
 		setSelected((s) => (s.includes(note) ? s.filter((x) => x !== note) : [...s, note]));
 	}, []);
+
+	const toggleThinkingForActiveHelper = useCallback(() => {
+		if (!hasQwenThinkingAccess) return;
+		setThinkingEnabledByHelper((prev) => ({
+			...prev,
+			[activeHelperMode]: !prev[activeHelperMode],
+		}));
+	}, [activeHelperMode, hasQwenThinkingAccess]);
 
 	// Reset textarea height when input is cleared (after send)
 	useEffect(() => {
@@ -625,8 +892,19 @@ export default function CoffeeRecommender() {
 		if (chemistryMode) category = "chemistry";
 		else if (chatMode === "coffee") category = "coffee";
 
+		const chatId = currentChatId || `chat-${Date.now()}`;
+		const conversationSignature = JSON.stringify({
+			id: chatId,
+			model: selectedModel,
+			category,
+			messages: chatMessages,
+		});
+		if (conversationSignature === lastSavedConversationSignatureRef.current) {
+			return;
+		}
+
 		const chat: ChatHistory = {
-			id: currentChatId || `chat-${Date.now()}`,
+			id: chatId,
 			timestamp: Date.now(),
 			messages: chatMessages,
 			preview,
@@ -634,6 +912,7 @@ export default function CoffeeRecommender() {
 			category: category,
 		};
 		const updated = [chat, ...chatHistory.filter((c) => c.id !== chat.id)];
+		lastSavedConversationSignatureRef.current = conversationSignature;
 		setChatHistory(updated);
 		saveChatHistory(updated);
 		setCurrentChatId(chat.id);
@@ -641,32 +920,95 @@ export default function CoffeeRecommender() {
 
 	// Auto-save chat when messages change (debounced, only if logged in)
 	useEffect(() => {
-		if (!isLoggedIn || chatMessages.length === 0 || step !== "chat") return;
+		if (!isLoggedIn || chatMessages.length === 0 || step !== "chat" || isTyping) return;
 		const timer = setTimeout(() => {
 			saveCurrentChat();
-		}, 2000); // save 2 seconds after last message
+		}, 5000); // save after the conversation settles
 		return () => clearTimeout(timer);
-	}, [isLoggedIn, chatMessages, step, saveCurrentChat]);
+	}, [isLoggedIn, chatMessages, step, isTyping, saveCurrentChat]);
+
+	const switchHelperMode = useCallback(
+		(nextChemistryMode: boolean) => {
+			if (nextChemistryMode === chemistryMode) return;
+
+			saveCurrentChat();
+
+			const currentHelper: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
+			helperConversationsRef.current[currentHelper] = {
+				chatId: currentChatId,
+				messages: [...chatMessages],
+			};
+
+			const targetHelper: HelperMode = nextChemistryMode ? "molecule_helper" : "coffee_helper";
+			const targetSnapshot = helperConversationsRef.current[targetHelper];
+
+			setChemistryMode(nextChemistryMode);
+			setChatMode(nextChemistryMode ? "general" : "coffee");
+			setChatInput("");
+			setChatImage(null);
+			editingMessageIdxRef.current = null;
+			setEditingMessageIdx(null);
+			lastSavedConversationSignatureRef.current = "";
+
+			if (targetSnapshot.messages.length > 0) {
+				setChatMessages(targetSnapshot.messages);
+				setCurrentChatId(targetSnapshot.chatId);
+				return;
+			}
+
+			setChatMessages([]);
+			setCurrentChatId(null);
+		},
+		[chemistryMode, currentChatId, chatMessages, saveCurrentChat],
+	);
 
 	// Start a new chat
 	const startNewChat = useCallback(() => {
 		saveCurrentChat();
+		lastSavedConversationSignatureRef.current = "";
 		setChatMessages([]);
 		setCurrentChatId(null);
 		setChatInput("");
+		setChatImage(null);
+		const activeHelper: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
+		helperConversationsRef.current[activeHelper] = { chatId: null, messages: [] };
 		setStep("chat");
-	}, [saveCurrentChat]);
+	}, [saveCurrentChat, chemistryMode]);
 
 	// Load a chat from history
 	const loadChat = useCallback(
 		(chatId: string) => {
 			const chat = chatHistory.find((c) => c.id === chatId);
 			if (!chat) return;
+
+			const currentHelper: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
+			helperConversationsRef.current[currentHelper] = {
+				chatId: currentChatId,
+				messages: [...chatMessages],
+			};
+
+			const nextChemistryMode = chat.category === "chemistry";
+			const targetHelper: HelperMode = nextChemistryMode ? "molecule_helper" : "coffee_helper";
+			helperConversationsRef.current[targetHelper] = {
+				chatId: chat.id,
+				messages: chat.messages,
+			};
+
+			lastSavedConversationSignatureRef.current = JSON.stringify({
+				id: chat.id,
+				model: chat.model,
+				category: chat.category,
+				messages: chat.messages,
+			});
+			setChemistryMode(nextChemistryMode);
+			setChatMode(nextChemistryMode ? "general" : chat.category === "coffee" ? "coffee" : "general");
 			setChatMessages(chat.messages);
 			setCurrentChatId(chat.id);
+			setChatInput("");
+			setChatImage(null);
 			setStep("chat");
 		},
-		[chatHistory],
+		[chatHistory, chemistryMode, currentChatId, chatMessages],
 	);
 
 	// Delete a chat from history
@@ -767,22 +1109,40 @@ export default function CoffeeRecommender() {
 
 	// Fetch molecule data from backend
 	const fetchMoleculeData = useCallback(
-		async (chemblId: string) => {
+		async (moleculeIdentifier: string, fallbackMolecule?: Record<string, any>) => {
 			try {
-				// Fetch molecule details
-				const detailsRes = await fetch(`http://localhost:5000/api/molecule/${chemblId}`);
-				if (!detailsRes.ok) {
-					throw new Error(`Failed to fetch molecule details: ${detailsRes.statusText}`);
+				const encodedIdentifier = encodeURIComponent(moleculeIdentifier);
+				const smilesQuery =
+					typeof fallbackMolecule?.smiles === "string" && fallbackMolecule.smiles.trim().length > 0
+						? `?smiles=${encodeURIComponent(fallbackMolecule.smiles)}`
+						: "";
+				const svgQuery = smilesQuery ? `${smilesQuery}&width=500&height=360` : "?width=500&height=360";
+				const sdfQuery = smilesQuery ? `${smilesQuery}&width=620&height=320` : "?width=620&height=320";
+				const cacheKey = `${moleculeIdentifier}|${visualizationMode}|${fallbackMolecule?.smiles || ""}`;
+				const cached = moleculeVizCacheRef.current[cacheKey];
+				if (cached) {
+					return {
+						...cached.molecule,
+						svg: cached.svg,
+						sdf: cached.sdf,
+					};
 				}
-				const detailsData = await detailsRes.json();
 
-				const molecule = detailsData.molecule;
+				let molecule = fallbackMolecule ?? null;
+				if (!molecule) {
+					const detailsRes = await fetch(`/api/molecule/${encodedIdentifier}`);
+					if (!detailsRes.ok) {
+						throw new Error(`Failed to fetch molecule details: ${detailsRes.statusText}`);
+					}
+					const detailsData = await detailsRes.json();
+					molecule = detailsData.molecule;
+				}
 
 				// Fetch SVG if needed
 				let svgData: string | undefined;
 				if (visualizationMode === "2d" || visualizationMode === "both") {
 					try {
-						const svgRes = await fetch(`http://localhost:5000/api/molecule/svg/${chemblId}`);
+						const svgRes = await fetch(`/api/molecule/svg/${encodedIdentifier}${svgQuery}`);
 						if (svgRes.ok) {
 							svgData = await svgRes.text();
 						}
@@ -795,7 +1155,7 @@ export default function CoffeeRecommender() {
 				let sdfData: string | undefined;
 				if (visualizationMode === "3d" || visualizationMode === "both") {
 					try {
-						const sdfRes = await fetch(`http://localhost:5000/api/molecule/sdf/${chemblId}`);
+						const sdfRes = await fetch(`/api/molecule/sdf/${encodedIdentifier}${sdfQuery}`);
 						if (sdfRes.ok) {
 							sdfData = await sdfRes.text();
 						}
@@ -804,13 +1164,17 @@ export default function CoffeeRecommender() {
 					}
 				}
 
-				setCurrentMolecule({
+				moleculeVizCacheRef.current[cacheKey] = {
+					molecule,
+					svg: svgData,
+					sdf: sdfData,
+				};
+
+				return {
 					...molecule,
 					svg: svgData,
 					sdf: sdfData,
-				});
-
-				return molecule;
+				};
 			} catch (error) {
 				console.error("Error fetching molecule data:", error);
 				notify("Failed to load molecule visualization", 3000, "error", "coffee");
@@ -822,21 +1186,13 @@ export default function CoffeeRecommender() {
 
 	// Smart AI-like chat handler
 	const handleChatSubmit = useCallback(async () => {
+		if (isTyping) return;
+		const now = Date.now();
+		if (now - submitCooldownRef.current < 900) return;
+		submitCooldownRef.current = now;
+
 		const prompt = chatInput.trim();
 		if (!prompt && !chatImage) return;
-
-		// Check prompt limit before sending
-		if (limitReached) {
-			const resetText = promptResetDate
-				? ` Your limit resets on ${new Date(promptResetDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`
-				: " Your limit resets next month.";
-			const limitMsg: Message = {
-				role: "assistant",
-				content: `⚠️ You have reached your prompt limit for this month.${resetText} Please upgrade your subscription or wait for the reset.`,
-			};
-			setChatMessages((m) => [...m, limitMsg]);
-			return;
-		}
 
 		const imageDataUrl = await new Promise<string | null>((resolve) => {
 			if (!chatImage) {
@@ -868,96 +1224,11 @@ export default function CoffeeRecommender() {
 		setIsTyping(true);
 
 		const lowerPrompt = prompt.toLowerCase();
-
-		// Chemistry mode: Molecule Viewer (when Tanka is OFF)
-		// Skip chat entirely, just show molecules from local JSON + API visualizations
-		if (
-			chemistryMode &&
-			!useTankaModel &&
-			(lowerPrompt.includes("show") ||
-				lowerPrompt.includes("display") ||
-				lowerPrompt.includes("structure") ||
-				lowerPrompt.includes("molecule") ||
-				lowerPrompt.includes("chembl"))
-		) {
-			try {
-				setIsTyping(true);
-
-				// Extract ChEMBL ID or molecule name
-				const chemblIdMatch = prompt.match(/CHEMBL\d+/i);
-				if (chemblIdMatch) {
-					const chemblId = chemblIdMatch[0].toUpperCase();
-					const fallbackMol = await smartSearchMolecule(chemblId);
-					if (fallbackMol && fallbackMol.chembl_id === chemblId.toUpperCase()) {
-						// Get visualizations from Python API (RDKit + Py3Dmol + Pillow)
-						const viz = await getMoleculeVisualization(chemblId, visualizationMode, true);
-						setCurrentMolecule({
-							...fallbackMol,
-							svg: viz.svg,
-							sdf: viz.sdf,
-						});
-
-						const molCard = getMoleculeCard(fallbackMol);
-						const responseMsg: Message = {
-							role: "assistant",
-							content: `🔍 **Found molecule:**\n\n${molCard}\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow.`,
-						};
-						setChatMessages((m) => [...m, responseMsg]);
-					} else {
-						const errorMsg: Message = {
-							role: "assistant",
-							content: `❌ Could not find molecule ${chemblId}. Try another ChEMBL ID or molecule name.`,
-						};
-						setChatMessages((m) => [...m, errorMsg]);
-					}
-				} else {
-					// Search by name
-					const nameMatch = prompt.match(
-						/(?:show|display|find|search)\s+(?:me\s+)?(?:the\s+)?(?:molecule\s+)?(.+?)(?:\s+molecule|\s+structure)?$/i,
-					);
-					if (nameMatch) {
-						const moleculeName = nameMatch[1].trim();
-						const fallbackMol = await smartSearchMolecule(moleculeName);
-						if (fallbackMol) {
-							// Get visualizations from Python API
-							const viz = await getMoleculeVisualization(fallbackMol.chembl_id, visualizationMode, true);
-							setCurrentMolecule({
-								...fallbackMol,
-								svg: viz.svg,
-								sdf: viz.sdf,
-							});
-
-							const molCard = getMoleculeCard(fallbackMol);
-							const responseMsg: Message = {
-								role: "assistant",
-								content: `🔍 **Found molecule:**\n\n${molCard}\n\n✨ Visualization loaded using RDKit, Py3Dmol, and Pillow.`,
-							};
-							setChatMessages((m) => [...m, responseMsg]);
-						} else {
-							const errorMsg: Message = {
-								role: "assistant",
-								content: `❌ Could not find molecule "${moleculeName}". Try a common compound like "caffeine" or use a ChEMBL ID.`,
-							};
-							setChatMessages((m) => [...m, errorMsg]);
-						}
-					}
-				}
-				setIsTyping(false);
-				return;
-			} catch (error) {
-				console.error("Molecule viewer error:", error);
-				setIsTyping(false);
-				const errorMsg: Message = {
-					role: "assistant",
-					content: "⚠️ Error searching for molecule. Please try again.",
-				};
-				setChatMessages((m) => [...m, errorMsg]);
-				return;
-			}
-		}
-
-		// When Tanka Model is ON: Let all queries go to the chat API
-		// All models now use MiniLM and ResNet-18 via Python backend
+		const moleculeRequested =
+			chemistryMode && (isMoleculeQuery(prompt) || /CHEMBL\d+/i.test(prompt) || !!extractMoleculeQuery(prompt));
+		const helperModeForPrompt: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
+		const thinkingToggleEnabled = thinkingEnabledByHelper[helperModeForPrompt];
+		const enableThinking = shouldEnableThinkingForPrompt(prompt, hasQwenThinkingAccess, thinkingToggleEnabled);
 
 		try {
 			// Create AbortController for this request
@@ -967,9 +1238,11 @@ export default function CoffeeRecommender() {
 			const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 			currentRequestIdRef.current = requestId;
 
-			// Use Python chat endpoint for all models (MiniLM / CLIP / MolScribe)
-			const shouldUsePython = smarterAIAvailable && (chemistryMode ? useTankaModel : true);
+			// Always use Python chat endpoint for normal app behavior.
+			const shouldUsePython = true;
 			const endpoint = shouldUsePython ? "/api/python-chat" : "/api/chat";
+			const modelForRequest = chemistryMode ? "tanka_chemistry" : "tanka_semantic";
+			const promptScope: "general" | "molecule_helper" = chemistryMode ? "molecule_helper" : "general";
 
 			let fetchBody: BodyInit;
 			let fetchHeaders: Record<string, string> = {};
@@ -979,39 +1252,34 @@ export default function CoffeeRecommender() {
 			fingerprintRef.current = fp;
 
 			// Include auth token if logged in
-			const sessionRaw = typeof window !== "undefined" ? sessionStorage.getItem("account_session") : null;
-			const sessionToken = sessionRaw
-				? (() => {
-						try {
-							return JSON.parse(sessionRaw).token as string | undefined;
-						} catch {
-							return undefined;
-						}
-					})()
-				: undefined;
+			const sessionToken = readAccountSession()?.token ?? undefined;
 
 			if (imageToSend && shouldUsePython) {
 				const fd = new FormData();
 				fd.append("messages", JSON.stringify([...messagesForApi, userMsg]));
 				fd.append("mode", chatMode);
-				fd.append("model", selectedModel);
+				fd.append("model", modelForRequest);
 				fd.append("subscription", userSubscription || "");
-				fd.append("chemistry_mode", String(chemistryMode && useTankaModel));
+				fd.append("enable_thinking", String(enableThinking));
+				fd.append("chemistry_mode", String(chemistryMode));
 				fd.append("request_id", requestId);
 				fd.append("image", imageToSend);
 				fetchBody = fd;
 				if (fp) fetchHeaders["x-kafelot-fingerprint"] = fp;
+				fetchHeaders["x-kafelot-scope"] = promptScope;
 				if (sessionToken) fetchHeaders["authorization"] = `Bearer ${sessionToken}`;
 			} else {
 				fetchHeaders = { "Content-Type": "application/json" };
 				if (fp) fetchHeaders["x-kafelot-fingerprint"] = fp;
+				fetchHeaders["x-kafelot-scope"] = promptScope;
 				if (sessionToken) fetchHeaders["authorization"] = `Bearer ${sessionToken}`;
 				fetchBody = JSON.stringify({
 					messages: [...messagesForApi, userMsg],
 					mode: chatMode,
-					model: selectedModel,
+					model: modelForRequest,
 					subscription: userSubscription,
-					chemistry_mode: chemistryMode && useTankaModel,
+					enable_thinking: enableThinking,
+					chemistry_mode: chemistryMode,
 					context: { products: allProducts },
 					request_id: requestId,
 				});
@@ -1025,10 +1293,45 @@ export default function CoffeeRecommender() {
 			});
 
 			if (!response.ok) {
-				const errorData = await response.json().catch(() => ({}) as { error?: string; reset_date?: string });
-				if (response.status === 429 || errorData.error === "PROMPT_LIMIT_REACHED") {
-					setLimitReached(true);
-					setPromptsRemaining(0);
+				const errorData = await response.json().catch(
+					() =>
+						({}) as {
+							error?: string;
+							message?: string;
+							model_used?: string;
+							reset_date?: string;
+							prompts_limit?: number;
+							prompts_remaining?: number;
+							subscription_tier?: string;
+							tier?: string;
+						},
+				);
+				if (response.status === 401 || errorData.error === "AUTH_SESSION_INVALID") {
+					clearAccountSession();
+					setIsLoggedIn(false);
+					setUserSubscription("none");
+					fetchPromptStatus(undefined, chemistryMode ? "molecule_helper" : "general");
+					const authMsg: Message = {
+						role: "assistant",
+						content: "Your session expired. Please log in again to continue with subscription access.",
+					};
+					setChatMessages((m) => [...m, authMsg]);
+					return;
+				}
+				if (errorData.error === "PROMPT_LIMIT_REACHED") {
+					const rawTier = errorData.subscription_tier || errorData.tier;
+					const backendTier = normalizeUserSubscriptionTier(rawTier, userSubscription);
+					const effectiveTier = backendTier === "none" ? userSubscription : backendTier;
+					const normalizedCounters = normalizePromptCounters(
+						errorData.prompts_remaining ?? 0,
+						errorData.prompts_limit,
+						effectiveTier,
+						isLoggedIn,
+						promptScope,
+					);
+					setPromptsRemaining(normalizedCounters.promptsRemaining);
+					setPromptsLimit(normalizedCounters.promptsLimit);
+					setLimitReached(normalizedCounters.promptsRemaining <= 0);
 					const resetText = errorData.reset_date
 						? ` Your limit resets on ${new Date(errorData.reset_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`
 						: " Your limit resets next month.";
@@ -1039,7 +1342,57 @@ export default function CoffeeRecommender() {
 					setChatMessages((m) => [...m, limitMsg]);
 					return;
 				}
-				throw new Error(errorData.error || `Failed to get response (Status: ${response.status})`);
+
+				if (
+					errorData.error === "QWEN_THINKING_UNAVAILABLE" ||
+					errorData.error === "MOLSCRIBE_UNAVAILABLE" ||
+					isHighDemandUnavailableModel(errorData.model_used) ||
+					String(errorData.message || "")
+						.toLowerCase()
+						.includes("high demand")
+				) {
+					const unavailableMsg: Message = {
+						role: "assistant",
+						content:
+							errorData.message ||
+							(errorData.error === "MOLSCRIBE_UNAVAILABLE"
+								? "MolScribe is in high demand right now, we're sorry for unavailability."
+								: "Qwen 3 Thinking is in high demand right now, we're sorry for unavailability."),
+						modelUsed: errorData.model_used || "qwen3-unavailable-chemistry-high-demand",
+					};
+					setChatMessages((m) => [...m, unavailableMsg]);
+					if (typeof errorData.prompts_remaining === "number" || typeof errorData.prompts_limit === "number") {
+						const backendTier = normalizeUserSubscriptionTier(errorData.subscription_tier, userSubscription);
+						const effectiveTier = backendTier === "none" ? userSubscription : backendTier;
+						const normalizedCounters = normalizePromptCounters(
+							errorData.prompts_remaining,
+							errorData.prompts_limit,
+							effectiveTier,
+							isLoggedIn,
+							promptScope,
+						);
+						setPromptsRemaining(normalizedCounters.promptsRemaining);
+						setPromptsLimit(normalizedCounters.promptsLimit);
+						setLimitReached(normalizedCounters.promptsRemaining <= 0);
+					}
+					if (typeof errorData.subscription_tier === "string") {
+						const backendTier = normalizeUserSubscriptionTier(errorData.subscription_tier, userSubscription);
+						if (backendTier !== "none") {
+							setUserSubscription(backendTier);
+						}
+					}
+					return;
+				}
+
+				if (response.status === 429) {
+					const burstMsg: Message = {
+						role: "assistant",
+						content: "⚠️ Too many requests in a very short time. Please wait a few seconds and try again.",
+					};
+					setChatMessages((m) => [...m, burstMsg]);
+					return;
+				}
+				throw new Error(errorData.error || errorData.message || `Failed to get response (Status: ${response.status})`);
 			}
 
 			const data = await response.json();
@@ -1049,18 +1402,83 @@ export default function CoffeeRecommender() {
 				return; // Silently exit, user cancelled
 			}
 
+			if (typeof data.subscription_tier === "string") {
+				const backendTier = normalizeUserSubscriptionTier(data.subscription_tier, userSubscription);
+				if (backendTier !== "none") {
+					setUserSubscription(backendTier);
+				}
+			}
+
 			// Decrement local prompt count after a successful AI response
-			setPromptsRemaining((prev) => {
-				if (prev === null) return prev;
-				const next = Math.max(0, prev - 1);
-				if (next <= 0) setLimitReached(true);
-				return next;
-			});
+			if (typeof data.prompts_remaining === "number") {
+				const backendTier = normalizeUserSubscriptionTier(data.subscription_tier, userSubscription);
+				const effectiveTier = backendTier === "none" ? userSubscription : backendTier;
+				const normalizedCounters = normalizePromptCounters(
+					data.prompts_remaining,
+					data.prompts_limit,
+					effectiveTier,
+					isLoggedIn,
+					promptScope,
+				);
+				setPromptsRemaining(normalizedCounters.promptsRemaining);
+				setPromptsLimit(normalizedCounters.promptsLimit);
+				setLimitReached(normalizedCounters.promptsRemaining <= 0);
+			} else {
+				setPromptsRemaining((prev) => {
+					if (prev === null) return prev;
+					const next = Math.max(0, prev - 1);
+					if (next <= 0) setLimitReached(true);
+					return next;
+				});
+			}
+
+			const modelUsedLabel =
+				typeof data.model_used === "string" && data.model_used.trim().length > 0
+					? data.model_used
+					: typeof data.model === "string" && data.model.trim().length > 0
+						? data.model
+						: "Tanka";
+			const isUnavailableModel =
+				isHighDemandUnavailableModel(modelUsedLabel) ||
+				String(data.response || "")
+					.toLowerCase()
+					.includes("high demand right now");
+
+			let assistantContent = data.response;
+			let attachedMolecule: MoleculeMessageView | undefined;
+			if (chemistryMode && !isUnavailableModel) {
+				if (visualizationMode !== "text" && moleculeRequested) {
+					const chemblIdMatch = prompt.match(/CHEMBL\d+/i);
+					const moleculeQuery = chemblIdMatch?.[0].toUpperCase() || extractMoleculeQuery(prompt) || "";
+					if (!moleculeQuery) {
+						assistantContent += "\n\n⚠️ Please provide a molecule name or a ChEMBL ID.";
+					} else {
+						const fallbackMol = await smartSearchMolecule(moleculeQuery);
+						const resolvedIdentifier =
+							fallbackMol?.chembl_id ||
+							fallbackMol?.name ||
+							(typeof fallbackMol?.smiles === "string" ? "smiles" : null);
+						if (resolvedIdentifier && fallbackMol) {
+							const moleculeData = await fetchMoleculeData(resolvedIdentifier, fallbackMol);
+							if (moleculeData) {
+								attachedMolecule = moleculeData;
+							} else {
+								assistantContent +=
+									"\n\n⚠️ Molecule details were matched, but the requested visualization could not be loaded.";
+							}
+						} else {
+							assistantContent += `\n\n⚠️ I could not find a molecule match for \"${moleculeQuery}\".`;
+						}
+					}
+				}
+			}
 
 			const assistantMsg: Message = {
 				role: "assistant",
-				content: data.response,
+				content: assistantContent,
+				modelUsed: modelUsedLabel,
 				products: data.products || [],
+				...(attachedMolecule ? { molecule: attachedMolecule } : {}),
 			};
 
 			setChatMessages((m) => [...m, assistantMsg]);
@@ -1071,10 +1489,32 @@ export default function CoffeeRecommender() {
 				return;
 			}
 			console.error("Chat error:", error);
+			const errorText =
+				error instanceof Error
+					? `${error.name}: ${error.message}`
+					: typeof error === "string"
+						? error
+						: JSON.stringify(error);
+			const isTimeoutLikeError = /aborterror|timeout|timed out|headers?timeout/i.test(errorText);
+			if (chemistryMode) {
+				const chemistryUnavailableMsg: Message = {
+					role: "assistant",
+					content: imageToSend
+						? "MolScribe is in high demand right now, we're sorry for unavailability."
+						: "Qwen 3 Thinking is in high demand right now, we're sorry for unavailability.",
+					modelUsed: imageToSend ? "molscribe-unavailable-high-demand" : "qwen3-unavailable-chemistry-high-demand",
+				};
+				setChatMessages((m) => [...m, chemistryUnavailableMsg]);
+				return;
+			}
 			const fallbackResponse = generateFallbackResponse(lowerPrompt, chatMode);
 			const assistantMsg: Message = {
 				role: "assistant",
-				content: fallbackResponse.response,
+				content: isTimeoutLikeError
+					? "Qwen 3 is taking too long right now, so I switched to a fast MiniLM fallback response.\n\n" +
+						fallbackResponse.response
+					: fallbackResponse.response,
+				modelUsed: isTimeoutLikeError ? "MiniLM (timeout fallback)" : "Local fallback response",
 				products: fallbackResponse.products,
 			};
 			setChatMessages((m) => [...m, assistantMsg]);
@@ -1088,15 +1528,15 @@ export default function CoffeeRecommender() {
 		chatImage,
 		chatMessages,
 		chatMode,
-		selectedModel,
 		userSubscription,
 		generateFallbackResponse,
 		smarterAIAvailable,
 		chemistryMode,
+		hasQwenThinkingAccess,
+		thinkingEnabledByHelper,
 		visualizationMode,
 		fetchMoleculeData,
-		limitReached,
-		promptResetDate,
+		isTyping,
 	]);
 
 	// Stop generation handler
@@ -1167,7 +1607,7 @@ export default function CoffeeRecommender() {
 			<div className="recommender-body">
 				{step === "greeting" && (
 					<div className="recommender-greeting">
-						<p>
+						<p className="recommender-greeting-intro">
 							Hello! I&apos;m Kafelot, your coffee pilot explorer. I can recommend capsules based on your
 							preferences, answer questions about coffee, and help you discover new flavors.
 						</p>
@@ -1185,18 +1625,26 @@ export default function CoffeeRecommender() {
 								>
 									<BulbSvg className="recommender-inline-icon" />{" "}
 									<div>
-										<strong>Tip:</strong> Log in to unlock chat history and the Molecule Helper (Ultimate
-										subscription)!
+										<strong>Tip:</strong> Log in to unlock chat history and subscription-based Qwen 3 access
+										for Molecule Helper text chemistry.
 									</div>
 								</div>
 							</div>
 						)}
 						<div className="recommender-cta recommender-tabs">
 							<button onClick={() => setStep("chat")}>
-								<MessageCircleIcon className="recommender-inline-icon" /> Chat with me
+								<MessageCircleIcon className="recommender-inline-icon" />
+								<span className="recommender-tab-content">
+									<span className="recommender-tab-title">Chat with me</span>
+									<span className="recommender-tab-subtitle">Coffee help and molecule guidance</span>
+								</span>
 							</button>
 							<button onClick={() => setStep("prefs")}>
-								<MagnifierIcon className="recommender-inline-icon" /> Advanced search
+								<MagnifierIcon className="recommender-inline-icon" />
+								<span className="recommender-tab-content">
+									<span className="recommender-tab-title">Advanced search</span>
+									<span className="recommender-tab-subtitle">Filter by notes, intensity, and collection</span>
+								</span>
 							</button>
 							<button
 								onClick={async () => {
@@ -1227,115 +1675,24 @@ export default function CoffeeRecommender() {
 									setResults(allProducts.slice(0, 5));
 								}}
 							>
-								<RocketIcon className="recommender-inline-icon" /> Show popular
+								<RocketIcon className="recommender-inline-icon" />
+								<span className="recommender-tab-content">
+									<span className="recommender-tab-title">Show popular</span>
+									<span className="recommender-tab-subtitle">Top capsules chosen by shoppers</span>
+								</span>
 							</button>
 							{isLoggedIn && chatHistory.length > 0 && (
 								<button onClick={() => setStep("history")}>
-									<HistoryCircleIcon className="recommender-inline-icon" /> Chat history
+									<HistoryCircleIcon className="recommender-inline-icon" />
+									<span className="recommender-tab-content">
+										<span className="recommender-tab-title">Chat history</span>
+										<span className="recommender-tab-subtitle">Resume saved conversations</span>
+									</span>
 								</button>
 							)}
 							{isLoggedIn && (
 								<button onClick={() => setStep("stats")}>
 									<ChartBarIcon className="recommender-inline-icon" /> Stats
-								</button>
-							)}
-						</div>
-
-						{/* Demo login/logout for testing */}
-						<div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "1px solid rgba(174, 137, 102, 0.2)" }}>
-							<div
-								style={{
-									fontSize: "0.85rem",
-									color: "rgba(250, 204, 144, 0.6)",
-									marginBottom: "0.5rem",
-									textAlign: "center",
-								}}
-							>
-								Demo Controls (for testing)
-							</div>
-							{!isLoggedIn ? (
-								<div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "center" }}>
-									<button
-										onClick={() => {
-											// Demo login - simulate session with max subscription
-											writeAccountSession({
-												username: "demo_max",
-												full_name: "Demo Max User",
-												email: "demo_max@test.com",
-												token: "demo_token_max",
-											});
-											setIsLoggedIn(true);
-											setUserSubscription("max");
-											setSelectedModel("tanka");
-										}}
-										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
-									>
-										Login as Max
-									</button>
-									<button
-										onClick={() => {
-											// Demo login - simulate session with ultimate subscription
-											writeAccountSession({
-												username: "demo_ultimate",
-												full_name: "Demo Ultimate User",
-												email: "demo_ultimate@test.com",
-												token: "demo_token_ultimate",
-											});
-											setIsLoggedIn(true);
-											setUserSubscription("ultimate");
-											setSelectedModel("tanka");
-										}}
-										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
-									>
-										Login as Ultimate
-									</button>
-									<button
-										onClick={() => {
-											// Demo login - simulate session with basic subscription
-											writeAccountSession({
-												username: "demo_basic",
-												full_name: "Demo Basic User",
-												email: "demo_basic@test.com",
-												token: "demo_token_basic",
-											});
-											setIsLoggedIn(true);
-											setUserSubscription("basic");
-											setSelectedModel("tanka");
-										}}
-										style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}
-									>
-										Login as Basic
-									</button>
-								</div>
-							) : (
-								<button
-									onClick={() => {
-										clearAccountSession();
-										setIsLoggedIn(false);
-										setUserSubscription("none");
-										setSelectedModel("tanka");
-										setChatHistory([]);
-										setChatMessages([]);
-									}}
-									style={{
-										fontSize: "0.85rem",
-										padding: "0.4rem 1rem",
-										margin: "0 auto",
-										display: "flex",
-										alignItems: "center",
-										gap: "8px",
-										justifyContent: "center",
-										borderRadius: "6px",
-										backgroundColor: "rgba(255, 120, 120, 0.1)",
-										color: "#ff8080",
-										border: "1px solid rgba(255, 120, 120, 0.2)",
-										cursor: "pointer",
-										fontWeight: 600,
-										transition: "all 0.2s ease",
-									}}
-									className="logout-btn-recommender"
-								>
-									<LogoutIcon size={16} /> Log out
 								</button>
 							)}
 						</div>
@@ -1562,8 +1919,7 @@ export default function CoffeeRecommender() {
 							<button
 								className={chatMode === "coffee" ? "active" : ""}
 								onClick={() => {
-									setChatMode("coffee");
-									setChemistryMode(false);
+									switchHelperMode(false);
 								}}
 								title="Coffee Helper Mode - Focused on Nespresso recommendations"
 							>
@@ -1573,111 +1929,140 @@ export default function CoffeeRecommender() {
 							<button
 								className={chemistryMode ? "active chemistry-mode" : "chemistry-mode"}
 								onClick={() => {
-									// Molecule Helper requires login + Ultimate subscription
-									if (isLoggedIn && userSubscription === "ultimate") {
-										setChatMode("general");
-										setChemistryMode(!chemistryMode);
-									}
+									switchHelperMode(true);
 								}}
-								disabled={!isLoggedIn || userSubscription !== "ultimate"}
 								title={
-									!isLoggedIn
-										? "Molecule Helper - Login required"
-										: userSubscription !== "ultimate"
-											? "Molecule Helper - Ultimate subscription required 🔒"
-											: "Molecule Helper - MolScribe AI molecule visualization (Ultimate)"
+									hasQwenAccess
+										? hasQwenThinkingAccess
+											? "Molecule Helper - Text chemistry with Qwen 3 Thinking and image chemistry with MolScribe."
+											: "Molecule Helper - Text chemistry with Qwen 3 and image chemistry with MolScribe."
+										: "Molecule Helper - Image chemistry with MolScribe. Qwen 3 text chemistry requires PRO, MAX, or ULTIMATE."
 								}
 							>
-								<BrandGrokIcon size={16} /> Molecule Helper{" "}
-								{(!isLoggedIn || userSubscription !== "ultimate") && (
-									<span style={{ marginLeft: "4px" }}>
-										<LockIcon size={14} />
-									</span>
-								)}
+								<BrandGrokIcon size={16} /> Molecule Helper
 							</button>
 						</div>
 
-						{chemistryMode && (
+						{
 							<>
 								<div className="subscription-info-box">
-									{!isLoggedIn ? (
-										<div className="subscription-notice">
-											<p
-												style={{
-													margin: 0,
-													fontSize: "0.95rem",
-													color: "rgba(250, 204, 144, 0.8)",
-													display: "flex",
-													alignItems: "center",
-													gap: "0.5rem",
-												}}
-											>
-												<InfoCircleIcon size={16} />{" "}
-												<span>
-													<strong>Not logged in</strong> - Using Tanka (free)
+									<div className="subscription-status">
+										<div
+											style={{
+												margin: 0,
+												fontSize: "0.95rem",
+												color: "rgba(250, 204, 144, 0.8)",
+												display: "flex",
+												alignItems: "center",
+												gap: "0.5rem",
+											}}
+										>
+											<ShoppingCartIcon size={16} />
+											<span>
+												<strong>Subscription:</strong> {subscriptionTierLabel}
+											</span>
+										</div>
+										<div className="model-access-list">
+											{chemistryMode ? (
+												hasQwenAccess ? (
+													<>
+														<span className="model-access-chip qwen">
+															<BrandQwenIcon size={13} /> Qwen 3 Access
+														</span>
+														<span className="model-access-chip molscribe">
+															<BrandGrokIcon size={13} /> MolScribe image chemistry
+														</span>
+													</>
+												) : (
+													<>
+														<span className="model-access-chip molscribe">
+															<BrandGrokIcon size={13} /> MolScribe image chemistry
+														</span>
+														<span className="model-access-chip qwen">
+															<LockIcon size={12} /> Qwen 3 text chemistry locked
+														</span>
+													</>
+												)
+											) : hasQwenAccess ? (
+												<>
+													<span className="model-access-chip qwen">
+														<BrandQwenIcon size={13} /> Qwen 3 Access
+													</span>
+													<span className="model-access-chip minilm">
+														<BrandGeminiIcon size={13} /> MiniLM access (fallback)
+													</span>
+												</>
+											) : (
+												<span className="model-access-chip minilm">
+													<BrandGeminiIcon size={13} /> MiniLM access
 												</span>
-											</p>
+											)}
+										</div>
+										<p
+											style={{
+												margin: "0.35rem 0 0 0",
+												fontSize: "0.82rem",
+												color: "rgba(250, 204, 144, 0.65)",
+											}}
+										>
+											{chemistryMode
+												? hasQwenAccess
+													? hasQwenThinkingAccess
+														? "Molecule Helper text requests use Qwen 3 access. Turn on Thinking below to enable Qwen 3 Thinking. Uploaded molecule images are analyzed with MolScribe."
+														: "Molecule Helper text requests use Qwen 3 access, while uploaded molecule images are analyzed with MolScribe."
+													: "Molecule Helper can analyse uploaded molecule images with MolScribe. Qwen 3 text chemistry requires PRO, MAX, or ULTIMATE."
+												: hasQwenAccess
+													? hasQwenThinkingAccess
+														? "ULTIMATE includes Qwen 3 access with optional Thinking mode and MiniLM fallback."
+														: "PRO and MAX include Qwen 3 access with MiniLM fallback."
+													: "FREE, BASIC and PLUS use Kafelot Tanka with MiniLM only (no Qwen)."}
+										</p>
+										{!isLoggedIn && (
 											<p
 												style={{
 													margin: "0.25rem 0 0 0",
-													fontSize: "0.85rem",
-													color: "rgba(250, 204, 144, 0.6)",
+													fontSize: "0.78rem",
+													color: "rgba(250, 204, 144, 0.56)",
 												}}
 											>
-												Log in to unlock CLIP image search and Molecule Helper
+												Log in to unlock subscription-based Qwen 3 chemistry access.
 											</p>
-										</div>
-									) : (
-										<div className="subscription-status">
-											<p
-												style={{
-													margin: 0,
-													fontSize: "0.95rem",
-													color: "rgba(250, 204, 144, 0.8)",
-													display: "flex",
-													alignItems: "center",
-													gap: "0.5rem",
-												}}
-											>
-												<ShoppingCartIcon size={16} />{" "}
-												<span>
-													<strong>Subscription:</strong>{" "}
-													{userSubscription === "none"
-														? "None (Tanka only)"
-														: userSubscription.charAt(0).toUpperCase() + userSubscription.slice(1)}
-												</span>
-											</p>
-											{userSubscription === "none" ||
-											userSubscription === "basic" ||
-											userSubscription === "plus" ? (
-												<p
-													style={{
-														margin: "0.25rem 0 0 0",
-														fontSize: "0.85rem",
-														color: "rgba(250, 204, 144, 0.6)",
-													}}
-												>
-													Upgrade to Pro or above for CLIP image search
-												</p>
-											) : null}
-										</div>
-									)}
+										)}
+									</div>
 								</div>
 
 								<div className="model-selector">
 									<label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-										<CpuIcon size={16} /> AI Model:
+										<BrandQwenIcon size={16} /> Thinking (
+										{chemistryMode ? "Molecule Helper" : "Coffee Helper"})
 									</label>
 									<button
-										className="active"
-										title="Kafelot Tanka - Lightweight & Fast. Coffee-focused recommendations with instant responses."
+										className={thinkingEnabledForActiveHelper ? "active" : ""}
+										onClick={toggleThinkingForActiveHelper}
+										disabled={!hasQwenThinkingAccess}
+										title={
+											hasQwenThinkingAccess
+												? "Enable or disable Qwen 3 Thinking for this helper."
+												: "Thinking mode requires Ultimate subscription."
+										}
 									>
 										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-											<BrandAnthropicIcon size={16} />
+											<BrandQwenIcon size={16} />
 										</span>
-										Kafelot Tanka
+										{thinkingEnabledForActiveHelper ? "Qwen 3 Thinking ON" : "Qwen 3 Thinking OFF"}
 									</button>
 								</div>
+								<p
+									style={{
+										margin: "-6px 0 0 0",
+										fontSize: "0.78rem",
+										color: "rgba(250, 204, 144, 0.62)",
+									}}
+								>
+									{hasQwenThinkingAccess
+										? "Thinking is saved separately for Coffee Helper and Molecule Helper. You can still use /think or /no_think per message."
+										: "Thinking mode requires Ultimate subscription."}
+								</p>
 
 								{chemistryMode && (
 									<div className="visualization-mode-selector" style={{ marginTop: "1rem" }}>
@@ -1721,72 +2106,10 @@ export default function CoffeeRecommender() {
 												<RefreshIcon size={14} /> Both
 											</button>
 										</div>
-									</div>
-								)}
-
-								{chemistryMode && (
-									<div className="tanka-model-toggle-section" style={{ marginTop: "1rem" }}>
-										<label
-											style={{
-												display: "flex",
-												alignItems: "center",
-												gap: "0.5rem",
-												marginBottom: "0.5rem",
-											}}
-										>
-											<GithubCopilotIcon size={16} /> Tanka AI Model:
-										</label>
-										<button
-											className={useTankaModel ? "active tanka-model-toggle" : "tanka-model-toggle"}
-											onClick={() => {
-												if (isLoggedIn && userSubscription === "ultimate") {
-													setUseTankaModel(!useTankaModel);
-												}
-											}}
-											disabled={!isLoggedIn || userSubscription !== "ultimate"}
-											title={
-												!isLoggedIn
-													? "Use Tanka Model - Login required"
-													: userSubscription !== "ultimate"
-														? "Use Tanka Model - Ultimate subscription required 🔒"
-														: useTankaModel
-															? "Tanka Model ON - Chemistry chat with AI"
-															: "Tanka Model OFF - Pure molecule visualization only"
-											}
-											style={{
-												padding: "0.5rem 1rem",
-												borderRadius: "6px",
-												border: `2px solid ${useTankaModel ? "#4CAF50" : "#888"}`,
-												background: useTankaModel ? "rgba(76, 175, 80, 0.15)" : "transparent",
-												color: useTankaModel ? "#4CAF50" : "inherit",
-												cursor:
-													!isLoggedIn || userSubscription !== "ultimate" ? "not-allowed" : "pointer",
-												opacity: !isLoggedIn || userSubscription !== "ultimate" ? 0.5 : 1,
-												width: "100%",
-											}}
-										>
-											{useTankaModel
-												? "Tanka Model ON (Chemistry Chat)"
-												: "Visualization Only (No AI Chat)"}
-											{(!isLoggedIn || userSubscription !== "ultimate") && (
-												<LockIcon size={14} className="inline ml-1" />
-											)}
-										</button>
-										{!useTankaModel && (
-											<div
-												style={{
-													fontSize: "0.85rem",
-													color: "rgba(250, 204, 144, 0.7)",
-													marginTop: "0.5rem",
-													display: "flex",
-													alignItems: "center",
-													gap: "0.25rem",
-												}}
-											>
-												<BulbSvg size={14} className="inline-flex" />
-												<span>Uses RDKit, Py3Dmol, and Pillow for molecule visualization</span>
-											</div>
-										)}
+										<div className="visualization-mode-hint">
+											Chemistry replies always use the model. This selector decides whether to show text
+											only, 2D, 3D, or both molecule views when a molecule is detected.
+										</div>
 									</div>
 								)}
 
@@ -1803,21 +2126,37 @@ export default function CoffeeRecommender() {
 													marginBottom: "0.25rem",
 												}}
 											>
-												<BrandAnthropicIcon size={16} /> Kafelot Tanka
+												{chemistryMode ? (
+													<BrandGrokIcon size={16} />
+												) : hasQwenAccess ? (
+													<BrandQwenIcon size={16} />
+												) : (
+													<BrandGeminiIcon size={16} />
+												)}{" "}
+												Kafelot Tanka
 											</div>
 											<p>
-												Lightweight &amp; Fast. Perfect for quick coffee searches. Focuses on Nespresso
-												capsule recommendations with instant responses.
+												{chemistryMode
+													? hasQwenAccess
+														? hasQwenThinkingAccess
+															? "In Molecule Helper, text requests use Qwen 3 access and image requests use MolScribe. Turn Thinking on to enable Qwen 3 Thinking."
+															: "In Molecule Helper, text requests use Qwen 3 access and image requests use MolScribe."
+														: "In Molecule Helper, upload a molecule image to use MolScribe. Qwen 3 text chemistry requires PRO, MAX, or ULTIMATE."
+													: hasQwenAccess
+														? hasQwenThinkingAccess
+															? "Uses Qwen 3 access for primary coffee generation, with optional Thinking mode and MiniLM fallback when needed."
+															: "Uses Qwen 3 access for primary coffee generation, with MiniLM fallback when needed."
+														: "Uses MiniLM-only coffee generation for this subscription tier."}
 											</p>
 										</div>
 									)}
 								</div>
 							</>
-						)}
+						}
 
 						<div className="chat-messages">
 							{chatMessages.length === 0 && (
-								<div className="chat-welcome">
+								<div className={`chat-welcome ${chemistryMode ? "molecule-helper-welcome" : ""}`}>
 									{chatMode === "coffee" ? (
 										<>
 											<div style={{ fontWeight: 600 }}>
@@ -1869,102 +2208,252 @@ export default function CoffeeRecommender() {
 									)}
 								</div>
 							)}
-							{chatMessages.map((msg, idx) => (
-								<div key={idx} className={`chat-message ${msg.role}`}>
-									{msg.role === "assistant" && (
-										<div className="chat-avatar">
-											<GithubCopilotIcon size={20} />
-										</div>
-									)}
-									{msg.role === "user" && msg.image && (
-										<div className="chat-bubble-image">
-											<img src={msg.image} alt="Attached image" />
-										</div>
-									)}
-									{msg.content && (
-										<>
-											<div className="chat-bubble-row">
-												{msg.role === "user" &&
-													(userSubscription === "max" || userSubscription === "ultimate") && (
-														<button
-															className="chat-msg-edit-btn"
-															onClick={() => {
-																setEditingMessageIdx(idx);
-																editingMessageIdxRef.current = idx;
-																setChatInput(msg.content);
-															}}
-															title="Edit message"
-														>
-															<PenIcon size={15} />
-														</button>
-													)}
-												<div className="chat-bubble">
-													{msg.content.split("\n").map((line, i) => (
-														<React.Fragment key={i}>
-															{formatMarkdown(line)}
-															{i < msg.content.split("\n").length - 1 && <br />}
-														</React.Fragment>
-													))}
-												</div>
-											</div>
-										</>
-									)}
-									{msg.products && msg.products.length > 0 && (
-										<div className="chat-products">
-											{msg.products.map((p) => {
-												if (!p || !p.id) return null;
-												const productStock = getVariantStock(stockData, p.id, p.image);
-												const stock = productStock?.stock ?? 100;
-												const isOutOfStock = stock === 0;
+							{chatMessages.map((msg, idx) => {
+								const molecule = msg.molecule;
+								const stylizedModel = msg.role === "assistant" ? getStylizedModelInfo(msg.modelUsed) : null;
+								const has2d = Boolean(molecule?.svg);
+								const has3d = Boolean(molecule?.sdf);
+								const showMolecule = msg.role === "assistant" && (has2d || has3d);
+								const moleculeTitle = molecule?.name || molecule?.chembl_id || "Molecule";
+								const svgDataUrl =
+									has2d && molecule?.svg
+										? molecule.svg.startsWith("data:")
+											? molecule.svg
+											: `data:image/svg+xml;utf8,${encodeURIComponent(molecule.svg)}`
+										: "";
+								const interactive3d =
+									has3d && Boolean(molecule?.sdf?.includes("<script") || molecule?.sdf?.includes("<!DOCTYPE"));
 
-												return (
-													<div
-														key={p.id}
-														className="chat-product-card"
-														style={
-															isOutOfStock ? { opacity: 0.5, filter: "grayscale(50%)" } : undefined
-														}
-													>
-														{p.image && (
-															<Image
-																src={p.image}
-																alt={p.name}
-																width={50}
-																height={35}
-																unoptimized={true}
-															/>
+								return (
+									<div key={idx} className={`chat-message ${msg.role}`}>
+										{msg.role === "assistant" && (
+											<div className="chat-avatar">
+												<GithubCopilotIcon size={20} />
+											</div>
+										)}
+										{msg.role === "user" && msg.image && (
+											<div className="chat-bubble-image">
+												<img
+													src={msg.image}
+													alt="Attached image"
+													className="chat-clickable-image"
+													onClick={() =>
+														setMediaLightbox({
+															type: "image",
+															src: msg.image!,
+															title: "Attached image",
+														})
+													}
+												/>
+											</div>
+										)}
+										{msg.content && (
+											<>
+												<div className="chat-bubble-row">
+													{msg.role === "user" &&
+														(userSubscription === "max" || userSubscription === "ultimate") && (
+															<button
+																className="chat-msg-edit-btn"
+																onClick={() => {
+																	setEditingMessageIdx(idx);
+																	editingMessageIdxRef.current = idx;
+																	setChatInput(msg.content);
+																}}
+																title="Edit message"
+															>
+																<PenIcon size={15} />
+															</button>
 														)}
-														<div className="chat-product-info">
-															<strong>{p.name}</strong>
-															<span className="chat-product-intensity">
-																Intensity: {p.intensity ?? "N/A"}
-															</span>
-															{isOutOfStock && (
-																<span style={{ fontSize: "0.7rem", color: "#e74c3c" }}>
-																	Out of stock
-																</span>
+													<div className="chat-bubble">
+														{msg.content.split("\n").map((line, i) => (
+															<React.Fragment key={i}>
+																{formatMarkdown(line)}
+																{i < msg.content.split("\n").length - 1 && <br />}
+															</React.Fragment>
+														))}
+													</div>
+												</div>
+												{msg.role === "assistant" && msg.modelUsed && stylizedModel && (
+													<div className={`chat-model-used model-${stylizedModel.accent}`}>
+														<span className="chat-model-icon">
+															{stylizedModel.accent === "qwen" ? (
+																<BrandQwenIcon size={12} />
+															) : stylizedModel.accent === "minilm" ? (
+																<BrandGeminiIcon size={12} />
+															) : stylizedModel.accent === "molscribe" ? (
+																<BrandGrokIcon size={12} />
+															) : stylizedModel.accent === "clip" ? (
+																<CameraIcon size={12} />
+															) : (
+																<BrandAnthropicIcon size={12} />
+															)}
+														</span>
+														<span className="chat-model-text">{stylizedModel.label}</span>
+													</div>
+												)}
+											</>
+										)}
+
+										{showMolecule && molecule && (
+											<div className="chat-molecule-card">
+												<div className="chat-molecule-head">
+													<div className="chat-molecule-title">
+														<SparklesIcon size={16} />
+														<strong>{moleculeTitle}</strong>
+													</div>
+													{molecule.chembl_id && (
+														<span className="chat-molecule-id">{molecule.chembl_id}</span>
+													)}
+												</div>
+												<div className={`chat-molecule-visual-grid ${has2d && has3d ? "split" : ""}`}>
+													{has2d && (
+														<div className="chat-molecule-panel">
+															<div className="chat-molecule-panel-title">2D Structure</div>
+															<button
+																type="button"
+																className="chat-molecule-preview-button"
+																onClick={() =>
+																	setMediaLightbox({
+																		type: "image",
+																		src: svgDataUrl,
+																		title: `${moleculeTitle} · 2D`,
+																	})
+																}
+															>
+																{molecule.svg?.startsWith("data:") ? (
+																	<img
+																		src={molecule.svg}
+																		alt={`${moleculeTitle} 2D`}
+																		className="chat-molecule-image"
+																	/>
+																) : (
+																	<div
+																		className="svg-container"
+																		dangerouslySetInnerHTML={{ __html: molecule.svg || "" }}
+																	/>
+																)}
+															</button>
+														</div>
+													)}
+
+													{has3d && (
+														<div className="chat-molecule-panel">
+															<div className="chat-molecule-panel-title-row">
+																<span className="chat-molecule-panel-title">3D View</span>
+																{interactive3d && (
+																	<button
+																		type="button"
+																		className="chat-molecule-expand-btn"
+																		onClick={() =>
+																			setMediaLightbox({
+																				type: "html",
+																				src: molecule.sdf || "",
+																				title: `${moleculeTitle} · 3D`,
+																			})
+																		}
+																	>
+																		Expand
+																	</button>
+																)}
+															</div>
+															{interactive3d ? (
+																<iframe
+																	srcDoc={molecule.sdf}
+																	className="chat-molecule-iframe"
+																	title={`${moleculeTitle} 3D preview`}
+																	sandbox="allow-scripts"
+																	loading="lazy"
+																/>
+															) : (
+																<div className="sdf-info">
+																	<button
+																		onClick={() => {
+																			const blob = new Blob([molecule.sdf || ""], {
+																				type: "chemical/x-mdl-sdfile",
+																			});
+																			const url = URL.createObjectURL(blob);
+																			const a = document.createElement("a");
+																			a.href = url;
+																			a.download = `${molecule.chembl_id || moleculeTitle}.sdf`;
+																			a.click();
+																			URL.revokeObjectURL(url);
+																		}}
+																		className="download-sdf-btn"
+																	>
+																		<ArrowNarrowDownIcon size={14} /> Download SDF
+																	</button>
+																	<pre className="sdf-preview">
+																		{molecule.sdf?.substring(0, 420)}...
+																	</pre>
+																</div>
 															)}
 														</div>
-														<button
-															className="chat-add-btn"
-															onClick={() => handleAdd(p)}
-															disabled={isOutOfStock}
-															style={{
-																...(isOutOfStock ? { opacity: 0.5, cursor: "not-allowed" } : {}),
-																display: "flex",
-																alignItems: "center",
-																justifyContent: "center",
-															}}
+													)}
+												</div>
+											</div>
+										)}
+
+										{msg.products && msg.products.length > 0 && (
+											<div className="chat-products">
+												{msg.products.map((p) => {
+													if (!p || !p.id) return null;
+													const productStock = getVariantStock(stockData, p.id, p.image);
+													const stock = productStock?.stock ?? 100;
+													const isOutOfStock = stock === 0;
+
+													return (
+														<div
+															key={p.id}
+															className="chat-product-card"
+															style={
+																isOutOfStock
+																	? { opacity: 0.5, filter: "grayscale(50%)" }
+																	: undefined
+															}
 														>
-															{isOutOfStock ? <XIcon size={14} /> : "+"}
-														</button>
-													</div>
-												);
-											})}
-										</div>
-									)}
-								</div>
-							))}
+															{p.image && (
+																<Image
+																	src={p.image}
+																	alt={p.name}
+																	width={50}
+																	height={35}
+																	unoptimized={true}
+																/>
+															)}
+															<div className="chat-product-info">
+																<strong>{p.name}</strong>
+																<span className="chat-product-intensity">
+																	Intensity: {p.intensity ?? "N/A"}
+																</span>
+																{isOutOfStock && (
+																	<span style={{ fontSize: "0.7rem", color: "#e74c3c" }}>
+																		Out of stock
+																	</span>
+																)}
+															</div>
+															<button
+																className="chat-add-btn"
+																onClick={() => handleAdd(p)}
+																disabled={isOutOfStock}
+																style={{
+																	...(isOutOfStock
+																		? { opacity: 0.5, cursor: "not-allowed" }
+																		: {}),
+																	display: "flex",
+																	alignItems: "center",
+																	justifyContent: "center",
+																}}
+															>
+																{isOutOfStock ? <XIcon size={14} /> : "+"}
+															</button>
+														</div>
+													);
+												})}
+											</div>
+										)}
+									</div>
+								);
+							})}
 							{isTyping && (
 								<div className="chat-message assistant">
 									<div className="chat-bubble typing">
@@ -1972,137 +2461,6 @@ export default function CoffeeRecommender() {
 										<span></span>
 										<span></span>
 									</div>
-								</div>
-							)}
-
-							{chemistryMode && currentMolecule && (
-								<div className="molecule-display">
-									<div className="molecule-header">
-										<h3>
-											<SparklesIcon size={20} className="inline mr-2" />{" "}
-											{currentMolecule.name || currentMolecule.chembl_id}
-										</h3>
-										<button
-											className="close-molecule"
-											onClick={() => setCurrentMolecule(null)}
-											title="Close molecule view"
-											style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
-										>
-											<XIcon size={18} />
-										</button>
-									</div>
-
-									<div className="molecule-info">
-										<p>
-											<strong>ChEMBL ID:</strong> {currentMolecule.chembl_id}
-										</p>
-										{currentMolecule.molecular_formula && (
-											<p>
-												<strong>Formula:</strong> {currentMolecule.molecular_formula}
-											</p>
-										)}
-										{currentMolecule.molecular_weight && (
-											<p>
-												<strong>Weight:</strong> {currentMolecule.molecular_weight.toFixed(2)} g/mol
-											</p>
-										)}
-										{currentMolecule.smiles && (
-											<p style={{ wordBreak: "break-all", fontSize: "0.85rem" }}>
-												<strong>SMILES:</strong> {currentMolecule.smiles}
-											</p>
-										)}
-									</div>
-
-									{(visualizationMode === "2d" || visualizationMode === "both") && currentMolecule.svg && (
-										<div
-											className="molecule-2d"
-											style={{
-												padding: "1rem",
-												borderRadius: "8px",
-												background: "#1a1a1a",
-												border: "1px solid rgba(255, 255, 255, 0.1)",
-											}}
-										>
-											<h4>2D Structure</h4>
-											{currentMolecule.svg.startsWith("data:") ? (
-												// SVG as base64 data URL - display as image
-												<img
-													src={currentMolecule.svg}
-													alt="2D Structure"
-													style={{
-														maxWidth: "100%",
-														height: "auto",
-														borderRadius: "4px",
-													}}
-												/>
-											) : (
-												// SVG as HTML content
-												<div
-													className="svg-container"
-													dangerouslySetInnerHTML={{ __html: currentMolecule.svg }}
-												/>
-											)}
-										</div>
-									)}
-
-									{(visualizationMode === "3d" || visualizationMode === "both") && currentMolecule.sdf && (
-										<div className="molecule-3d">
-											<h4>3D Interactive Model</h4>
-											{currentMolecule.sdf.includes("<script") ||
-											currentMolecule.sdf.includes("<!DOCTYPE") ? (
-												// Py3Dmol HTML viewer - render in iframe for safety
-												<iframe
-													srcDoc={currentMolecule.sdf}
-													style={{
-														width: "100%",
-														height: "500px",
-														border: "1px solid rgba(255, 255, 255, 0.1)",
-														borderRadius: "8px",
-														background: "#1a1a1a",
-													}}
-													title="3D Molecule Viewer"
-													sandbox="allow-scripts"
-													loading="lazy"
-												/>
-											) : (
-												// Fallback: SDF data for download
-												<div className="sdf-info">
-													<div
-														style={{
-															display: "flex",
-															alignItems: "center",
-															gap: "0.5rem",
-															marginBottom: "0.5rem",
-														}}
-													>
-														<ArrowNarrowDownIcon size={18} />
-														<span>
-															<strong>SDF Data Available</strong> - Use PyMOL or similar tools to
-															visualize
-														</span>
-													</div>
-													<button
-														onClick={() => {
-															const blob = new Blob([currentMolecule.sdf || ""], {
-																type: "chemical/x-mdl-sdfile",
-															});
-															const url = URL.createObjectURL(blob);
-															const a = document.createElement("a");
-															a.href = url;
-															a.download = `${currentMolecule.chembl_id}.sdf`;
-															a.click();
-															URL.revokeObjectURL(url);
-														}}
-														className="download-sdf-btn"
-														style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
-													>
-														<ArrowNarrowDownIcon size={16} /> Download SDF
-													</button>
-													<pre className="sdf-preview">{currentMolecule.sdf?.substring(0, 500)}...</pre>
-												</div>
-											)}
-										</div>
-									)}
 								</div>
 							)}
 						</div>
@@ -2156,9 +2514,11 @@ export default function CoffeeRecommender() {
 									}}
 									onKeyDown={handleChatKeyDown}
 									placeholder={
-										chatMode === "coffee"
-											? "Ask about coffee capsules, flavors, or brewing..."
-											: "Ask me anything - coffee, tech, science, or just chat..."
+										chemistryMode
+											? "Ask about a molecule by name, formula, or ChEMBL ID..."
+											: chatMode === "coffee"
+												? "Ask about coffee capsules, flavors, or brewing..."
+												: "Ask me anything - coffee, tech, science, or just chat..."
 									}
 									rows={1}
 								/>
@@ -2216,11 +2576,12 @@ export default function CoffeeRecommender() {
 							<div className="kafelot-prompt-counter">
 								{promptsRemaining !== null && promptsRemaining > 0 ? (
 									<span>
-										{promptsRemaining} / {promptsLimit} prompts remaining this month
+										{promptsRemaining} / {promptsLimit}{" "}
+										{chemistryMode ? "Molecule Helper prompts" : "prompts"} remaining this month
 									</span>
 								) : (
 									<span className="limit-hit">
-										Prompt limit reached — resets{" "}
+										{chemistryMode ? "Molecule Helper prompt limit reached" : "Prompt limit reached"} — resets{" "}
 										{promptResetDate
 											? new Date(promptResetDate).toLocaleDateString("en-US", {
 													month: "long",
@@ -2249,7 +2610,7 @@ export default function CoffeeRecommender() {
 						</h3>
 						{!isLoggedIn ? (
 							<div style={{ textAlign: "center", padding: "2rem 1rem" }}>
-								<p
+								<div
 									style={{
 										color: "rgba(250, 204, 144, 0.8)",
 										fontSize: "1.1rem",
@@ -2261,7 +2622,7 @@ export default function CoffeeRecommender() {
 									}}
 								>
 									<LockIcon size={20} /> Chat history is locked
-								</p>
+								</div>
 								<p style={{ color: "rgba(250, 204, 144, 0.6)", fontSize: "0.9rem", margin: 0 }}>
 									Please log in to access your saved conversations
 								</p>
@@ -2329,6 +2690,43 @@ export default function CoffeeRecommender() {
 				<GithubCopilotIcon size={24} />
 			</button>
 			{mounted ? createPortal(dock, document.body) : null}
+			{mediaLightbox && (
+				<div className="chat-media-lightbox-backdrop" onClick={() => setMediaLightbox(null)} role="presentation">
+					<div
+						className="chat-media-lightbox-dialog"
+						onClick={(e) => e.stopPropagation()}
+						role="dialog"
+						aria-modal="true"
+						aria-label={mediaLightbox.title || "Media preview"}
+					>
+						<button
+							type="button"
+							className="chat-media-lightbox-close"
+							onClick={() => setMediaLightbox(null)}
+							aria-label="Close preview"
+						>
+							<XIcon size={18} />
+						</button>
+						<div className="chat-media-lightbox-content">
+							{mediaLightbox.type === "image" ? (
+								<img
+									src={mediaLightbox.src}
+									alt={mediaLightbox.title || "Preview"}
+									className="chat-media-lightbox-image"
+								/>
+							) : (
+								<iframe
+									srcDoc={mediaLightbox.src}
+									className="chat-media-lightbox-iframe"
+									title={mediaLightbox.title || "3D preview"}
+									sandbox="allow-scripts"
+									loading="lazy"
+								/>
+							)}
+						</div>
+					</div>
+				</div>
+			)}
 			{selectedProduct && (
 				<AddCapsulesPopup
 					open={popupOpen}

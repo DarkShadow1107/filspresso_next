@@ -5,7 +5,7 @@ const pool = new Pool({
 	port: parseInt(process.env.DB_PORT || "5432"),
 	database: process.env.DB_NAME || "filspresso",
 	user: process.env.DB_USER || "filspresso_user",
-	password: process.env.DB_PASSWORD || "filspresso_secure_2024",
+	password: process.env.DB_PASSWORD,
 });
 
 async function checkTables() {
@@ -15,7 +15,7 @@ async function checkTables() {
 		const res = await client.query("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public'");
 		console.log(
 			"Tables in database:",
-			res.rows.map((r) => r.tablename)
+			res.rows.map((r) => r.tablename),
 		);
 
 		const accounts = await client.query("SELECT username, role FROM accounts WHERE role='admin'");

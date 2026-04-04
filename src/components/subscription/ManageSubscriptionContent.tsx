@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { buildPageHref } from "@/lib/pages";
+import { readAccountSession } from "@/lib/accountSession";
 
 type Subscription = {
 	id?: number;
@@ -51,6 +52,8 @@ const SUBSCRIPTION_PRICES = {
 	ultimate: { monthly: 599.99, annual: 6299.99 },
 };
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
 const getCardTypeImage = (cardType: string): string => {
 	const type = cardType?.toLowerCase() || "unknown";
 	const imageMap: Record<string, string> = {
@@ -90,21 +93,20 @@ export default function ManageSubscriptionContent() {
 	const [showChangeCardModal, setShowChangeCardModal] = useState(false);
 	const [selectedCardId, setSelectedCardId] = useState<number | null>(null);
 	const [updatingCard, setUpdatingCard] = useState(false);
+	const [updatingBillingCycle, setUpdatingBillingCycle] = useState(false);
 	const [hoveredButton, setHoveredButton] = useState<string | null>(null);
 
 	useEffect(() => {
 		const fetchData = async () => {
-			const session = sessionStorage.getItem("account_session");
-			if (!session) {
+			const token = readAccountSession()?.token || "";
+			if (!token) {
 				router.push(buildPageHref("account"));
 				return;
 			}
 
 			try {
-				const { token } = JSON.parse(session);
-
 				// Fetch subscription
-				const subRes = await fetch("http://localhost:4000/api/subscriptions", {
+				const subRes = await fetch(`${API_BASE}/api/subscriptions`, {
 					headers: { Authorization: `Bearer ${token}` },
 				});
 				if (subRes.ok) {
@@ -117,7 +119,7 @@ export default function ManageSubscriptionContent() {
 				}
 
 				// Fetch saved cards
-				const cardsRes = await fetch("http://localhost:4000/api/cards", {
+				const cardsRes = await fetch(`${API_BASE}/api/cards`, {
 					headers: { Authorization: `Bearer ${token}` },
 				});
 				if (cardsRes.ok) {
@@ -136,12 +138,11 @@ export default function ManageSubscriptionContent() {
 	}, [router, notify]);
 
 	const handleCancelSubscription = async () => {
-		const session = sessionStorage.getItem("account_session");
-		if (!session) return;
+		const token = readAccountSession()?.token || "";
+		if (!token) return;
 
 		try {
-			const { token } = JSON.parse(session);
-			const res = await fetch("http://localhost:4000/api/subscriptions/cancel", {
+			const res = await fetch(`${API_BASE}/api/subscriptions/cancel`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -158,7 +159,7 @@ export default function ManageSubscriptionContent() {
 				);
 				setShowCancelModal(false);
 				// Refresh subscription data
-				const subRes = await fetch("http://localhost:4000/api/subscriptions", {
+				const subRes = await fetch(`${API_BASE}/api/subscriptions`, {
 					headers: { Authorization: `Bearer ${token}` },
 				});
 				if (subRes.ok) {
@@ -181,13 +182,12 @@ export default function ManageSubscriptionContent() {
 			return;
 		}
 
-		const session = sessionStorage.getItem("account_session");
-		if (!session) return;
+		const token = readAccountSession()?.token || "";
+		if (!token) return;
 
 		setUpdatingCard(true);
 		try {
-			const { token } = JSON.parse(session);
-			const res = await fetch("http://localhost:4000/api/subscriptions/update-card", {
+			const res = await fetch(`${API_BASE}/api/subscriptions/update-card`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -200,7 +200,7 @@ export default function ManageSubscriptionContent() {
 				notify("Payment method updated successfully!", 4000, "success", "subscription");
 				setShowChangeCardModal(false);
 				// Refresh subscription data
-				const subRes = await fetch("http://localhost:4000/api/subscriptions", {
+				const subRes = await fetch(`${API_BASE}/api/subscriptions`, {
 					headers: { Authorization: `Bearer ${token}` },
 				});
 				if (subRes.ok) {
@@ -220,12 +220,11 @@ export default function ManageSubscriptionContent() {
 	};
 
 	const handleToggleAutoRenew = async () => {
-		const session = sessionStorage.getItem("account_session");
-		if (!session) return;
+		const token = readAccountSession()?.token || "";
+		if (!token) return;
 
 		try {
-			const { token } = JSON.parse(session);
-			const res = await fetch("http://localhost:4000/api/subscriptions/toggle-auto-renew", {
+			const res = await fetch(`${API_BASE}/api/subscriptions/toggle-auto-renew`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -248,6 +247,68 @@ export default function ManageSubscriptionContent() {
 		} catch (error) {
 			console.error("Toggle auto-renew error:", error);
 			notify("An error occurred", 5000, "error", "subscription");
+		}
+	};
+
+	const handleChangeBillingCycle = async () => {
+		if (!subscription || !subscription.billing_cycle) {
+			notify("Billing cycle is not available for this plan", 4000, "error", "subscription");
+			return;
+		}
+
+		if (scheduledSubscription && scheduledSubscription.tier !== subscription.tier) {
+			notify(
+				"You already have a scheduled plan change. Please update that change from the plan page first.",
+				5000,
+				"error",
+				"subscription",
+			);
+			return;
+		}
+
+		const token = readAccountSession()?.token || "";
+		if (!token) return;
+
+		const targetCycle = subscription.billing_cycle === "annual" ? "monthly" : "annual";
+		setUpdatingBillingCycle(true);
+
+		try {
+			const res = await fetch(`${API_BASE}/api/subscriptions/change`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					tier: subscription.tier,
+					billingCycle: targetCycle,
+					cardId: subscription.card?.id ?? null,
+				}),
+			});
+
+			const data = await res.json().catch(() => ({}));
+			if (res.ok) {
+				notify(data.message || `Billing cycle change scheduled to ${targetCycle}.`, 5000, "success", "subscription");
+
+				const subRes = await fetch(`${API_BASE}/api/subscriptions`, {
+					headers: { Authorization: `Bearer ${token}` },
+				});
+				if (subRes.ok) {
+					const refreshed = await subRes.json();
+					setSubscription(refreshed.subscription);
+					setScheduledSubscription(refreshed.scheduled || null);
+					if (refreshed.subscription?.card?.id) {
+						setSelectedCardId(refreshed.subscription.card.id);
+					}
+				}
+			} else {
+				notify(data.error || "Failed to change billing cycle", 5000, "error", "subscription");
+			}
+		} catch (error) {
+			console.error("Change billing cycle error:", error);
+			notify("An error occurred", 5000, "error", "subscription");
+		} finally {
+			setUpdatingBillingCycle(false);
 		}
 	};
 
@@ -276,6 +337,10 @@ export default function ManageSubscriptionContent() {
 	}
 
 	const tierName = subscription.tier.charAt(0).toUpperCase() + subscription.tier.slice(1);
+	const targetBillingCycle = subscription.billing_cycle === "annual" ? "monthly" : "annual";
+	const currentTierPrice = SUBSCRIPTION_PRICES[subscription.tier as keyof typeof SUBSCRIPTION_PRICES];
+	const targetBillingPrice = currentTierPrice?.[targetBillingCycle] ?? null;
+	const hasConflictingScheduledPlan = Boolean(scheduledSubscription && scheduledSubscription.tier !== subscription.tier);
 
 	return (
 		<div
@@ -414,6 +479,74 @@ export default function ManageSubscriptionContent() {
 							</button>
 						)}
 					</div>
+
+					<div
+						style={{
+							marginTop: "1rem",
+							background: "#0a0a0a",
+							borderRadius: "12px",
+							padding: "1rem 1.25rem",
+							display: "flex",
+							justifyContent: "space-between",
+							alignItems: "center",
+							gap: "1rem",
+							flexWrap: "wrap",
+						}}
+					>
+						<div>
+							<div style={{ fontSize: "0.8rem", color: "#666", marginBottom: "0.25rem" }}>Billing cycle</div>
+							<div style={{ fontSize: "1.05rem", fontWeight: 600, color: "#fff" }}>
+								{subscription.billing_cycle === "annual" ? "Annual" : "Monthly"}
+							</div>
+							{targetBillingPrice !== null && (
+								<div style={{ fontSize: "0.8rem", color: "#888", marginTop: "0.2rem" }}>
+									Switching to {targetBillingCycle} will be {targetBillingPrice.toFixed(2)} RON per{" "}
+									{targetBillingCycle === "annual" ? "year" : "month"}
+								</div>
+							)}
+						</div>
+						<button
+							onClick={handleChangeBillingCycle}
+							disabled={updatingBillingCycle || hasConflictingScheduledPlan || !subscription.billing_cycle}
+							style={{
+								background:
+									updatingBillingCycle || hasConflictingScheduledPlan || !subscription.billing_cycle
+										? "#2f2f2f"
+										: "rgba(196, 167, 125, 0.15)",
+								color:
+									updatingBillingCycle || hasConflictingScheduledPlan || !subscription.billing_cycle
+										? "#888"
+										: "#c4a77d",
+								border: `1px solid ${
+									updatingBillingCycle || hasConflictingScheduledPlan || !subscription.billing_cycle
+										? "#444"
+										: "#c4a77d"
+								}`,
+								padding: "8px 16px",
+								borderRadius: "8px",
+								fontSize: "0.85rem",
+								fontWeight: 600,
+								cursor:
+									updatingBillingCycle || hasConflictingScheduledPlan || !subscription.billing_cycle
+										? "not-allowed"
+										: "pointer",
+								transition: "all 0.2s",
+							}}
+						>
+							{updatingBillingCycle
+								? "Updating..."
+								: `Switch to ${targetBillingCycle === "annual" ? "Annual" : "Monthly"}`}
+						</button>
+					</div>
+					{hasConflictingScheduledPlan ? (
+						<div style={{ marginTop: "0.6rem", fontSize: "0.8rem", color: "#f59e0b" }}>
+							Billing cycle switch is disabled while a different plan change is already scheduled.
+						</div>
+					) : (
+						<div style={{ marginTop: "0.6rem", fontSize: "0.8rem", color: "#888" }}>
+							Cycle changes are applied as a scheduled change on your next billing date.
+						</div>
+					)}
 				</div>
 
 				{/* Scheduled Subscription Card */}
