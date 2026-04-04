@@ -48,6 +48,34 @@ export const FX_FETCH_CODES = Object.keys(CURRENCY_CONFIG)
 	.filter((code) => code !== "RON")
 	.join(",");
 
+// Conservative fallback rates (RON base) used when live FX providers are unavailable.
+export const FALLBACK_FX_RATES: Record<SupportedCurrencyCode, number> = {
+	RON: 1,
+	EUR: 0.2,
+	CZK: 5.05,
+	DKK: 1.49,
+	PLN: 0.86,
+	CHF: 0.19,
+	TRY: 7.01,
+};
+
+export function sanitizeFxRates(
+	rates: Partial<Record<SupportedCurrencyCode, number>> | undefined,
+): Partial<Record<SupportedCurrencyCode, number>> {
+	if (!rates) return {};
+
+	const sanitized: Partial<Record<SupportedCurrencyCode, number>> = {};
+	for (const key of Object.keys(CURRENCY_CONFIG) as SupportedCurrencyCode[]) {
+		if (key === "RON") continue;
+		const value = Number(rates[key]);
+		if (Number.isFinite(value) && value > 0) {
+			sanitized[key] = value;
+		}
+	}
+
+	return sanitized;
+}
+
 export function roundCurrency(value: number): number {
 	return Math.round((value + Number.EPSILON) * 100) / 100;
 }

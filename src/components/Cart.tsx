@@ -5,6 +5,7 @@ import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
+import { readAccountSession } from "@/lib/accountSession";
 import type { CoffeeProduct } from "@/data/coffee";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
@@ -119,9 +120,14 @@ export default function Cart() {
 	useEffect(() => {
 		setIsHydrated(true);
 		if (typeof window === "undefined") return;
-		// Check sessionStorage for login state
-		const session = sessionStorage.getItem("account_session");
-		setIsLoggedIn(!!session);
+
+		const syncLoginState = () => {
+			const session = readAccountSession();
+			setIsLoggedIn(Boolean(session?.token));
+		};
+		syncLoginState();
+		window.addEventListener("session-update", syncLoginState);
+		window.addEventListener("storage", syncLoginState);
 
 		// Fetch weather for shipping warnings
 		const fetchWeather = async () => {
@@ -178,6 +184,11 @@ export default function Cart() {
 			}
 		};
 		fetchStock();
+
+		return () => {
+			window.removeEventListener("session-update", syncLoginState);
+			window.removeEventListener("storage", syncLoginState);
+		};
 	}, []);
 
 	const handleAddPopularItem = async (popular: PopularProduct) => {

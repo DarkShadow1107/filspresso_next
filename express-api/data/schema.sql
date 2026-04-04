@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS accounts (
     icon VARCHAR(255) DEFAULT '/images/default-avatar.png',
     subscription_id INTEGER,
     role VARCHAR(20) DEFAULT 'user', -- admin, user
+    oauth_provider VARCHAR(20),
+    oauth_subject VARCHAR(191),
+    oauth_linked_at TIMESTAMP NULL,
+    google_sub VARCHAR(191),
     graph_theme VARCHAR(20) DEFAULT 'classic',
     invoice_include_product_view BOOLEAN DEFAULT TRUE,
     email_verified BOOLEAN DEFAULT FALSE,
@@ -27,6 +31,12 @@ CREATE TABLE IF NOT EXISTS accounts (
 
 CREATE INDEX idx_accounts_email ON accounts(email);
 CREATE INDEX idx_accounts_username ON accounts(username);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_oauth_provider_subject
+ON accounts(oauth_provider, oauth_subject)
+WHERE oauth_provider IS NOT NULL AND oauth_subject IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_google_sub
+ON accounts(google_sub)
+WHERE google_sub IS NOT NULL;
 
 -- =============================================================================
 -- USER CARDS TABLE
@@ -309,11 +319,11 @@ CREATE TRIGGER update_subscriptions_updated_at BEFORE UPDATE ON subscriptions FO
 
 -- Insert default subscriptions
 INSERT INTO subscriptions (name, description, price_ron, features) VALUES
-('Basic', '10 capsules per month + Kafelot AI access', 55.99, '["10 capsules par mois", "Espressor Essenza Mini Piano Noir C30", "Kafelot Tanka - 50 prompts/month", "5-conversation memory"]'),
-('Plus', '30 capsules per month + enhanced AI', 109.99, '["30 capsules par mois", "Espressor Essenza Mini Piano Noir C30", "Kafelot Tanka - 100 prompts/month", "20-conversation memory"]'),
-('Pro', '60 capsules per month + CLIP image search', 169.99, '["60 capsules par mois", "Espressor Vertuo Next C Rouge Cerise", "Kafelot Tanka - 150 prompts/month", "50-conversation memory", "CLIP Image Search - 10 queries/month"]'),
-('Max', '120 capsules per month + premium AI', 279.99, '["120 capsules par mois", "Espressor Vertuo Next C Rouge Cerise", "Kafelot Tanka - 300 prompts/month", "100-conversation memory", "CLIP Image Search - 25 queries/month"]'),
-('Ultimate', '200 capsules per month + full AI suite', 599.99, '["200 capsules par mois", "Espressor Gran Lattissima Noir Élégant", "Kafelot Tanka - 1000 prompts/month", "200-conversation memory", "CLIP Image Search - 50 queries/month", "Molecule Helper (MolScribe AI)"]')
+('Basic', '10 capsules per month + Kafelot AI access', 55.99, '["10 capsules par mois", "Espressor Essenza Mini Piano Noir C30", "Kafelot Tanka - 50 prompts/month", "MiniLM access", "5-conversation memory"]'),
+('Plus', '30 capsules per month + enhanced AI', 109.99, '["30 capsules par mois", "Espressor Essenza Mini Piano Noir C30", "Kafelot Tanka - 100 prompts/month", "MiniLM access", "20-conversation memory"]'),
+('Pro', '60 capsules per month + CLIP image search', 169.99, '["60 capsules par mois", "Espressor Vertuo Next C Rouge Cerise", "Kafelot Tanka - 150 prompts/month", "Qwen 3 access", "MiniLM access (fallback)", "50-conversation memory", "CLIP Image Search - 10 queries/month"]'),
+('Max', '120 capsules per month + premium AI', 279.99, '["120 capsules par mois", "Espressor Vertuo Next C Rouge Cerise", "Kafelot Tanka - 300 prompts/month", "Qwen 3 access", "MiniLM access (fallback)", "100-conversation memory", "CLIP Image Search - 25 queries/month"]'),
+('Ultimate', '200 capsules per month + full AI suite', 599.99, '["200 capsules par mois", "Espressor Gran Lattissima Noir Élégant", "Kafelot Tanka - 1000 prompts/month", "Qwen 3 Thinking access", "MiniLM access (fallback)", "200-conversation memory", "CLIP Image Search - 50 queries/month", "Molecule Helper - 200 prompts/month (MolScribe AI)"]')
 ON CONFLICT DO NOTHING;
 
 -- =============================================================================
@@ -397,13 +407,15 @@ CREATE INDEX idx_machine_products_category ON machine_products(category);
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS molecules (
     id SERIAL PRIMARY KEY,
+    chembl_id VARCHAR(64) UNIQUE,
     name VARCHAR(255),
     smiles TEXT NOT NULL,
-    molecule mol,
+    synonyms JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_molecules_mol ON molecules USING gist(molecule);
+CREATE INDEX idx_molecules_chembl_id ON molecules(chembl_id);
+CREATE INDEX idx_molecules_name ON molecules(name);
 
 -- =============================================================================
 -- UPDATED_AT TRIGGER FUNCTION
@@ -464,17 +476,19 @@ CREATE TABLE IF NOT EXISTS kafelot_prompt_usage (
     id SERIAL PRIMARY KEY,
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     month_year VARCHAR(7) NOT NULL,           -- e.g. "2026-03"
+    usage_scope VARCHAR(32) NOT NULL DEFAULT 'general', -- general | molecule_helper
     prompts_used INTEGER DEFAULT 0,
     prompts_limit INTEGER DEFAULT 15,
     subscription_tier VARCHAR(50) DEFAULT 'free',
     reset_date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (account_id, month_year)
+    UNIQUE (account_id, month_year, usage_scope)
 );
 
 CREATE INDEX idx_kafelot_prompt_usage_account ON kafelot_prompt_usage(account_id);
 CREATE INDEX idx_kafelot_prompt_usage_month ON kafelot_prompt_usage(month_year);
+CREATE INDEX idx_kafelot_prompt_usage_scope ON kafelot_prompt_usage(usage_scope);
 
 CREATE TRIGGER update_kafelot_prompt_usage_updated_at
 BEFORE UPDATE ON kafelot_prompt_usage

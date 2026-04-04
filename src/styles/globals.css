@@ -1004,6 +1004,15 @@ body.recommender-open {
 .recommender-greeting {
 	padding: 8px 0;
 }
+.recommender-greeting-intro {
+	padding: 12px 14px;
+	border-radius: 12px;
+	background:
+		radial-gradient(circle at 0% 0%, rgba(255, 219, 168, 0.12), transparent 50%),
+		radial-gradient(circle at 100% 100%, rgba(168, 255, 219, 0.1), transparent 45%), rgba(255, 255, 255, 0.02);
+	border: 1px solid rgba(255, 219, 168, 0.16);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
 .recommender-greeting p {
 	line-height: 1.6;
 	margin: 0 0 16px;
@@ -1015,8 +1024,10 @@ body.recommender-open {
 	flex-wrap: wrap;
 }
 .recommender-tabs {
-	flex-wrap: nowrap;
-	justify-content: center;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+	width: 100%;
 }
 .recommender-cta button {
 	flex: 1;
@@ -1056,9 +1067,54 @@ body.recommender-open {
 	transform: translateY(0);
 }
 
+.recommender-tabs button {
+	justify-content: flex-start;
+	text-align: left;
+	padding: 13px 14px;
+	border: 1px solid rgba(255, 219, 168, 0.28);
+	background:
+		radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.35), transparent 45%),
+		linear-gradient(135deg, #ffdba8, #f2a67b 60%, #e59168);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+	border-radius: 12px;
+	align-items: flex-start;
+}
+
+.recommender-tabs button svg {
+	opacity: 0.9;
+	margin-top: 1px;
+}
+
+.recommender-tabs button:hover {
+	box-shadow:
+		0 10px 20px rgba(242, 166, 123, 0.28),
+		inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.recommender-tab-content {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	min-width: 0;
+}
+
+.recommender-tab-title {
+	font-size: 13px;
+	font-weight: 700;
+	line-height: 1.2;
+}
+
+.recommender-tab-subtitle {
+	font-size: 11px;
+	line-height: 1.25;
+	color: rgba(29, 25, 25, 0.82);
+	font-weight: 500;
+}
+
 @media (max-width: 640px) {
 	.recommender-tabs {
-		flex-wrap: wrap;
+		grid-template-columns: 1fr;
 	}
 }
 
@@ -1416,6 +1472,20 @@ body.recommender-open {
 	color: rgba(248, 220, 204, 0.85);
 	font-size: 13px;
 }
+
+.molecule-helper-welcome {
+	background:
+		radial-gradient(circle at 0% 0%, rgba(168, 255, 219, 0.16), transparent 45%),
+		radial-gradient(circle at 100% 100%, rgba(255, 219, 168, 0.1), transparent 42%), rgba(255, 255, 255, 0.025);
+	border: 1px solid rgba(168, 255, 219, 0.22);
+	box-shadow:
+		inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+		0 10px 22px rgba(12, 40, 34, 0.25);
+}
+
+.molecule-helper-welcome ul li {
+	color: rgba(220, 255, 240, 0.92);
+}
 .chat-message {
 	display: flex;
 	flex-direction: column;
@@ -1447,6 +1517,178 @@ body.recommender-open {
 	color: rgb(248, 220, 204);
 	border-bottom-left-radius: 4px;
 	border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.chat-model-used {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 10px;
+	line-height: 1.2;
+	margin-left: 4px;
+	margin-top: -2px;
+	letter-spacing: 0.01em;
+	padding: 4px 8px;
+	border-radius: 999px;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.chat-model-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.chat-model-text {
+	font-weight: 700;
+}
+
+.chat-model-used.model-qwen {
+	color: rgba(223, 244, 255, 0.95);
+	border-color: rgba(129, 199, 255, 0.35);
+	background: rgba(76, 161, 255, 0.12);
+}
+
+.chat-model-used.model-minilm {
+	color: rgba(255, 236, 187, 0.95);
+	border-color: rgba(255, 213, 122, 0.38);
+	background: rgba(255, 190, 92, 0.12);
+}
+
+.chat-model-used.model-molscribe {
+	color: rgba(194, 255, 226, 0.95);
+	border-color: rgba(130, 233, 192, 0.34);
+	background: rgba(64, 191, 140, 0.12);
+}
+
+.chat-model-used.model-clip {
+	color: rgba(214, 225, 255, 0.95);
+	border-color: rgba(152, 173, 255, 0.36);
+	background: rgba(117, 133, 230, 0.12);
+}
+
+.chat-model-used.model-tanka {
+	color: rgba(248, 220, 204, 0.92);
+	border-color: rgba(248, 220, 204, 0.24);
+	background: rgba(248, 220, 204, 0.08);
+}
+
+.chat-molecule-card {
+	width: 100%;
+	margin-top: 2px;
+	padding: 10px;
+	border-radius: 10px;
+	border: 1px solid rgba(168, 255, 219, 0.2);
+	background: radial-gradient(circle at 100% 0%, rgba(168, 255, 219, 0.08), transparent 40%), rgba(255, 255, 255, 0.03);
+}
+
+.chat-molecule-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.chat-molecule-title {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: #a8ffdb;
+	font-size: 12px;
+}
+
+.chat-molecule-id {
+	font-size: 10px;
+	padding: 3px 8px;
+	border-radius: 999px;
+	border: 1px solid rgba(168, 255, 219, 0.25);
+	color: rgba(168, 255, 219, 0.84);
+	background: rgba(168, 255, 219, 0.08);
+	font-weight: 600;
+}
+
+.chat-molecule-visual-grid {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 10px;
+}
+
+.chat-molecule-visual-grid.split {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chat-molecule-panel {
+	padding: 10px;
+	border-radius: 8px;
+	background: rgba(17, 17, 17, 0.5);
+	border: 1px solid rgba(168, 255, 219, 0.16);
+	min-width: 0;
+}
+
+.chat-molecule-panel-title,
+.chat-molecule-panel-title-row {
+	font-size: 11px;
+	font-weight: 700;
+	color: rgba(168, 255, 219, 0.92);
+	margin-bottom: 8px;
+}
+
+.chat-molecule-panel-title-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.chat-molecule-preview-button {
+	width: 100%;
+	padding: 0;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.02);
+	overflow: hidden;
+	cursor: zoom-in;
+}
+
+.chat-molecule-preview-button .svg-container {
+	min-height: 160px;
+	padding: 10px;
+}
+
+.chat-molecule-image {
+	width: 100%;
+	height: auto;
+	display: block;
+	max-height: 250px;
+	object-fit: contain;
+	background: #fff;
+}
+
+.chat-molecule-iframe {
+	width: 100%;
+	height: 220px;
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 8px;
+	background: #111;
+}
+
+.chat-molecule-expand-btn {
+	padding: 4px 8px;
+	font-size: 10px;
+	font-weight: 700;
+	border-radius: 999px;
+	border: 1px solid rgba(168, 255, 219, 0.3);
+	background: rgba(168, 255, 219, 0.1);
+	color: rgba(168, 255, 219, 0.92);
+	cursor: pointer;
+}
+
+@media (max-width: 640px) {
+	.chat-molecule-visual-grid.split {
+		grid-template-columns: 1fr;
+	}
 }
 .chat-products {
 	display: flex;
@@ -1616,6 +1858,13 @@ body.recommender-open {
 	box-shadow: 0 0 15px rgba(168, 255, 219, 0.15);
 }
 
+.visualization-mode-hint {
+	margin-top: 8px;
+	font-size: 12px;
+	line-height: 1.45;
+	color: rgba(168, 255, 219, 0.72);
+}
+
 /* Molecule Display */
 .molecule-display {
 	margin-top: 16px;
@@ -1675,6 +1924,35 @@ body.recommender-open {
 .molecule-info strong {
 	color: #a8ffdb;
 	font-weight: 600;
+}
+
+.molecule-availability {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+	margin-top: -2px;
+	margin-bottom: 10px;
+}
+
+.molecule-availability span {
+	font-size: 11px;
+	padding: 4px 8px;
+	border-radius: 999px;
+	border: 1px solid transparent;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.molecule-availability .ready {
+	color: #a8ffdb;
+	border-color: rgba(168, 255, 219, 0.35);
+	background: rgba(168, 255, 219, 0.12);
+}
+
+.molecule-availability .missing {
+	color: #ffb3a6;
+	border-color: rgba(255, 140, 120, 0.35);
+	background: rgba(255, 122, 99, 0.12);
 }
 
 .molecule-2d,
@@ -1809,9 +2087,54 @@ body.recommender-open {
 	align-items: center;
 	margin-bottom: 12px;
 	padding: 10px 12px;
-	background: rgba(99, 102, 241, 0.05);
+	background: rgba(168, 255, 219, 0.06);
 	border-radius: 12px;
-	border: 1px solid rgba(99, 102, 241, 0.15);
+	border: 1px solid rgba(168, 255, 219, 0.18);
+}
+
+.subscription-info-box {
+	margin-bottom: 12px;
+	padding: 10px 12px;
+	background: rgba(255, 219, 168, 0.04);
+	border: 1px solid rgba(255, 219, 168, 0.16);
+	border-radius: 12px;
+}
+
+.model-access-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.model-access-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	padding: 5px 9px;
+	border-radius: 999px;
+	font-weight: 700;
+	letter-spacing: 0.01em;
+	border: 1px solid transparent;
+}
+
+.model-access-chip.minilm {
+	color: #ffe2ad;
+	border-color: rgba(255, 194, 108, 0.4);
+	background: rgba(255, 194, 108, 0.12);
+}
+
+.model-access-chip.qwen {
+	color: #d7ebff;
+	border-color: rgba(137, 196, 255, 0.45);
+	background: rgba(89, 163, 255, 0.16);
+}
+
+.model-access-chip.molscribe {
+	color: #c5ffe4;
+	border-color: rgba(130, 233, 192, 0.42);
+	background: rgba(64, 191, 140, 0.14);
 }
 
 .model-selector label {
@@ -1866,23 +2189,14 @@ body.recommender-open {
 }
 
 .model-selector button.active {
-	background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.25));
-	color: #c4b5fd;
-	border-color: rgba(139, 92, 246, 0.5);
+	background: linear-gradient(135deg, rgba(168, 255, 219, 0.2), rgba(255, 219, 168, 0.2));
+	color: #dcfff0;
+	border-color: rgba(168, 255, 219, 0.45);
 	font-weight: 700;
 	box-shadow:
-		0 0 25px rgba(99, 102, 241, 0.3),
+		0 0 24px rgba(168, 255, 219, 0.18),
 		0 4px 12px rgba(0, 0, 0, 0.2);
 	transform: scale(1.02);
-}
-
-.model-selector button.active::after {
-	content: "✓";
-	position: absolute;
-	top: 2px;
-	right: 4px;
-	font-size: 10px;
-	color: #818cf8;
 }
 
 .model-selector button:disabled {
@@ -2071,6 +2385,80 @@ body.recommender-open {
 	border-radius: 10px;
 	object-fit: contain;
 	border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chat-clickable-image {
+	cursor: zoom-in;
+	transition: transform 0.15s ease;
+}
+
+.chat-clickable-image:hover {
+	transform: scale(1.02);
+}
+
+.chat-media-lightbox-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 10080;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: rgba(8, 8, 12, 0.72);
+	backdrop-filter: blur(8px);
+}
+
+.chat-media-lightbox-dialog {
+	position: relative;
+	width: min(1100px, 94vw);
+	max-height: 88vh;
+	padding: 16px;
+	border-radius: 14px;
+	border: 1px solid rgba(255, 255, 255, 0.16);
+	background: rgba(17, 17, 21, 0.92);
+	box-shadow: 0 22px 44px rgba(0, 0, 0, 0.48);
+}
+
+.chat-media-lightbox-close {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	width: 34px;
+	height: 34px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	border: 1px solid rgba(255, 255, 255, 0.22);
+	background: rgba(255, 255, 255, 0.08);
+	color: #fbe6d8;
+	cursor: pointer;
+	z-index: 2;
+}
+
+.chat-media-lightbox-content {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	max-height: calc(88vh - 32px);
+	overflow: auto;
+	border-radius: 10px;
+}
+
+.chat-media-lightbox-image {
+	max-width: 100%;
+	max-height: calc(88vh - 52px);
+	object-fit: contain;
+	border-radius: 8px;
+	background: #fff;
+}
+
+.chat-media-lightbox-iframe {
+	width: min(1000px, 88vw);
+	height: min(760px, 76vh);
+	border: 1px solid rgba(255, 255, 255, 0.16);
+	border-radius: 10px;
+	background: #111;
 }
 .chat-image-clear {
 	background: none;
@@ -2998,60 +3386,6 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 
 .machine_groups_models .text_capsule_2 {
 	margin-top: 10px;
-}
-
-/* Molecule Display Styling - Coffee Card Style */
-.molecule-display {
-	margin-top: 1rem;
-	padding: 1rem;
-	background: rgba(255, 255, 255, 0.04);
-	border-radius: 12px;
-	border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.molecule-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	margin-bottom: 1rem;
-	padding-bottom: 0.75rem;
-	border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.molecule-header h3 {
-	margin: 0;
-	color: #fbe6d8;
-	font-size: 1.25rem;
-}
-
-.close-molecule {
-	background: transparent;
-	border: 1px solid rgba(255, 255, 255, 0.1);
-	color: rgba(248, 220, 204, 0.7);
-	padding: 0.25rem 0.75rem;
-	border-radius: 6px;
-	cursor: pointer;
-	transition: all 0.2s ease;
-}
-
-.close-molecule:hover {
-	background: rgba(255, 255, 255, 0.05);
-	color: #fbe6d8;
-	border-color: rgba(255, 255, 255, 0.2);
-}
-
-.molecule-info {
-	margin-bottom: 1rem;
-	padding: 0.75rem;
-	background: rgba(255, 255, 255, 0.02);
-	border-radius: 8px;
-	border: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-.molecule-info p {
-	margin: 0.5rem 0;
-	color: rgba(248, 220, 204, 0.85);
-	font-size: 0.9rem;
 }
 
 .molecule-info strong {

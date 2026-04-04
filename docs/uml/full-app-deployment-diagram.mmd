@@ -7,11 +7,9 @@ flowchart TD
     BE --> INV[Java Invoice Container :8082]
     BE --> OPS[Go Ops Container :8083]
     BE --> SUB[Kotlin Subscriptions Container :8084]
+    OPS --> REDIS[(Redis Container :6379)]
 
     AI --> DB
-
-    WB[Wasm Builder Profile] --> WASM[(public/wasm artifacts)]
-    FE --> WASM
 
     IMG[(public/images volume)] --> BE
     IMG --> INV
@@ -23,5 +21,5 @@ flowchart TD
     classDef app fill:#eef7ff,stroke:#3a7bd5,color:#111;
     classDef data fill:#fff6e8,stroke:#c17d2d,color:#111;
 
-    class FE,BE,AI,INV,OPS,SUB,WB app;
-    class DB,WASM,IMG,HF,CLIP,MOL data;
+    class FE,BE,AI,INV,OPS,SUB app;
+    class DB,REDIS,IMG,HF,CLIP,MOL data;

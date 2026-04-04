@@ -178,6 +178,38 @@
 	font-weight: 600;
 	cursor: pointer;
 }
+
+.mfa-toggle-btn {
+	width: fit-content;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: 0.78rem;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	background: rgba(255, 185, 115, 0.14);
+	border: 1px solid rgba(255, 185, 115, 0.34);
+	color: rgba(255, 223, 192, 0.95);
+	box-shadow: 0 10px 20px rgba(0, 0, 0, 0.22);
+	transition:
+		transform 0.2s,
+		border-color 0.2s,
+		background 0.2s;
+}
+
+.mfa-toggle-btn:hover,
+.mfa-toggle-btn:focus {
+	background: rgba(255, 185, 115, 0.24);
+	border-color: rgba(255, 206, 166, 0.8);
+	transform: translateY(-1px);
+	outline: none;
+}
+
+.mfa-toggle-btn.is-active {
+	background: linear-gradient(135deg, #ffdba8, #f2a67b);
+	color: #1d1919;
+	border-color: transparent;
+}
 .btn-secondary {
 	padding: 0.75rem 1.5rem;
 	background: transparent;

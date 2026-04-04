@@ -16,11 +16,42 @@ const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
 const multer = require("multer");
 const bcrypt = require("bcrypt");
+const QRCode = require("qrcode");
 const pool = require("../db/connection");
+const { encrypt, decrypt } = require("../utils/encryption");
 
 const router = express.Router();
+const ADMIN_SENSITIVE_VIEW_COOKIE_NAME = "admin_sensitive_view";
+const ADMIN_SENSITIVE_VIEW_TIMEOUT_MS = 10 * 60 * 1000;
+const RESTRICTED_ADMIN_TABLES = new Set([
+	"auth_login_attempts",
+	"auth_security_events",
+	"admin_mfa_challenges",
+	"user_mfa_challenges",
+	"user_sessions",
+	"user_cards",
+]);
+const SENSITIVE_ADMIN_COLUMNS = new Set([
+	"password_hash",
+	"session_token",
+	"challenge_token_hash",
+	"admin_mfa_secret_encrypted",
+	"user_mfa_secret_encrypted",
+	"temp_secret_encrypted",
+	"access_token",
+	"refresh_token",
+	"client_secret",
+	"api_key",
+	"jwt_secret",
+	"encryption_key",
+	"google_oauth_client_secret",
+	"google_oauth_refresh_token",
+]);
 const ADMIN_SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 const ADMIN_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const IS_NON_PROD = process.env.NODE_ENV !== "production";
+const RELAX_ADMIN_LIMITS_IN_DEV =
+	IS_NON_PROD && process.env.ENABLE_STRICT_ADMIN_LIMITS !== "true" && process.env.DISABLE_RATE_LIMIT !== "false";
 
 const VALID_IMAGE_EXTENSIONS = new Set(["png", "avif", "webp", "jpg", "jpeg", "svg"]);
 
@@ -28,6 +59,120 @@ const ADMIN_LOGIN_WINDOW_MS = Math.max(60_000, Number.parseInt(process.env.ADMIN
 const ADMIN_LOGIN_MAX_ATTEMPTS = Math.max(3, Number.parseInt(process.env.ADMIN_LOGIN_RATE_LIMIT_MAX || "15", 10));
 const ADMIN_QUERY_MAX_LENGTH = Math.max(64, Number.parseInt(process.env.ADMIN_QUERY_MAX_LENGTH || "5000", 10));
 const ADMIN_QUERY_TIMEOUT_MS = Math.max(1000, Number.parseInt(process.env.ADMIN_QUERY_TIMEOUT_MS || "4000", 10));
+const ADMIN_MFA_ISSUER = String(process.env.ADMIN_MFA_ISSUER || "Filspresso").slice(0, 64);
+const ADMIN_MFA_CODE_DIGITS = 6;
+const ADMIN_MFA_TIME_STEP_SECONDS = Math.max(15, Number.parseInt(process.env.ADMIN_MFA_TIME_STEP_SECONDS || "30", 10));
+const ADMIN_MFA_ALLOWED_DRIFT_STEPS = Math.max(0, Number.parseInt(process.env.ADMIN_MFA_ALLOWED_DRIFT_STEPS || "1", 10));
+const ADMIN_MFA_VERIFY_TTL_SECONDS = Math.max(60, Number.parseInt(process.env.ADMIN_MFA_VERIFY_TTL_SECONDS || "300", 10));
+const ADMIN_MFA_ENROLL_TTL_SECONDS = Math.max(60, Number.parseInt(process.env.ADMIN_MFA_ENROLL_TTL_SECONDS || "600", 10));
+const ADMIN_AUTH_LOCK_THRESHOLD = Math.max(3, Number.parseInt(process.env.ADMIN_AUTH_LOCK_THRESHOLD || "5", 10));
+const ADMIN_AUTH_FAILURE_WINDOW_MINUTES = Math.max(1, Number.parseInt(process.env.ADMIN_AUTH_FAILURE_WINDOW_MINUTES || "30", 10));
+const ADMIN_AUTH_LOCK_BASE_SECONDS = Math.max(5, Number.parseInt(process.env.ADMIN_AUTH_LOCK_BASE_SECONDS || "60", 10));
+const ADMIN_AUTH_LOCK_MAX_SECONDS = Math.max(
+	ADMIN_AUTH_LOCK_BASE_SECONDS,
+	Number.parseInt(process.env.ADMIN_AUTH_LOCK_MAX_SECONDS || "1800", 10),
+);
+const ADMIN_IP_ALLOWLIST = String(process.env.ADMIN_IP_ALLOWLIST || "")
+	.split(",")
+	.map((entry) => entry.trim())
+	.filter(Boolean);
+
+function normalizeAdminIdentifier(value) {
+	return String(value || "")
+		.trim()
+		.toLowerCase();
+}
+
+function isRestrictedAdminTable(table) {
+	return RESTRICTED_ADMIN_TABLES.has(normalizeAdminIdentifier(table));
+}
+
+function isSensitiveAdminColumn(columnName) {
+	const normalized = normalizeAdminIdentifier(columnName);
+	return (
+		SENSITIVE_ADMIN_COLUMNS.has(normalized) ||
+		normalized.endsWith("_secret") ||
+		normalized.endsWith("_secret_encrypted") ||
+		normalized.endsWith("_token") ||
+		normalized.endsWith("_token_hash")
+	);
+}
+
+function getVisibleAdminColumns(columns) {
+	return columns.filter((column) => !isSensitiveAdminColumn(column.name));
+}
+
+function getCookieValue(req, name) {
+	const rawCookie = String(req.headers.cookie || "");
+	if (!rawCookie) return "";
+	for (const part of rawCookie.split(";")) {
+		const [key, ...rest] = part.split("=");
+		if (key && key.trim() === name) {
+			return decodeURIComponent(rest.join("=").trim() || "");
+		}
+	}
+	return "";
+}
+
+function getSensitiveViewSecret() {
+	return String(process.env.JWT_SECRET || process.env.ENCRYPTION_KEY || "").trim();
+}
+
+function buildSensitiveViewTokenPayload(session) {
+	return {
+		scope: "admin_sensitive_view",
+		userId: session.userId,
+		username: session.username,
+		iat: Date.now(),
+		exp: Date.now() + ADMIN_SENSITIVE_VIEW_TIMEOUT_MS,
+	};
+}
+
+function signSensitiveViewToken(payload) {
+	const secret = getSensitiveViewSecret();
+	if (!secret) return "";
+	const serialized = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+	const signature = crypto.createHmac("sha256", secret).update(serialized).digest("base64url");
+	return `${serialized}.${signature}`;
+}
+
+function verifySensitiveViewToken(token) {
+	const secret = getSensitiveViewSecret();
+	if (!secret || typeof token !== "string" || !token.includes(".")) return null;
+	const [serialized, signature] = token.split(".");
+	if (!serialized || !signature) return null;
+	const expectedSignature = crypto.createHmac("sha256", secret).update(serialized).digest("base64url");
+	if (expectedSignature !== signature) return null;
+	try {
+		const payload = JSON.parse(Buffer.from(serialized, "base64url").toString("utf8"));
+		if (!payload || payload.scope !== "admin_sensitive_view" || !Number.isFinite(payload.exp) || payload.exp < Date.now()) {
+			return null;
+		}
+		return payload;
+	} catch {
+		return null;
+	}
+}
+
+function setSensitiveViewCookie(res, token) {
+	res.cookie(ADMIN_SENSITIVE_VIEW_COOKIE_NAME, token, {
+		httpOnly: true,
+		secure: process.env.NODE_ENV === "production",
+		sameSite: "lax",
+		path: "/api/admin",
+		maxAge: ADMIN_SENSITIVE_VIEW_TIMEOUT_MS,
+	});
+}
+
+function clearSensitiveViewCookie(res) {
+	res.cookie(ADMIN_SENSITIVE_VIEW_COOKIE_NAME, "", {
+		httpOnly: true,
+		secure: process.env.NODE_ENV === "production",
+		sameSite: "lax",
+		path: "/api/admin",
+		maxAge: 0,
+	});
+}
 
 const adminLoginLimiter = rateLimit({
 	windowMs: ADMIN_LOGIN_WINDOW_MS,
@@ -35,8 +180,43 @@ const adminLoginLimiter = rateLimit({
 	standardHeaders: true,
 	legacyHeaders: false,
 	skipSuccessfulRequests: true,
+	skip: () => RELAX_ADMIN_LIMITS_IN_DEV,
 	message: { error: "Too many admin login attempts. Please try again later." },
 });
+
+function normalizeIp(ip = "") {
+	const clean = String(ip || "")
+		.split(",")[0]
+		.trim()
+		.replace(/^\[|\]$/g, "");
+	if (clean.startsWith("::ffff:")) {
+		return clean.replace("::ffff:", "");
+	}
+	return clean;
+}
+
+function getRequestIp(req) {
+	const forwarded = req.headers["x-forwarded-for"];
+	const source = Array.isArray(forwarded) ? forwarded[0] : forwarded || req.ip || req.socket?.remoteAddress || "";
+	return normalizeIp(source);
+}
+
+function isIpAllowed(ip) {
+	if (ADMIN_IP_ALLOWLIST.length === 0) return true;
+	const normalized = normalizeIp(ip);
+	return ADMIN_IP_ALLOWLIST.some((entry) => normalizeIp(entry) === normalized);
+}
+
+function enforceAdminIpAllowlist(req, res, next) {
+	const ip = getRequestIp(req);
+	if (isIpAllowed(ip)) {
+		return next();
+	}
+
+	return res.status(403).json({ error: "Admin access is restricted from this network" });
+}
+
+router.use(enforceAdminIpAllowlist);
 
 const isAllowedImage = (file) => {
 	const ext = path
@@ -63,6 +243,251 @@ const isAllowedImage = (file) => {
  */
 function generateAdminToken() {
 	return `admin_${crypto.randomBytes(32).toString("hex")}`;
+}
+
+function normalizeAdminLoginKey(value) {
+	return String(value || "")
+		.trim()
+		.toLowerCase()
+		.slice(0, 254);
+}
+
+function computeLockSeconds(failedAttempts) {
+	if (failedAttempts < ADMIN_AUTH_LOCK_THRESHOLD) return 0;
+	const exponent = Math.max(0, failedAttempts - ADMIN_AUTH_LOCK_THRESHOLD);
+	const calculated = ADMIN_AUTH_LOCK_BASE_SECONDS * 2 ** exponent;
+	return Math.min(calculated, ADMIN_AUTH_LOCK_MAX_SECONDS);
+}
+
+async function getAdminLockState(client, loginKey) {
+	if (RELAX_ADMIN_LIMITS_IN_DEV) {
+		return { isLocked: false, retryAfterSeconds: 0, failedAttempts: 0 };
+	}
+
+	const result = await client.query(
+		`SELECT failed_attempts, lock_until
+		 FROM auth_login_attempts
+		 WHERE login_key = $1
+		 LIMIT 1`,
+		[loginKey],
+	);
+
+	const row = result.rows[0];
+	if (!row) {
+		return { isLocked: false, retryAfterSeconds: 0, failedAttempts: 0 };
+	}
+
+	const lockUntil = row.lock_until ? new Date(row.lock_until) : null;
+	if (!lockUntil || Number.isNaN(lockUntil.getTime()) || lockUntil <= new Date()) {
+		return { isLocked: false, retryAfterSeconds: 0, failedAttempts: Number(row.failed_attempts) || 0 };
+	}
+
+	const retryAfterSeconds = Math.max(1, Math.ceil((lockUntil.getTime() - Date.now()) / 1000));
+	return {
+		isLocked: true,
+		retryAfterSeconds,
+		failedAttempts: Number(row.failed_attempts) || 0,
+	};
+}
+
+async function recordAdminFailedAttempt(client, loginKey) {
+	const result = await client.query(
+		`INSERT INTO auth_login_attempts (login_key, failed_attempts, first_failed_at, last_failed_at, lock_until, updated_at)
+		 VALUES ($1, 1, NOW(), NOW(), NULL, NOW())
+		 ON CONFLICT (login_key) DO UPDATE
+		 SET failed_attempts = CASE
+				WHEN auth_login_attempts.last_failed_at IS NULL
+					OR auth_login_attempts.last_failed_at < NOW() - (($2)::text || ' minutes')::interval
+				THEN 1
+				ELSE auth_login_attempts.failed_attempts + 1
+			END,
+			 first_failed_at = CASE
+				WHEN auth_login_attempts.last_failed_at IS NULL
+					OR auth_login_attempts.last_failed_at < NOW() - (($2)::text || ' minutes')::interval
+				THEN NOW()
+				ELSE auth_login_attempts.first_failed_at
+			END,
+			 last_failed_at = NOW(),
+			 updated_at = NOW()
+		 RETURNING failed_attempts`,
+		[loginKey, ADMIN_AUTH_FAILURE_WINDOW_MINUTES],
+	);
+
+	const failedAttempts = Number(result.rows[0]?.failed_attempts) || 1;
+	const lockSeconds = computeLockSeconds(failedAttempts);
+
+	if (lockSeconds > 0) {
+		await client.query(
+			"UPDATE auth_login_attempts SET lock_until = NOW() + (($1)::text || ' seconds')::interval WHERE login_key = $2",
+			[lockSeconds, loginKey],
+		);
+	}
+
+	return { failedAttempts, lockSeconds };
+}
+
+async function clearAdminFailedAttempts(client, loginKey) {
+	await client.query("DELETE FROM auth_login_attempts WHERE login_key = $1", [loginKey]);
+}
+
+async function logAdminSecurityEvent(client, eventType, payload = {}) {
+	const loginKey = payload.loginKey ? String(payload.loginKey).slice(0, 254) : null;
+	const accountId = Number.isInteger(payload.accountId) ? payload.accountId : null;
+	const ipAddress = payload.ipAddress ? String(payload.ipAddress).slice(0, 64) : null;
+	const userAgent = payload.userAgent ? String(payload.userAgent).slice(0, 500) : null;
+	const details = payload.details && typeof payload.details === "object" ? payload.details : {};
+
+	await client.query(
+		`INSERT INTO auth_security_events (event_type, login_key, account_id, ip_address, user_agent, details)
+		 VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+		[eventType, loginKey, accountId, ipAddress, userAgent, JSON.stringify(details)],
+	);
+}
+
+function hashChallengeToken(token) {
+	return crypto
+		.createHash("sha256")
+		.update(String(token || ""))
+		.digest("hex");
+}
+
+function generateBase32Secret(length = 32) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+	const bytes = crypto.randomBytes(length);
+	let output = "";
+	for (let i = 0; i < bytes.length; i += 1) {
+		output += alphabet[bytes[i] % alphabet.length];
+	}
+	return output;
+}
+
+function decodeBase32(base32) {
+	const clean = String(base32 || "")
+		.toUpperCase()
+		.replace(/=+$/g, "")
+		.replace(/[^A-Z2-7]/g, "");
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+	let bits = "";
+	for (const char of clean) {
+		const value = alphabet.indexOf(char);
+		if (value < 0) continue;
+		bits += value.toString(2).padStart(5, "0");
+	}
+
+	const bytes = [];
+	for (let i = 0; i + 8 <= bits.length; i += 8) {
+		bytes.push(Number.parseInt(bits.slice(i, i + 8), 2));
+	}
+	return Buffer.from(bytes);
+}
+
+function generateTotp(secret, timestampMs = Date.now()) {
+	const key = decodeBase32(secret);
+	if (!key.length) return null;
+
+	const counter = Math.floor(timestampMs / 1000 / ADMIN_MFA_TIME_STEP_SECONDS);
+	const counterBuffer = Buffer.alloc(8);
+	counterBuffer.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+	counterBuffer.writeUInt32BE(counter >>> 0, 4);
+
+	const hmac = crypto.createHmac("sha1", key).update(counterBuffer).digest();
+	const offset = hmac[hmac.length - 1] & 0x0f;
+	const binary =
+		((hmac[offset] & 0x7f) << 24) |
+		((hmac[offset + 1] & 0xff) << 16) |
+		((hmac[offset + 2] & 0xff) << 8) |
+		(hmac[offset + 3] & 0xff);
+	const code = String(binary % 10 ** ADMIN_MFA_CODE_DIGITS).padStart(ADMIN_MFA_CODE_DIGITS, "0");
+	return code;
+}
+
+function verifyTotp(secret, submittedCode) {
+	const normalizedCode = String(submittedCode || "")
+		.trim()
+		.replace(/\s+/g, "");
+	if (!/^\d{6,8}$/.test(normalizedCode)) {
+		return false;
+	}
+
+	for (let drift = -ADMIN_MFA_ALLOWED_DRIFT_STEPS; drift <= ADMIN_MFA_ALLOWED_DRIFT_STEPS; drift += 1) {
+		const timestamp = Date.now() + drift * ADMIN_MFA_TIME_STEP_SECONDS * 1000;
+		const code = generateTotp(secret, timestamp);
+		if (code && code === normalizedCode) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function buildOtpAuthUrl(secret, username) {
+	const accountName = encodeURIComponent(
+		String(username || "admin")
+			.trim()
+			.toLowerCase(),
+	);
+	const issuer = encodeURIComponent(ADMIN_MFA_ISSUER);
+	return `otpauth://totp/${issuer}:${accountName}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${ADMIN_MFA_CODE_DIGITS}&period=${ADMIN_MFA_TIME_STEP_SECONDS}`;
+}
+
+async function generateAdminQrDataUrl(otpauthUrl) {
+	try {
+		return await QRCode.toDataURL(otpauthUrl, { errorCorrectionLevel: "M", margin: 1, width: 220 });
+	} catch {
+		return null;
+	}
+}
+
+async function createAdminMfaChallenge(client, { accountId, purpose, ttlSeconds, tempSecretEncrypted = null }) {
+	const token = `mfa_${crypto.randomBytes(48).toString("hex")}`;
+	const tokenHash = hashChallengeToken(token);
+	const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+
+	await client.query(
+		`INSERT INTO admin_mfa_challenges (account_id, challenge_token_hash, purpose, temp_secret_encrypted, expires_at)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		[accountId, tokenHash, purpose, tempSecretEncrypted, expiresAt],
+	);
+
+	return {
+		token,
+		expiresIn: ttlSeconds,
+	};
+}
+
+async function getActiveMfaChallenge(client, token) {
+	const tokenHash = hashChallengeToken(token);
+	const result = await client.query(
+		`SELECT c.id, c.account_id, c.purpose, c.temp_secret_encrypted, c.attempts, c.max_attempts, c.expires_at,
+				 a.username, a.role, a.admin_mfa_enabled, a.admin_mfa_secret_encrypted
+		 FROM admin_mfa_challenges c
+		 JOIN accounts a ON a.id = c.account_id
+		 WHERE c.challenge_token_hash = $1
+		   AND c.consumed_at IS NULL
+		 LIMIT 1`,
+		[tokenHash],
+	);
+
+	return result.rows[0] || null;
+}
+
+async function invalidateExpiredChallenges(client) {
+	await client.query("DELETE FROM admin_mfa_challenges WHERE consumed_at IS NOT NULL OR expires_at < NOW()");
+}
+
+async function createAdminSession(client, user, req) {
+	const token = generateAdminToken();
+	const expiresAt = new Date(Date.now() + ADMIN_SESSION_TIMEOUT_MS);
+
+	await client.query(
+		"INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)",
+		[user.id, token, expiresAt, getRequestIp(req) || null, String(req.headers["user-agent"] || "").slice(0, 500) || null],
+	);
+
+	return {
+		token,
+		expiresIn: Math.floor(ADMIN_SESSION_TIMEOUT_MS / 1000),
+	};
 }
 
 function isSafeReadOnlyAdminQuery(sql) {
@@ -131,6 +556,40 @@ async function authenticateAdmin(req, res, next) {
 			userId: session.account_id,
 			expiresAt: expiresAt.getTime(),
 		};
+		const sensitiveViewToken = getCookieValue(req, ADMIN_SENSITIVE_VIEW_COOKIE_NAME);
+		const sensitiveViewPayload = verifySensitiveViewToken(sensitiveViewToken);
+		req.adminSensitiveView = Boolean(
+			sensitiveViewPayload &&
+			sensitiveViewPayload.userId === session.account_id &&
+			sensitiveViewPayload.username === session.username,
+		);
+
+		const startedAt = Date.now();
+		res.on("finish", () => {
+			if (req.path === "/session") return;
+
+			const details = {
+				method: req.method,
+				path: req.originalUrl,
+				statusCode: res.statusCode,
+				durationMs: Date.now() - startedAt,
+			};
+
+			pool.query(
+				`INSERT INTO auth_security_events (event_type, login_key, account_id, ip_address, user_agent, details)
+					 VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+				[
+					"admin_action",
+					session.username,
+					session.account_id,
+					getRequestIp(req) || null,
+					String(req.headers["user-agent"] || "").slice(0, 500) || null,
+					JSON.stringify(details),
+				],
+			).catch(() => {
+				// Best-effort telemetry only.
+			});
+		});
 		next();
 	} catch (error) {
 		console.error("Admin auth error:", error);
@@ -140,7 +599,48 @@ async function authenticateAdmin(req, res, next) {
 	}
 }
 
-async function getPublicTables(client) {
+router.post("/sensitive/unlock", authenticateAdmin, async (req, res) => {
+	try {
+		const password = String(req.body?.password || "").trim();
+		if (!password) {
+			return res.status(400).json({ error: "Password is required" });
+		}
+
+		const client = await pool.connect();
+		try {
+			const result = await client.query("SELECT password_hash FROM accounts WHERE id = $1 AND role = 'admin'", [
+				req.adminSession.userId,
+			]);
+			const admin = result.rows[0];
+			if (!admin || !(await bcrypt.compare(password, admin.password_hash))) {
+				return res.status(401).json({ error: "Invalid password" });
+			}
+
+			const token = signSensitiveViewToken(buildSensitiveViewTokenPayload(req.adminSession));
+			if (!token) {
+				return res.status(500).json({ error: "Unable to enable sensitive mode" });
+			}
+
+			setSensitiveViewCookie(res, token);
+			return res.json({
+				status: "success",
+				sensitiveViewEnabled: true,
+				expiresIn: Math.floor(ADMIN_SENSITIVE_VIEW_TIMEOUT_MS / 1000),
+			});
+		} finally {
+			client.release();
+		}
+	} catch (error) {
+		return res.status(500).json({ error: error.message || "Failed to unlock sensitive mode" });
+	}
+});
+
+router.post("/sensitive/lock", authenticateAdmin, async (req, res) => {
+	clearSensitiveViewCookie(res);
+	return res.json({ status: "success", sensitiveViewEnabled: false });
+});
+
+async function getPublicTables(client, includeSensitive = false) {
 	const result = await client.query(
 		`SELECT relname AS name
 		 FROM pg_class c
@@ -149,10 +649,16 @@ async function getPublicTables(client) {
 		 ORDER BY relname`,
 	);
 
-	return result.rows.map((row) => row.name);
+	return includeSensitive
+		? result.rows.map((row) => row.name)
+		: result.rows.map((row) => row.name).filter((table) => !isRestrictedAdminTable(table));
 }
 
-async function assertPublicTable(client, table) {
+async function assertPublicTable(client, table, includeSensitive = false) {
+	if (!includeSensitive && isRestrictedAdminTable(table)) {
+		return false;
+	}
+
 	const result = await client.query(
 		`SELECT EXISTS (
 			SELECT 1
@@ -219,12 +725,17 @@ async function getPrimaryKey(client, table) {
 	return result.rows[0]?.name || "id";
 }
 
-function sanitizeRowData(data, columns) {
-	const editableColumns = new Map(columns.filter((column) => !column.isAutoIncrement).map((column) => [column.name, column]));
+function sanitizeRowData(data, columns, includeSensitive = false) {
+	const editableColumns = new Map(
+		columns
+			.filter((column) => !column.isAutoIncrement)
+			.filter((column) => includeSensitive || !isSensitiveAdminColumn(column.name))
+			.map((column) => [column.name, column]),
+	);
 
 	const sanitized = {};
 	for (const [key, value] of Object.entries(data || {})) {
-		if (editableColumns.has(key)) {
+		if (editableColumns.has(key) && (includeSensitive || !isSensitiveAdminColumn(key))) {
 			sanitized[key] = value;
 		}
 	}
@@ -348,16 +859,47 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
 			.toLowerCase()
 			.slice(0, 64);
 		const password = typeof req.body?.password === "string" ? req.body.password : "";
+		const loginKey = normalizeAdminLoginKey(`admin:${username}`);
+		const ipAddress = getRequestIp(req) || null;
+		const userAgent = String(req.headers["user-agent"] || "").slice(0, 500) || null;
+		const includeQrCode = Boolean(req.body?.includeQrCode);
 
 		if (!username || !password || password.length > 128) {
 			return res.status(400).json({ error: "Username and password are required" });
 		}
 
 		client = await pool.connect();
+		await invalidateExpiredChallenges(client);
+
+		const lockState = await getAdminLockState(client, loginKey);
+		if (lockState.isLocked) {
+			await logAdminSecurityEvent(client, "admin_login_locked", {
+				loginKey,
+				ipAddress,
+				userAgent,
+				details: { retryAfterSeconds: lockState.retryAfterSeconds, failedAttempts: lockState.failedAttempts },
+			});
+			res.setHeader("Retry-After", String(lockState.retryAfterSeconds));
+			return res.status(429).json({
+				error: "Too many failed admin login attempts. Please try again later.",
+				retryAfterSeconds: lockState.retryAfterSeconds,
+			});
+		}
+
 		// Find an admin user record in the database
-		const result = await client.query("SELECT * FROM accounts WHERE LOWER(username) = $1 AND role = 'admin'", [username]);
+		const result = await client.query(
+			"SELECT id, username, role, password_hash, admin_mfa_enabled, admin_mfa_secret_encrypted FROM accounts WHERE LOWER(username) = $1 AND role = 'admin'",
+			[username],
+		);
 
 		if (result.rows.length === 0) {
+			const failed = await recordAdminFailedAttempt(client, loginKey);
+			await logAdminSecurityEvent(client, "admin_login_failed", {
+				loginKey,
+				ipAddress,
+				userAgent,
+				details: { reason: "unknown_admin", failedAttempts: failed.failedAttempts, lockSeconds: failed.lockSeconds },
+			});
 			return res.status(401).json({ error: "Invalid credentials" });
 		}
 
@@ -366,28 +908,175 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
 		// Compare password with database hash
 		const isValid = await bcrypt.compare(password, user.password_hash);
 		if (!isValid) {
+			const failed = await recordAdminFailedAttempt(client, loginKey);
+			await logAdminSecurityEvent(client, "admin_login_failed", {
+				loginKey,
+				accountId: user.id,
+				ipAddress,
+				userAgent,
+				details: { reason: "bad_password", failedAttempts: failed.failedAttempts, lockSeconds: failed.lockSeconds },
+			});
 			return res.status(401).json({ error: "Invalid credentials" });
 		}
 
-		const token = generateAdminToken();
-		const expiresAt = new Date(Date.now() + ADMIN_SESSION_TIMEOUT_MS);
+		await clearAdminFailedAttempts(client, loginKey);
 
-		// Record session in database for auditing
-		await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at) VALUES ($1, $2, $3)", [
-			user.id,
-			token,
-			expiresAt,
-		]);
+		if (user.admin_mfa_enabled && user.admin_mfa_secret_encrypted) {
+			const challenge = await createAdminMfaChallenge(client, {
+				accountId: user.id,
+				purpose: "verify",
+				ttlSeconds: ADMIN_MFA_VERIFY_TTL_SECONDS,
+			});
 
-		res.json({
-			status: "success",
-			message: "Admin login successful",
-			token,
-			expiresIn: Math.floor(ADMIN_SESSION_TIMEOUT_MS / 1000),
+			await logAdminSecurityEvent(client, "admin_mfa_challenge_created", {
+				loginKey,
+				accountId: user.id,
+				ipAddress,
+				userAgent,
+				details: { purpose: "verify", expiresIn: challenge.expiresIn },
+			});
+
+			return res.status(202).json({
+				status: "mfa_required",
+				requiresMfa: true,
+				challengeToken: challenge.token,
+				expiresIn: challenge.expiresIn,
+				message: "MFA verification required",
+			});
+		}
+
+		const enrollmentSecret = generateBase32Secret(32);
+		const challenge = await createAdminMfaChallenge(client, {
+			accountId: user.id,
+			purpose: "enroll",
+			ttlSeconds: ADMIN_MFA_ENROLL_TTL_SECONDS,
+			tempSecretEncrypted: encrypt(enrollmentSecret),
+		});
+
+		await logAdminSecurityEvent(client, "admin_mfa_enrollment_required", {
+			loginKey,
+			accountId: user.id,
+			ipAddress,
+			userAgent,
+			details: { expiresIn: challenge.expiresIn },
+		});
+
+		const otpauthUrl = buildOtpAuthUrl(enrollmentSecret, user.username);
+		const totp = {
+			secret: enrollmentSecret,
+			issuer: ADMIN_MFA_ISSUER,
+			accountName: user.username,
+			otpauthUrl,
+		};
+		if (includeQrCode) {
+			totp.qrDataUrl = await generateAdminQrDataUrl(otpauthUrl);
+		}
+
+		return res.status(202).json({
+			status: "mfa_enrollment_required",
+			requiresMfaEnrollment: true,
+			challengeToken: challenge.token,
+			expiresIn: challenge.expiresIn,
+			message: "MFA setup is required for admin accounts",
+			totp,
 		});
 	} catch (error) {
 		console.error("Admin login error:", error);
 		res.status(500).json({ error: "Admin login failed" });
+	} finally {
+		if (client) client.release();
+	}
+});
+
+router.post("/mfa/verify", adminLoginLimiter, async (req, res) => {
+	let client;
+	try {
+		const challengeToken = String(req.body?.challengeToken || "").trim();
+		const code = String(req.body?.code || "")
+			.trim()
+			.replace(/\s+/g, "");
+		const ipAddress = getRequestIp(req) || null;
+		const userAgent = String(req.headers["user-agent"] || "").slice(0, 500) || null;
+
+		if (!challengeToken || !code) {
+			return res.status(400).json({ error: "challengeToken and code are required" });
+		}
+
+		client = await pool.connect();
+		await invalidateExpiredChallenges(client);
+
+		const challenge = await getActiveMfaChallenge(client, challengeToken);
+		if (!challenge) {
+			return res.status(401).json({ error: "Invalid or expired MFA challenge" });
+		}
+
+		if (challenge.role !== "admin") {
+			return res.status(403).json({ error: "Admin role required" });
+		}
+
+		const expiresAt = new Date(challenge.expires_at);
+		if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) {
+			return res.status(401).json({ error: "Invalid or expired MFA challenge" });
+		}
+
+		if (Number(challenge.attempts) >= Number(challenge.max_attempts)) {
+			return res.status(429).json({ error: "Too many MFA attempts. Start login again." });
+		}
+
+		const secret =
+			challenge.purpose === "verify"
+				? challenge.admin_mfa_secret_encrypted
+					? decrypt(challenge.admin_mfa_secret_encrypted)
+					: ""
+				: challenge.temp_secret_encrypted
+					? decrypt(challenge.temp_secret_encrypted)
+					: "";
+
+		if (!secret) {
+			return res.status(401).json({ error: "MFA challenge is no longer valid" });
+		}
+
+		const validCode = verifyTotp(secret, code);
+		if (!validCode) {
+			await client.query("UPDATE admin_mfa_challenges SET attempts = attempts + 1 WHERE id = $1", [challenge.id]);
+			await logAdminSecurityEvent(client, "admin_mfa_failed", {
+				loginKey: `admin:${challenge.username}`,
+				accountId: challenge.account_id,
+				ipAddress,
+				userAgent,
+				details: { purpose: challenge.purpose },
+			});
+			return res.status(401).json({ error: "Invalid MFA code" });
+		}
+
+		if (challenge.purpose === "enroll") {
+			await client.query(
+				"UPDATE accounts SET admin_mfa_enabled = TRUE, admin_mfa_secret_encrypted = $1, admin_mfa_enabled_at = NOW() WHERE id = $2",
+				[encrypt(secret), challenge.account_id],
+			);
+		}
+
+		await client.query("UPDATE admin_mfa_challenges SET consumed_at = NOW() WHERE id = $1", [challenge.id]);
+		const session = await createAdminSession(client, { id: challenge.account_id }, req);
+
+		await logAdminSecurityEvent(client, "admin_login_success_mfa", {
+			loginKey: `admin:${challenge.username}`,
+			accountId: challenge.account_id,
+			ipAddress,
+			userAgent,
+			details: { purpose: challenge.purpose },
+		});
+
+		return res.json({
+			status: "success",
+			message: "Admin login successful",
+			token: session.token,
+			expiresIn: session.expiresIn,
+			mfaEnrollmentCompleted: challenge.purpose === "enroll",
+		});
+	} catch (error) {
+		console.error("Admin MFA verify error:", error);
+		res.status(500).json({ error: "Admin MFA verification failed" });
 	} finally {
 		if (client) client.release();
 	}
@@ -411,6 +1100,20 @@ router.post("/logout", authenticateAdmin, async (req, res) => {
 	}
 
 	res.json({ status: "success", message: "Admin logged out" });
+});
+
+/**
+ * Validate current admin session (used by frontend server-side route guards)
+ */
+router.get("/session", authenticateAdmin, async (req, res) => {
+	res.json({
+		status: "success",
+		admin: {
+			id: req.adminSession?.userId || null,
+			username: req.adminSession?.username || null,
+		},
+		expiresAt: req.adminSession?.expiresAt || null,
+	});
 });
 
 // Upload coffee capsule image (stored under public/images/Capsules/{Original|Vertuo}/{Category})
@@ -466,6 +1169,7 @@ router.post("/upload/coffee-image", authenticateAdmin, (req, res) => {
  */
 router.get("/tables", authenticateAdmin, async (req, res) => {
 	try {
+		const includeSensitive = Boolean(req.adminSensitiveView);
 		const client = await pool.connect();
 		try {
 			// Get table names and comments
@@ -483,8 +1187,15 @@ router.get("/tables", authenticateAdmin, async (req, res) => {
 				return res.json({ status: "success", tables: [] });
 			}
 
+			const visibleTables = includeSensitive
+				? metaResult.rows
+				: metaResult.rows.filter((table) => !isRestrictedAdminTable(table.name));
+			if (visibleTables.length === 0) {
+				return res.json({ status: "success", tables: [] });
+			}
+
 			// Build a single UNION ALL query for accurate row counts
-			const countQuery = metaResult.rows
+			const countQuery = visibleTables
 				.map((t) => `SELECT '${t.name}' as name, COUNT(*)::bigint as row_count FROM "${t.name}"`)
 				.join(" UNION ALL ");
 
@@ -496,7 +1207,7 @@ router.get("/tables", authenticateAdmin, async (req, res) => {
 
 			res.json({
 				status: "success",
-				tables: metaResult.rows.map((t) => ({
+				tables: visibleTables.map((t) => ({
 					name: t.name,
 					rowCount: countMap[t.name] ?? 0,
 					comment: t.comment || "",
@@ -520,10 +1231,11 @@ router.get("/table-info/:table", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}
@@ -570,12 +1282,15 @@ router.get("/table-info/:table", authenticateAdmin, async (req, res) => {
 			);
 
 			const primaryKey = pkResult.rows.length > 0 ? pkResult.rows[0].name : "id";
+			const visibleColumns = includeSensitive
+				? columnsResult.rows
+				: columnsResult.rows.filter((column) => !isSensitiveAdminColumn(column.name));
 
 			res.json({
 				status: "success",
 				table,
 				primaryKey,
-				columns: columnsResult.rows.map((c) => ({
+				columns: visibleColumns.map((c) => ({
 					name: c.name,
 					type: c.type,
 					nullable: c.nullable === "YES",
@@ -604,6 +1319,7 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 		const page = parseInt(req.query.page) || 1;
 		const limit = Math.min(parseInt(req.query.limit) || 50, 200);
 		const offset = (page - 1) * limit;
@@ -616,18 +1332,22 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}
 
 			const tableColumns = await getTableColumns(client, table);
-			const columnNames = new Set(tableColumns.map((column) => column.name));
+			const visibleColumns = includeSensitive ? tableColumns : getVisibleAdminColumns(tableColumns);
+			if (visibleColumns.length === 0) {
+				return res.status(404).json({ error: "Table not found" });
+			}
+			const columnNames = new Set(visibleColumns.map((column) => column.name));
 			const sortBy = columnNames.has(requestedSortBy) ? requestedSortBy : await getPrimaryKey(client, table);
 
 			// Get total count
 			let countQuery = `SELECT COUNT(*) as total FROM "${table}"`;
-			let dataQuery = `SELECT * FROM "${table}"`;
+			let dataQuery = `SELECT ${visibleColumns.map((column) => `"${column.name}"`).join(", ")} FROM "${table}"`;
 			const params = [];
 			let paramIdx = 1;
 
@@ -642,12 +1362,17 @@ router.get("/tables/:table", authenticateAdmin, async (req, res) => {
 				);
 
 				if (columnsResult.rows.length > 0) {
-					const searchConditions = columnsResult.rows
+					const searchableColumns = includeSensitive
+						? columnsResult.rows
+						: columnsResult.rows.filter((column) => columnNames.has(column.column_name));
+					const searchConditions = searchableColumns
 						.map((c) => `"${c.column_name}"::text ILIKE $${paramIdx++}`)
 						.join(" OR ");
-					countQuery += ` WHERE (${searchConditions})`;
-					dataQuery += ` WHERE (${searchConditions})`;
-					columnsResult.rows.forEach(() => params.push(`%${search}%`));
+					if (searchConditions) {
+						countQuery += ` WHERE (${searchConditions})`;
+						dataQuery += ` WHERE (${searchConditions})`;
+						searchableColumns.forEach(() => params.push(`%${search}%`));
+					}
 				}
 			}
 
@@ -689,17 +1414,18 @@ router.post("/tables/:table", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 		const data = req.body;
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}
 
 			const tableColumns = await getTableColumns(client, table);
-			const sanitized = sanitizeRowData(data, tableColumns);
+			const sanitized = sanitizeRowData(data, tableColumns, includeSensitive);
 
 			if (!sanitized || Object.keys(sanitized).length === 0) {
 				return res.status(400).json({ error: "No editable data provided" });
@@ -742,17 +1468,18 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 		const data = req.body;
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}
 
 			const tableColumns = await getTableColumns(client, table);
-			const sanitized = sanitizeRowData(data, tableColumns);
+			const sanitized = sanitizeRowData(data, tableColumns, includeSensitive);
 
 			if (!sanitized || Object.keys(sanitized).length === 0) {
 				return res.status(400).json({ error: "No editable data provided" });
@@ -810,10 +1537,11 @@ router.delete("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 		if (!isSafeSqlIdentifier(table)) {
 			return res.status(400).json({ error: "Invalid table name" });
 		}
+		const includeSensitive = Boolean(req.adminSensitiveView);
 
 		const client = await pool.connect();
 		try {
-			const tableExists = await assertPublicTable(client, table);
+			const tableExists = await assertPublicTable(client, table, includeSensitive);
 			if (!tableExists) {
 				return res.status(404).json({ error: "Table not found" });
 			}

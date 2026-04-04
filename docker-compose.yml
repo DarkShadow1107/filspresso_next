@@ -24,7 +24,25 @@ services:
             retries: 5
 
     # -------------------------------------------------------------------------
-    # 2. Backend  (Express.js REST API)
+    # 2. Redis  (shared ops event storage)
+    # -------------------------------------------------------------------------
+    redis:
+        image: redis:7.4-alpine
+        container_name: filspresso_redis
+        restart: unless-stopped
+        command: ["redis-server", "--appendonly", "yes"]
+        ports:
+            - "6379:6379"
+        volumes:
+            - redis_data:/data
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+    # -------------------------------------------------------------------------
+    # 3. Backend  (Express.js REST API)
     # -------------------------------------------------------------------------
     backend:
         build:
@@ -53,9 +71,16 @@ services:
             ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
             SERVICE_EVENTS_API_KEY: ${SERVICE_EVENTS_API_KEY:?SERVICE_EVENTS_API_KEY is required}
             CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+            FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+            GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+            GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+            GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+            APPLE_OAUTH_CLIENT_ID: ${APPLE_OAUTH_CLIENT_ID:-}
+            APPLE_OAUTH_CLIENT_SECRET: ${APPLE_OAUTH_CLIENT_SECRET:-}
+            APPLE_OAUTH_REDIRECT_URI: ${APPLE_OAUTH_REDIRECT_URI:-}
             PYTHON_AI_HOST: http://ai:5000
             INVOICE_SERVICE_URL: http://invoice-java:8082
-            GO_OPS_URL: http://go_ops:8083
+            GO_OPS_URL: http://go-ops:8083
             GO_OPS_API_KEY: ${GO_OPS_API_KEY:-filspresso-ops-key}
             KOTLIN_SUBSCRIPTIONS_URL: http://kotlin-subscriptions:8084
             SERVICE_METRICS_STRICT_DB_ONLY: ${SERVICE_METRICS_STRICT_DB_ONLY:-false}
@@ -73,7 +98,7 @@ services:
             start_period: 20s
 
     # -------------------------------------------------------------------------
-    # 3. Java Invoice Service  (PDF generation)
+    # 4. Java Invoice Service  (PDF generation)
     # -------------------------------------------------------------------------
     invoice_java:
         build:
@@ -98,7 +123,7 @@ services:
             retries: 5
 
     # -------------------------------------------------------------------------
-    # 4. Go Operations Service  (events/webhooks/telemetry)
+    # 5. Go Operations Service  (events/webhooks/telemetry)
     # -------------------------------------------------------------------------
     go_ops:
         build:
@@ -106,11 +131,20 @@ services:
             dockerfile: Dockerfile
         container_name: filspresso_go_ops
         restart: unless-stopped
+        depends_on:
+            redis:
+                condition: service_healthy
         environment:
             PORT: 8083
             OPS_API_KEY: ${GO_OPS_API_KEY:-filspresso-ops-key}
+            REDIS_URL: redis:6379
+            OPS_EVENTS_KEY: ops:events
         ports:
             - "8083:8083"
+        networks:
+            default:
+                aliases:
+                    - go-ops
         healthcheck:
             test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
             interval: 20s
@@ -118,7 +152,7 @@ services:
             retries: 5
 
     # -------------------------------------------------------------------------
-    # 5. Kotlin Subscription Service  (pricing/reconciliation)
+    # 6. Kotlin Subscription Service  (pricing/reconciliation)
     # -------------------------------------------------------------------------
     kotlin_subscriptions:
         build:
@@ -139,19 +173,6 @@ services:
             retries: 5
 
     # -------------------------------------------------------------------------
-    # 6. C++/Wasm Build Container  (on-demand artifact generation)
-    # -------------------------------------------------------------------------
-    wasm_builder:
-        build:
-            context: ./cpp-wasm
-            dockerfile: Dockerfile
-        container_name: filspresso_wasm_builder
-        profiles: ["build"]
-        volumes:
-            - ./public/wasm:/out
-        restart: "no"
-
-    # -------------------------------------------------------------------------
     # 7. AI  (Tanka model — MiniLM / CLIP / MolScribe via Flask)
     # -------------------------------------------------------------------------
     ai:
@@ -160,6 +181,7 @@ services:
             dockerfile: Dockerfile.ai
         container_name: filspresso_ai
         restart: unless-stopped
+        gpus: all
         depends_on:
             postgres:
                 condition: service_healthy
@@ -170,6 +192,14 @@ services:
             DB_USER: ${DB_USER:-filspresso_user}
             DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
             PYTHON_AI_PORT: 5000
+            QWEN_COFFEE_TIMEOUT_SECONDS: ${QWEN_COFFEE_TIMEOUT_SECONDS:-300}
+            QWEN_CHEMISTRY_TIMEOUT_SECONDS: ${QWEN_CHEMISTRY_TIMEOUT_SECONDS:-300}
+            MOLSCRIBE_CHEMISTRY_TIMEOUT_SECONDS: ${MOLSCRIBE_CHEMISTRY_TIMEOUT_SECONDS:-300}
+            QWEN_COFFEE_MAX_NEW_TOKENS: ${QWEN_COFFEE_MAX_NEW_TOKENS:-320}
+            QWEN_CHEMISTRY_MAX_NEW_TOKENS: ${QWEN_CHEMISTRY_MAX_NEW_TOKENS:-384}
+            QWEN_WARMUP_ON_STARTUP: ${QWEN_WARMUP_ON_STARTUP:-true}
+            NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+            NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
         ports:
             - "5000:5000"
         volumes:
@@ -189,6 +219,8 @@ services:
 
 volumes:
     postgres_data:
+        driver: local
+    redis_data:
         driver: local
     hf_cache:
         driver: local

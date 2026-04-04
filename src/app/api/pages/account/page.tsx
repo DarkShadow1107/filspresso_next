@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import AccountPageContent from "@/components/account/AccountPageContent";
 import AccountManagement from "@/components/account/AccountManagement";
+import { readAccountSession } from "@/lib/accountSession";
 
 export default function AccountPage() {
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -10,8 +11,17 @@ export default function AccountPage() {
 
 	useEffect(() => {
 		if (typeof window !== "undefined") {
-			const session = sessionStorage.getItem("account_session");
-			setIsLoggedIn(!!session);
+			const syncLoginState = () => {
+				setIsLoggedIn(Boolean(readAccountSession()?.token));
+			};
+			syncLoginState();
+			window.addEventListener("session-update", syncLoginState);
+			window.addEventListener("storage", syncLoginState);
+			setIsLoading(false);
+			return () => {
+				window.removeEventListener("session-update", syncLoginState);
+				window.removeEventListener("storage", syncLoginState);
+			};
 		}
 		setIsLoading(false);
 	}, []);

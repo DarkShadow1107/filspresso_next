@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState, type ChangeEvent } from "react";
 
 type Props = {
 	username?: string;
@@ -227,6 +227,7 @@ ${textEl}
 
 export default function AccountIconGenerator({ username = "user", onChange }: Props) {
 	const [svgStr, setSvgStr] = useState("");
+	const [uploadedImageDataUrl, setUploadedImageDataUrl] = useState<string | null>(null);
 	const [seed, setSeed] = useState(username + Math.random());
 
 	const generateNewIcon = useCallback(() => {
@@ -234,28 +235,67 @@ export default function AccountIconGenerator({ username = "user", onChange }: Pr
 		setSeed(newSeed);
 		const newSvg = generateComplexAvatar(newSeed);
 		setSvgStr(newSvg);
+		setUploadedImageDataUrl(null);
 		const svgDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(newSvg)}`;
 		onChange?.(svgDataUrl);
 	}, [username, onChange]);
 
 	const currentSvg = svgStr || generateComplexAvatar(seed);
+	const hasUploadedImage = Boolean(uploadedImageDataUrl);
+	const previewImageSrc = uploadedImageDataUrl;
+	const previewSvgMarkup = useMemo(() => (hasUploadedImage ? "" : currentSvg), [currentSvg, hasUploadedImage]);
 
 	const handleUpload = useCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
+		(e: ChangeEvent<HTMLInputElement>) => {
 			const f = e.target.files?.[0];
 			if (!f) return;
+
+			const fileName = (f.name || "").toLowerCase();
+			const isSvg = f.type === "image/svg+xml" || fileName.endsWith(".svg");
+			if (isSvg) {
+				const reader = new FileReader();
+				reader.onload = () => {
+					const text = String(reader.result ?? "");
+					setUploadedImageDataUrl(null);
+					setSvgStr(text);
+					onChange?.(`data:image/svg+xml;utf8,${encodeURIComponent(text)}`);
+				};
+				reader.readAsText(f);
+				return;
+			}
+
 			const reader = new FileReader();
 			reader.onload = () => {
-				const text = String(reader.result ?? "");
-				setSvgStr(text);
-				onChange?.(`data:image/svg+xml;utf8,${encodeURIComponent(text)}`);
+				const dataUrl = String(reader.result ?? "");
+				setSvgStr("");
+				setUploadedImageDataUrl(dataUrl || null);
+				onChange?.(dataUrl);
 			};
-			reader.readAsText(f);
+			reader.readAsDataURL(f);
 		},
 		[onChange],
 	);
 
-	const handleDownload = useCallback(() => {
+	const handleDownload = useCallback(async () => {
+		if (uploadedImageDataUrl) {
+			const response = await fetch(uploadedImageDataUrl);
+			const blob = await response.blob();
+			const ext = blob.type.includes("png")
+				? "png"
+				: blob.type.includes("jpeg")
+					? "jpg"
+					: blob.type.includes("icon")
+						? "ico"
+						: "img";
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `${username || "avatar"}.${ext}`;
+			a.click();
+			URL.revokeObjectURL(url);
+			return;
+		}
+
 		const blob = new Blob([svgStr || currentSvg], { type: "image/svg+xml" });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement("a");
@@ -263,14 +303,13 @@ export default function AccountIconGenerator({ username = "user", onChange }: Pr
 		a.download = `${username || "avatar"}.svg`;
 		a.click();
 		URL.revokeObjectURL(url);
-	}, [svgStr, username, currentSvg]);
+	}, [uploadedImageDataUrl, svgStr, username, currentSvg]);
 
 	return (
 		<div className="account-icon-generator">
 			<p>Profile Icon</p>
 			<div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "center", flexWrap: "wrap" }}>
 				<div
-					dangerouslySetInnerHTML={{ __html: currentSvg }}
 					style={{
 						width: 64,
 						height: 64,
@@ -279,17 +318,42 @@ export default function AccountIconGenerator({ username = "user", onChange }: Pr
 						boxShadow: "0 4px 16px rgba(0,0,0,0.4), 0 0 0 2px rgba(255, 185, 115, 0.35)",
 						border: "2px solid rgba(255, 185, 115, 0.2)",
 						background: "rgba(20, 20, 25, 0.6)",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
 					}}
-				/>
+				>
+					{previewImageSrc ? (
+						<img
+							src={previewImageSrc}
+							alt="Uploaded icon preview"
+							style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+						/>
+					) : (
+						<div dangerouslySetInnerHTML={{ __html: previewSvgMarkup }} style={{ width: "100%", height: "100%" }} />
+					)}
+				</div>
 				<div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
 					<button type="button" className="btn" onClick={generateNewIcon}>
 						Generate
 					</button>
 					<label className="btn" style={{ margin: 0 }}>
 						Upload
-						<input type="file" accept="image/svg+xml" onChange={handleUpload} style={{ display: "none" }} />
+						<input
+							type="file"
+							accept=".svg,.png,.jpg,.jpeg,.ico,image/svg+xml,image/png,image/jpeg,image/x-icon,image/vnd.microsoft.icon"
+							onChange={handleUpload}
+							style={{ display: "none" }}
+						/>
 					</label>
-					<button type="button" className="btn" onClick={handleDownload} disabled={!svgStr && !currentSvg}>
+					<button
+						type="button"
+						className="btn"
+						onClick={() => {
+							void handleDownload();
+						}}
+						disabled={!uploadedImageDataUrl && !svgStr && !currentSvg}
+					>
 						Download
 					</button>
 				</div>

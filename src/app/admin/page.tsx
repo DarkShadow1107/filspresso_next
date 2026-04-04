@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import "../../styles/admin.css";
 import {
 	ArrowBigLeftDashIcon,
@@ -23,7 +24,7 @@ import {
 	XIcon,
 } from "@/icons";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const ADMIN_API_BASE = "/api/admin";
 const ADMIN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 
 type Column = {
@@ -52,9 +53,23 @@ type Pagination = {
 	totalPages: number;
 };
 
+const SENSITIVE_TABLE_NAMES = new Set([
+	"auth_login_attempts",
+	"auth_security_events",
+	"admin_mfa_challenges",
+	"user_mfa_challenges",
+	"user_sessions",
+	"user_cards",
+]);
+
 export default function AdminPage() {
+	const router = useRouter();
 	const [isAuthenticated, setIsAuthenticated] = useState(false);
 	const [adminToken, setAdminToken] = useState<string | null>(null);
+	const [sensitiveModeEnabled, setSensitiveModeEnabled] = useState(false);
+	const [sensitivePassword, setSensitivePassword] = useState("");
+	const [sensitiveUnlockError, setSensitiveUnlockError] = useState("");
+	const [isSensitiveUnlocking, setIsSensitiveUnlocking] = useState(false);
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
@@ -87,12 +102,24 @@ export default function AdminPage() {
 
 	// Check for existing session
 	useEffect(() => {
-		const token = sessionStorage.getItem("admin_token");
-		if (token) {
-			setAdminToken(token);
-			setIsAuthenticated(true);
-		}
-	}, []);
+		const bootstrapSession = async () => {
+			try {
+				const res = await fetch(`${ADMIN_API_BASE}/session`, { method: "GET" });
+
+				if (!res.ok) {
+					router.replace("/admin-login");
+					return;
+				}
+
+				setAdminToken("cookie-session");
+				setIsAuthenticated(true);
+			} catch {
+				router.replace("/admin-login");
+			}
+		};
+
+		bootstrapSession();
+	}, [router]);
 
 	const clearInactivityTimer = useCallback(() => {
 		if (inactivityTimerRef.current) {
@@ -104,19 +131,19 @@ export default function AdminPage() {
 	const handleLogout = useCallback(
 		async (reason = "", notifyServer = true) => {
 			clearInactivityTimer();
-			if (notifyServer && adminToken) {
+			if (notifyServer) {
 				try {
-					await fetch(`${API_BASE}/api/admin/logout`, {
-						method: "POST",
-						headers: { Authorization: `Bearer ${adminToken}` },
-					});
+					await fetch(`${ADMIN_API_BASE}/logout`, { method: "POST" });
 				} catch {
 					// Ignore logout errors
 				}
 			}
-			sessionStorage.removeItem("admin_token");
 			setAdminToken(null);
 			setIsAuthenticated(false);
+			setSensitiveModeEnabled(false);
+			setSensitivePassword("");
+			setSensitiveUnlockError("");
+			setIsSensitiveUnlocking(false);
 			setSelectedTable(null);
 			setTables([]);
 			setColumns([]);
@@ -130,8 +157,9 @@ export default function AdminPage() {
 			setActionError("");
 			setActionSuccess("");
 			setLoginError(reason);
+			router.replace("/admin-login");
 		},
-		[adminToken, clearInactivityTimer],
+		[clearInactivityTimer, router],
 	);
 
 	const authenticatedAdminFetch = useCallback(
@@ -140,13 +168,7 @@ export default function AdminPage() {
 				return null;
 			}
 
-			const headers = new Headers(init.headers || {});
-			headers.set("Authorization", `Bearer ${adminToken}`);
-
-			const response = await fetch(input, {
-				...init,
-				headers,
-			});
+			const response = await fetch(input, init);
 
 			if (response.status === 401) {
 				await handleLogout("Admin session expired. Please log in again.", false);
@@ -207,7 +229,7 @@ export default function AdminPage() {
 		setIsLoading(true);
 
 		try {
-			const res = await fetch(`${API_BASE}/api/admin/login`, {
+			const res = await fetch(`${ADMIN_API_BASE}/login`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ username, password }),
@@ -215,13 +237,17 @@ export default function AdminPage() {
 
 			const data = await res.json();
 
+			if (res.status === 202 && (data?.requiresMfa || data?.requiresMfaEnrollment)) {
+				router.replace("/admin-login");
+				return;
+			}
+
 			if (!res.ok) {
 				setLoginError(data.error || "Login failed");
 				return;
 			}
 
-			setAdminToken(data.token);
-			sessionStorage.setItem("admin_token", data.token);
+			setAdminToken("cookie-session");
 			setIsAuthenticated(true);
 			setLoginError("");
 			setPassword("");
@@ -234,7 +260,7 @@ export default function AdminPage() {
 
 	const fetchTables = async () => {
 		try {
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables`);
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables`);
 			if (!res) return;
 
 			const data = await res.json();
@@ -246,9 +272,62 @@ export default function AdminPage() {
 		}
 	};
 
+	const handleUnlockSensitiveMode = async (e: React.FormEvent) => {
+		e.preventDefault();
+		setSensitiveUnlockError("");
+		setIsSensitiveUnlocking(true);
+
+		try {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/sensitive/unlock`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ password: sensitivePassword }),
+			});
+			if (!res) return;
+
+			const data = await res.json();
+			if (!res.ok) {
+				setSensitiveUnlockError(data.error || "Failed to unlock sensitive mode");
+				return;
+			}
+
+			setSensitiveModeEnabled(true);
+			setSensitivePassword("");
+			fetchTables();
+			if (selectedTable) {
+				fetchTableInfo(selectedTable);
+				fetchTableData(selectedTable);
+			}
+		} catch {
+			setSensitiveUnlockError("Failed to connect to server");
+		} finally {
+			setIsSensitiveUnlocking(false);
+		}
+	};
+
+	const handleLockSensitiveMode = async () => {
+		try {
+			await authenticatedAdminFetch(`${ADMIN_API_BASE}/sensitive/lock`, { method: "POST" });
+		} catch {
+			// Ignore lock errors
+		} finally {
+			setSensitiveModeEnabled(false);
+			setSensitivePassword("");
+			setSensitiveUnlockError("");
+			setSelectedTable(null);
+			setColumns([]);
+			setTableData([]);
+			fetchTables();
+			if (selectedTable) {
+				fetchTableInfo(selectedTable);
+				fetchTableData(selectedTable);
+			}
+		}
+	};
+
 	const fetchTableInfo = async (table: string) => {
 		try {
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/table-info/${table}`);
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/table-info/${table}`);
 			if (!res) return;
 			const data = await res.json();
 			if (data.columns) {
@@ -272,7 +351,7 @@ export default function AdminPage() {
 					...(searchQuery && { search: searchQuery }),
 				});
 
-				const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${table}?${params}`);
+				const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables/${table}?${params}`);
 				if (!res) return;
 				const data = await res.json();
 				if (data.data) {
@@ -378,7 +457,7 @@ export default function AdminPage() {
 
 			const rowId = editingRow[primaryKey];
 			const dataToSend = prepareDataForSave(editedData);
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${selectedTable}/${rowId}`, {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables/${selectedTable}/${rowId}`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -417,7 +496,7 @@ export default function AdminPage() {
 		setIsLoading(true);
 
 		try {
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${selectedTable}/${rowId}`, {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables/${selectedTable}/${rowId}`, {
 				method: "DELETE",
 			});
 			if (!res) return;
@@ -460,7 +539,7 @@ export default function AdminPage() {
 			if (!readyForSave) return;
 
 			const dataToSend = prepareDataForSave(newRowData);
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/tables/${selectedTable}`, {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables/${selectedTable}`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -576,7 +655,7 @@ export default function AdminPage() {
 		setActionSuccess("");
 
 		try {
-			const res = await authenticatedAdminFetch(`${API_BASE}/api/admin/upload/coffee-image`, {
+			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/upload/coffee-image`, {
 				method: "POST",
 				body: formData,
 			});
@@ -632,6 +711,9 @@ export default function AdminPage() {
 		}
 		return String(value);
 	};
+
+	const visibleTables = tables.filter((table) => !SENSITIVE_TABLE_NAMES.has(table.name));
+	const sensitiveTables = tables.filter((table) => SENSITIVE_TABLE_NAMES.has(table.name));
 
 	// Dropdown options for specific fields
 	const PRODUCT_TYPE_OPTIONS = ["original", "vertuo"];
@@ -1091,6 +1173,7 @@ export default function AdminPage() {
 					<span className="admin-subtitle">Database Management</span>
 				</div>
 				<div className="admin-header-right">
+					{sensitiveModeEnabled ? <span className="admin-status-pill">Sensitive mode</span> : null}
 					<span className="admin-status-pill">Live workspace</span>
 					<span className="admin-user">
 						<span className="admin-icon">
@@ -1107,7 +1190,47 @@ export default function AdminPage() {
 			<div className="admin-main">
 				{/* Sidebar - Table List */}
 				<aside className="admin-sidebar">
-					<div className="admin-sidebar-header">
+					<div className="admin-sidebar-header" style={{ marginBottom: "1rem" }}>
+						<h2>
+							<span className="admin-icon">
+								<LockIcon size={16} />
+							</span>
+							Sensitive Mode
+						</h2>
+						<p>Unlock to view masked credentials, MFA secrets, and other privileged fields.</p>
+						{!sensitiveModeEnabled ? (
+							<form
+								onSubmit={handleUnlockSensitiveMode}
+								className="admin-login-form"
+								style={{ marginTop: "0.75rem" }}
+							>
+								<div className="form-group">
+									<label htmlFor="sensitive-password">Re-enter admin password</label>
+									<input
+										id="sensitive-password"
+										type="password"
+										value={sensitivePassword}
+										onChange={(e) => setSensitivePassword(e.target.value)}
+										placeholder="Password"
+										autoComplete="current-password"
+										required
+									/>
+								</div>
+								{sensitiveUnlockError && <div className="error-message">{sensitiveUnlockError}</div>}
+								<button type="submit" className="login-button" disabled={isSensitiveUnlocking}>
+									{isSensitiveUnlocking ? "Unlocking..." : "Unlock Sensitive Mode"}
+								</button>
+							</form>
+						) : (
+							<div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "0.75rem" }}>
+								<div className="action-success">Sensitive mode is enabled for this session.</div>
+								<button type="button" className="logout-button" onClick={handleLockSensitiveMode}>
+									Lock Sensitive Mode
+								</button>
+							</div>
+						)}
+					</div>
+					<div className="admin-sidebar-header" style={{ marginTop: "1.25rem" }}>
 						<h2>
 							<span className="admin-icon">
 								<ChartBarIcon size={16} />
@@ -1115,9 +1238,10 @@ export default function AdminPage() {
 							Tables
 						</h2>
 						<p>Browse and manage the live tables used by the storefront and account flows.</p>
+						{!sensitiveModeEnabled && <p>Enable sensitive mode to inspect privileged tables and hidden fields.</p>}
 					</div>
 					<ul className="table-list">
-						{tables.map((table) => (
+						{visibleTables.map((table) => (
 							<li
 								key={table.name}
 								className={`table-item ${selectedTable === table.name ? "active" : ""}`}
@@ -1132,6 +1256,35 @@ export default function AdminPage() {
 							</li>
 						))}
 					</ul>
+					{sensitiveModeEnabled && sensitiveTables.length > 0 ? (
+						<>
+							<div className="admin-sidebar-header" style={{ marginTop: "1.5rem" }}>
+								<h2>
+									<span className="admin-icon">
+										<LockIcon size={16} />
+									</span>
+									Sensitive Data
+								</h2>
+								<p>Secret-bearing tables and card storage. Keep this locked unless you need it.</p>
+							</div>
+							<ul className="table-list">
+								{sensitiveTables.map((table) => (
+									<li
+										key={table.name}
+										className={`table-item ${selectedTable === table.name ? "active" : ""}`}
+										onClick={() => {
+											setSelectedTable(table.name);
+											setPagination((p) => ({ ...p, page: 1 }));
+											setSearchQuery("");
+										}}
+									>
+										<span className="table-name">{table.name}</span>
+										<span className="table-count">{table.rowCount}</span>
+									</li>
+								))}
+							</ul>
+						</>
+					) : null}
 				</aside>
 
 				{/* Main Content */}

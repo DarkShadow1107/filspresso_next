@@ -14,6 +14,7 @@ const fs = require("fs");
 const pool = require("../db/connection");
 const { authenticate } = require("../middleware/auth");
 const { v4: uuidv4 } = require("uuid");
+const { sendTransactionalEmail, buildOrderEmailHtml } = require("../utils/resendMailer");
 
 let sharp = null;
 try {
@@ -24,6 +25,13 @@ try {
 
 const router = express.Router();
 const INVOICE_SERVICE_URL = process.env.INVOICE_SERVICE_URL || "http://localhost:8082";
+const FRONTEND_ORIGIN =
+	process.env.FRONTEND_ORIGIN ||
+	process.env.NEXT_PUBLIC_FRONTEND_URL ||
+	String(process.env.CORS_ORIGIN || "http://localhost:3000")
+		.split(",")[0]
+		.trim() ||
+	"http://localhost:3000";
 
 function invoiceServiceUrlCandidates() {
 	const seen = new Set();
@@ -149,6 +157,171 @@ function normalizeInvoiceImagePath(rawImagePath) {
 	if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
 	if (trimmed.startsWith("/")) return trimmed;
 	return `/${trimmed}`;
+}
+
+function toAbsoluteImageUrl(imagePath) {
+	if (!imagePath || typeof imagePath !== "string") return "";
+	if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) return imagePath;
+	if (imagePath.startsWith("/")) {
+		return `${FRONTEND_ORIGIN.replace(/\/$/, "")}${imagePath}`;
+	}
+	return `${FRONTEND_ORIGIN.replace(/\/$/, "")}/${imagePath.replace(/^\/+/, "")}`;
+}
+
+function normalizeInvoiceItem(item) {
+	const productId = item.productId || item.product_id || "";
+	const productName = item.productName || item.product_name || "Product";
+	const productImage = item.productImage || item.product_image || null;
+	const productType = item.productType || item.product_type || "capsule";
+	const quantity = Number(item.quantity || 1);
+	const unitPrice = Number(item.unitPrice || item.unit_price || 0);
+	const totalPrice = Number(item.totalPrice || item.total_price || unitPrice * quantity);
+
+	return {
+		productId,
+		productName,
+		productImage,
+		productType,
+		quantity,
+		unitPrice,
+		totalPrice,
+	};
+}
+
+async function buildInvoiceItemsPayload(items) {
+	return Promise.all(
+		(Array.isArray(items) ? items : []).map(async (item) => {
+			const normalized = normalizeInvoiceItem(item);
+			const directImage = normalizeInvoiceImagePath(normalized.productImage);
+			const invoiceImagePath = await resolveInvoiceProductImagePath(directImage);
+
+			return {
+				name: sanitizeInvoiceProductName(normalized.productName),
+				sku: normalized.productId,
+				productImage: invoiceImagePath,
+				capsuleSystem: deriveCapsuleSystem({
+					productType: normalized.productType,
+					productId: normalized.productId,
+					productImage: normalized.productImage,
+					productName: normalized.productName,
+				}),
+				quantity: normalized.quantity,
+				unitPrice: normalized.unitPrice,
+				totalPrice: normalized.totalPrice,
+			};
+		}),
+	);
+}
+
+async function renderInvoicePdfBuffer(payload) {
+	const attempts = invoiceServiceUrlCandidates();
+
+	for (const baseUrl of attempts) {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 10000);
+		try {
+			const response = await fetch(`${baseUrl}/api/invoices/render`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Accept: "application/pdf",
+				},
+				body: JSON.stringify(payload),
+				signal: controller.signal,
+			});
+
+			if (response.ok) {
+				return Buffer.from(await response.arrayBuffer());
+			}
+
+			const errorBody = await response.text().catch(() => "");
+			console.error(`Invoice service non-OK via ${baseUrl}:`, response.status, errorBody);
+		} catch (serviceError) {
+			console.error(`Invoice service unreachable via ${baseUrl}:`, serviceError?.message || serviceError);
+		} finally {
+			clearTimeout(timeout);
+		}
+	}
+
+	return null;
+}
+
+async function sendOrderEmail({ to, subject, intro, extraNote, order, items, customerName, customerEmail, attachInvoicePdf }) {
+	if (!to) return;
+
+	const normalizedItems = (Array.isArray(items) ? items : []).map((item) => normalizeInvoiceItem(item));
+	const currencyCode = String(order.currency_code || "RON").toUpperCase();
+	const htmlItems = normalizedItems.map((item) => ({
+		...item,
+		productImage: toAbsoluteImageUrl(item.productImage),
+	}));
+
+	const html = buildOrderEmailHtml({
+		title: "Filspresso Order Update",
+		intro,
+		orderNumber: order.order_number,
+		status: order.status,
+		orderDate: order.created_at,
+		shippingAddress: formatAddress(order.shipping_address),
+		currencyCode,
+		subtotal: Number(order.charged_subtotal || order.subtotal || 0),
+		discountAmount: Number(order.discount_amount || 0),
+		shippingCost: Number(order.charged_shipping_cost || order.shipping_cost || 0),
+		tax: Number(order.charged_tax || order.tax || 0),
+		total: Number(order.charged_total || order.total || 0),
+		items: htmlItems,
+		extraNote,
+	});
+
+	let attachments = [];
+	if (attachInvoicePdf) {
+		const invoicePayload = {
+			invoiceNumber: `INV-${order.order_number}`,
+			orderNumber: order.order_number,
+			orderDate: order.created_at,
+			generatedAt: new Date().toISOString(),
+			status: order.status,
+			destinationCountry: order.destination_country || "Romania",
+			customerName: customerName || "Filspresso Customer",
+			customerEmail,
+			billingAddress: formatAddress(order.billing_address),
+			shippingAddress: formatAddress(order.shipping_address),
+			paymentSummary: order.payment_method || "Card",
+			baseCurrencyCode: "RON",
+			currencyCode,
+			exchangeRate: Number(order.exchange_rate || 1),
+			conversionFeePercent: Number(order.conversion_fee_percent || 0),
+			subtotal: Number(order.subtotal || 0),
+			discountAmount: Number(order.discount_amount || 0),
+			shippingCost: Number(order.shipping_cost || 0),
+			tax: Number(order.tax || 0),
+			total: Number(order.total || 0),
+			chargedSubtotal: Number(order.charged_subtotal || order.subtotal || 0),
+			chargedShippingCost: Number(order.charged_shipping_cost || order.shipping_cost || 0),
+			chargedTax: Number(order.charged_tax || order.tax || 0),
+			chargedTotal: Number(order.charged_total || order.total || 0),
+			includeProductView: true,
+			items: await buildInvoiceItemsPayload(normalizedItems),
+		};
+
+		const pdfBuffer = await renderInvoicePdfBuffer(invoicePayload);
+		if (pdfBuffer) {
+			attachments = [
+				{
+					filename: `filspresso-invoice-${order.order_number}.pdf`,
+					content: pdfBuffer.toString("base64"),
+				},
+			];
+		}
+	}
+
+	await sendTransactionalEmail({
+		to,
+		subject,
+		html,
+		text: `${intro}\nOrder ${order.order_number} is currently ${order.status}.`,
+		attachments,
+	});
 }
 
 function buildCoffeeImagePath(productRow) {
@@ -1290,42 +1463,10 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 			items: itemsPayload,
 		};
 
-		let invoiceResponse = null;
-		const attempts = invoiceServiceUrlCandidates();
-
-		for (const baseUrl of attempts) {
-			const controller = new AbortController();
-			const timeout = setTimeout(() => controller.abort(), 10000);
-			try {
-				const response = await fetch(`${baseUrl}/api/invoices/render`, {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Accept: "application/pdf",
-					},
-					body: JSON.stringify(payload),
-					signal: controller.signal,
-				});
-
-				if (response.ok) {
-					invoiceResponse = response;
-					break;
-				}
-
-				const errorBody = await response.text().catch(() => "");
-				console.error(`Invoice service non-OK via ${baseUrl}:`, response.status, errorBody);
-			} catch (serviceError) {
-				console.error(`Invoice service unreachable via ${baseUrl}:`, serviceError?.message || serviceError);
-			} finally {
-				clearTimeout(timeout);
-			}
-		}
-
-		if (!invoiceResponse) {
+		const pdfBuffer = await renderInvoicePdfBuffer(payload);
+		if (!pdfBuffer) {
 			return res.status(502).json({ error: "Invoice generation service failed" });
 		}
-
-		const pdfBuffer = Buffer.from(await invoiceResponse.arrayBuffer());
 		const fileName = `filspresso-invoice-${order.order_number}.pdf`;
 
 		res.setHeader("Content-Type", "application/pdf");
@@ -1648,6 +1789,44 @@ router.post("/", authenticate, async (req, res) => {
 
 			await client.query("COMMIT");
 
+			const orderEmailPayload = {
+				order_number: orderNumber,
+				status: orderStatus,
+				created_at: new Date().toISOString(),
+				shipping_address: shippingAddress,
+				billing_address: billingAddress || shippingAddress,
+				payment_method: paymentMethod || "card",
+				subtotal,
+				discount_amount: discountAmount,
+				shipping_cost: finalShippingCost,
+				tax,
+				total: finalTotal,
+				currency_code: normalizedCurrencyCode,
+				exchange_rate: normalizedExchangeRate,
+				conversion_fee_percent: normalizedFeePercent,
+				charged_subtotal: normalizedChargedSubtotal,
+				charged_shipping_cost: normalizedChargedShippingCost,
+				charged_tax: normalizedChargedTax,
+				charged_total: normalizedChargedTotal,
+				destination_country: destinationCountry || shippingAddress?.country || null,
+			};
+
+			setImmediate(() => {
+				sendOrderEmail({
+					to: req.user.email,
+					subject: `Order placed: ${orderNumber}`,
+					intro: "Your order has been placed successfully. The invoice PDF is attached.",
+					extraNote: "You will receive additional status notifications when your order is processed and shipped.",
+					order: orderEmailPayload,
+					items,
+					customerName: req.user.name || req.user.username,
+					customerEmail: req.user.email,
+					attachInvoicePdf: true,
+				}).catch((mailError) => {
+					console.error("Failed to send order confirmation email:", mailError);
+				});
+			});
+
 			res.status(201).json({
 				message: "Order created successfully",
 				order: {
@@ -1674,6 +1853,97 @@ router.post("/", authenticate, async (req, res) => {
 			});
 		}
 		res.status(500).json({ error: "Failed to create order" });
+	}
+});
+
+router.put("/:id/status", authenticate, async (req, res) => {
+	try {
+		if (req.user.role !== "admin") {
+			return res.status(403).json({ error: "Only admins can update order status" });
+		}
+
+		const orderId = parseInt(req.params.id, 10);
+		const status = String(req.body?.status || "")
+			.trim()
+			.toLowerCase();
+		const validStatuses = new Set(["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"]);
+
+		if (!Number.isInteger(orderId) || orderId <= 0) {
+			return res.status(400).json({ error: "Invalid order id" });
+		}
+
+		if (!validStatuses.has(status)) {
+			return res.status(400).json({ error: "Invalid order status" });
+		}
+
+		const client = await pool.connect();
+		try {
+			await client.query("BEGIN");
+
+			const orderResult = await client.query(
+				`SELECT o.*, a.email AS customer_email, COALESCE(a.name, a.username, 'Filspresso Customer') AS customer_name
+				 FROM orders o
+				 JOIN accounts a ON a.id = o.account_id
+				 WHERE o.id = $1
+				 FOR UPDATE`,
+				[orderId],
+			);
+
+			const order = orderResult.rows[0];
+			if (!order) {
+				await client.query("ROLLBACK");
+				return res.status(404).json({ error: "Order not found" });
+			}
+
+			if (order.status === status) {
+				await client.query("ROLLBACK");
+				return res.json({ message: "Order status unchanged", orderId, status });
+			}
+
+			await client.query("UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2", [status, orderId]);
+
+			const itemsResult = await client.query(
+				`SELECT product_type, product_id, product_name, product_image, quantity, unit_price, total_price
+				 FROM order_items
+				 WHERE order_id = $1
+				 ORDER BY id ASC`,
+				[orderId],
+			);
+
+			await client.query("COMMIT");
+
+			const updatedOrder = { ...order, status };
+			setImmediate(() => {
+				sendOrderEmail({
+					to: order.customer_email,
+					subject: `Shipping update: ${order.order_number} is now ${status}`,
+					intro: `Your order status has been updated to ${status}.`,
+					extraNote:
+						status === "shipped"
+							? "Your package is on the way. You will receive a final confirmation once delivered."
+							: status === "delivered"
+								? "Your order has been delivered. Enjoy your coffee."
+								: "You can track updates anytime from your account order history.",
+					order: updatedOrder,
+					items: itemsResult.rows,
+					customerName: order.customer_name,
+					customerEmail: order.customer_email,
+					attachInvoicePdf: false,
+				}).catch((mailError) => {
+					console.error("Failed to send shipping update email:", mailError);
+				});
+			});
+
+			return res.json({ message: "Order status updated", orderId, status });
+		} catch (error) {
+			await client.query("ROLLBACK");
+			throw error;
+		} finally {
+			client.release();
+		}
+	} catch (error) {
+		console.error("Update order status error:", error);
+		return res.status(500).json({ error: "Failed to update order status" });
 	}
 });
 

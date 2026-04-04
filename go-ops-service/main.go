@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type eventIngestRequest struct {
@@ -24,37 +28,83 @@ type eventRecord struct {
 }
 
 type eventStore struct {
-	mu     sync.RWMutex
-	events []eventRecord
+	rdb      *redis.Client
+	ctx      context.Context
+	listKey  string
+	maxItems int64
 }
 
 func (s *eventStore) add(evt eventRecord) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.events = append([]eventRecord{evt}, s.events...)
-	if len(s.events) > 200 {
-		s.events = s.events[:200]
+	data, err := json.Marshal(evt)
+	if err != nil {
+		log.Printf("Failed to marshal event: %v", err)
+		return
+	}
+
+	pipe := s.rdb.Pipeline()
+	pipe.LPush(s.ctx, s.listKey, data)
+	pipe.LTrim(s.ctx, s.listKey, 0, s.maxItems-1)
+	if _, err := pipe.Exec(s.ctx); err != nil {
+		log.Printf("Failed to save event to redis: %v", err)
 	}
 }
 
 func (s *eventStore) list(limit int) []eventRecord {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if limit < 1 {
 		limit = 20
 	}
-	if limit > len(s.events) {
-		limit = len(s.events)
+	if limit > int(s.maxItems) {
+		limit = int(s.maxItems)
 	}
-	copyOut := make([]eventRecord, limit)
-	copy(copyOut, s.events[:limit])
+
+	items, err := s.rdb.LRange(s.ctx, s.listKey, 0, int64(limit-1)).Result()
+	if err != nil {
+		log.Printf("Failed to fetch events from redis: %v", err)
+		return []eventRecord{}
+	}
+
+	copyOut := make([]eventRecord, 0, len(items))
+	for _, item := range items {
+		var evt eventRecord
+		if err := json.Unmarshal([]byte(item), &evt); err == nil {
+			copyOut = append(copyOut, evt)
+		}
+	}
+
 	return copyOut
 }
 
 func main() {
 	port := envOr("PORT", "8083")
 	apiKey := strings.TrimSpace(os.Getenv("OPS_API_KEY"))
-	store := &eventStore{events: make([]eventRecord, 0)}
+	redisURL := envOr("REDIS_URL", "localhost:6379")
+	redisPassword := strings.TrimSpace(os.Getenv("REDIS_PASSWORD"))
+	maxEvents := int64(envOrInt("OPS_EVENTS_MAX", 200))
+	if maxEvents < 1 {
+		maxEvents = 200
+	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     redisURL,
+		Password: redisPassword,
+	})
+	ctx := context.Background()
+
+	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := rdb.Ping(pingCtx).Err(); err != nil {
+		log.Fatalf("redis connection failed (%s): %v", redisURL, err)
+	}
+	defer func() {
+		_ = rdb.Close()
+	}()
+
+	store := &eventStore{
+		rdb:      rdb,
+		ctx:      ctx,
+		listKey:  envOr("OPS_EVENTS_KEY", "ops:events"),
+		maxItems: maxEvents,
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -78,9 +128,17 @@ func main() {
 			}
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var payload eventIngestRequest
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&payload); err != nil {
 			respondJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
+			return
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != nil && err != io.EOF {
+			respondJSON(w, http.StatusBadRequest, map[string]any{"error": "unexpected trailing json"})
 			return
 		}
 		payload.EventType = strings.TrimSpace(payload.EventType)
@@ -88,7 +146,8 @@ func main() {
 			respondJSON(w, http.StatusBadRequest, map[string]any{"error": "eventType is required"})
 			return
 		}
-		if strings.TrimSpace(payload.Source) == "" {
+		payload.Source = strings.TrimSpace(payload.Source)
+		if payload.Source == "" {
 			payload.Source = "express"
 		}
 
@@ -112,8 +171,15 @@ func main() {
 			respondJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 			return
 		}
+
+		limit := 25
+		if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+			if v, err := strconv.Atoi(raw); err == nil {
+				limit = v
+			}
+		}
 		respondJSON(w, http.StatusOK, map[string]any{
-			"events": store.list(25),
+			"events": store.list(limit),
 		})
 	})
 
@@ -121,6 +187,9 @@ func main() {
 		Addr:              ":" + port,
 		Handler:           loggingMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	log.Printf("go-ops-service listening on :%s", port)
@@ -149,4 +218,16 @@ func envOr(key string, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func envOrInt(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

@@ -2,7 +2,6 @@ flowchart LR
     U[User Browser] --> N[Next.js App Router]
     N --> E[Express API Orchestrator]
     N --> P[Python AI Service]
-    N --> W[Wasm Runtime]
 
     E --> O[Orders Domain]
     E --> C[Cart Domain]
@@ -14,13 +13,10 @@ flowchart LR
     E --> J[Java Invoice Service]
     E --> K[Kotlin Subscription Service]
     E --> G[Go Ops Service]
+    G --> R[(Redis)]
 
     E --> DB[(PostgreSQL)]
     P --> DB
-
-    subgraph Browser-Side Acceleration
-        W
-    end
 
     subgraph Core Orchestration
         E

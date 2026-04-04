@@ -12,4 +12,18 @@ declare module "*.webp";
 declare module "*.avif";
 declare module "*.html";
 
+declare global {
+	interface Window {
+		onSignIn?: (googleUser: {
+			getBasicProfile: () => {
+				getId: () => string;
+				getName: () => string;
+				getImageUrl: () => string;
+				getEmail: () => string | null;
+			};
+		}) => void;
+		signOut?: () => Promise<void>;
+	}
+}
+
 export {};

@@ -6,7 +6,8 @@ const jwt = require("jsonwebtoken");
 const pool = require("../db/connection");
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "365d";
+const AUTH_SESSION_IDLE_TIMEOUT_DAYS = Math.max(1, Number.parseInt(process.env.AUTH_SESSION_IDLE_TIMEOUT_DAYS || "30", 10) || 30);
 
 if (!JWT_SECRET) {
 	throw new Error("JWT_SECRET environment variable is required");
@@ -42,7 +43,14 @@ function verifyToken(token) {
 	}
 }
 
-async function getActiveSessionUser(accountId, token) {
+function buildSessionExpiryDate() {
+	const expiresAt = new Date();
+	expiresAt.setDate(expiresAt.getDate() + AUTH_SESSION_IDLE_TIMEOUT_DAYS);
+	return expiresAt;
+}
+
+async function getActiveSessionUser(accountId, token, options = {}) {
+	const { refreshSession = true } = options;
 	const result = await pool.query(
 		`SELECT a.id, a.username, a.email, a.name, a.icon, a.subscription, a.role
 		 FROM accounts a
@@ -54,7 +62,23 @@ async function getActiveSessionUser(accountId, token) {
 		[accountId, token],
 	);
 
-	return result.rows[0] || null;
+	const user = result.rows[0] || null;
+	if (!user) {
+		return null;
+	}
+
+	if (refreshSession) {
+		try {
+			await pool.query(
+				"UPDATE user_sessions SET expires_at = NOW() + (($3)::text || ' days')::interval WHERE account_id = $1 AND session_token = $2 AND expires_at > NOW()",
+				[accountId, token, AUTH_SESSION_IDLE_TIMEOUT_DAYS],
+			);
+		} catch (refreshError) {
+			console.warn("Session refresh error:", refreshError);
+		}
+	}
+
+	return user;
 }
 
 /**
@@ -140,6 +164,8 @@ module.exports = {
 	verifyToken,
 	authenticate,
 	optionalAuth,
+	buildSessionExpiryDate,
+	AUTH_SESSION_IDLE_TIMEOUT_DAYS,
 	JWT_SECRET,
 	JWT_EXPIRES_IN,
 };

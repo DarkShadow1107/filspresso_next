@@ -286,8 +286,9 @@ export interface DBWeatherCache {
 
 export interface DBMolecule {
 	id: number;
+	chembl_id: string | null;
 	name: string | null;
 	smiles: string;
-	molecule: any | null; // rdkit mol type
+	synonyms: string[] | null;
 	created_at: Timestamp;
 }

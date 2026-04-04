@@ -27,10 +27,15 @@ import {
 	DBChatMessage,
 	Timestamp,
 } from "@/types/database";
+import { readAccountSession } from "@/lib/accountSession";
 
 export type AccountData = Pick<DBAccount, "username" | "email" | "icon"> & {
 	full_name: string | null;
 	created_at?: Timestamp;
+	mfa?: {
+		enabled: boolean;
+		enabledAt?: Timestamp | null;
+	};
 };
 
 export type Message = { role: DBChatMessage["role"]; content: string; products?: any[] };
@@ -314,10 +319,10 @@ export const getIconUrl = (icon: string | null) => {
 		url = `/images/icons/${url}`;
 	}
 
-	// Force lowercase and .svg extension for internal icon paths
+	// Keep internal icon paths normalized while preserving explicit extensions.
 	if (url.startsWith("/images/icons/") && !url.startsWith("data:")) {
 		url = url.toLowerCase();
-		if (!url.endsWith(".svg")) {
+		if (!/\.(svg|png|jpe?g|ico|webp|avif)(\?.*)?$/i.test(url)) {
 			url = `${url}.svg`;
 		}
 	}
@@ -365,9 +370,9 @@ export const formatDate = (dateString: string | number | Date) => {
 export const getAuthToken = (): string | null => {
 	if (typeof window === "undefined") return null;
 	try {
-		const session = sessionStorage.getItem("account_session");
+		const session = readAccountSession();
 		if (session) {
-			const { token } = JSON.parse(session);
+			const { token } = session;
 			return token || null;
 		}
 	} catch {

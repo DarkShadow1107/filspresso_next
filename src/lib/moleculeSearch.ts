@@ -5,6 +5,78 @@
 
 // Load molecules from local data (should be bundled with your app)
 let moleculesCache: any[] | null = null;
+const moleculeApiBase = "/api/molecule";
+
+const MOLECULE_PROMPT_PREFIX_PATTERNS = [
+	/^(?:i\s+want\s+to\s+know\s+more\s+about|i\s+want\s+to\s+learn\s+about|i\s+want\s+to\s+know\s+about|i\s+want\s+to\s+understand|i\s+want\s+about|i\s+want)\s+(.+)$/i,
+	/^(?:tell\s+me\s+(?:more\s+)?about|what\s+is|what's|show\s+me|display|find|search\s+for|look\s+up|lookup|explain|give\s+me\s+(?:info(?:rmation)?|details)\s+about)\s+(.+)$/i,
+	/^(?:molecule|compound|structure)\s+(?:of\s+)?(.+)$/i,
+	/^(.+?)\s+(?:molecule|compound|structure)$/i,
+];
+
+const MOLECULE_TRAILING_WORDS = /\b(?:molecule|compound|structure|please|pls|thanks|thank\s+you)\b/gi;
+const MOLECULE_STOPWORDS = new Set([
+	"i",
+	"want",
+	"to",
+	"know",
+	"more",
+	"about",
+	"tell",
+	"me",
+	"what",
+	"is",
+	"the",
+	"a",
+	"an",
+	"show",
+	"display",
+	"find",
+	"search",
+	"for",
+	"look",
+	"up",
+	"lookup",
+	"explain",
+	"give",
+	"info",
+	"information",
+	"details",
+]);
+
+function cleanMoleculeCandidate(input: string): string {
+	return input
+		.replace(/[?!.,;:()[\]{}]+/g, " ")
+		.replace(MOLECULE_TRAILING_WORDS, " ")
+		.replace(/^\s*(?:the|a|an)\s+/i, "")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+function buildSearchCandidates(query: string): string[] {
+	const normalized = cleanMoleculeCandidate(query);
+	if (!normalized) return [];
+
+	const candidates = new Set<string>();
+	candidates.add(normalized);
+
+	const extracted = extractMoleculeQuery(normalized);
+	if (extracted) {
+		candidates.add(extracted);
+	}
+
+	const tokens = normalized.split(" ").filter(Boolean);
+	if (tokens.length > 1) {
+		const filtered = tokens.filter((token) => !MOLECULE_STOPWORDS.has(token.toLowerCase()));
+		const source = filtered.length > 0 ? filtered : tokens;
+		const maxSize = Math.min(3, source.length);
+		for (let size = maxSize; size >= 1; size -= 1) {
+			candidates.add(source.slice(-size).join(" "));
+		}
+	}
+
+	return [...candidates].filter(Boolean);
+}
 
 export async function loadMoleculesData(): Promise<any[]> {
 	if (moleculesCache) {
@@ -69,32 +141,38 @@ export function searchMoleculesByChEMBLId(molecules: any[], chemblId: string): a
  * Smart molecule search - tries exact match, then partial matches
  */
 export async function smartSearchMolecule(query: string): Promise<any | null> {
+	const trimmedQuery = query.trim();
+	if (!trimmedQuery) return null;
+	const candidates = buildSearchCandidates(trimmedQuery);
+	if (candidates.length === 0) return null;
+
+	// DB-backed search only (synonyms included server-side).
+	for (const candidate of candidates) {
+		try {
+			const apiRes = await fetch(`${moleculeApiBase}/search?q=${encodeURIComponent(candidate)}&limit=1`);
+			if (apiRes.ok) {
+				const apiData = await apiRes.json();
+				if (Array.isArray(apiData?.molecules) && apiData.molecules.length > 0) {
+					return apiData.molecules[0];
+				}
+			}
+		} catch (error) {
+			console.warn("Molecule API search unavailable", error);
+		}
+	}
+
+	// Local JSON fallback when API is unavailable or has no match.
 	const molecules = await loadMoleculesData();
+	for (const candidate of candidates) {
+		const chemblMatch = candidate.match(/CHEMBL\d+/i);
+		if (chemblMatch) {
+			const exact = searchMoleculesByChEMBLId(molecules, chemblMatch[0]);
+			if (exact) return exact;
+		}
 
-	if (molecules.length === 0) {
-		return null;
-	}
-
-	// Try exact ChEMBL ID first
-	const chemblMatch = query.match(/CHEMBL\d+/i);
-	if (chemblMatch) {
-		const exact = searchMoleculesByChEMBLId(molecules, chemblMatch[0]);
-		if (exact) return exact;
-	}
-
-	// Try name search
-	const nameResults = searchMoleculesByName(molecules, query);
-	if (nameResults.length > 0) {
-		return nameResults[0]; // Return best match
-	}
-
-	// Fallback: search common coffee compounds
-	const coffeeCompounds = ["caffeine", "chlorogenic acid", "trigonelline", "quinides", "polyphenols"];
-	const lowerQuery = query.toLowerCase();
-	for (const compound of coffeeCompounds) {
-		if (lowerQuery.includes(compound) || compound.includes(lowerQuery)) {
-			const results = searchMoleculesByName(molecules, compound);
-			if (results.length > 0) return results[0];
+		const localMatches = searchMoleculesByName(molecules, candidate);
+		if (localMatches.length > 0) {
+			return localMatches[0];
 		}
 	}
 
@@ -105,9 +183,9 @@ export async function smartSearchMolecule(query: string): Promise<any | null> {
  * Get molecule visualization data from Python API (RDKit + Py3Dmol + Pillow)
  */
 export async function getMoleculeVisualization(
-	chemblId: string,
+	moleculeIdentifier: string,
 	visualizationMode: "text" | "2d" | "3d" | "both",
-	useApi: boolean = true
+	useApi: boolean = true,
 ): Promise<{
 	svg?: string;
 	sdf?: string;
@@ -131,9 +209,12 @@ export async function getMoleculeVisualization(
 			// Try 2D rendering (RDKit + Pillow)
 			if (visualizationMode === "2d" || visualizationMode === "both") {
 				try {
-					const response = await fetch(`http://localhost:5000/api/molecule/render2d/${chemblId}?width=500&height=400`, {
-						signal: controller.signal,
-					});
+					const response = await fetch(
+						`${moleculeApiBase}/render2d/${encodeURIComponent(moleculeIdentifier)}?width=500&height=400`,
+						{
+							signal: controller.signal,
+						},
+					);
 					if (response.ok) {
 						const blob = await response.blob();
 						// Convert blob to base64 data URL for image display
@@ -152,9 +233,12 @@ export async function getMoleculeVisualization(
 			// Try 3D rendering (Py3Dmol)
 			if (visualizationMode === "3d" || visualizationMode === "both") {
 				try {
-					const response = await fetch(`http://localhost:5000/api/molecule/render3d/${chemblId}?style=stick`, {
-						signal: controller.signal,
-					});
+					const response = await fetch(
+						`${moleculeApiBase}/render3d/${encodeURIComponent(moleculeIdentifier)}?style=stick&width=620&height=320`,
+						{
+							signal: controller.signal,
+						},
+					);
 					if (response.ok) {
 						result.sdf = await response.text(); // HTML with Py3Dmol viewer embedded
 						console.log("✅ 3D model loaded from API (Py3Dmol)");
@@ -174,7 +258,7 @@ export async function getMoleculeVisualization(
 	} catch (error) {
 		console.error("Visualization error:", error);
 		return {
-			error: `Visualization unavailable for ${chemblId}`,
+			error: `Visualization unavailable for ${moleculeIdentifier}`,
 		};
 	}
 }
@@ -194,8 +278,8 @@ export function getMoleculeCard(molecule: any): string {
 		molecule.polar_surface_area !== undefined
 			? molecule.polar_surface_area.toFixed(2)
 			: molecule.tpsa !== undefined
-			? molecule.tpsa.toFixed(2)
-			: "N/A";
+				? molecule.tpsa.toFixed(2)
+				: "N/A";
 	const hba = molecule.hba !== undefined ? molecule.hba : "N/A";
 	const hbd = molecule.hbd !== undefined ? molecule.hbd : "N/A";
 
@@ -239,20 +323,37 @@ export function extractMoleculeQuery(text: string): string | null {
 	// Try ChEMBL ID
 	const chemblMatch = text.match(/CHEMBL\d+/i);
 	if (chemblMatch) {
-		return chemblMatch[0];
+		return chemblMatch[0].toUpperCase();
 	}
 
-	// Extract molecule name (text between keywords)
-	const patterns = [
-		/(?:show|display|find|structure|molecule|about)\s+(?:me\s+)?(?:the\s+)?(?:molecule\s+)?(.+?)(?:\s+molecule|\s+structure|\s+compound|\?|$)/i,
-		/(?:what.*?is|tell.*?about)\s+(.+?)(?:\?|$)/i,
-		/^(.+?)(?:\s+molecule|\s+compound|\s+structure)?$/i,
-	];
+	const compact = text
+		.replace(/[\n\r\t]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (!compact) return null;
 
-	for (const pattern of patterns) {
-		const match = text.match(pattern);
+	for (const pattern of MOLECULE_PROMPT_PREFIX_PATTERNS) {
+		const match = compact.match(pattern);
 		if (match && match[1]) {
-			return match[1].trim();
+			const candidate = cleanMoleculeCandidate(match[1]);
+			if (candidate) return candidate;
+		}
+	}
+
+	const cleaned = cleanMoleculeCandidate(compact);
+	if (!cleaned) return null;
+
+	const tokenCount = cleaned.split(" ").length;
+	if (tokenCount <= 4) {
+		return cleaned;
+	}
+
+	const filteredTokens = cleaned.split(" ").filter((token) => token && !MOLECULE_STOPWORDS.has(token.toLowerCase()));
+
+	if (filteredTokens.length > 0) {
+		const tail = filteredTokens.slice(-3).join(" ").trim();
+		if (tail) {
+			return tail;
 		}
 	}
 

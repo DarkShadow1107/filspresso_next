@@ -48,6 +48,7 @@ next-env.d.ts
 
 # AI models
 *.pth
+*.safetensors
 
 # runtime logs
 logs/
