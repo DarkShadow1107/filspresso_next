@@ -101,17 +101,20 @@ async function upsertByChembl(client, molecule) {
 async function upsertBySmilesFallback(client, molecule) {
 	const existing = await client.query("SELECT id FROM molecules WHERE smiles = $1 LIMIT 1", [molecule.smiles]);
 	if (existing.rows.length > 0) {
-		await client.query(
-			"UPDATE molecules SET name = COALESCE($1, name), synonyms = $2::jsonb WHERE id = $3",
-			[molecule.name, JSON.stringify(molecule.synonyms), existing.rows[0].id],
-		);
+		await client.query("UPDATE molecules SET name = COALESCE($1, name), synonyms = $2::jsonb WHERE id = $3", [
+			molecule.name,
+			JSON.stringify(molecule.synonyms),
+			existing.rows[0].id,
+		]);
 		return;
 	}
 
-	await client.query(
-		"INSERT INTO molecules (chembl_id, name, smiles, synonyms) VALUES ($1, $2, $3, $4::jsonb)",
-		[molecule.chembl_id, molecule.name, molecule.smiles, JSON.stringify(molecule.synonyms)],
-	);
+	await client.query("INSERT INTO molecules (chembl_id, name, smiles, synonyms) VALUES ($1, $2, $3, $4::jsonb)", [
+		molecule.chembl_id,
+		molecule.name,
+		molecule.smiles,
+		JSON.stringify(molecule.synonyms),
+	]);
 }
 
 async function run() {
