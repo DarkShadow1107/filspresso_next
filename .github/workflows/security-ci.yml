@@ -194,7 +194,7 @@ jobs:
                       security-manifest.pem
 
             - name: Filesystem vulnerability scan (HIGH/CRITICAL)
-              uses: aquasecurity/trivy-action@0.30.0
+              uses: aquasecurity/trivy-action@v0.30.0
               with:
                   scan-type: fs
                   scan-ref: .
