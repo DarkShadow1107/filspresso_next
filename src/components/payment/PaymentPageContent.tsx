@@ -219,6 +219,7 @@ export default function PaymentPageContent() {
 
 	useEffect(() => {
 		let isActive = true;
+		let hasLocalCache = false;
 		const FX_CACHE_KEY = "payment_fx_rates";
 		const FX_CACHE_DATE_KEY = "payment_fx_rates_date";
 
@@ -230,6 +231,7 @@ export default function PaymentPageContent() {
 					const parsed = JSON.parse(rawRates) as Partial<Record<SupportedCurrencyCode, number>>;
 					const cachedRates = { RON: 1, ...sanitizeFxRates(parsed) };
 					if (Object.keys(cachedRates).length > 1) {
+						hasLocalCache = true;
 						setFxRates(cachedRates);
 						if (rawDate) setFxUpdatedAt(rawDate);
 					}
@@ -254,6 +256,7 @@ export default function PaymentPageContent() {
 					date?: string;
 					rates?: Partial<Record<SupportedCurrencyCode, number>>;
 					stale?: boolean;
+					source?: "live_frankfurter" | "live_open_er_api" | "cached_live" | "cached_live_stale" | "static_fallback";
 				};
 
 				if (!isActive) return;
@@ -262,17 +265,30 @@ export default function PaymentPageContent() {
 				setFxRates(sanitizedRates);
 				setFxUpdatedAt(data.date ?? new Date().toISOString().slice(0, 10));
 
-				if (typeof window !== "undefined" && Object.keys(sanitizedRates).length > 1) {
+				if (
+					typeof window !== "undefined" &&
+					Object.keys(sanitizedRates).length > 1 &&
+					data.source !== "static_fallback"
+				) {
+					hasLocalCache = true;
 					window.localStorage.setItem(FX_CACHE_KEY, JSON.stringify(sanitizedRates));
 					window.localStorage.setItem(FX_CACHE_DATE_KEY, data.date ?? new Date().toISOString().slice(0, 10));
 				}
 
-				if (data.stale) {
-					setFxError("Live exchange feed is temporarily unavailable. Showing fallback rates.");
+				if (data.stale && data.source === "static_fallback") {
+					setFxError("Live exchange feed is temporarily unavailable. Showing protected fallback rates.");
+				} else if (data.stale && data.source === "cached_live_stale") {
+					setFxError("Live exchange feed is temporarily unavailable. Showing last known rates.");
 				}
 			} catch (error) {
 				console.warn("Failed to load live currency rates; using fallback rates", error);
 				if (!isActive) return;
+
+				if (hasLocalCache) {
+					setFxError(null);
+					return;
+				}
+
 				setFxRates(FALLBACK_FX_RATES);
 				setFxUpdatedAt(new Date().toISOString().slice(0, 10));
 				setFxError("Live exchange rates are temporarily unavailable. Showing fallback rates.");
@@ -364,7 +380,7 @@ export default function PaymentPageContent() {
 				// Format the card number display (masked)
 				const maskedNumber = `•••• •••• •••• ${card.card_last_four}`;
 				setCcNum(maskedNumber);
-				setExpiry(card.card_expiry);
+				setExpiry(card.card_expiry || "");
 				// Set card type based on card_type from database
 				const cardTypeName = card.card_type || "Visa";
 				let normalizedType = "Visa";
@@ -381,6 +397,14 @@ export default function PaymentPageContent() {
 				if (card.card_cvv) {
 					setCvv(card.card_cvv);
 					notify("Card selected! Ready to pay.", 3000, "success", "payment");
+				} else if (card.has_decryption_issue) {
+					setCvv("");
+					notify(
+						"Card selected. Some protected details could not be decoded (likely older encryption key). Please remove and re-add this card.",
+						5000,
+						"info",
+						"payment",
+					);
 				} else {
 					setCvv("");
 					notify("Card selected! Please enter your CVV to continue.", 4000, "info", "payment");
@@ -533,6 +557,17 @@ export default function PaymentPageContent() {
 		const cType = sessionStorage.getItem("cType") || (selectedSavedCard ? selectedSavedCard.card_type : null);
 		const cardDigits = removeAllSpaces(ccNum);
 		const cvvNumber = cvv;
+		const rawCardType = cType && cType !== "Unknown" ? cType : selectedSavedCard?.card_type || "Card";
+		const normalizedCardType = String(rawCardType)
+			.trim()
+			.toLowerCase()
+			.replace(/\b[a-z]/g, (char) => char.toUpperCase());
+		const selectedCardLastFour =
+			(typeof selectedSavedCard?.card_last_four === "string" && selectedSavedCard.card_last_four.trim()) ||
+			(cardDigits.length >= 4 ? cardDigits.slice(-4) : "");
+		const paymentMethodSummary = selectedCardLastFour
+			? `${normalizedCardType} •••• ${selectedCardLastFour}`
+			: `${normalizedCardType}`;
 
 		if (selectedCurrency !== "RON" && !canConvertCurrency) {
 			notify(
@@ -675,7 +710,7 @@ export default function PaymentPageContent() {
 									],
 									shippingCost: 0,
 									total: ronEquivalentTotal,
-									paymentMethod: `${cType || "Card"} (${selectedCurrency})`,
+									paymentMethod: paymentMethodSummary,
 									cardId: selectedSavedCard?.id || null,
 									isSubscription: true,
 									currencyCode: selectedCurrency,
@@ -738,7 +773,7 @@ export default function PaymentPageContent() {
 								})),
 								shippingCost: shippingCost,
 								total: ronEquivalentTotal,
-								paymentMethod: `${cType || "Card"} (${selectedCurrency})`,
+								paymentMethod: paymentMethodSummary,
 								cardId: selectedSavedCard?.id || null,
 								currencyCode: selectedCurrency,
 								exchangeRate: selectedRate || 1,
@@ -1069,7 +1104,7 @@ export default function PaymentPageContent() {
 									</div>
 									<div style={{ color: "#888", fontSize: "0.8rem", marginTop: "2px" }}>
 										{selectedSavedCard
-											? `${selectedSavedCard.card_type} • Exp: ${selectedSavedCard.card_expiry}`
+											? `${selectedSavedCard.card_type} • Exp: ${selectedSavedCard.card_expiry || "Unavailable"}`
 											: "Or enter details manually below"}
 									</div>
 								</div>

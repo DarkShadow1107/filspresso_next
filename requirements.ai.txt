@@ -1,0 +1,15 @@
+# Filspresso AI gateway runtime dependencies (Dockerfile.ai)
+# This image no longer ships local CLIP/MolScribe/transformers runtimes.
+# GGUF inference is served by dedicated llama.cpp model containers.
+
+Flask==3.0.0
+Flask-CORS==4.0.0
+waitress==2.1.2
+
+psycopg2-binary
+python-dotenv==1.0.0
+requests==2.31.0
+
+# Molecule rendering endpoints still require RDKit + py3Dmol.
+rdkit>=2023.9.1
+py3Dmol>=2.0.4

@@ -1,6 +1,7 @@
 node_modules
 express-api/node_modules
 python_ai/venv
+.venv/
 **/__pycache__
 **/*.pyc
 *.log
@@ -14,6 +15,7 @@ npm-debug.log
 Dockerfile*
 docker-compose*.yml
 *.sqlite
+infrastructure/
 
 # Frontend source — not needed in any Docker image
 src/
@@ -36,3 +38,9 @@ package-lock.json
 # Git / misc
 .git/
 *.md
+
+# Local model blobs are mounted into llama.cpp containers, not baked into images
+models/model/
+models/**/*.gguf
+models/**/*.safetensors
+models/**/*.pth

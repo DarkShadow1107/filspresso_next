@@ -146,7 +146,7 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 							<span style={{ width: "24px", display: "flex", justifyContent: "center" }}>
 								<CheckIcon size={18} color="#10b981" />
 							</span>
-							<span style={{ fontSize: "0.95rem", color: "#ddd" }}>Access to Kafelot Tanka</span>
+							<span style={{ fontSize: "0.95rem", color: "#ddd" }}>Access to Kafelot</span>
 						</li>
 						<li style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
 							<span style={{ width: "24px", display: "flex", justifyContent: "center" }}>

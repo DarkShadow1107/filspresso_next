@@ -1,15 +1,14 @@
 """
 Filspresso AI Backend
 Flask server exposing:
-  - Tanka AI endpoints (Semantic / Chemistry modes)
+    - Kafelot AI endpoints (Semantic / Chemistry modes)
   - IoT coffee machine command endpoints
   - SVG icon saving
 
 Modes for /api/chat:
-    - natural_language  →  lexical fact retrieval + response composer  (display: "Semantic")
-                         CLIP image understanding when an image is attached
-  - chemistry         →  MolScribe molecule recognition when an image is attached
-                         text-only requests return MolScribe image guidance (display: "Chemistry")
+    - natural_language  →  selected llama.cpp text model + lexical retrieval fallback (display: "Semantic")
+    - chemistry         →  selected llama.cpp text model for chemistry helper (display: "Chemistry")
+    - image upload      →  selected vision model (Qwen 3 VL by subscription)
 """
 
 import os
@@ -44,17 +43,77 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def read_env_or_file(name: str, default: str | None = None, required: bool = False) -> str | None:
+    value = (os.getenv(name) or "").strip()
+    if value:
+        return value
+
+    file_path = (os.getenv(f"{name}_FILE") or "").strip()
+    if file_path:
+        try:
+            with open(file_path, "r", encoding="utf-8") as handle:
+                loaded = (handle.read() or "").strip()
+                if loaded:
+                    os.environ[name] = loaded
+                    return loaded
+                raise ValueError(f"{name}_FILE points to an empty file")
+        except Exception as exc:
+            raise RuntimeError(f"Failed to read {name}_FILE ({file_path}): {exc}") from exc
+
+    if required:
+        raise RuntimeError(f"{name} (or {name}_FILE) is required")
+
+    return default
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = (os.getenv(name) or "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
 app = Flask(__name__)
-CORS(app)
+
+cors_origin_raw = os.getenv("CORS_ORIGIN", "http://localhost:3000")
+cors_origins = [origin.strip() for origin in cors_origin_raw.split(",") if origin.strip()]
+if not cors_origins:
+    cors_origins = ["http://localhost:3000"]
+
+CORS(
+    app,
+    resources={r"/api/*": {"origins": "*" if "*" in cors_origins else cors_origins}},
+    supports_credentials=True,
+)
 
 # ---------------------------------------------------------------------------
 # Database configuration
 # ---------------------------------------------------------------------------
 
+STRICT_SERVICE_DB_CREDENTIALS = env_bool("STRICT_SERVICE_DB_CREDENTIALS", False)
+ROOT_DB_USER = (os.getenv("DB_USER") or "filspresso_user").strip() or "filspresso_user"
+AI_DB_USER = (os.getenv("AI_DB_USER") or "").strip()
+EFFECTIVE_AI_DB_USER = AI_DB_USER or ROOT_DB_USER
+
+AI_DB_PASSWORD = read_env_or_file("AI_DB_PASSWORD", required=False)
+if not AI_DB_PASSWORD:
+    AI_DB_PASSWORD = read_env_or_file("DB_PASSWORD", required=True)
+
+if STRICT_SERVICE_DB_CREDENTIALS:
+    if not AI_DB_USER:
+        raise RuntimeError("STRICT_SERVICE_DB_CREDENTIALS=true requires AI_DB_USER")
+    if AI_DB_USER == ROOT_DB_USER:
+        raise RuntimeError("STRICT_SERVICE_DB_CREDENTIALS=true requires AI_DB_USER to differ from DB_USER")
+    if not read_env_or_file("AI_DB_PASSWORD", required=False):
+        raise RuntimeError(
+            "STRICT_SERVICE_DB_CREDENTIALS=true requires AI_DB_PASSWORD or AI_DB_PASSWORD_FILE"
+        )
+
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "filspresso"),
-    "user": os.getenv("DB_USER", "filspresso_user"),
-    "password": os.getenv("DB_PASSWORD"),
+    "user": EFFECTIVE_AI_DB_USER,
+    "password": AI_DB_PASSWORD,
     "host": os.getenv("DB_HOST", "localhost"),
     "port": os.getenv("DB_PORT", "5432"),
 }
@@ -65,32 +124,68 @@ def get_db_connection():
 
 
 # ---------------------------------------------------------------------------
-# Tanka model (single instance, two modes)
+# Kafelot model (single instance, two modes)
 # ---------------------------------------------------------------------------
 
 tanka = TankaModel()
 
-QWEN_COFFEE_TIMEOUT_SECONDS = max(
+TEXT_COFFEE_TIMEOUT_SECONDS = max(
     30,
-    int(os.getenv("QWEN_COFFEE_TIMEOUT_SECONDS", "300") or 300),
+    int(
+        os.getenv(
+            "LLAMA_COFFEE_TIMEOUT_SECONDS",
+            os.getenv("QWEN_COFFEE_TIMEOUT_SECONDS", "300"),
+        )
+        or 300
+    ),
 )
-QWEN_CHEMISTRY_TIMEOUT_SECONDS = max(
+TEXT_CHEMISTRY_TIMEOUT_SECONDS = max(
     30,
-    int(os.getenv("QWEN_CHEMISTRY_TIMEOUT_SECONDS", "300") or 300),
+    int(
+        os.getenv(
+            "LLAMA_CHEMISTRY_TIMEOUT_SECONDS",
+            os.getenv("QWEN_CHEMISTRY_TIMEOUT_SECONDS", "300"),
+        )
+        or 300
+    ),
 )
-MOLSCRIBE_CHEMISTRY_TIMEOUT_SECONDS = max(
+MOLECULE_IMAGE_TIMEOUT_SECONDS = max(
     30,
-    int(os.getenv("MOLSCRIBE_CHEMISTRY_TIMEOUT_SECONDS", "300") or 300),
+    int(
+        os.getenv(
+            "MOLECULE_IMAGE_TIMEOUT_SECONDS",
+            os.getenv("MOLSCRIBE_CHEMISTRY_TIMEOUT_SECONDS", "300"),
+        )
+        or 300
+    ),
 )
-QWEN_COFFEE_MAX_NEW_TOKENS = max(
+TEXT_COFFEE_MAX_NEW_TOKENS = max(
     64,
-    int(os.getenv("QWEN_COFFEE_MAX_NEW_TOKENS", "320") or 320),
+    int(
+        os.getenv(
+            "LLAMA_COFFEE_MAX_NEW_TOKENS",
+            os.getenv("QWEN_COFFEE_MAX_NEW_TOKENS", "320"),
+        )
+        or 320
+    ),
 )
-QWEN_CHEMISTRY_MAX_NEW_TOKENS = max(
+TEXT_CHEMISTRY_MAX_NEW_TOKENS = max(
     64,
-    int(os.getenv("QWEN_CHEMISTRY_MAX_NEW_TOKENS", "384") or 384),
+    int(
+        os.getenv(
+            "LLAMA_CHEMISTRY_MAX_NEW_TOKENS",
+            os.getenv("QWEN_CHEMISTRY_MAX_NEW_TOKENS", "384"),
+        )
+        or 384
+    ),
 )
-QWEN_WARMUP_ON_STARTUP = str(os.getenv("QWEN_WARMUP_ON_STARTUP", "true") or "true").strip().lower() in {
+TEXT_WARMUP_ON_STARTUP = str(
+    os.getenv(
+        "LLAMA_CPP_WARMUP_ON_STARTUP",
+        os.getenv("QWEN_WARMUP_ON_STARTUP", "true"),
+    )
+    or "true"
+).strip().lower() in {
     "1",
     "true",
     "yes",
@@ -100,6 +195,37 @@ FACT_RETRIEVAL_TIMEOUT_SECONDS = max(
     3,
     int(os.getenv("FACT_RETRIEVAL_TIMEOUT_SECONDS", "8") or 8),
 )
+
+TEXT_MODEL_MINILM = "MiniLM-L6-v2.gguf"
+TEXT_MODEL_QWEN = "Qwen3-0.6B-Q8_0.gguf"
+TEXT_MODEL_GEMMA = "Gemma3-1B-it-Q4_0.gguf"
+
+VISION_MODEL_QWEN3_VL = "Qwen3-VL-2B-Q4_0.gguf"
+
+TEXT_MODEL_TAGS = {
+    TEXT_MODEL_MINILM: "MiniLM V2 access",
+    TEXT_MODEL_QWEN: "Qwen 3 access",
+    TEXT_MODEL_GEMMA: "Gemma 3 access",
+}
+
+VISION_MODEL_TAGS = {
+    VISION_MODEL_QWEN3_VL: "Qwen 3 Vision access",
+}
+
+
+def _slug_model_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(name or "model").strip().lower()).strip("-") or "model"
+
+
+def _text_model_tag(model_name: str, thinking: bool = False) -> str:
+    selected = (model_name or "").strip()
+    if selected == TEXT_MODEL_QWEN and thinking:
+        return "Qwen 3 Thinking access"
+    return TEXT_MODEL_TAGS.get(selected, "Kafelot text access")
+
+
+def _vision_model_tag(model_name: str) -> str:
+    return VISION_MODEL_TAGS.get((model_name or "").strip(), "Kafelot vision access")
 
 
 def ensure_molecules_schema():
@@ -180,33 +306,33 @@ def _warmup_minilm_background():
 
 
 def _warmup_qwen_background():
-    """Best-effort Qwen warmup to reduce first coffee helper timeout risk."""
-    warmup_timeout = max(30, min(180, QWEN_COFFEE_TIMEOUT_SECONDS))
+    """Best-effort text-runtime warmup to reduce first coffee helper timeout risk."""
+    warmup_timeout = max(30, min(180, TEXT_COFFEE_TIMEOUT_SECONDS))
     warmup_prompt = "Give one short sentence about espresso aroma. /no_think"
     _, warmup_error = _run_with_timeout(
         tanka.generate_coffee_text,
         warmup_timeout,
         warmup_prompt,
         context_facts=["Espresso aroma is intense and concentrated."],
-        max_new_tokens=min(96, QWEN_COFFEE_MAX_NEW_TOKENS),
+        max_new_tokens=min(96, TEXT_COFFEE_MAX_NEW_TOKENS),
         enable_thinking=False,
     )
 
     status = tanka.qwen_status()
     if warmup_error == "timeout":
-        logger.warning("Qwen warmup timed out after %ss (status=%s)", warmup_timeout, status.get("status"))
+        logger.warning("Text runtime warmup timed out after %ss (status=%s)", warmup_timeout, status.get("status"))
         return
 
     if isinstance(warmup_error, Exception):
-        logger.warning("Qwen warmup failed (%s) status=%s", warmup_error, status.get("status"))
+        logger.warning("Text runtime warmup failed (%s) status=%s", warmup_error, status.get("status"))
         return
 
-    logger.info("Qwen warmup completed (status=%s)", status.get("status"))
+    logger.info("Text runtime warmup completed (status=%s)", status.get("status"))
 
 
 def _warmup_models_background():
     _warmup_minilm_background()
-    if QWEN_WARMUP_ON_STARTUP:
+    if TEXT_WARMUP_ON_STARTUP:
         _warmup_qwen_background()
 
 
@@ -329,34 +455,40 @@ def _search_facts_with_timeout(message: str, limit: int = 5):
 
 def _build_chemistry_text_response(
     message: str,
-    use_qwen: bool | None = None,
+    text_model: str,
     enable_thinking: bool | None = None,
 ) -> tuple[str, str]:
-    if use_qwen is False:
-        return (
-            "Qwen 3 text chemistry is available only for PRO, MAX, and ULTIMATE subscriptions. "
-            "Upload a molecule image to use MolScribe in Molecule Helper.",
-            "qwen3-unauthorized-chemistry",
-        )
+    selected_text_model = (text_model or TEXT_MODEL_MINILM).strip()
+    selected_text_tag = _text_model_tag(selected_text_model, bool(enable_thinking))
 
     text, run_error = _run_with_timeout(
         tanka.generate_chemistry_text,
-        QWEN_CHEMISTRY_TIMEOUT_SECONDS,
+        TEXT_CHEMISTRY_TIMEOUT_SECONDS,
         message,
-        max_new_tokens=QWEN_CHEMISTRY_MAX_NEW_TOKENS,
+        max_new_tokens=TEXT_CHEMISTRY_MAX_NEW_TOKENS,
         enable_thinking=enable_thinking,
+        text_model_name=selected_text_model,
     )
 
     if run_error == "timeout":
-        logger.warning("Chemistry Qwen timed out after %ss", QWEN_CHEMISTRY_TIMEOUT_SECONDS)
-        return tanka._chemistry_qwen_unavailable_text(), "qwen3-timeout-chemistry-high-demand"
+        logger.warning("Chemistry text runtime timed out after %ss", TEXT_CHEMISTRY_TIMEOUT_SECONDS)
+        return (
+            tanka._chemistry_qwen_unavailable_text(),
+            f"{selected_text_tag} unavailable high-demand",
+        )
 
     if isinstance(run_error, Exception):
-        logger.warning("Chemistry Qwen execution failed (%s)", run_error)
-        return tanka._chemistry_qwen_unavailable_text(), "qwen3-unavailable-chemistry-high-demand"
+        logger.warning("Chemistry text runtime execution failed (%s)", run_error)
+        return (
+            tanka._chemistry_qwen_unavailable_text(),
+            f"{selected_text_tag} unavailable high-demand",
+        )
 
     if not text:
-        return tanka._chemistry_qwen_unavailable_text(), "qwen3-unavailable-chemistry-high-demand"
+        return (
+            tanka._chemistry_qwen_unavailable_text(),
+            f"{selected_text_tag} unavailable high-demand",
+        )
 
     return text, tanka.chemistry_text_model_used()
 
@@ -365,41 +497,45 @@ def _build_coffee_text_response(
     message: str,
     rows: list,
     retrieval_backend: str,
+    text_model: str,
     enable_thinking: bool | None = None,
 ) -> tuple[str, str]:
+    selected_text_model = (text_model or TEXT_MODEL_MINILM).strip()
+    selected_text_tag = _text_model_tag(selected_text_model, bool(enable_thinking))
     context_facts = [fact for fact, _score in rows[:5]]
     text, run_error = _run_with_timeout(
         tanka.generate_coffee_text,
-        QWEN_COFFEE_TIMEOUT_SECONDS,
+        TEXT_COFFEE_TIMEOUT_SECONDS,
         message,
         context_facts=context_facts,
-        max_new_tokens=QWEN_COFFEE_MAX_NEW_TOKENS,
+        max_new_tokens=TEXT_COFFEE_MAX_NEW_TOKENS,
         enable_thinking=enable_thinking,
+        text_model_name=selected_text_model,
     )
 
     if run_error == "timeout":
-        logger.warning("Coffee Qwen timed out after %ss; using MiniLM fallback", QWEN_COFFEE_TIMEOUT_SECONDS)
+        logger.warning("Coffee text runtime timed out after %ss; using lexical fallback", TEXT_COFFEE_TIMEOUT_SECONDS)
         fallback_text, fallback_model = _build_minilm_text_response(message, rows, retrieval_backend)
-        return fallback_text, f"{fallback_model} (Qwen timeout)"
+        return fallback_text, f"{fallback_model} ({selected_text_tag} timeout)"
 
     if isinstance(run_error, Exception):
-        logger.warning("Coffee Qwen execution failed; using MiniLM fallback (%s)", run_error)
+        logger.warning("Coffee text runtime execution failed; using lexical fallback (%s)", run_error)
         fallback_text, fallback_model = _build_minilm_text_response(message, rows, retrieval_backend)
-        return fallback_text, f"{fallback_model} (Qwen error)"
+        return fallback_text, f"{fallback_model} ({selected_text_tag} error)"
 
     if not text:
         fallback_text, fallback_model = _build_minilm_text_response(message, rows, retrieval_backend)
-        return fallback_text, f"{fallback_model} (Qwen empty)"
+        return fallback_text, f"{fallback_model} ({selected_text_tag} empty)"
 
     model_used = tanka.coffee_text_model_used()
 
-    # When Qwen is unavailable, use MiniLM retrieval-backed response composition.
-    if model_used.startswith("qwen3-fallback-coffee"):
+    # When text runtime is unavailable, use lexical retrieval-backed response composition.
+    if "fallback" in str(model_used).lower():
         text = _build_nlp_response(message, rows)
         if retrieval_backend.startswith("MiniLM"):
-            model_used = "MiniLM coffee fallback"
+            model_used = f"MiniLM coffee fallback ({selected_text_tag})"
         else:
-            model_used = f"MiniLM coffee fallback ({retrieval_backend})"
+            model_used = f"MiniLM coffee fallback ({retrieval_backend}; {selected_text_tag})"
 
     return text, model_used
 
@@ -436,7 +572,7 @@ def ask_coffee():
             "status": "success",
             "answer": rows[0][0],
             "all_results": [{"fact": r[0], "similarity": float(r[1])} for r in rows],
-            "model": "Tanka",
+            "model": "Kafelot",
             "model_used": retrieval_backend,
             "mode": TankaModel.display_name("natural_language"),
         })
@@ -457,10 +593,10 @@ def chat():
       message=<str>  mode=<str>  request_id=<str>  image=<file>
 
     Routing logic:
-      - image present + chemistry mode  →  MolScribe extracts molecule SMILES
-      - image present + any mode        →  CLIP describes the image content
-    - no image + natural_language     →  lexical coffee facts response
-        - no image + chemistry            →  MolScribe image-required guidance
+            - image present + chemistry mode  →  selected vision model chemistry analysis
+            - image present + any mode        →  selected vision model general analysis
+        - no image + natural_language     →  selected text model + lexical retrieval fallback
+            - no image + chemistry            →  selected text model chemistry helper
     """
     try:
         # Support both JSON and multipart form-data
@@ -470,7 +606,8 @@ def chat():
             mode = request.form.get("mode", "natural_language")
             request_id = request.form.get("request_id", "none")
             enable_thinking = _parse_optional_bool(request.form.get("enable_thinking"))
-            use_qwen = _parse_optional_bool(request.form.get("use_qwen"))
+            text_model = (request.form.get("text_model") or TEXT_MODEL_MINILM).strip()
+            vision_model = (request.form.get("vision_model") or VISION_MODEL_QWEN3_VL).strip()
         else:
             data = request.json
             if not data:
@@ -479,7 +616,8 @@ def chat():
             mode = data.get("mode", "natural_language")
             request_id = data.get("request_id", "none")
             enable_thinking = _parse_optional_bool(data.get("enable_thinking"))
-            use_qwen = _parse_optional_bool(data.get("use_qwen"))
+            text_model = str(data.get("text_model") or TEXT_MODEL_MINILM).strip()
+            vision_model = str(data.get("vision_model") or VISION_MODEL_QWEN3_VL).strip()
 
         if not TankaModel.is_valid_mode(mode):
             return jsonify({"error": f"Invalid mode. Valid modes: {VALID_MODES}"}), 400
@@ -490,69 +628,51 @@ def chat():
         # ---- Image path ----
         if image_file:
             image_bytes = image_file.read()
+            selected_vision_tag = _vision_model_tag(vision_model)
 
-            if mode == "chemistry":
-                # MolScribe: extract molecule structure from image
-                mol, molscribe_error = _run_with_timeout(
-                    tanka.predict_molecule,
-                    MOLSCRIBE_CHEMISTRY_TIMEOUT_SECONDS,
-                    image_bytes,
+            vision_result, vision_error = _run_with_timeout(
+                tanka.describe_image,
+                MOLECULE_IMAGE_TIMEOUT_SECONDS,
+                image_bytes,
+                vision_model_name=vision_model,
+                user_prompt=message,
+                chemistry_mode=(mode == "chemistry"),
+            )
+
+            if vision_error == "timeout":
+                logger.warning(
+                    "Vision runtime timed out after %ss for %s image request",
+                    MOLECULE_IMAGE_TIMEOUT_SECONDS,
+                    mode,
                 )
-                if molscribe_error == "timeout":
-                    logger.warning(
-                        "MolScribe timed out after %ss for chemistry image request",
-                        MOLSCRIBE_CHEMISTRY_TIMEOUT_SECONDS,
-                    )
+                response = f"{selected_vision_tag} runtime is in high demand right now, we're sorry for unavailability."
+                model_used = f"{selected_vision_tag} unavailable high-demand"
+            elif isinstance(vision_error, Exception):
+                logger.warning("Vision runtime unavailable for %s image request (%s)", mode, vision_error)
+                error_text = str(vision_error).lower()
+                if "mmproj" in error_text or "image input is not supported" in error_text:
                     response = (
-                        tanka.chemistry_molscribe_unavailable_text()
-                        if hasattr(tanka, "chemistry_molscribe_unavailable_text")
-                        else "MolScribe is in high demand right now, we're sorry for unavailability."
+                        f"{selected_vision_tag} runtime is currently unavailable in this deployment because "
+                        "a required vision projector file (mmproj) is missing."
                     )
-                    model_used = "molscribe-unavailable-high-demand"
-                elif isinstance(molscribe_error, Exception):
-                    logger.warning("MolScribe unavailable for chemistry image request (%s)", molscribe_error)
-                    response = (
-                        tanka.chemistry_molscribe_unavailable_text()
-                        if hasattr(tanka, "chemistry_molscribe_unavailable_text")
-                        else "MolScribe is in high demand right now, we're sorry for unavailability."
-                    )
-                    model_used = "molscribe-unavailable-high-demand"
+                    model_used = f"{selected_vision_tag} unavailable missing-mmproj"
                 else:
-                    if mol["smiles"]:
-                        response = (
-                            f"Molecule recognised.\n\n"
-                            f"**SMILES:** `{mol['smiles']}`\n"
-                            f"**Confidence:** {mol['confidence']:.2%}"
-                        )
-                    else:
-                        response = (
-                            "MolScribe could not detect a clear molecule structure in the image. "
-                            "Please try a cleaner structural diagram."
-                        )
-                    model_used = "MolScribe (swin_base_char_aux_200k) image recognition"
-
-                products = []
+                    response = f"{selected_vision_tag} runtime is in high demand right now, we're sorry for unavailability."
+                    model_used = f"{selected_vision_tag} unavailable high-demand"
             else:
-                # CLIP: describe image content
-                result = tanka.describe_image(image_bytes)
-                top = result["top_label"]
-                top3_lines = "\n".join(
-                    f"  {i + 1}. {label} ({prob:.1%})"
-                    for i, (label, prob) in enumerate(result["top3"])
-                )
-                response = (
-                    f"I can see: **{top}** ({result['top_prob']:.1%} confidence)\n\n"
-                    f"Top matches:\n{top3_lines}"
-                )
-                products = _recommend_products(top)
-                model_used = "CLIP ViT-B/32 image understanding"
+                response = str((vision_result or {}).get("text") or "I could not analyse this image.")
+                model_used = str((vision_result or {}).get("model_used") or selected_vision_tag)
+
+            products = [] if mode == "chemistry" else _recommend_products(message or response)
 
             return jsonify({
                 "status": "success",
                 "assistant_response": response,
                 "products": products,
-                "model": "Tanka",
+                "model": "Kafelot",
                 "model_used": model_used,
+                "text_model": text_model,
+                "vision_model": vision_model,
                 "mode": mode_label,
                 "request_id": request_id,
             })
@@ -563,22 +683,18 @@ def chat():
 
         if mode == "natural_language":
             rows, retrieval_backend = _search_facts_with_timeout(message, limit=5)
-            if use_qwen is False:
-                response, model_used = _build_minilm_text_response(message, rows, retrieval_backend)
-            else:
-                response, model_used = _build_coffee_text_response(
-                    message,
-                    rows,
-                    retrieval_backend,
-                    enable_thinking=enable_thinking,
-                )
+            response, model_used = _build_coffee_text_response(
+                message,
+                rows,
+                retrieval_backend,
+                text_model=text_model,
+                enable_thinking=enable_thinking,
+            )
 
         else:
-            # Chemistry mode (text-only): Qwen 3 response path when authorised.
-            # MiniLM is never used in Molecule Helper text flow.
             response, model_used = _build_chemistry_text_response(
                 message,
-                use_qwen=use_qwen,
+                text_model=text_model,
                 enable_thinking=enable_thinking,
             )
 
@@ -588,12 +704,14 @@ def chat():
             "status": "success",
             "assistant_response": response,
             "products": products,
-            "model": "Tanka",
+            "model": "Kafelot",
             "model_used": model_used,
+            "text_model": text_model,
             "mode": mode_label,
             "request_id": request_id,
         }
-        if str(model_used).lower().startswith("qwen3-local"):
+        model_used_lower = str(model_used).lower()
+        if "thinking" in model_used_lower:
             payload["thinking_mode"] = tanka.qwen_generation_mode()
 
         return jsonify(payload)
@@ -1158,35 +1276,35 @@ def health():
     qwen_meta = tanka.qwen_status()
     return jsonify({
         "status": "ok",
-        "model": "Tanka",
+        "model": "Kafelot",
         "modes": {
             "natural_language": {
                 "display": TankaModel.display_name("natural_language"),
-                "backend": "MiniLM semantic retrieval + lexical fallback",
-                "loaded": tanka._nlp_model is not None,
+                "backend": "multi-model llama.cpp text generation + lexical retrieval fallback",
+                "loaded": qwen_meta.get("status") == "ready",
             },
             "chemistry": {
                 "display": TankaModel.display_name("chemistry"),
-                "backend": "MolScribe (swin_base_char_aux_200k)",
-                "loaded": tanka._molscribe_model is not None,
+                "backend": "multi-model llama.cpp chemistry helper",
+                "loaded": qwen_meta.get("status") == "ready",
             },
         },
         "semantic_retrieval_model": tanka.nlp_status(),
         "coffee_text_model": qwen_meta,
         "chemistry_text_model": {
             "status": qwen_meta.get("status", "unknown"),
-            "backend": "Qwen 3 0.6B local (no MiniLM fallback)",
-            "loaded": tanka._qwen_model is not None,
+            "backend": "llama.cpp server",
+            "loaded": qwen_meta.get("status") == "ready",
             "error": qwen_meta.get("error", ""),
             "runtime_note": (
-                "Chemistry text requests use Qwen 3 when authorised; if Qwen is unavailable, "
-                "a high-demand unavailability message is returned. Chemistry image requests use "
-                "MolScribe (swin_base_char_aux_200k)."
+                "Chemistry text requests use subscription-selected GGUF models "
+                "(MiniLM-L6-v2, Qwen3-0.6B, Qwen3-0.6B Thinking, Gemma3-1B)."
             ),
         },
         "image_model": {
-            "backend": "CLIP (ViT-B/32)",
-            "loaded": tanka._clip_model is not None,
+            "backend": "subscription-selected vision GGUF model (Qwen3-VL)",
+            "loaded": qwen_meta.get("status") == "ready",
+            "default_model": qwen_meta.get("default_vision_model", VISION_MODEL_QWEN3_VL),
         },
         "database": "postgresql",
     })

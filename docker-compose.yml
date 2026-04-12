@@ -11,7 +11,8 @@ services:
         environment:
             POSTGRES_DB: ${DB_NAME:-filspresso}
             POSTGRES_USER: ${DB_USER:-filspresso_user}
-            POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:-}
+            POSTGRES_PASSWORD_FILE: ${DB_PASSWORD_FILE:-}
         ports:
             - "5432:5432"
         volumes:
@@ -42,6 +43,29 @@ services:
             retries: 5
 
     # -------------------------------------------------------------------------
+    # 2b. OPA Policy Engine  (authorization control plane)
+    # -------------------------------------------------------------------------
+    opa:
+        image: openpolicyagent/opa:0.66.0
+        container_name: filspresso_opa
+        restart: unless-stopped
+        command:
+            - run
+            - --server
+            - --addr=0.0.0.0:8181
+            - --set=decision_logs.console=true
+            - /policies
+        ports:
+            - "8181:8181"
+        volumes:
+            - ./security/opa/policies:/policies:ro
+        healthcheck:
+            test: ["CMD", "opa", "version"]
+            interval: 20s
+            timeout: 5s
+            retries: 5
+
+    # -------------------------------------------------------------------------
     # 3. Backend  (Express.js REST API)
     # -------------------------------------------------------------------------
     backend:
@@ -53,6 +77,10 @@ services:
         depends_on:
             postgres:
                 condition: service_healthy
+            opa:
+                condition: service_started
+            rust_crypto:
+                condition: service_started
             invoice_java:
                 condition: service_started
             go_ops:
@@ -66,12 +94,42 @@ services:
             DB_PORT: 5432
             DB_NAME: ${DB_NAME:-filspresso}
             DB_USER: ${DB_USER:-filspresso_user}
-            DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
-            JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-            ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
-            SERVICE_EVENTS_API_KEY: ${SERVICE_EVENTS_API_KEY:?SERVICE_EVENTS_API_KEY is required}
+            DB_PASSWORD: ${DB_PASSWORD:-}
+            DB_PASSWORD_FILE: ${DB_PASSWORD_FILE:-}
+            BACKEND_DB_USER: ${BACKEND_DB_USER:-}
+            BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-}
+            BACKEND_DB_PASSWORD_FILE: ${BACKEND_DB_PASSWORD_FILE:-}
+            STRICT_SERVICE_DB_CREDENTIALS: ${STRICT_SERVICE_DB_CREDENTIALS:-false}
+            JWT_SECRET: ${JWT_SECRET:-}
+            JWT_SECRET_FILE: ${JWT_SECRET_FILE:-}
+            JWT_SIGNING_PRIVATE_KEY: ${JWT_SIGNING_PRIVATE_KEY:-}
+            JWT_SIGNING_PRIVATE_KEY_FILE: ${JWT_SIGNING_PRIVATE_KEY_FILE:-}
+            JWT_SIGNING_PUBLIC_KEY: ${JWT_SIGNING_PUBLIC_KEY:-}
+            JWT_SIGNING_PUBLIC_KEY_FILE: ${JWT_SIGNING_PUBLIC_KEY_FILE:-}
+            JWT_SIGNING_KEY_ID: ${JWT_SIGNING_KEY_ID:-jwt-k1}
+            JWT_SIGNING_PREVIOUS_PUBLIC_KEYS_JSON: ${JWT_SIGNING_PREVIOUS_PUBLIC_KEYS_JSON:-}
+            JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+            JWT_ISSUER: ${JWT_ISSUER:-http://localhost:4000}
+            JWT_AUDIENCE: ${JWT_AUDIENCE:-filspresso-users}
+            AUTH_SESSION_IDLE_TIMEOUT_DAYS: ${AUTH_SESSION_IDLE_TIMEOUT_DAYS:-30}
+            ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+            ENCRYPTION_KEY_FILE: ${ENCRYPTION_KEY_FILE:-}
+            ENCRYPTION_KEY_LEGACY: ${ENCRYPTION_KEY_LEGACY:-}
+            ENCRYPTION_KEY_LEGACY_FILE: ${ENCRYPTION_KEY_LEGACY_FILE:-}
+            VAULT_KEK: ${VAULT_KEK:-}
+            VAULT_KEK_FILE: ${VAULT_KEK_FILE:-}
+            VAULT_KEK_ID: ${VAULT_KEK_ID:-kek-local-v1}
+            SERVICE_EVENTS_API_KEY: ${SERVICE_EVENTS_API_KEY:-}
+            SERVICE_EVENTS_API_KEY_FILE: ${SERVICE_EVENTS_API_KEY_FILE:-}
+            SERVICE_ASSERTION_PUBLIC_KEY: ${SERVICE_ASSERTION_PUBLIC_KEY:-}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: ${SERVICE_ASSERTION_PUBLIC_KEY_FILE:-}
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-}
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ALLOWED_SCOPES: ${SERVICE_ASSERTION_ALLOWED_SCOPES:-service-events:write,service-invoice:render,service-subscriptions:quote,service-crypto:commitment,service-crypto:verify,service-threshold:initiate,service-threshold:approve,service-threshold:execute}
+            KEY_USAGE_POLICY_JSON: ${KEY_USAGE_POLICY_JSON:-}
             CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
             FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+            BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:4000}
             GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
             GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
             GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
@@ -82,9 +140,51 @@ services:
             INVOICE_SERVICE_URL: http://invoice-java:8082
             GO_OPS_URL: http://go-ops:8083
             GO_OPS_API_KEY: ${GO_OPS_API_KEY:-filspresso-ops-key}
+            GO_OPS_API_KEY_FILE: ${GO_OPS_API_KEY_FILE:-}
+            GO_OPS_TIMEOUT_MS: ${GO_OPS_TIMEOUT_MS:-5000}
+            GO_OPS_REQUIRE_TLS: ${GO_OPS_REQUIRE_TLS:-false}
+            GO_OPS_REQUIRE_SERVICE_ASSERTION: ${GO_OPS_REQUIRE_SERVICE_ASSERTION:-false}
+            GO_OPS_SERVICE_ASSERTION_SCOPE: ${GO_OPS_SERVICE_ASSERTION_SCOPE:-service-events:write}
+            INVOICE_REQUIRE_SERVICE_ASSERTION: ${INVOICE_REQUIRE_SERVICE_ASSERTION:-false}
+            INVOICE_SERVICE_ASSERTION_SCOPE: ${INVOICE_SERVICE_ASSERTION_SCOPE:-service-invoice:render}
+            KOTLIN_SUBSCRIPTIONS_REQUIRE_SERVICE_ASSERTION: ${KOTLIN_SUBSCRIPTIONS_REQUIRE_SERVICE_ASSERTION:-false}
+            KOTLIN_SUBSCRIPTIONS_SERVICE_ASSERTION_SCOPE: ${KOTLIN_SUBSCRIPTIONS_SERVICE_ASSERTION_SCOPE:-service-subscriptions:quote}
+            GO_OPS_TLS_SERVERNAME: ${GO_OPS_TLS_SERVERNAME:-go-ops}
+            GO_OPS_CLIENT_CERT: ${GO_OPS_CLIENT_CERT:-}
+            GO_OPS_CLIENT_CERT_FILE: ${GO_OPS_CLIENT_CERT_FILE:-}
+            GO_OPS_CLIENT_KEY: ${GO_OPS_CLIENT_KEY:-}
+            GO_OPS_CLIENT_KEY_FILE: ${GO_OPS_CLIENT_KEY_FILE:-}
+            GO_OPS_CA_CERT: ${GO_OPS_CA_CERT:-}
+            GO_OPS_CA_CERT_FILE: ${GO_OPS_CA_CERT_FILE:-}
+            INTERNAL_EGRESS_ALLOWLIST: ${INTERNAL_EGRESS_ALLOWLIST:-go-ops,rust-crypto,invoice-java,kotlin-subscriptions,ai,opa,localhost,127.0.0.1}
             KOTLIN_SUBSCRIPTIONS_URL: http://kotlin-subscriptions:8084
+            RUST_CRYPTO_URL: ${RUST_CRYPTO_URL:-http://rust-crypto:8090}
+            RUST_CRYPTO_TIMEOUT_MS: ${RUST_CRYPTO_TIMEOUT_MS:-4000}
+            RUST_CRYPTO_REQUIRE_SERVICE_ASSERTION: ${RUST_CRYPTO_REQUIRE_SERVICE_ASSERTION:-false}
+            RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_COMMITMENT: ${RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_COMMITMENT:-service-crypto:commitment}
+            RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_VERIFY: ${RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_VERIFY:-service-crypto:verify}
+            CRYPTO_THRESHOLD_DEFAULT_APPROVALS: ${CRYPTO_THRESHOLD_DEFAULT_APPROVALS:-2}
+            OPERATION_REPLAY_REQUIRE_ID: ${OPERATION_REPLAY_REQUIRE_ID:-false}
+            OPERATION_REPLAY_TTL_SECONDS: ${OPERATION_REPLAY_TTL_SECONDS:-900}
+            CSRF_REQUIRE_ORIGIN_FOR_COOKIE: ${CSRF_REQUIRE_ORIGIN_FOR_COOKIE:-true}
+            CSRF_ENFORCE_FETCH_METADATA: ${CSRF_ENFORCE_FETCH_METADATA:-true}
             SERVICE_METRICS_STRICT_DB_ONLY: ${SERVICE_METRICS_STRICT_DB_ONLY:-false}
             ADMIN_HEALTH_URL: ${ADMIN_HEALTH_URL:-}
+            OPA_URL: ${OPA_URL:-http://opa:8181/v1/data/filspresso/authz/allow}
+            OPA_FAIL_CLOSED: ${OPA_FAIL_CLOSED:-false}
+            OPA_TIMEOUT_MS: ${OPA_TIMEOUT_MS:-1500}
+            SECURITY_OBSERVABILITY_WINDOW_MINUTES: ${SECURITY_OBSERVABILITY_WINDOW_MINUTES:-60}
+            SECURITY_OBSERVABILITY_MPC_STALE_MINUTES: ${SECURITY_OBSERVABILITY_MPC_STALE_MINUTES:-30}
+            SECURITY_LEDGER_ARCHIVE_ENABLED: ${SECURITY_LEDGER_ARCHIVE_ENABLED:-true}
+            SECURITY_LEDGER_ARCHIVE_INTERVAL_MS: ${SECURITY_LEDGER_ARCHIVE_INTERVAL_MS:-3600000}
+            SECURITY_ARCHIVE_OLDER_THAN_HOURS: ${SECURITY_ARCHIVE_OLDER_THAN_HOURS:-24}
+            SECURITY_ARCHIVE_LIMIT: ${SECURITY_ARCHIVE_LIMIT:-500}
+            SECURITY_ARCHIVE_CHAIN_SCOPE: ${SECURITY_ARCHIVE_CHAIN_SCOPE:-}
+            SECURITY_ALERT_WEBHOOK_URL: ${SECURITY_ALERT_WEBHOOK_URL:-}
+            SECURITY_ALERT_WEBHOOK_TIMEOUT_MS: ${SECURITY_ALERT_WEBHOOK_TIMEOUT_MS:-4000}
+            SECURITY_ALERT_DISPATCH_MIN_SEVERITY: ${SECURITY_ALERT_DISPATCH_MIN_SEVERITY:-high}
+            SERVICE_ASSERTION_PRIVATE_KEY: ${SERVICE_ASSERTION_PRIVATE_KEY:-}
+            SERVICE_ASSERTION_PRIVATE_KEY_FILE: ${SERVICE_ASSERTION_PRIVATE_KEY_FILE:-}
         volumes:
             # Mount product images so the backend can read/write images (admin uploads)
             - ./public/images:/public/images
@@ -98,6 +198,39 @@ services:
             start_period: 20s
 
     # -------------------------------------------------------------------------
+    # 4a. Rust Crypto Service  (crypto control-plane helper)
+    # -------------------------------------------------------------------------
+    rust_crypto:
+        build:
+            context: ./rust-crypto-service
+            dockerfile: Dockerfile
+        container_name: filspresso_rust_crypto
+        restart: unless-stopped
+        environment:
+            PORT: 8090
+            RUST_CRYPTO_MAX_BODY_BYTES: ${RUST_CRYPTO_MAX_BODY_BYTES:-65536}
+            SERVICE_ASSERTION_REQUIRED: ${RUST_CRYPTO_REQUIRE_SERVICE_ASSERTION:-false}
+            SERVICE_ASSERTION_SCOPE_COMMITMENT: ${RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_COMMITMENT:-service-crypto:commitment}
+            SERVICE_ASSERTION_SCOPE_VERIFY: ${RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_VERIFY:-service-crypto:verify}
+            SERVICE_ASSERTION_PUBLIC_KEY: ${SERVICE_ASSERTION_PUBLIC_KEY:-}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: ${SERVICE_ASSERTION_PUBLIC_KEY_FILE:-}
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-}
+            SERVICE_ASSERTION_ENFORCE_REPLAY: ${SERVICE_ASSERTION_ENFORCE_REPLAY:-true}
+            SERVICE_ASSERTION_REPLAY_TTL_SECONDS: ${SERVICE_ASSERTION_REPLAY_TTL_SECONDS:-900}
+        ports:
+            - "8090:8090"
+        networks:
+            default:
+                aliases:
+                    - rust-crypto
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 5
+
+    # -------------------------------------------------------------------------
     # 4. Java Invoice Service  (PDF generation)
     # -------------------------------------------------------------------------
     invoice_java:
@@ -108,6 +241,12 @@ services:
         restart: unless-stopped
         environment:
             INVOICE_LOGO_PATH: /app/public/images/Logo_filspresso_web.png
+            SERVICE_ASSERTION_REQUIRED: ${INVOICE_REQUIRE_SERVICE_ASSERTION:-false}
+            SERVICE_ASSERTION_SCOPE: ${INVOICE_SERVICE_ASSERTION_SCOPE:-service-invoice:render}
+            SERVICE_ASSERTION_PUBLIC_KEY: ${SERVICE_ASSERTION_PUBLIC_KEY:-}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: ${SERVICE_ASSERTION_PUBLIC_KEY_FILE:-}
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-}
         ports:
             - "8082:8082"
         volumes:
@@ -135,18 +274,36 @@ services:
             redis:
                 condition: service_healthy
         environment:
-            PORT: 8083
+            PORT: ${GO_OPS_PORT:-8083}
             OPS_API_KEY: ${GO_OPS_API_KEY:-filspresso-ops-key}
+            OPS_API_KEY_FILE: ${GO_OPS_API_KEY_FILE:-}
             REDIS_URL: redis:6379
+            REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+            REDIS_PASSWORD_FILE: ${REDIS_PASSWORD_FILE:-}
             OPS_EVENTS_KEY: ops:events
+            GO_OPS_TLS_CERT_FILE: ${GO_OPS_TLS_CERT_FILE:-}
+            GO_OPS_TLS_KEY_FILE: ${GO_OPS_TLS_KEY_FILE:-}
+            GO_OPS_TLS_CLIENT_CA_FILE: ${GO_OPS_TLS_CLIENT_CA_FILE:-}
+            GO_OPS_REQUIRE_MTLS: ${GO_OPS_REQUIRE_MTLS:-false}
+            GO_OPS_ALLOWED_SPIFFE_IDS: ${GO_OPS_ALLOWED_SPIFFE_IDS:-}
+            GO_OPS_REQUIRE_SERVICE_ASSERTION: ${GO_OPS_REQUIRE_SERVICE_ASSERTION:-false}
+            GO_OPS_SERVICE_ASSERTION_SCOPE: ${GO_OPS_SERVICE_ASSERTION_SCOPE:-service-events:write}
+            SERVICE_ASSERTION_PUBLIC_KEY: ${SERVICE_ASSERTION_PUBLIC_KEY:-}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: ${SERVICE_ASSERTION_PUBLIC_KEY_FILE:-}
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-}
         ports:
-            - "8083:8083"
+            - "${GO_OPS_PUBLIC_PORT:-8083}:${GO_OPS_PORT:-8083}"
         networks:
             default:
                 aliases:
                     - go-ops
         healthcheck:
-            test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
+            test:
+                [
+                    "CMD-SHELL",
+                    'if [ -n "$$GO_OPS_TLS_CERT_FILE" ]; then wget -qO- --no-check-certificate https://localhost:${GO_OPS_PORT:-8083}/health || exit 1; else wget -qO- http://localhost:${GO_OPS_PORT:-8083}/health || exit 1; fi',
+                ]
             interval: 20s
             timeout: 5s
             retries: 5
@@ -160,6 +317,13 @@ services:
             dockerfile: Dockerfile
         container_name: filspresso_kotlin_subscriptions
         restart: unless-stopped
+        environment:
+            SERVICE_ASSERTION_REQUIRED: ${KOTLIN_SUBSCRIPTIONS_REQUIRE_SERVICE_ASSERTION:-false}
+            SERVICE_ASSERTION_SCOPE: ${KOTLIN_SUBSCRIPTIONS_SERVICE_ASSERTION_SCOPE:-service-subscriptions:quote}
+            SERVICE_ASSERTION_PUBLIC_KEY: ${SERVICE_ASSERTION_PUBLIC_KEY:-}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: ${SERVICE_ASSERTION_PUBLIC_KEY_FILE:-}
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-}
         ports:
             - "8084:8084"
         networks:
@@ -173,7 +337,7 @@ services:
             retries: 5
 
     # -------------------------------------------------------------------------
-    # 7. AI  (Tanka model — MiniLM / CLIP / MolScribe via Flask)
+    # 7. AI API  (Flask gateway for chat, molecules, IoT)
     # -------------------------------------------------------------------------
     ai:
         build:
@@ -181,34 +345,46 @@ services:
             dockerfile: Dockerfile.ai
         container_name: filspresso_ai
         restart: unless-stopped
-        gpus: all
         depends_on:
             postgres:
                 condition: service_healthy
+            llama_minilm:
+                condition: service_started
+            llama_qwen:
+                condition: service_started
+            llama_gemma:
+                condition: service_started
+            llama_vision_qwen3_vl:
+                condition: service_started
         environment:
             DB_HOST: postgres
             DB_PORT: 5432
             DB_NAME: ${DB_NAME:-filspresso}
             DB_USER: ${DB_USER:-filspresso_user}
-            DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+            DB_PASSWORD: ${DB_PASSWORD:-}
+            DB_PASSWORD_FILE: ${DB_PASSWORD_FILE:-}
+            AI_DB_USER: ${AI_DB_USER:-}
+            AI_DB_PASSWORD: ${AI_DB_PASSWORD:-}
+            AI_DB_PASSWORD_FILE: ${AI_DB_PASSWORD_FILE:-}
+            STRICT_SERVICE_DB_CREDENTIALS: ${STRICT_SERVICE_DB_CREDENTIALS:-false}
             PYTHON_AI_PORT: 5000
-            QWEN_COFFEE_TIMEOUT_SECONDS: ${QWEN_COFFEE_TIMEOUT_SECONDS:-300}
-            QWEN_CHEMISTRY_TIMEOUT_SECONDS: ${QWEN_CHEMISTRY_TIMEOUT_SECONDS:-300}
-            MOLSCRIBE_CHEMISTRY_TIMEOUT_SECONDS: ${MOLSCRIBE_CHEMISTRY_TIMEOUT_SECONDS:-300}
-            QWEN_COFFEE_MAX_NEW_TOKENS: ${QWEN_COFFEE_MAX_NEW_TOKENS:-320}
-            QWEN_CHEMISTRY_MAX_NEW_TOKENS: ${QWEN_CHEMISTRY_MAX_NEW_TOKENS:-384}
-            QWEN_WARMUP_ON_STARTUP: ${QWEN_WARMUP_ON_STARTUP:-true}
-            NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
-            NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+            LLAMA_CPP_BASE_URL: ${LLAMA_CPP_BASE_URL:-http://llama-qwen:8080}
+            LLAMA_CPP_MODEL: ${LLAMA_CPP_MODEL:-Qwen3-0.6B-Q8_0.gguf}
+            LLAMA_CPP_VISION_MODEL: ${LLAMA_CPP_VISION_MODEL:-Qwen3-VL-2B-Q4_0.gguf}
+            LLAMA_CPP_MINILM_BASE_URL: ${LLAMA_CPP_MINILM_BASE_URL:-http://llama-minilm:8080}
+            LLAMA_CPP_QWEN_BASE_URL: ${LLAMA_CPP_QWEN_BASE_URL:-http://llama-qwen:8080}
+            LLAMA_CPP_GEMMA_BASE_URL: ${LLAMA_CPP_GEMMA_BASE_URL:-http://llama-gemma:8080}
+            LLAMA_CPP_QWEN3_VL_BASE_URL: ${LLAMA_CPP_QWEN3_VL_BASE_URL:-http://llama-vision-qwen3-vl:8080}
+            LLAMA_CPP_TIMEOUT_SECONDS: ${LLAMA_CPP_TIMEOUT_SECONDS:-180}
+            LLAMA_CPP_WARMUP_ON_STARTUP: ${LLAMA_CPP_WARMUP_ON_STARTUP:-true}
+            LLAMA_COFFEE_TIMEOUT_SECONDS: ${LLAMA_COFFEE_TIMEOUT_SECONDS:-300}
+            LLAMA_CHEMISTRY_TIMEOUT_SECONDS: ${LLAMA_CHEMISTRY_TIMEOUT_SECONDS:-300}
+            MOLECULE_IMAGE_TIMEOUT_SECONDS: ${MOLECULE_IMAGE_TIMEOUT_SECONDS:-300}
+            LLAMA_COFFEE_MAX_NEW_TOKENS: ${LLAMA_COFFEE_MAX_NEW_TOKENS:-320}
+            LLAMA_CHEMISTRY_MAX_NEW_TOKENS: ${LLAMA_CHEMISTRY_MAX_NEW_TOKENS:-384}
         ports:
             - "5000:5000"
         volumes:
-            # MiniLM (sentence-transformers) model cache
-            - hf_cache:/root/.cache/huggingface
-            # CLIP ViT-B/32 model cache
-            - clip_cache:/root/.cache/clip
-            # MolScribe .pth weights (seeded from image on first run, then persisted)
-            - molscribe_model:/app/models/model
             # Persist generated user icons
             - ./public/images/icons:/app/public/images/icons
         healthcheck:
@@ -217,14 +393,155 @@ services:
             timeout: 10s
             retries: 5
 
+    # -------------------------------------------------------------------------
+    # 8. llama.cpp runtimes  (one container per GGUF model)
+    # NOTE: all model containers listen on internal port 8080; this is safe
+    # because each container has its own network namespace.
+    # -------------------------------------------------------------------------
+    llama_minilm:
+        image: ${AI_MODELS_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+        container_name: filspresso_llama_minilm
+        restart: unless-stopped
+        gpus: all
+        environment:
+            NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+            NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+        command:
+            - -m
+            - /models/MiniLM-L6-v2.gguf
+            - --alias
+            - MiniLM-L6-v2.gguf
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8080"
+            - -ngl
+            - "99"
+            - -c
+            - "4096"
+        expose:
+            - "8080"
+        volumes:
+            - ./models/model:/models:ro
+        networks:
+            default:
+                aliases:
+                    - llama-minilm
+        healthcheck:
+            test: ["CMD-SHELL", "ps -o comm= 1 | grep -q llama-server"]
+            interval: 20s
+            timeout: 10s
+            retries: 5
+
+    llama_qwen:
+        image: ${AI_MODELS_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+        container_name: filspresso_llama_qwen
+        restart: unless-stopped
+        gpus: all
+        environment:
+            NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+            NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+        command:
+            - -m
+            - /models/Qwen3-0.6B-Q8_0.gguf
+            - --alias
+            - Qwen3-0.6B-Q8_0.gguf
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8080"
+            - -ngl
+            - "999"
+            - -c
+            - "8192"
+        expose:
+            - "8080"
+        volumes:
+            - ./models/model:/models:ro
+        networks:
+            default:
+                aliases:
+                    - llama-qwen
+                    - llama-cpp
+        healthcheck:
+            test: ["CMD-SHELL", "ps -o comm= 1 | grep -q llama-server"]
+            interval: 20s
+            timeout: 10s
+            retries: 5
+
+    llama_gemma:
+        image: ${AI_MODELS_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+        container_name: filspresso_llama_gemma
+        restart: unless-stopped
+        gpus: all
+        environment:
+            NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+            NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+        command:
+            - -m
+            - /models/Gemma3-1B-it-Q4_0.gguf
+            - --alias
+            - Gemma3-1B-it-Q4_0.gguf
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8080"
+            - -ngl
+            - "999"
+            - -c
+            - "8192"
+        expose:
+            - "8080"
+        volumes:
+            - ./models/model:/models:ro
+        networks:
+            default:
+                aliases:
+                    - llama-gemma
+        healthcheck:
+            test: ["CMD-SHELL", "ps -o comm= 1 | grep -q llama-server"]
+            interval: 20s
+            timeout: 10s
+            retries: 5
+
+    llama_vision_qwen3_vl:
+        image: ${AI_MODELS_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+        container_name: filspresso_llama_vision_qwen3_vl
+        restart: unless-stopped
+        gpus: all
+        environment:
+            NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+            NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+            LLAMA_CPP_QWEN3_VL_MODEL_FILE: ${LLAMA_CPP_QWEN3_VL_MODEL_FILE:-Qwen3-VL-2B-Q4_0.gguf}
+            LLAMA_CPP_QWEN3_VL_MMPROJ: ${LLAMA_CPP_QWEN3_VL_MMPROJ:-Qwen3-VL-2B-Q4_0_mmproj.gguf}
+        entrypoint: ["/bin/sh", "-lc"]
+        command:
+            - >
+                set -eu;
+                ARGS="-m /models/$${LLAMA_CPP_QWEN3_VL_MODEL_FILE} --alias Qwen3-VL-2B-Q4_0.gguf --host 0.0.0.0 --port 8080 -ngl 999 -c 4096";
+                if [ -n "$${LLAMA_CPP_QWEN3_VL_MMPROJ:-}" ] && [ -f "/models/$${LLAMA_CPP_QWEN3_VL_MMPROJ}" ]; then
+                    ARGS="$$ARGS --mmproj /models/$${LLAMA_CPP_QWEN3_VL_MMPROJ}";
+                    echo "Using Qwen3-VL vision projector: /models/$${LLAMA_CPP_QWEN3_VL_MMPROJ}";
+                else
+                    echo "Qwen3-VL mmproj is not configured/found; image input will be unavailable for this service.";
+                fi;
+                exec /app/llama-server $$ARGS
+        expose:
+            - "8080"
+        volumes:
+            - ./models/model:/models:ro
+        networks:
+            default:
+                aliases:
+                    - llama-vision-qwen3-vl
+        healthcheck:
+            test: ["CMD-SHELL", "ps -o comm= 1 | grep -q llama-server"]
+            interval: 20s
+            timeout: 10s
+            retries: 5
+
 volumes:
     postgres_data:
         driver: local
     redis_data:
-        driver: local
-    hf_cache:
-        driver: local
-    clip_cache:
-        driver: local
-    molscribe_model:
         driver: local

@@ -10,8 +10,9 @@ const sections = [
 			<>
 				<p>
 					Kafelot is an AI-powered coffee assistant built into the Filspresso platform. It uses a lightweight language
-					model called <strong>Tanka</strong> to answer questions about coffee, suggest Nespresso capsules based on your
-					taste preferences, and, for Ultimate subscribers, explore molecular structures of coffee-related compounds.
+					model stack (MiniLM, Qwen, Gemma, and eligible vision GGUF models) to answer questions about coffee, suggest
+					Nespresso capsules based on your taste preferences, and, for Ultimate subscribers, explore molecular
+					structures of coffee-related compounds.
 				</p>
 				<p>
 					Kafelot is designed to be helpful, fast, and focused. Like all AI systems, it can sometimes produce inaccurate
@@ -202,9 +203,9 @@ const sections = [
 		content: (
 			<>
 				<p>
-					Kafelot uses rule-based logic combined with semantic search (Tanka model) to respond to your questions. While
-					we strive for accuracy, AI systems can and do make mistakes — including errors about people, places, products,
-					and scientific facts.
+					Kafelot uses rule-based logic combined with retrieval and subscription-selected GGUF models to respond to your
+					questions. While we strive for accuracy, AI systems can and do make mistakes — including errors about people,
+					places, products, and scientific facts.
 				</p>
 				<p>
 					<strong>Do not rely on Kafelot for medical, legal, financial, or safety-critical decisions.</strong>{" "}

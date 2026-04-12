@@ -1,0 +1,53 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+    name: verify-image-signatures-and-provenance
+    annotations:
+        policies.kyverno.io/title: Verify signed images and provenance
+        policies.kyverno.io/category: Supply Chain Security
+        policies.kyverno.io/severity: high
+spec:
+    validationFailureAction: Enforce
+    background: true
+    webhookTimeoutSeconds: 30
+    failurePolicy: Fail
+    rules:
+        - name: verify-keyless-signature
+          match:
+              any:
+                  - resources:
+                        kinds:
+                            - Pod
+          verifyImages:
+              - imageReferences:
+                    - "ghcr.io/darkshadow1107/*"
+                mutateDigest: true
+                required: true
+                attestors:
+                    - entries:
+                          - keyless:
+                                issuer: "https://token.actions.githubusercontent.com"
+                                subjectRegExp: "^https://github.com/DarkShadow1107/filspresso_next/.+"
+        - name: verify-slsa-provenance-attestation
+          match:
+              any:
+                  - resources:
+                        kinds:
+                            - Pod
+          verifyImages:
+              - imageReferences:
+                    - "ghcr.io/darkshadow1107/*"
+                mutateDigest: true
+                required: true
+                attestations:
+                    - type: https://slsa.dev/provenance/v1
+                      attestors:
+                          - entries:
+                                - keyless:
+                                      issuer: "https://token.actions.githubusercontent.com"
+                                      subjectRegExp: "^https://github.com/DarkShadow1107/filspresso_next/.+"
+                      conditions:
+                          all:
+                              - key: "{{ invocation.configSource.uri }}"
+                                operator: Equals
+                                value: "git+https://github.com/DarkShadow1107/filspresso_next"

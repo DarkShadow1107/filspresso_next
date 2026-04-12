@@ -5,15 +5,32 @@ on:
         branches:
             - "**"
     pull_request:
-  workflow_dispatch:
+    schedule:
+        - cron: "17 3 * * *"
+    workflow_dispatch:
 
 permissions:
     contents: read
+    id-token: write
+    attestations: write
 
 jobs:
+    signed-history-policy:
+        name: Signed Commit History Policy
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout full history
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Verify signed commit history
+              run: node scripts/verifySignedHistory.mjs
+
     frontend-security:
         name: Frontend Security Checks
         runs-on: ubuntu-latest
+        needs: [signed-history-policy]
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -39,6 +56,7 @@ jobs:
     backend-security:
         name: Backend Security Checks
         runs-on: ubuntu-latest
+        needs: [signed-history-policy]
         defaults:
             run:
                 working-directory: express-api
@@ -59,9 +77,20 @@ jobs:
             - name: Audit backend dependencies (high+)
               run: npm audit --audit-level=high
 
+            - name: Validate security automation scripts
+              run: |
+                  node --check scripts/archive_security_ledger.js
+                  node --check scripts/security_anomaly_report.js
+                  node --check scripts/post_incident_integrity_check.js
+                  node --check scripts/incident_containment_playbook.js
+
+            - name: Verify internal service assertion matrix
+              run: npm run test:internal-assertion-matrix
+
     python-security:
         name: Python Dependency Audit
         runs-on: ubuntu-latest
+        needs: [signed-history-policy]
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -79,3 +108,95 @@ jobs:
 
             - name: Audit model Python dependencies
               run: pip-audit -r models/requirements.txt
+
+    supply-chain-security:
+        name: Supply Chain Security Gates
+        runs-on: ubuntu-latest
+        needs: [signed-history-policy]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: npm
+
+            - name: Install workspace dependencies
+              run: npm ci
+
+            - name: Verify Docker base image reproducibility policy
+              env:
+                  REQUIRE_PINNED_BASE_IMAGES: "true"
+              run: node scripts/verifyDockerfileBaseImages.mjs
+
+            - name: Verify deploy-time image signature policy assets
+              run: node scripts/verifyDeploySignaturePolicy.mjs
+
+            - name: Build immutable security manifest
+              run: |
+                  sha256sum \
+                    docker-compose.yml \
+                    docker-compose.security.yml \
+                    Dockerfile.ai \
+                    Dockerfile.db \
+                    Dockerfile.express \
+                    go-ops-service/Dockerfile \
+                    rust-crypto-service/Dockerfile \
+                    java-invoice-service/Dockerfile \
+                    kotlin-subscription-service/Dockerfile \
+                    .github/workflows/security-ci.yml \
+                    > security-manifest.sha256
+
+            - name: Install cosign
+              uses: sigstore/cosign-installer@v3.8.1
+
+            - name: Sign security manifest with keyless Sigstore identity
+              run: |
+                  cosign sign-blob --yes \
+                    --output-signature security-manifest.sig \
+                    --output-certificate security-manifest.pem \
+                    security-manifest.sha256
+
+            - name: Verify keyless signature over security manifest
+              run: |
+                  cosign verify-blob \
+                    --certificate security-manifest.pem \
+                    --signature security-manifest.sig \
+                    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                    --certificate-identity-regexp "^https://github.com/.+/.+/.github/workflows/security-ci.yml@.+$" \
+                    security-manifest.sha256
+
+            - name: Publish build provenance attestation for manifest
+              uses: actions/attest-build-provenance@v2
+              with:
+                  subject-path: security-manifest.sha256
+
+            - name: Generate SBOM (SPDX JSON)
+              uses: anchore/sbom-action@v0
+              with:
+                  path: .
+                  format: spdx-json
+                  output-file: sbom.spdx.json
+
+            - name: Upload SBOM and signature artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: filspresso-sbom
+                  path: |
+                      sbom.spdx.json
+                      security-manifest.sha256
+                      security-manifest.sig
+                      security-manifest.pem
+
+            - name: Filesystem vulnerability scan (HIGH/CRITICAL)
+              uses: aquasecurity/trivy-action@0.30.0
+              with:
+                  scan-type: fs
+                  scan-ref: .
+                  severity: HIGH,CRITICAL
+                  ignore-unfixed: true
+                  exit-code: "1"

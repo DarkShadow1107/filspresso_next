@@ -1,10 +1,10 @@
 {
 	"greetings": [
-		"Hi! I am Tanka, your quick coffee wingman. Toss me a short question and I will guide you toward a tasty cup in no time.",
-		"Hello there, Tanka ready to steer you through capsules, flavors, and brewing basics without any fuss.",
-		"Hey! You can count on Tanka for instant coffee clarity—just tell me what you are craving."
+		"Hi! I am Kafelot, your quick coffee wingman. Toss me a short question and I will guide you toward a tasty cup in no time.",
+		"Hello there, Kafelot ready to steer you through capsules, flavors, and brewing basics without any fuss.",
+		"Hey! You can count on Kafelot for instant coffee clarity—just tell me what you are craving."
 	],
-	"fallback": "I am Tanka, built for fast coffee pointers. Mention intensity, flavors, time of day, capsule types, or machine questions and I will keep the answer focused, friendly, and practical.",
+	"fallback": "I am Kafelot, built for fast coffee pointers. Mention intensity, flavors, time of day, capsule types, or machine questions and I will keep the answer focused, friendly, and practical.",
 	"answers": {
 		"brewing": "Great coffee is mostly about repeatable habits. Start with fresh capsules, rinse the machine for a few seconds, and preheat your cup so the crema stays silky. Keep your water clean—filtration or bottled water between 90 and 96 C protects flavor and protects the machine from scale.\n\nWatch the timer as a guide: Original espresso should land around 25 seconds for 40 ml, while a lungo stretches to roughly 40 seconds for 110 ml. If the pour is racing, descale or run a cleaning cycle. If it drips too slowly, eject the capsule and give the brew head a quick wipe before trying again. Add a gentle stir at the end for bigger cups to keep the layers tasting balanced.",
 		"caffeine": "Caffeine blocks adenosine receptors, so you feel alert instead of sleepy. A standard espresso capsule delivers about 60 to 80 mg, lungos climb near 110 mg, and Vertuo mug capsules can climb above 160 mg. You feel the lift in 30 to 45 minutes, the strongest effects last about 3 hours, and then it tapers off.\n\nIf you are sensitive, switch to Half Caffeinato after lunch, brew shorter (ristretto style) for less volume, or stretch the shot with milk or water to make it feel gentler. Keep water nearby and pause after three cups so you do not edge into jitters or late-night staring at the ceiling.",

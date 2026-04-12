@@ -1,79 +1,40 @@
 # syntax=docker/dockerfile:1.7
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:233de06753d30d120b1a3ce359d8d3be8bda78524cd8f520c99883bfe33964cf
 
 WORKDIR /app
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies (gcc for psycopg2, git for CLIP install from GitHub)
+# Install minimal system dependency for healthcheck tooling.
 RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    libpq-dev \
-    libffi-dev \
-    libxrender1 \
-    libxext6 \
-    libsm6 \
-    git \
+    tini \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install base Python dependencies
-COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+RUN groupadd --system appgroup && useradd --system --gid appgroup --create-home appuser
 
-# Install CLIP dependencies (ftfy, regex, tqdm) then CLIP itself from GitHub
-# This mirrors: pip install ftfy regex tqdm && pip install git+https://github.com/openai/CLIP.git
-# (conda pytorch=1.7.1 cudatoolkit=11.0 is handled by the torch wheel above via requirements.txt)
+# Install runtime Python dependencies for the AI gateway only.
+COPY requirements.ai.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install ftfy regex tqdm
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install git+https://github.com/openai/CLIP.git
-
-# Install MolScribe and its dependencies.
-# - Keep compatibility pins for MolScribe/OpenNMT runtime while preserving
-#   the project torch runtime from requirements.txt.
-# - molscribe/OpenNMT-py/SmilesPE are installed --no-deps to avoid forcing
-#   torch<2.0 and old transitive constraints.
-COPY models/requirements.txt ./models/requirements.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install \
-        "numpy>=1.25,<2.0" \
-        "opencv-python-headless==4.11.0.86" \
-        "albumentations==1.1.0" \
-        "timm==0.4.12" \
-        "einops>=0.6.0" \
-        "configargparse" \
-        "pyonmttok>=1.23,<2" \
-        "rdkit-pypi>=2021.03.2" \
-        "pandas>=2.0.0" \
-        "torchtext==0.6.0" && \
-    pip install "SmilesPE==0.0.3" --no-deps && \
-    pip install "OpenNMT-py==2.2.0" --no-deps && \
-    pip install molscribe --no-deps
+    pip install --no-cache-dir -r requirements.ai.txt
 
 # Copy AI source files
 COPY app.py .
 COPY iot_db.py .
-COPY seed_vectors.py .
-COPY models/ ./models/
-RUN mkdir -p /app/models/qwen && \
-    for src in /app/models/model/*.safetensors /app/models/conf/*.safetensors; do \
-        if [ -f "$src" ]; then cp "$src" /app/models/qwen/; fi; \
-    done && \
-    if [ -f /app/models/conf/config.json ]; then cp /app/models/conf/config.json /app/models/qwen/; fi && \
-    if [ -f /app/models/conf/generation_config.json ]; then cp /app/models/conf/generation_config.json /app/models/qwen/; fi && \
-    if [ -f /app/models/conf/tokenizer.json ]; then cp /app/models/conf/tokenizer.json /app/models/qwen/; fi && \
-    if [ -f /app/models/conf/tokenizer.model ]; then cp /app/models/conf/tokenizer.model /app/models/qwen/; fi && \
-    if [ -f /app/models/conf/tokenizer_config.json ]; then cp /app/models/conf/tokenizer_config.json /app/models/qwen/; fi && \
-    if [ -f /app/models/conf/vocab.json ]; then cp /app/models/conf/vocab.json /app/models/qwen/; fi && \
-    if [ -f /app/models/model/config.json ]; then cp /app/models/model/config.json /app/models/qwen/; fi && \
-    if [ -f /app/models/model/tokenizer.json ]; then cp /app/models/model/tokenizer.json /app/models/qwen/; fi && \
-    if [ -f /app/models/model/tokenizer.model ]; then cp /app/models/model/tokenizer.model /app/models/qwen/; fi
+COPY models/__init__.py ./models/__init__.py
+COPY models/tanka.py ./models/tanka.py
+
+RUN mkdir -p /app/public/images/icons /tmp \
+    && chown -R appuser:appgroup /app /tmp
+
+USER appuser
 
 # Expose Flask port
 EXPOSE 5000
+
+ENTRYPOINT ["tini", "--"]
 
 # Run with waitress (production)
 CMD ["python", "-m", "waitress", "--host=0.0.0.0", "--port=5000", "app:app"]

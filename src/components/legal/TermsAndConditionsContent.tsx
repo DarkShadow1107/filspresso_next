@@ -91,8 +91,8 @@ const sections = [
 		content: (
 			<>
 				<p>
-					Kafelot is an AI-powered coffee assistant that uses the <strong>Tanka</strong> model to respond to your
-					questions. By using Kafelot you agree to the following:
+					Kafelot is an AI-powered coffee assistant that uses subscription-selected GGUF models (MiniLM, Qwen, Gemma,
+					and vision models where available) to respond to your questions. By using Kafelot you agree to the following:
 				</p>
 				<ul>
 					<li>

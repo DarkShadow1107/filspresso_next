@@ -70,6 +70,92 @@ export function OrderHistory({
 		return null;
 	};
 
+	const normalizeCardType = (rawCardType: string) => {
+		const normalized = rawCardType
+			.trim()
+			.toLowerCase()
+			.replace(/[._-]+/g, " ")
+			.replace(/\s+/g, " ");
+		if (!normalized) return "";
+		if (normalized.includes("american express") || normalized === "amex" || normalized.includes(" amex")) {
+			return "American Express";
+		}
+		if (normalized.includes("master") && normalized.includes("card")) {
+			return "Mastercard";
+		}
+		if (normalized.includes("visa")) {
+			return "Visa";
+		}
+		if (normalized.includes("discover")) {
+			return "Discover";
+		}
+		return "";
+	};
+
+	const parseCardFromPaymentMethod = (paymentMethod: string) => {
+		const withoutCurrency = paymentMethod.replace(/\([A-Za-z]{3}\)\s*$/, "").trim();
+		if (!withoutCurrency) return null;
+
+		const maskedDigitsMatch = withoutCurrency.match(/^(.+?)\s*[•*xX]{2,}\s*(\d{4})$/);
+		if (maskedDigitsMatch) {
+			return {
+				cardType: normalizeCardType(maskedDigitsMatch[1]),
+				cardLastFour: maskedDigitsMatch[2].trim(),
+			};
+		}
+
+		const plainDigitsMatch = withoutCurrency.match(/^(.+?)\s+(\d{4})$/);
+		if (plainDigitsMatch) {
+			return {
+				cardType: normalizeCardType(plainDigitsMatch[1]),
+				cardLastFour: plainDigitsMatch[2].trim(),
+			};
+		}
+
+		const cardType = normalizeCardType(withoutCurrency);
+		if (cardType) {
+			return {
+				cardType,
+				cardLastFour: "",
+			};
+		}
+
+		return null;
+	};
+
+	const getOrderPaymentInfo = (order: Order) => {
+		const paymentMethodRaw = typeof order.payment_method === "string" ? order.payment_method.trim() : "";
+		const paymentMethod = paymentMethodRaw.replace(/\([A-Za-z]{3}\)\s*$/, "").trim();
+		const parsed = paymentMethod ? parseCardFromPaymentMethod(paymentMethod) : null;
+		const normalizedLastFour = String(order.card_last_four ?? "")
+			.replace(/[^0-9]/g, "")
+			.trim();
+
+		const cardType =
+			normalizeCardType(typeof order.card_type === "string" ? order.card_type : "") ||
+			normalizeCardType(parsed?.cardType || "");
+		const cardLastFour = (normalizedLastFour ? normalizedLastFour.slice(-4) : "") || parsed?.cardLastFour || "";
+
+		if (cardType || cardLastFour) {
+			return {
+				cardType,
+				cardLastFour,
+				label: cardLastFour ? `•••• ${cardLastFour}` : "••••",
+			};
+		}
+
+		if (paymentMethod) {
+			const fallbackType = normalizeCardType(paymentMethod);
+			return {
+				cardType: fallbackType,
+				cardLastFour: "",
+				label: "••••",
+			};
+		}
+
+		return null;
+	};
+
 	const handleInvoiceDownload = async (orderId: number, orderNumber: string) => {
 		const token = getAuthToken();
 		if (!token) {
@@ -252,6 +338,7 @@ export function OrderHistory({
 							: roundAmount(totalBeforeVatRon);
 						const isExpanded = expandedOrders.has(order.id);
 						const isLoading = loadingOrderItems.has(order.id);
+						const orderPaymentInfo = getOrderPaymentInfo(order);
 
 						return (
 							<div
@@ -757,7 +844,7 @@ export function OrderHistory({
 															)}
 
 															{/* Payment Card Info */}
-															{order.card_type && order.card_last_four && (
+															{orderPaymentInfo && (
 																<div
 																	style={{
 																		display: "flex",
@@ -768,15 +855,16 @@ export function OrderHistory({
 																		borderTop: "1px solid #333",
 																	}}
 																>
-																	<Image
-																		src={getCardTypeImage(order.card_type)}
-																		alt={order.card_type}
-																		width={36}
-																		height={24}
-																		style={{ borderRadius: "4px" }}
-																	/>
+																	{orderPaymentInfo.cardType && (
+																		<Image
+																			src={getCardTypeImage(orderPaymentInfo.cardType)}
+																			alt={orderPaymentInfo.cardType}
+																			width={36}
+																			height={24}
+																			style={{ borderRadius: "4px" }}
+																		/>
+																	)}
 																	<span style={{ fontSize: "0.85rem", color: "#888" }}>
-																		Charged to{" "}
 																		<span
 																			style={{
 																				color: "#c4a77d",
@@ -784,7 +872,7 @@ export function OrderHistory({
 																				fontFamily: "'Courier New', monospace",
 																			}}
 																		>
-																			•••• {order.card_last_four}
+																			{orderPaymentInfo.label}
 																		</span>
 																	</span>
 																</div>

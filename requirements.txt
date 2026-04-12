@@ -1,17 +1,12 @@
-# Filspresso AI Backend - Python Requirements
+# Filspresso workspace Python requirements (local scripts + optional tooling)
+# NOTE: Dockerfile.ai installs requirements.ai.txt for the runtime gateway image.
 
 # Web framework
 Flask==3.0.0
 Flask-CORS==4.0.0
 waitress==2.1.2
 
-# Tanka [Semantic]
-sentence-transformers>=2.2.0
-
-# Tanka [Image] - CLIP + MolScribe (see models/requirements.txt)
-torch==2.7.1
-torchvision
-torchtext==0.6.0
+# Tanka runtime (llama.cpp gateway + lexical retrieval)
 Pillow>=10.0.0
 
 # Database
@@ -23,9 +18,6 @@ numpy>=1.25,<2.0
 pandas>=2.0.0
 python-dotenv==1.0.0
 requests==2.31.0
-
-# Optional LLM tooling for local Qwen3 integration
-transformers>=4.52.4
 
 # Chemistry data sources
 chembl-webresource-client>=0.10.9

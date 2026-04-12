@@ -33,8 +33,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
+*.env.example
+
+# runtime secrets
+secrets/
 
 # vercel
 .vercel
@@ -46,9 +50,29 @@ next-env.d.ts
 # python virtual environment
 .venv/
 
+# python caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
 # AI models
 *.pth
 *.safetensors
+*.gguf
 
 # runtime logs
 logs/
+
+# terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+*.tfvars.json
+!.tfvars.example

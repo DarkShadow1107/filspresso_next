@@ -1,0 +1,402 @@
+services:
+    postgres:
+        ports: []
+        networks:
+            data_net: {}
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        environment:
+            POSTGRES_PASSWORD: ""
+            POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+            POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+            BACKEND_DB_USER: ${BACKEND_DB_USER:-filspresso_backend_svc}
+            BACKEND_DB_PASSWORD_FILE: /run/secrets/backend_db_password
+            AI_DB_USER: ${AI_DB_USER:-filspresso_ai_svc}
+            AI_DB_PASSWORD_FILE: /run/secrets/ai_db_password
+        secrets:
+            - db_password
+            - backend_db_password
+            - ai_db_password
+
+    redis:
+        ports: []
+        networks:
+            data_net: {}
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        command: ["/bin/sh", "-lc", 'exec redis-server --appendonly yes --requirepass "$(cat /run/secrets/redis_password)"']
+        secrets:
+            - redis_password
+
+    opa:
+        ports: []
+        networks:
+            service_net: {}
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        cap_drop:
+            - ALL
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=64m
+        pids_limit: 256
+
+    rust_crypto:
+        ports: []
+        networks:
+            service_net:
+                aliases:
+                    - rust-crypto
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        cap_drop:
+            - ALL
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=64m
+        pids_limit: 256
+        environment:
+            SERVICE_ASSERTION_REQUIRED: ${RUST_CRYPTO_REQUIRE_SERVICE_ASSERTION:-true}
+            SERVICE_ASSERTION_SCOPE_COMMITMENT: ${RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_COMMITMENT:-service-crypto:commitment}
+            SERVICE_ASSERTION_SCOPE_VERIFY: ${RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_VERIFY:-service-crypto:verify}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: /run/secrets/service_assertion_public_key
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-filspresso-backend}
+            SERVICE_ASSERTION_ENFORCE_REPLAY: ${SERVICE_ASSERTION_ENFORCE_REPLAY:-true}
+            SERVICE_ASSERTION_REPLAY_TTL_SECONDS: ${SERVICE_ASSERTION_REPLAY_TTL_SECONDS:-900}
+        secrets:
+            - service_assertion_public_key
+
+    backend:
+        ports:
+            - "${SECURE_BACKEND_PORT:-4000}:4000"
+        networks:
+            edge_net: {}
+            service_net: {}
+            data_net: {}
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        cap_drop:
+            - ALL
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=128m
+        pids_limit: 512
+        ulimits:
+            nofile:
+                soft: 4096
+                hard: 8192
+        environment:
+            TRUST_PROXY: ${TRUST_PROXY:-1}
+            DB_PASSWORD: ${DB_PASSWORD:-}
+            DB_PASSWORD_FILE: /run/secrets/db_password
+            BACKEND_DB_USER: ${BACKEND_DB_USER:-filspresso_backend_svc}
+            BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-}
+            BACKEND_DB_PASSWORD_FILE: /run/secrets/backend_db_password
+            STRICT_SERVICE_DB_CREDENTIALS: ${STRICT_SERVICE_DB_CREDENTIALS:-true}
+            JWT_SECRET: ${JWT_SECRET:-}
+            JWT_SECRET_FILE: /run/secrets/jwt_secret
+            JWT_SIGNING_PRIVATE_KEY: ${JWT_SIGNING_PRIVATE_KEY:-}
+            JWT_SIGNING_PRIVATE_KEY_FILE: /run/secrets/jwt_signing_private_key
+            JWT_SIGNING_PUBLIC_KEY: ${JWT_SIGNING_PUBLIC_KEY:-}
+            JWT_SIGNING_PUBLIC_KEY_FILE: /run/secrets/jwt_signing_public_key
+            JWT_SIGNING_KEY_ID: ${JWT_SIGNING_KEY_ID:-jwt-k1}
+            JWT_SIGNING_PREVIOUS_PUBLIC_KEYS_JSON: ${JWT_SIGNING_PREVIOUS_PUBLIC_KEYS_JSON:-}
+            JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+            JWT_ISSUER: ${JWT_ISSUER:-http://localhost:4000}
+            JWT_AUDIENCE: ${JWT_AUDIENCE:-filspresso-users}
+            AUTH_SESSION_IDLE_TIMEOUT_DAYS: ${AUTH_SESSION_IDLE_TIMEOUT_DAYS:-30}
+            ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+            ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+            VAULT_KEK: ${VAULT_KEK:-}
+            VAULT_KEK_FILE: /run/secrets/vault_kek
+            VAULT_KEK_ID: ${VAULT_KEK_ID:-kek-local-v1}
+            SERVICE_EVENTS_API_KEY: ${SERVICE_EVENTS_API_KEY:-}
+            SERVICE_EVENTS_API_KEY_FILE: /run/secrets/service_events_api_key
+            SERVICE_ASSERTION_PUBLIC_KEY: ${SERVICE_ASSERTION_PUBLIC_KEY:-}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: /run/secrets/service_assertion_public_key
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-}
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ALLOWED_SCOPES: ${SERVICE_ASSERTION_ALLOWED_SCOPES:-service-events:write,service-invoice:render,service-subscriptions:quote,service-crypto:commitment,service-crypto:verify,service-threshold:initiate,service-threshold:approve,service-threshold:execute}
+            KEY_USAGE_POLICY_JSON: ${KEY_USAGE_POLICY_JSON:-}
+            GO_OPS_API_KEY: ${GO_OPS_API_KEY:-}
+            GO_OPS_API_KEY_FILE: /run/secrets/go_ops_api_key
+            GO_OPS_URL: ${GO_OPS_URL:-https://go-ops:8443}
+            GO_OPS_REQUIRE_TLS: ${GO_OPS_REQUIRE_TLS:-true}
+            GO_OPS_REQUIRE_SERVICE_ASSERTION: ${GO_OPS_REQUIRE_SERVICE_ASSERTION:-true}
+            GO_OPS_SERVICE_ASSERTION_SCOPE: ${GO_OPS_SERVICE_ASSERTION_SCOPE:-service-events:write}
+            INVOICE_REQUIRE_SERVICE_ASSERTION: ${INVOICE_REQUIRE_SERVICE_ASSERTION:-true}
+            INVOICE_SERVICE_ASSERTION_SCOPE: ${INVOICE_SERVICE_ASSERTION_SCOPE:-service-invoice:render}
+            KOTLIN_SUBSCRIPTIONS_REQUIRE_SERVICE_ASSERTION: ${KOTLIN_SUBSCRIPTIONS_REQUIRE_SERVICE_ASSERTION:-true}
+            KOTLIN_SUBSCRIPTIONS_SERVICE_ASSERTION_SCOPE: ${KOTLIN_SUBSCRIPTIONS_SERVICE_ASSERTION_SCOPE:-service-subscriptions:quote}
+            GO_OPS_TLS_SERVERNAME: ${GO_OPS_TLS_SERVERNAME:-go-ops}
+            GO_OPS_CLIENT_CERT: ${GO_OPS_CLIENT_CERT:-}
+            GO_OPS_CLIENT_CERT_FILE: /run/secrets/go_ops_client_cert
+            GO_OPS_CLIENT_KEY: ${GO_OPS_CLIENT_KEY:-}
+            GO_OPS_CLIENT_KEY_FILE: /run/secrets/go_ops_client_key
+            GO_OPS_CA_CERT: ${GO_OPS_CA_CERT:-}
+            GO_OPS_CA_CERT_FILE: /run/secrets/filspresso_ca_cert
+            RUST_CRYPTO_URL: ${RUST_CRYPTO_URL:-http://rust-crypto:8090}
+            RUST_CRYPTO_REQUIRE_SERVICE_ASSERTION: ${RUST_CRYPTO_REQUIRE_SERVICE_ASSERTION:-true}
+            RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_COMMITMENT: ${RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_COMMITMENT:-service-crypto:commitment}
+            RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_VERIFY: ${RUST_CRYPTO_SERVICE_ASSERTION_SCOPE_VERIFY:-service-crypto:verify}
+            CRYPTO_THRESHOLD_DEFAULT_APPROVALS: ${CRYPTO_THRESHOLD_DEFAULT_APPROVALS:-2}
+            OPERATION_REPLAY_REQUIRE_ID: ${OPERATION_REPLAY_REQUIRE_ID:-true}
+            OPERATION_REPLAY_TTL_SECONDS: ${OPERATION_REPLAY_TTL_SECONDS:-900}
+            CSRF_REQUIRE_ORIGIN_FOR_COOKIE: ${CSRF_REQUIRE_ORIGIN_FOR_COOKIE:-true}
+            CSRF_ENFORCE_FETCH_METADATA: ${CSRF_ENFORCE_FETCH_METADATA:-true}
+            SERVICE_ASSERTION_PRIVATE_KEY: ${SERVICE_ASSERTION_PRIVATE_KEY:-}
+            SERVICE_ASSERTION_PRIVATE_KEY_FILE: /run/secrets/service_assertion_private_key
+            BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:4000}
+            OPA_URL: ${OPA_URL:-http://opa:8181/v1/data/filspresso/authz/allow}
+            OPA_FAIL_CLOSED: ${OPA_FAIL_CLOSED:-true}
+            OPA_TIMEOUT_MS: ${OPA_TIMEOUT_MS:-1500}
+            SECURITY_OBSERVABILITY_WINDOW_MINUTES: ${SECURITY_OBSERVABILITY_WINDOW_MINUTES:-60}
+            SECURITY_OBSERVABILITY_MPC_STALE_MINUTES: ${SECURITY_OBSERVABILITY_MPC_STALE_MINUTES:-30}
+            SECURITY_LEDGER_ARCHIVE_ENABLED: ${SECURITY_LEDGER_ARCHIVE_ENABLED:-true}
+            SECURITY_LEDGER_ARCHIVE_INTERVAL_MS: ${SECURITY_LEDGER_ARCHIVE_INTERVAL_MS:-3600000}
+            SECURITY_ARCHIVE_OLDER_THAN_HOURS: ${SECURITY_ARCHIVE_OLDER_THAN_HOURS:-24}
+            SECURITY_ARCHIVE_LIMIT: ${SECURITY_ARCHIVE_LIMIT:-500}
+            SECURITY_ARCHIVE_CHAIN_SCOPE: ${SECURITY_ARCHIVE_CHAIN_SCOPE:-}
+            SECURITY_ALERT_WEBHOOK_URL: ${SECURITY_ALERT_WEBHOOK_URL:-}
+            SECURITY_ALERT_WEBHOOK_TIMEOUT_MS: ${SECURITY_ALERT_WEBHOOK_TIMEOUT_MS:-4000}
+            SECURITY_ALERT_DISPATCH_MIN_SEVERITY: ${SECURITY_ALERT_DISPATCH_MIN_SEVERITY:-high}
+            INTERNAL_EGRESS_ALLOWLIST: ${INTERNAL_EGRESS_ALLOWLIST:-go-ops,rust-crypto,invoice-java,kotlin-subscriptions,ai,opa,localhost,127.0.0.1}
+        secrets:
+            - db_password
+            - jwt_secret
+            - jwt_signing_private_key
+            - jwt_signing_public_key
+            - encryption_key
+            - service_events_api_key
+            - go_ops_api_key
+            - go_ops_client_cert
+            - go_ops_client_key
+            - filspresso_ca_cert
+            - service_assertion_private_key
+            - service_assertion_public_key
+            - backend_db_password
+            - vault_kek
+
+    invoice_java:
+        ports: []
+        networks:
+            service_net:
+                aliases:
+                    - invoice-java
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        cap_drop:
+            - ALL
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=64m
+        pids_limit: 256
+        environment:
+            SERVICE_ASSERTION_REQUIRED: ${INVOICE_REQUIRE_SERVICE_ASSERTION:-true}
+            SERVICE_ASSERTION_SCOPE: ${INVOICE_SERVICE_ASSERTION_SCOPE:-service-invoice:render}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: /run/secrets/service_assertion_public_key
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-filspresso-backend}
+        secrets:
+            - service_assertion_public_key
+
+    go_ops:
+        ports: []
+        networks:
+            service_net:
+                aliases:
+                    - go-ops
+            data_net: {}
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        cap_drop:
+            - ALL
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=64m
+        pids_limit: 256
+        environment:
+            PORT: ${GO_OPS_PORT:-8443}
+            OPS_API_KEY: ${GO_OPS_API_KEY:-}
+            OPS_API_KEY_FILE: /run/secrets/go_ops_api_key
+            REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+            REDIS_PASSWORD_FILE: /run/secrets/redis_password
+            GO_OPS_TLS_CERT_FILE: /run/secrets/go_ops_server_cert
+            GO_OPS_TLS_KEY_FILE: /run/secrets/go_ops_server_key
+            GO_OPS_TLS_CLIENT_CA_FILE: /run/secrets/filspresso_ca_cert
+            GO_OPS_REQUIRE_MTLS: ${GO_OPS_REQUIRE_MTLS:-true}
+            GO_OPS_ALLOWED_SPIFFE_IDS: ${GO_OPS_ALLOWED_SPIFFE_IDS:-spiffe://filspresso/internal/backend}
+            GO_OPS_REQUIRE_SERVICE_ASSERTION: ${GO_OPS_REQUIRE_SERVICE_ASSERTION:-true}
+            GO_OPS_SERVICE_ASSERTION_SCOPE: ${GO_OPS_SERVICE_ASSERTION_SCOPE:-service-events:write}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: /run/secrets/service_assertion_public_key
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-filspresso-backend}
+        secrets:
+            - go_ops_api_key
+            - redis_password
+            - go_ops_server_cert
+            - go_ops_server_key
+            - filspresso_ca_cert
+            - service_assertion_public_key
+
+    kotlin_subscriptions:
+        ports: []
+        networks:
+            service_net:
+                aliases:
+                    - kotlin-subscriptions
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        cap_drop:
+            - ALL
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=64m
+        pids_limit: 256
+        environment:
+            SERVICE_ASSERTION_REQUIRED: ${KOTLIN_SUBSCRIPTIONS_REQUIRE_SERVICE_ASSERTION:-true}
+            SERVICE_ASSERTION_SCOPE: ${KOTLIN_SUBSCRIPTIONS_SERVICE_ASSERTION_SCOPE:-service-subscriptions:quote}
+            SERVICE_ASSERTION_PUBLIC_KEY_FILE: /run/secrets/service_assertion_public_key
+            SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
+            SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-filspresso-backend}
+        secrets:
+            - service_assertion_public_key
+
+    ai:
+        ports: []
+        networks:
+            service_net: {}
+            data_net: {}
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        cap_drop:
+            - ALL
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=256m
+        pids_limit: 512
+        environment:
+            DB_PASSWORD: ${DB_PASSWORD:-}
+            DB_PASSWORD_FILE: /run/secrets/db_password
+            AI_DB_USER: ${AI_DB_USER:-filspresso_ai_svc}
+            AI_DB_PASSWORD: ${AI_DB_PASSWORD:-}
+            AI_DB_PASSWORD_FILE: /run/secrets/ai_db_password
+            STRICT_SERVICE_DB_CREDENTIALS: ${STRICT_SERVICE_DB_CREDENTIALS:-true}
+        secrets:
+            - db_password
+            - ai_db_password
+
+    llama_minilm:
+        ports: []
+        networks:
+            service_net:
+                aliases:
+                    - llama-minilm
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=128m
+        pids_limit: 256
+
+    llama_qwen:
+        ports: []
+        networks:
+            service_net:
+                aliases:
+                    - llama-qwen
+                    - llama-cpp
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=128m
+        pids_limit: 256
+
+    llama_gemma:
+        ports: []
+        networks:
+            service_net:
+                aliases:
+                    - llama-gemma
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=128m
+        pids_limit: 256
+
+    llama_vision_qwen3_vl:
+        ports: []
+        networks:
+            service_net:
+                aliases:
+                    - llama-vision-qwen3-vl
+        security_opt:
+            - no-new-privileges:true
+            - seccomp=./security/docker/seccomp-default.json
+        read_only: true
+        tmpfs:
+            - /tmp:rw,nosuid,nodev,noexec,size=128m
+        pids_limit: 256
+
+networks:
+    edge_net:
+        driver: bridge
+    service_net:
+        driver: bridge
+        internal: true
+    data_net:
+        driver: bridge
+        internal: true
+
+secrets:
+    db_password:
+        file: ${DB_PASSWORD_SECRET_FILE:-./secrets/db_password.txt}
+    jwt_secret:
+        file: ${JWT_SECRET_FILE_PATH:-./secrets/jwt_secret.txt}
+    jwt_signing_private_key:
+        file: ${JWT_SIGNING_PRIVATE_KEY_FILE_PATH:-./secrets/jwt_signing_private_key.pem}
+    jwt_signing_public_key:
+        file: ${JWT_SIGNING_PUBLIC_KEY_FILE_PATH:-./secrets/jwt_signing_public_key.pem}
+    encryption_key:
+        file: ${ENCRYPTION_KEY_FILE_PATH:-./secrets/encryption_key.txt}
+    service_events_api_key:
+        file: ${SERVICE_EVENTS_API_KEY_FILE_PATH:-./secrets/service_events_api_key.txt}
+    go_ops_api_key:
+        file: ${GO_OPS_API_KEY_FILE_PATH:-./secrets/go_ops_api_key.txt}
+    redis_password:
+        file: ${REDIS_PASSWORD_FILE_PATH:-./secrets/redis_password.txt}
+    go_ops_client_cert:
+        file: ${GO_OPS_CLIENT_CERT_FILE_PATH:-./secrets/go_ops_client_cert.pem}
+    go_ops_client_key:
+        file: ${GO_OPS_CLIENT_KEY_FILE_PATH:-./secrets/go_ops_client_key.pem}
+    go_ops_server_cert:
+        file: ${GO_OPS_SERVER_CERT_FILE_PATH:-./secrets/go_ops_server_cert.pem}
+    go_ops_server_key:
+        file: ${GO_OPS_SERVER_KEY_FILE_PATH:-./secrets/go_ops_server_key.pem}
+    filspresso_ca_cert:
+        file: ${FILSPRESSO_CA_CERT_FILE_PATH:-./secrets/filspresso_ca_cert.pem}
+    service_assertion_public_key:
+        file: ${SERVICE_ASSERTION_PUBLIC_KEY_FILE_PATH:-./secrets/service_assertion_public_key.pem}
+    service_assertion_private_key:
+        file: ${SERVICE_ASSERTION_PRIVATE_KEY_FILE_PATH:-./secrets/service_assertion_private_key.pem}
+    backend_db_password:
+        file: ${BACKEND_DB_PASSWORD_FILE_PATH:-./secrets/backend_db_password.txt}
+    ai_db_password:
+        file: ${AI_DB_PASSWORD_FILE_PATH:-./secrets/ai_db_password.txt}
+    vault_kek:
+        file: ${VAULT_KEK_FILE_PATH:-./secrets/vault_kek.txt}

@@ -1,5 +1,5 @@
-const bcrypt = require("bcrypt");
 const { Pool } = require("pg");
+const { hashPassword } = require("../utils/passwords");
 
 const pool = new Pool({
 	host: process.env.DB_HOST || "localhost",
@@ -18,7 +18,7 @@ async function updateAdmin() {
 			throw new Error("ADMIN_PASSWORD environment variable is required");
 		}
 		const email = "admin@filspresso.com";
-		const hash = await bcrypt.hash(password, 10);
+		const hash = await hashPassword(password);
 
 		client = await pool.connect();
 

@@ -15,10 +15,10 @@ const path = require("path");
 const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
 const multer = require("multer");
-const bcrypt = require("bcrypt");
 const QRCode = require("qrcode");
 const pool = require("../db/connection");
 const { encrypt, decrypt } = require("../utils/encryption");
+const { hashPassword, verifyPassword, needsPasswordRehash } = require("../utils/passwords");
 
 const router = express.Router();
 const ADMIN_SENSITIVE_VIEW_COOKIE_NAME = "admin_sensitive_view";
@@ -612,7 +612,7 @@ router.post("/sensitive/unlock", authenticateAdmin, async (req, res) => {
 				req.adminSession.userId,
 			]);
 			const admin = result.rows[0];
-			if (!admin || !(await bcrypt.compare(password, admin.password_hash))) {
+			if (!admin || !(await verifyPassword(password, admin.password_hash))) {
 				return res.status(401).json({ error: "Invalid password" });
 			}
 
@@ -906,7 +906,7 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
 		const user = result.rows[0];
 
 		// Compare password with database hash
-		const isValid = await bcrypt.compare(password, user.password_hash);
+		const isValid = await verifyPassword(password, user.password_hash);
 		if (!isValid) {
 			const failed = await recordAdminFailedAttempt(client, loginKey);
 			await logAdminSecurityEvent(client, "admin_login_failed", {
@@ -917,6 +917,18 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
 				details: { reason: "bad_password", failedAttempts: failed.failedAttempts, lockSeconds: failed.lockSeconds },
 			});
 			return res.status(401).json({ error: "Invalid credentials" });
+		}
+
+		if (needsPasswordRehash(user.password_hash)) {
+			try {
+				const upgradedPasswordHash = await hashPassword(password);
+				await client.query("UPDATE accounts SET password_hash = $1, updated_at = NOW() WHERE id = $2", [
+					upgradedPasswordHash,
+					user.id,
+				]);
+			} catch (rehashError) {
+				console.warn("Admin password rehash skipped:", rehashError.message || String(rehashError));
+			}
 		}
 
 		await clearAdminFailedAttempts(client, loginKey);
@@ -1432,7 +1444,7 @@ router.post("/tables/:table", authenticateAdmin, async (req, res) => {
 			}
 
 			if (table === "accounts" && sanitized.password_hash) {
-				sanitized.password_hash = await bcrypt.hash(sanitized.password_hash, 10);
+				sanitized.password_hash = await hashPassword(sanitized.password_hash);
 			}
 
 			const primaryKey = await getPrimaryKey(client, table);
@@ -1495,7 +1507,7 @@ router.put("/tables/:table/:id", authenticateAdmin, async (req, res) => {
 					delete sanitized.password_hash;
 				} else {
 					// Password changed, hash it
-					sanitized.password_hash = await bcrypt.hash(sanitized.password_hash, 10);
+					sanitized.password_hash = await hashPassword(sanitized.password_hash);
 				}
 			}
 
