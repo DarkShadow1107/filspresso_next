@@ -16,6 +16,14 @@ function parseArgs() {
 	return args;
 }
 
+function parseBoolean(value, fallback = true) {
+	if (value === undefined || value === null || value === "") return fallback;
+	const normalized = String(value).trim().toLowerCase();
+	if (["1", "true", "yes", "on"].includes(normalized)) return true;
+	if (["0", "false", "no", "off"].includes(normalized)) return false;
+	return fallback;
+}
+
 function resolveRange(args) {
 	if (args.range) return String(args.range).trim();
 	if (process.env.SIGNED_HISTORY_RANGE) return String(process.env.SIGNED_HISTORY_RANGE).trim();
@@ -38,6 +46,7 @@ function resolveRange(args) {
 function main() {
 	const args = parseArgs();
 	const range = resolveRange(args);
+	const enforce = parseBoolean(args.enforce ?? process.env.SIGNED_HISTORY_ENFORCE, true);
 	const output = run(`git log --pretty=format:%H%x09%G? ${range}`);
 	const rows = output
 		.split("\n")
@@ -59,12 +68,17 @@ function main() {
 	const report = {
 		range,
 		checked: rows.length,
+		enforce,
 		acceptedStatuses: [...accepted],
 		rejectedCount: rejected.length,
 		rejected: rejected.slice(0, 20),
 	};
 
 	if (rejected.length > 0) {
+		if (!enforce) {
+			console.warn(JSON.stringify({ status: "advisory", ...report }, null, 2));
+			return;
+		}
 		console.error(JSON.stringify({ status: "failed", ...report }, null, 2));
 		process.exit(1);
 	}

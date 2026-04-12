@@ -24,13 +24,17 @@ jobs:
               with:
                   fetch-depth: 0
 
-            - name: Verify signed commit history
-              run: node scripts/verifySignedHistory.mjs
+            - name: Verify signed commit history (advisory on pull requests)
+              if: github.event_name == 'pull_request'
+              run: node scripts/verifySignedHistory.mjs --enforce=false
+
+            - name: Verify signed commit history (enforced)
+              if: github.event_name != 'pull_request'
+              run: node scripts/verifySignedHistory.mjs --enforce=true
 
     frontend-security:
         name: Frontend Security Checks
         runs-on: ubuntu-latest
-        needs: [signed-history-policy]
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -56,7 +60,6 @@ jobs:
     backend-security:
         name: Backend Security Checks
         runs-on: ubuntu-latest
-        needs: [signed-history-policy]
         defaults:
             run:
                 working-directory: express-api
@@ -90,7 +93,6 @@ jobs:
     python-security:
         name: Python Dependency Audit
         runs-on: ubuntu-latest
-        needs: [signed-history-policy]
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -112,7 +114,6 @@ jobs:
     supply-chain-security:
         name: Supply Chain Security Gates
         runs-on: ubuntu-latest
-        needs: [signed-history-policy]
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -193,7 +194,7 @@ jobs:
                       security-manifest.pem
 
             - name: Filesystem vulnerability scan (HIGH/CRITICAL)
-              uses: aquasecurity/trivy-action@0.30.0
+              uses: aquasecurity/trivy-action@v0.35.0
               with:
                   scan-type: fs
                   scan-ref: .

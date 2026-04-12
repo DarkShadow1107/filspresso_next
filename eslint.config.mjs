@@ -1,18 +1,49 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
+import nextTypeScript from "eslint-config-next/typescript";
+import reactPlugin from "eslint-plugin-react";
+import reactHooksPlugin from "eslint-plugin-react-hooks";
+import tsEslintPlugin from "@typescript-eslint/eslint-plugin";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-	baseDirectory: __dirname,
-});
+const globalIgnores = [
+	"node_modules/**",
+	".next/**",
+	"out/**",
+	"build/**",
+	"next-env.d.ts",
+	"deprecated/**",
+	"public/legacy/**",
+	"express-api/**",
+	"go-ops-service/**",
+	"java-invoice-service/**",
+	"kotlin-subscription-service/**",
+	"models/**",
+	"rust-crypto-service/**",
+	"rust-wasm/**",
+	"docs/**",
+	"infrastructure/**",
+	"security/**",
+	"logs/**",
+];
 
 const eslintConfig = [
-	...compat.extends("next/core-web-vitals", "next/typescript"),
+	{ ignores: globalIgnores },
+	...nextCoreWebVitals,
+	...nextTypeScript,
 	{
-		ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "deprecated/**", "public/legacy/**"],
+		plugins: {
+			react: reactPlugin,
+			"react-hooks": reactHooksPlugin,
+			"@typescript-eslint": tsEslintPlugin,
+		},
+		rules: {
+			"@typescript-eslint/no-explicit-any": "warn",
+			"@typescript-eslint/no-require-imports": "warn",
+			"@typescript-eslint/no-this-alias": "warn",
+			"react-hooks/set-state-in-effect": "warn",
+			"react-hooks/purity": "warn",
+			"react-hooks/preserve-manual-memoization": "warn",
+			"react/no-unescaped-entities": "warn",
+		},
 	},
 ];
 

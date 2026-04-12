@@ -199,7 +199,7 @@ export function ProfileSection({
 										<button
 											type="button"
 											className={`btn-primary mfa-toggle-btn ${mfaIncludeQrCode ? "is-active" : ""}`}
-											onClick={() => setMfaIncludeQrCode((value) => !value)}
+											onClick={() => setMfaIncludeQrCode(!mfaIncludeQrCode)}
 											style={{ marginTop: "0.7rem" }}
 										>
 											<QrCodeIcon size={16} />
