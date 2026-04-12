@@ -4,11 +4,32 @@ import reactPlugin from "eslint-plugin-react";
 import reactHooksPlugin from "eslint-plugin-react-hooks";
 import tsEslintPlugin from "@typescript-eslint/eslint-plugin";
 
-export default [
+const globalIgnores = [
+	"node_modules/**",
+	".next/**",
+	"out/**",
+	"build/**",
+	"next-env.d.ts",
+	"deprecated/**",
+	"public/legacy/**",
+	"express-api/**",
+	"go-ops-service/**",
+	"java-invoice-service/**",
+	"kotlin-subscription-service/**",
+	"models/**",
+	"rust-crypto-service/**",
+	"rust-wasm/**",
+	"docs/**",
+	"infrastructure/**",
+	"security/**",
+	"logs/**",
+];
+
+const eslintConfig = [
+	{ ignores: globalIgnores },
 	...nextCoreWebVitals,
 	...nextTypeScript,
 	{
-		ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "deprecated/**", "public/legacy/**"],
 		plugins: {
 			react: reactPlugin,
 			"react-hooks": reactHooksPlugin,
@@ -25,3 +46,5 @@ export default [
 		},
 	},
 ];
+
+export default eslintConfig;
