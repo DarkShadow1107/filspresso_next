@@ -733,7 +733,7 @@ export default function PaymentPageContent() {
 
 						// Keep account state synchronized in both local and session storage.
 						const updatedAccountData = {
-							...accountData,
+							...(accountSession || {}),
 							subscription: subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1),
 						};
 						writeAccountSession(updatedAccountData);
