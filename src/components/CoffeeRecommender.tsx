@@ -114,14 +114,52 @@ type Message = {
 	content: string;
 	products?: CoffeeProduct[];
 	image?: string;
+	images?: string[];
 	modelUsed?: string;
 	molecule?: MoleculeMessageView;
 };
 
 type StylizedModelInfo = {
 	label: string;
-	accent: "qwen" | "minilm" | "molscribe" | "clip" | "tanka";
+	accent: "qwen" | "minilm" | "clip";
 };
+
+type TextModelKey = "minilm_l6_v2_gguf" | "qwen3_06b_q8_0_gguf" | "gemma3_1b_it_q4_0_gguf";
+
+type VisionModelKey = "qwen3_vl_2b_q4_0_gguf";
+
+type ModelUsageKey = "minilm" | "qwen3" | "gemma3" | "qwen3Vision" | "other";
+
+const TEXT_MODEL_LABEL_BY_KEY: Record<TextModelKey, string> = {
+	minilm_l6_v2_gguf: "MiniLM V2",
+	qwen3_06b_q8_0_gguf: "Qwen 3",
+	gemma3_1b_it_q4_0_gguf: "Gemma 3",
+};
+
+const VISION_MODEL_LABEL_BY_KEY: Record<VisionModelKey, string> = {
+	qwen3_vl_2b_q4_0_gguf: "Qwen 3 Vision",
+};
+
+const MODEL_USAGE_LABEL_BY_KEY: Record<ModelUsageKey, string> = {
+	minilm: "MiniLM V2",
+	qwen3: "Qwen 3",
+	gemma3: "Gemma 3",
+	qwen3Vision: "Qwen 3 Vision",
+	other: "Other / Fallback",
+};
+
+function detectModelUsageKey(rawModel?: string): ModelUsageKey {
+	const normalized = String(rawModel || "")
+		.trim()
+		.toLowerCase();
+
+	if (!normalized) return "other";
+	if (normalized.includes("vision")) return "qwen3Vision";
+	if (normalized.includes("gemma")) return "gemma3";
+	if (normalized.includes("qwen")) return "qwen3";
+	if (normalized.includes("minilm")) return "minilm";
+	return "other";
+}
 
 function isHighDemandUnavailableModel(rawModel?: string): boolean {
 	const normalized = String(rawModel || "")
@@ -135,32 +173,87 @@ function getStylizedModelInfo(rawModel?: string): StylizedModelInfo {
 	const source = String(rawModel || "").trim();
 	const normalized = source.toLowerCase();
 
-	if (normalized.includes("molscribe") || normalized.includes("swin_base")) {
-		return { label: "MolScribe", accent: "molscribe" };
+	if (normalized.includes("qwen 3 thinking")) {
+		return {
+			label: normalized.includes("unavailable") ? "Qwen 3 Thinking (Unavailable)" : "Qwen 3 Thinking",
+			accent: "qwen",
+		};
 	}
-	if (normalized.includes("clip")) {
-		return { label: "CLIP Vision", accent: "clip" };
+	if (normalized.includes("qwen 3 vision")) {
+		return { label: normalized.includes("unavailable") ? "Qwen 3 Vision (Unavailable)" : "Qwen 3 Vision", accent: "clip" };
+	}
+	if (normalized.includes("gemma 3")) {
+		return { label: normalized.includes("unavailable") ? "Gemma 3 (Unavailable)" : "Gemma 3", accent: "qwen" };
+	}
+	if (normalized.includes("qwen 3")) {
+		return { label: normalized.includes("unavailable") ? "Qwen 3 (Unavailable)" : "Qwen 3", accent: "qwen" };
+	}
+	if (normalized.includes("minilm v2")) {
+		return { label: normalized.includes("fallback") ? "MiniLM V2 (Fallback)" : "MiniLM V2", accent: "minilm" };
+	}
+
+	if (normalized.includes("qwen3-vl-2b-q4_0.gguf")) {
+		return { label: "Qwen 3 Vision", accent: "clip" };
+	}
+	if (normalized.includes("locked-tier") && normalized.includes("vision")) {
+		return { label: "Qwen 3 Vision (Locked)", accent: "clip" };
+	}
+	if (normalized.includes("vision-unavailable") || (normalized.includes("vision") && normalized.includes("unavailable"))) {
+		return { label: "Qwen 3 Vision (Unavailable)", accent: "clip" };
+	}
+	if (normalized.includes("gemma3-1b-it-q4_0.gguf")) {
+		return { label: "Gemma 3", accent: "qwen" };
+	}
+	if (normalized.includes("qwen3-0.6b-q8_0.gguf") && normalized.includes("thinking")) {
+		return { label: "Qwen 3 Thinking", accent: "qwen" };
+	}
+	if (normalized.includes("qwen3-0.6b-q8_0.gguf")) {
+		return { label: "Qwen 3", accent: "qwen" };
+	}
+	if (normalized.includes("minilm-l6-v2.gguf")) {
+		if (normalized.includes("fallback")) {
+			return { label: "MiniLM V2 (Fallback)", accent: "minilm" };
+		}
+		return { label: "MiniLM V2", accent: "minilm" };
+	}
+	if (normalized.includes("clip") || normalized.includes("vision")) {
+		return { label: "Qwen 3 Vision", accent: "clip" };
 	}
 	if (normalized.includes("qwen3") && normalized.includes("unavailable")) {
 		return { label: "Qwen 3 (Unavailable)", accent: "qwen" };
 	}
+	if (normalized.includes("gemma") && normalized.includes("unavailable")) {
+		return { label: "Gemma 3 (Unavailable)", accent: "qwen" };
+	}
+	if (normalized.includes("llama.cpp") && normalized.includes("unavailable")) {
+		return { label: "llama.cpp (Unavailable)", accent: "qwen" };
+	}
 	if (normalized.includes("qwen3") && normalized.includes("unauthorized")) {
 		return { label: "Qwen 3 (Locked)", accent: "qwen" };
+	}
+	if (normalized.includes("llama.cpp") && normalized.includes("unauthorized")) {
+		return { label: "llama.cpp (Locked)", accent: "qwen" };
 	}
 	if (normalized.includes("qwen3-local") && normalized.includes("thinking")) {
 		return { label: "Qwen 3 Thinking", accent: "qwen" };
 	}
+	if (normalized.includes("llama.cpp-local") && normalized.includes("thinking")) {
+		return { label: "llama.cpp Thinking", accent: "qwen" };
+	}
 	if (normalized.includes("qwen3")) {
-		return { label: "Qwen 3 0.6B", accent: "qwen" };
+		return { label: "Qwen 3", accent: "qwen" };
+	}
+	if (normalized.includes("llama.cpp")) {
+		return { label: "llama.cpp", accent: "qwen" };
 	}
 	if (normalized.includes("minilm")) {
 		if (normalized.includes("fallback")) {
-			return { label: "MiniLM (Fallback)", accent: "minilm" };
+			return { label: "MiniLM V2 (Fallback)", accent: "minilm" };
 		}
-		return { label: "MiniLM", accent: "minilm" };
+		return { label: "MiniLM V2", accent: "minilm" };
 	}
 
-	return { label: "Kafelot Tanka", accent: "tanka" };
+	return { label: "Kafelot", accent: "minilm" };
 }
 
 type ChatHistory = {
@@ -168,7 +261,7 @@ type ChatHistory = {
 	timestamp: number;
 	messages: Message[];
 	preview: string;
-	model: "tanka";
+	model: TextModelKey;
 	category: "coffee" | "chemistry" | "general";
 };
 
@@ -178,9 +271,285 @@ type HelperConversationSnapshot = {
 	messages: Message[];
 };
 
+type PromptScope = "general" | "molecule_helper";
+
+type PromptScopeState = {
+	promptsRemaining: number | null;
+	promptsLimit: number | null;
+	resetDate: string | null;
+};
+
+type PromptScopeStats = {
+	scopeLabel: string;
+	used: number;
+	remaining: number;
+	limit: number;
+	usagePercent: number;
+	resetDate: string | null;
+};
+
 type UserSubscriptionTier = "none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate";
 
 const KNOWN_SUBSCRIPTION_TIERS = new Set<UserSubscriptionTier>(["none", "free", "basic", "plus", "pro", "max", "ultimate"]);
+
+const TEXT_MODELS_BY_TIER: Record<UserSubscriptionTier, TextModelKey[]> = {
+	none: ["minilm_l6_v2_gguf"],
+	free: ["minilm_l6_v2_gguf"],
+	basic: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf"],
+	plus: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf"],
+	pro: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf"],
+	max: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf"],
+	ultimate: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf", "gemma3_1b_it_q4_0_gguf"],
+};
+
+const VISION_MODELS_BY_TIER: Record<UserSubscriptionTier, VisionModelKey[]> = {
+	none: [],
+	free: [],
+	basic: ["qwen3_vl_2b_q4_0_gguf"],
+	plus: ["qwen3_vl_2b_q4_0_gguf"],
+	pro: ["qwen3_vl_2b_q4_0_gguf"],
+	max: ["qwen3_vl_2b_q4_0_gguf"],
+	ultimate: ["qwen3_vl_2b_q4_0_gguf"],
+};
+
+const ALLOWED_VISION_UPLOAD_MIME_TYPES = new Set([
+	"image/webp",
+	"image/png",
+	"image/avif",
+	"image/tiff",
+	"image/svg+xml",
+	"image/jpeg",
+	"image/jpg",
+	"image/heic",
+]);
+const ALLOWED_VISION_UPLOAD_EXTENSIONS = new Set(["webp", "png", "avif", "tif", "tiff", "svg", "jpg", "jpeg", "heic"]);
+const DIRECT_VISION_UPLOAD_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg"]);
+const DIRECT_VISION_UPLOAD_EXTENSIONS = new Set(["png", "jpg", "jpeg"]);
+const AUTO_CONVERT_VISION_TIERS = new Set<UserSubscriptionTier>(["pro", "max", "ultimate"]);
+const MIN_VISION_IMAGE_DIMENSION_PX = 128;
+const PREMIUM_COFFEE_HELPER_IMAGE_LIMIT = 3;
+
+function canAutoConvertVisionUpload(tier: UserSubscriptionTier): boolean {
+	return AUTO_CONVERT_VISION_TIERS.has(tier);
+}
+
+function coffeeHelperImageLimitForTier(tier: UserSubscriptionTier): number {
+	return tier === "max" || tier === "ultimate" ? PREMIUM_COFFEE_HELPER_IMAGE_LIMIT : 1;
+}
+
+function normalizeImageMime(value: unknown): string {
+	const normalized = String(value || "")
+		.trim()
+		.toLowerCase();
+	if (normalized === "image/jpg") return "image/jpeg";
+	return normalized;
+}
+
+function extractFileExtension(name: string): string {
+	const match = /\.([a-z0-9]+)$/i.exec(name || "");
+	return match ? match[1].toLowerCase() : "";
+}
+
+function isAllowedVisionUploadType(mime: string, extension: string): boolean {
+	if (extension) return ALLOWED_VISION_UPLOAD_EXTENSIONS.has(extension);
+	if (mime && ALLOWED_VISION_UPLOAD_MIME_TYPES.has(mime)) return true;
+	return false;
+}
+
+function isDirectPngOrJpegType(mime: string, extension: string): boolean {
+	if (mime && DIRECT_VISION_UPLOAD_MIME_TYPES.has(mime)) return true;
+	if (extension && DIRECT_VISION_UPLOAD_EXTENSIONS.has(extension)) return true;
+	return false;
+}
+
+function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
+	return new Promise((resolve, reject) => {
+		const objectUrl = URL.createObjectURL(file);
+		const probe = document.createElement("img");
+
+		probe.onload = () => {
+			const width = probe.naturalWidth || probe.width;
+			const height = probe.naturalHeight || probe.height;
+			URL.revokeObjectURL(objectUrl);
+			resolve({ width, height });
+		};
+
+		probe.onerror = () => {
+			URL.revokeObjectURL(objectUrl);
+			reject(new Error("IMAGE_DECODE_FAILED"));
+		};
+
+		probe.src = objectUrl;
+	});
+}
+
+async function convertVisionUploadToJpegPreview(file: File, minDimensionPx: number): Promise<File> {
+	const objectUrl = URL.createObjectURL(file);
+	try {
+		const imageElement = await new Promise<HTMLImageElement>((resolve, reject) => {
+			const probe = document.createElement("img");
+			probe.onload = () => resolve(probe);
+			probe.onerror = () => reject(new Error("IMAGE_DECODE_FAILED"));
+			probe.src = objectUrl;
+		});
+
+		const width = imageElement.naturalWidth || imageElement.width;
+		const height = imageElement.naturalHeight || imageElement.height;
+		if (!width || !height) {
+			throw new Error("IMAGE_DECODE_FAILED");
+		}
+
+		const scale = Math.max(1, minDimensionPx / width, minDimensionPx / height);
+		const targetWidth = Math.max(minDimensionPx, Math.ceil(width * scale));
+		const targetHeight = Math.max(minDimensionPx, Math.ceil(height * scale));
+
+		const canvas = document.createElement("canvas");
+		canvas.width = targetWidth;
+		canvas.height = targetHeight;
+		const context = canvas.getContext("2d");
+		if (!context) {
+			throw new Error("CANVAS_CONTEXT_UNAVAILABLE");
+		}
+
+		context.fillStyle = "#ffffff";
+		context.fillRect(0, 0, targetWidth, targetHeight);
+		context.drawImage(imageElement, 0, 0, targetWidth, targetHeight);
+
+		const jpegBlob = await new Promise<Blob | null>((resolve) => {
+			canvas.toBlob(resolve, "image/jpeg", 0.9);
+		});
+		if (!jpegBlob) {
+			throw new Error("JPEG_PREVIEW_CONVERSION_FAILED");
+		}
+
+		const baseName = file.name.replace(/\.[^.]+$/, "").trim() || "upload";
+		return new File([jpegBlob], `${baseName}.jpg`, { type: "image/jpeg" });
+	} finally {
+		URL.revokeObjectURL(objectUrl);
+	}
+}
+
+async function combinePromptImagesAsJpeg(files: File[]): Promise<File> {
+	if (files.length === 1) {
+		return files[0];
+	}
+
+	const loadedImages = await Promise.all(
+		files.map(async (file) => {
+			const objectUrl = URL.createObjectURL(file);
+			try {
+				const imageElement = await new Promise<HTMLImageElement>((resolve, reject) => {
+					const probe = document.createElement("img");
+					probe.onload = () => resolve(probe);
+					probe.onerror = () => reject(new Error("IMAGE_DECODE_FAILED"));
+					probe.src = objectUrl;
+				});
+
+				const width = imageElement.naturalWidth || imageElement.width;
+				const height = imageElement.naturalHeight || imageElement.height;
+				if (!width || !height) {
+					throw new Error("IMAGE_DECODE_FAILED");
+				}
+
+				return { imageElement, width, height, cleanup: () => URL.revokeObjectURL(objectUrl) };
+			} catch (error) {
+				URL.revokeObjectURL(objectUrl);
+				throw error;
+			}
+		}),
+	);
+
+	try {
+		const maxWidth = 1024;
+		const gap = 12;
+		const scaledEntries = loadedImages.map((entry) => {
+			const scale = Math.min(1, maxWidth / entry.width);
+			return {
+				...entry,
+				targetWidth: Math.max(1, Math.round(entry.width * scale)),
+				targetHeight: Math.max(1, Math.round(entry.height * scale)),
+			};
+		});
+
+		const canvas = document.createElement("canvas");
+		canvas.width = Math.max(...scaledEntries.map((entry) => entry.targetWidth));
+		canvas.height =
+			scaledEntries.reduce((sum, entry) => sum + entry.targetHeight, 0) + Math.max(0, scaledEntries.length - 1) * gap;
+
+		const context = canvas.getContext("2d");
+		if (!context) {
+			throw new Error("CANVAS_CONTEXT_UNAVAILABLE");
+		}
+
+		context.fillStyle = "#ffffff";
+		context.fillRect(0, 0, canvas.width, canvas.height);
+
+		let offsetY = 0;
+		for (const entry of scaledEntries) {
+			const offsetX = Math.floor((canvas.width - entry.targetWidth) / 2);
+			context.drawImage(entry.imageElement, offsetX, offsetY, entry.targetWidth, entry.targetHeight);
+			offsetY += entry.targetHeight + gap;
+		}
+
+		const jpegBlob = await new Promise<Blob | null>((resolve) => {
+			canvas.toBlob(resolve, "image/jpeg", 0.9);
+		});
+		if (!jpegBlob) {
+			throw new Error("IMAGE_COLLAGE_FAILED");
+		}
+
+		return new File([jpegBlob], `coffee-helper-multi-${Date.now()}.jpg`, { type: "image/jpeg" });
+	} finally {
+		for (const entry of loadedImages) {
+			entry.cleanup();
+		}
+	}
+}
+
+async function validateVisionUploadCandidate(
+	file: File,
+	tier: UserSubscriptionTier,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+	const mime = normalizeImageMime(file.type);
+	const extension = extractFileExtension(file.name);
+
+	if (!isAllowedVisionUploadType(mime, extension)) {
+		return {
+			ok: false,
+			message: "Unsupported file type. Allowed: WEBP, PNG, AVIF, TIFF, SVG, JPG, JPEG, HEIC.",
+		};
+	}
+
+	const autoConvertAllowed = canAutoConvertVisionUpload(tier);
+	if (!autoConvertAllowed && !isDirectPngOrJpegType(mime, extension)) {
+		return {
+			ok: false,
+			message:
+				"BASIC and PLUS allow PNG/JPG only. PRO, MAX, and ULTIMATE include auto-convert to JPG for additional image formats.",
+		};
+	}
+
+	if (!autoConvertAllowed) {
+		let dimensions: { width: number; height: number };
+		try {
+			dimensions = await readImageDimensions(file);
+		} catch {
+			return {
+				ok: false,
+				message: "Could not read this image. Please upload a valid PNG or JPG file.",
+			};
+		}
+
+		if (dimensions.width < MIN_VISION_IMAGE_DIMENSION_PX || dimensions.height < MIN_VISION_IMAGE_DIMENSION_PX) {
+			return {
+				ok: false,
+				message: `Image is too small. Minimum supported size is ${MIN_VISION_IMAGE_DIMENSION_PX}x${MIN_VISION_IMAGE_DIMENSION_PX}px.`,
+			};
+		}
+	}
+
+	return { ok: true };
+}
 
 const GENERAL_PROMPT_LIMIT_BY_TIER: Record<UserSubscriptionTier, number> = {
 	none: 15,
@@ -202,7 +571,17 @@ const MOLECULE_PROMPT_LIMIT_BY_TIER: Record<UserSubscriptionTier, number> = {
 	ultimate: 200,
 };
 
-function expectedPromptLimit(tier: UserSubscriptionTier, scope: "general" | "molecule_helper", loggedIn: boolean): number {
+const CHAT_MEMORY_LIMIT_BY_TIER: Record<UserSubscriptionTier, number> = {
+	none: 5,
+	free: 5,
+	basic: 20,
+	plus: 50,
+	pro: 100,
+	max: 200,
+	ultimate: 200,
+};
+
+function expectedPromptLimit(tier: UserSubscriptionTier, scope: PromptScope, loggedIn: boolean): number {
 	if (!loggedIn) {
 		return scope === "molecule_helper" ? 25 : 25;
 	}
@@ -214,7 +593,7 @@ function normalizePromptCounters(
 	inputLimit: unknown,
 	tier: UserSubscriptionTier,
 	loggedIn: boolean,
-	scope: "general" | "molecule_helper",
+	scope: PromptScope,
 ): { promptsRemaining: number; promptsLimit: number } {
 	const expectedLimitValue = expectedPromptLimit(tier, scope, loggedIn);
 	const incomingLimit = Number(inputLimit);
@@ -302,7 +681,8 @@ export default function CoffeeRecommender() {
 		molecule_helper: { chatId: null, messages: [] },
 	});
 	const [chatMode, setChatMode] = useState<"coffee" | "general">("coffee");
-	const [selectedModel, setSelectedModel] = useState<"tanka">("tanka");
+	const [selectedModel, setSelectedModel] = useState<TextModelKey>("minilm_l6_v2_gguf");
+	const [selectedVisionModel, setSelectedVisionModel] = useState<VisionModelKey>("qwen3_vl_2b_q4_0_gguf");
 	const [chemistryMode, setChemistryMode] = useState(false);
 	const [thinkingEnabledByHelper, setThinkingEnabledByHelper] = useState<Record<HelperMode, boolean>>({
 		coffee_helper: false,
@@ -318,12 +698,24 @@ export default function CoffeeRecommender() {
 	const currentRequestIdRef = useRef<string | null>(null);
 	const submitCooldownRef = useRef<number>(0);
 	const moleculeVizCacheRef = useRef<Record<string, { molecule: any; svg?: string; sdf?: string }>>({});
-	const [chatImage, setChatImage] = useState<File | null>(null);
+	const [chatImages, setChatImages] = useState<File[]>([]);
 
 	// Prompt limit tracking
 	const [promptsRemaining, setPromptsRemaining] = useState<number | null>(null);
 	const [promptsLimit, setPromptsLimit] = useState<number | null>(null);
 	const [promptResetDate, setPromptResetDate] = useState<string | null>(null);
+	const [promptUsageByScope, setPromptUsageByScope] = useState<Record<PromptScope, PromptScopeState>>({
+		general: {
+			promptsRemaining: null,
+			promptsLimit: null,
+			resetDate: null,
+		},
+		molecule_helper: {
+			promptsRemaining: null,
+			promptsLimit: null,
+			resetDate: null,
+		},
+	});
 	const [limitReached, setLimitReached] = useState(false);
 	const fingerprintRef = useRef<string>("");
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -343,29 +735,141 @@ export default function CoffeeRecommender() {
 		allProducts.forEach((p) => p.notes?.forEach((n) => set.add(n)));
 		return Array.from(set).sort();
 	}, []);
+	const activeHelperMode: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
+	const activePromptScope: PromptScope = chemistryMode ? "molecule_helper" : "general";
+	const activePromptScopeRef = useRef<PromptScope>(activePromptScope);
+
+	useEffect(() => {
+		activePromptScopeRef.current = activePromptScope;
+	}, [activePromptScope]);
+
+	const updatePromptScopeState = useCallback(
+		(scope: PromptScope, counters: { promptsRemaining: number; promptsLimit: number }, resetDate?: string | null) => {
+			setPromptUsageByScope((prev) => ({
+				...prev,
+				[scope]: {
+					promptsRemaining: counters.promptsRemaining,
+					promptsLimit: counters.promptsLimit,
+					resetDate: resetDate === undefined ? prev[scope].resetDate : resetDate,
+				},
+			}));
+		},
+		[],
+	);
 
 	const stats = useMemo(() => {
 		const categoryCounts = { coffee: 0, chemistry: 0, general: 0 };
-		const modelCounts = { tanka: 0 };
-		const total = chatHistory.length;
+		const modelPromptCounts: Record<ModelUsageKey, number> = {
+			minilm: 0,
+			qwen3: 0,
+			gemma3: 0,
+			qwen3Vision: 0,
+			other: 0,
+		};
+
+		let totalAssistantResponses = 0;
 
 		chatHistory.forEach((chat) => {
 			if (chat.category) categoryCounts[chat.category]++;
 			else categoryCounts.general++;
 
-			modelCounts.tanka++;
+			chat.messages.forEach((message) => {
+				if (message.role !== "assistant") return;
+				totalAssistantResponses++;
+				const usageKey = detectModelUsageKey(message.modelUsed);
+				modelPromptCounts[usageKey] += 1;
+			});
 		});
 
-		const modelPercentages = {
-			tanka: total ? 100 : 0,
+		const modelPromptPercentages = (Object.keys(modelPromptCounts) as ModelUsageKey[]).reduce(
+			(acc, key) => {
+				acc[key] =
+					totalAssistantResponses > 0
+						? Math.round((modelPromptCounts[key] / totalAssistantResponses) * 10000) / 100
+						: 0;
+				return acc;
+			},
+			{ minilm: 0, qwen3: 0, gemma3: 0, qwen3Vision: 0, other: 0 } as Record<ModelUsageKey, number>,
+		);
+
+		const buildPromptScopeStats = (scope: PromptScope): PromptScopeStats => {
+			const scopeCounters = promptUsageByScope[scope];
+			const computedPromptsLimit =
+				Number.isFinite(scopeCounters.promptsLimit) && Number(scopeCounters.promptsLimit) > 0
+					? Number(scopeCounters.promptsLimit)
+					: expectedPromptLimit(userSubscription, scope, isLoggedIn);
+			const computedPromptsRemaining =
+				scopeCounters.promptsRemaining !== null
+					? Math.max(0, Math.min(scopeCounters.promptsRemaining, computedPromptsLimit))
+					: computedPromptsLimit;
+			const promptsUsed = Math.max(0, computedPromptsLimit - computedPromptsRemaining);
+			const promptsUsagePercent =
+				computedPromptsLimit > 0 ? Math.round((promptsUsed / computedPromptsLimit) * 10000) / 100 : 0;
+
+			return {
+				scopeLabel: scope === "molecule_helper" ? "Molecule Helper" : "General",
+				used: promptsUsed,
+				remaining: computedPromptsRemaining,
+				limit: computedPromptsLimit,
+				usagePercent: promptsUsagePercent,
+				resetDate: scopeCounters.resetDate,
+			};
 		};
 
-		return { categoryCounts, modelCounts, modelPercentages, total };
-	}, [chatHistory]);
+		const hasMoleculeHelperAccess = (VISION_MODELS_BY_TIER[userSubscription] || []).length > 0;
 
-	const hasQwenAccess = useMemo(() => ["pro", "max", "ultimate"].includes(userSubscription), [userSubscription]);
-	const hasQwenThinkingAccess = useMemo(() => userSubscription === "ultimate", [userSubscription]);
-	const activeHelperMode: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
+		const memoryLimit = CHAT_MEMORY_LIMIT_BY_TIER[userSubscription] ?? MAX_HISTORY;
+		const memoryUsed = chatHistory.length;
+		const memoryRemaining = Math.max(0, memoryLimit - memoryUsed);
+		const memoryUsagePercent = memoryLimit > 0 ? Math.min(100, Math.round((memoryUsed / memoryLimit) * 10000) / 100) : 0;
+
+		return {
+			categoryCounts,
+			totalConversations: chatHistory.length,
+			modelPromptUsage: {
+				labels: MODEL_USAGE_LABEL_BY_KEY,
+				counts: modelPromptCounts,
+				percentages: modelPromptPercentages,
+				totalResponses: totalAssistantResponses,
+			},
+			prompts: {
+				general: buildPromptScopeStats("general"),
+				moleculeHelper: hasMoleculeHelperAccess ? buildPromptScopeStats("molecule_helper") : null,
+			},
+			memory: {
+				used: memoryUsed,
+				remaining: memoryRemaining,
+				limit: memoryLimit,
+				usagePercent: memoryUsagePercent,
+			},
+		};
+	}, [chatHistory, promptUsageByScope, userSubscription, isLoggedIn]);
+
+	const allowedTextModels = useMemo(() => TEXT_MODELS_BY_TIER[userSubscription] || ["minilm_l6_v2_gguf"], [userSubscription]);
+	const allowedVisionModels = useMemo(() => VISION_MODELS_BY_TIER[userSubscription] || [], [userSubscription]);
+	const hasVisionAccess = allowedVisionModels.length > 0;
+	const hasQwenAccess = useMemo(() => allowedTextModels.includes("qwen3_06b_q8_0_gguf"), [allowedTextModels]);
+	const hasQwenThinkingAccess = useMemo(
+		() => userSubscription === "max" || userSubscription === "ultimate",
+		[userSubscription],
+	);
+	const hasGemmaAccess = useMemo(() => allowedTextModels.includes("gemma3_1b_it_q4_0_gguf"), [allowedTextModels]);
+	const hasVisionAutoConvert = useMemo(() => canAutoConvertVisionUpload(userSubscription), [userSubscription]);
+	const maxImagesPerPrompt = useMemo(
+		() => (chemistryMode ? 1 : coffeeHelperImageLimitForTier(userSubscription)),
+		[chemistryMode, userSubscription],
+	);
+	const supportsMultiImagePrompt = maxImagesPerPrompt > 1;
+	const visionUploadPolicyHint = useMemo(() => {
+		if (!hasVisionAccess) return "Vision upload is locked on Free tier.";
+		if (hasVisionAutoConvert) {
+			const multiImageHint = supportsMultiImagePrompt
+				? ` Coffee Helper supports up to ${maxImagesPerPrompt} images per prompt on ${userSubscription.toUpperCase()}.`
+				: "";
+			return `Allowed: WEBP, PNG, AVIF, TIFF, SVG, JPG, JPEG, HEIC. PRO, MAX, and ULTIMATE auto-convert non-PNG/JPG uploads to JPG and upscale small images to at least ${MIN_VISION_IMAGE_DIMENSION_PX}px.${multiImageHint}`;
+		}
+		return `BASIC and PLUS accept PNG/JPG only, minimum ${MIN_VISION_IMAGE_DIMENSION_PX}x${MIN_VISION_IMAGE_DIMENSION_PX}px.`;
+	}, [hasVisionAccess, hasVisionAutoConvert, maxImagesPerPrompt, supportsMultiImagePrompt, userSubscription]);
 	const thinkingEnabledForActiveHelper = thinkingEnabledByHelper[activeHelperMode];
 
 	const subscriptionTierLabel = useMemo(() => {
@@ -386,10 +890,10 @@ export default function CoffeeRecommender() {
 		return fp;
 	}
 
-	async function fetchPromptStatus(token?: string, scope: "general" | "molecule_helper" = "general") {
+	async function fetchPromptStatus(token?: string, scope: PromptScope = "general", updateDisplay = true) {
 		try {
 			const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-			const normalizedScope = scope === "molecule_helper" ? "molecule_helper" : "general";
+			const normalizedScope: PromptScope = scope === "molecule_helper" ? "molecule_helper" : "general";
 			const fp = getOrCreateFingerprint();
 			fingerprintRef.current = fp;
 			const headers: Record<string, string> = {
@@ -421,10 +925,13 @@ export default function CoffeeRecommender() {
 					normalizedScope,
 				);
 
-				setPromptsRemaining(normalizedCounters.promptsRemaining);
-				setPromptsLimit(normalizedCounters.promptsLimit);
-				setPromptResetDate(data.reset_date ?? null);
-				setLimitReached(normalizedCounters.promptsRemaining <= 0);
+				updatePromptScopeState(normalizedScope, normalizedCounters, data.reset_date ?? null);
+				if (updateDisplay && normalizedScope === activePromptScopeRef.current) {
+					setPromptsRemaining(normalizedCounters.promptsRemaining);
+					setPromptsLimit(normalizedCounters.promptsLimit);
+					setPromptResetDate(data.reset_date ?? null);
+					setLimitReached(normalizedCounters.promptsRemaining <= 0);
+				}
 				if (token && typeof data.tier === "string") {
 					const backendTier = normalizeUserSubscriptionTier(data.tier, userSubscription);
 					if (backendTier !== "none") {
@@ -498,7 +1005,7 @@ export default function CoffeeRecommender() {
 							clearAccountSession();
 							setIsLoggedIn(false);
 							setUserSubscription("none");
-							setSelectedModel("tanka");
+							setSelectedModel("minilm_l6_v2_gguf");
 							fetchPromptStatus(undefined, "general");
 						};
 
@@ -524,8 +1031,7 @@ export default function CoffeeRecommender() {
 								}
 								setUserSubscription(tier);
 
-								// All tiers use Kafelot Tanka exclusively
-								setSelectedModel("tanka");
+								setSelectedModel("minilm_l6_v2_gguf");
 							})
 							.catch((subscriptionError) => {
 								if ((subscriptionError as Error)?.message === "AUTH_EXPIRED") {
@@ -555,8 +1061,7 @@ export default function CoffeeRecommender() {
 											throw new Error("AUTH_ME_SUBSCRIPTION_MISSING");
 										}
 										setUserSubscription(sub);
-										// All tiers use Kafelot Tanka exclusively
-										setSelectedModel("tanka");
+										setSelectedModel("minilm_l6_v2_gguf");
 									})
 									.catch((authError) => {
 										if ((authError as Error)?.message === "AUTH_EXPIRED") {
@@ -565,7 +1070,7 @@ export default function CoffeeRecommender() {
 										}
 										const sessionTier = normalizeUserSubscriptionTier(accountSession.subscription, "free");
 										setUserSubscription(sessionTier);
-										setSelectedModel("tanka");
+										setSelectedModel("minilm_l6_v2_gguf");
 									});
 							});
 					}
@@ -582,7 +1087,7 @@ export default function CoffeeRecommender() {
 			const accountSessionForHistory = readAccountSession();
 			if (accountSessionForHistory) {
 				// Load from server
-				fetch("/api/chat/save")
+				fetch("/api/chat/save", { cache: "no-store" })
 					.then((res) => res.json())
 					.then((data) => {
 						if (data.history && Array.isArray(data.history)) {
@@ -601,8 +1106,13 @@ export default function CoffeeRecommender() {
 		if (typeof window === "undefined") return;
 		const accountSession = readAccountSession();
 		const token = accountSession?.token ?? undefined;
-		const scope = chemistryMode ? "molecule_helper" : "general";
-		fetchPromptStatus(token, scope);
+		const scope: PromptScope = chemistryMode ? "molecule_helper" : "general";
+		fetchPromptStatus(token, scope, true);
+		const hasMoleculeHelperAccess = (VISION_MODELS_BY_TIER[userSubscription] || []).length > 0;
+		if (hasMoleculeHelperAccess) {
+			const secondaryScope: PromptScope = scope === "general" ? "molecule_helper" : "general";
+			fetchPromptStatus(token, secondaryScope, false);
+		}
 	}, [chemistryMode, isLoggedIn, userSubscription]);
 
 	useEffect(() => {
@@ -613,12 +1123,18 @@ export default function CoffeeRecommender() {
 		};
 	}, [chatMessages, currentChatId, chemistryMode]);
 
-	// Disable chemistry mode if user switches away from Tanka
 	useEffect(() => {
-		if (chemistryMode && selectedModel !== "tanka") {
-			setChemistryMode(false);
+		if (!allowedTextModels.includes(selectedModel)) {
+			setSelectedModel(allowedTextModels[0]);
 		}
-	}, [selectedModel, chemistryMode]);
+	}, [allowedTextModels, selectedModel]);
+
+	useEffect(() => {
+		if (allowedVisionModels.length === 0) return;
+		if (!allowedVisionModels.includes(selectedVisionModel)) {
+			setSelectedVisionModel(allowedVisionModels[0]);
+		}
+	}, [allowedVisionModels, selectedVisionModel]);
 
 	useEffect(() => {
 		if (!hasQwenThinkingAccess) {
@@ -648,7 +1164,7 @@ export default function CoffeeRecommender() {
 
 		const checkHealth = async (): Promise<boolean> => {
 			try {
-				const res = await fetch("/api/python-health");
+				const res = await fetch("/api/python-health", { cache: "no-store" });
 				if (!res.ok) {
 					if (!cancelled) {
 						setSmarterAIAvailable(false);
@@ -945,7 +1461,7 @@ export default function CoffeeRecommender() {
 			setChemistryMode(nextChemistryMode);
 			setChatMode(nextChemistryMode ? "general" : "coffee");
 			setChatInput("");
-			setChatImage(null);
+			setChatImages([]);
 			editingMessageIdxRef.current = null;
 			setEditingMessageIdx(null);
 			lastSavedConversationSignatureRef.current = "";
@@ -969,7 +1485,7 @@ export default function CoffeeRecommender() {
 		setChatMessages([]);
 		setCurrentChatId(null);
 		setChatInput("");
-		setChatImage(null);
+		setChatImages([]);
 		const activeHelper: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
 		helperConversationsRef.current[activeHelper] = { chatId: null, messages: [] };
 		setStep("chat");
@@ -1005,7 +1521,7 @@ export default function CoffeeRecommender() {
 			setChatMessages(chat.messages);
 			setCurrentChatId(chat.id);
 			setChatInput("");
-			setChatImage(null);
+			setChatImages([]);
 			setStep("chat");
 		},
 		[chatHistory, chemistryMode, currentChatId, chatMessages],
@@ -1192,22 +1708,25 @@ export default function CoffeeRecommender() {
 		submitCooldownRef.current = now;
 
 		const prompt = chatInput.trim();
-		if (!prompt && !chatImage) return;
+		if (!prompt && chatImages.length === 0) return;
 
-		const imageDataUrl = await new Promise<string | null>((resolve) => {
-			if (!chatImage) {
-				resolve(null);
-				return;
-			}
-			const reader = new FileReader();
-			reader.onloadend = () => resolve(reader.result as string);
-			reader.onerror = () => resolve(null);
-			reader.readAsDataURL(chatImage);
-		});
+		const imageDataUrls = await Promise.all(
+			chatImages.map(
+				(file) =>
+					new Promise<string | null>((resolve) => {
+						const reader = new FileReader();
+						reader.onloadend = () => resolve(reader.result as string);
+						reader.onerror = () => resolve(null);
+						reader.readAsDataURL(file);
+					}),
+			),
+		);
+		const validImageDataUrls = imageDataUrls.filter((value): value is string => Boolean(value));
 		const userMsg: Message = {
 			role: "user",
-			content: prompt || (imageDataUrl ? "" : "[Image attached]"),
-			...(imageDataUrl ? { image: imageDataUrl } : {}),
+			content: prompt || (validImageDataUrls.length > 0 ? "" : "[Image attached]"),
+			...(validImageDataUrls.length > 0 ? { image: validImageDataUrls[0] } : {}),
+			...(validImageDataUrls.length > 1 ? { images: validImageDataUrls } : {}),
 		};
 		const editIdx = editingMessageIdxRef.current;
 		const messagesForApi = editIdx !== null ? chatMessages.slice(0, editIdx) : chatMessages;
@@ -1219,8 +1738,26 @@ export default function CoffeeRecommender() {
 			setChatMessages((m) => [...m, userMsg]);
 		}
 		setChatInput("");
-		const imageToSend = chatImage;
-		setChatImage(null);
+		const imagesToSend = [...chatImages];
+		setChatImages([]);
+
+		let imageToSend: File | null = null;
+		if (imagesToSend.length === 1) {
+			imageToSend = imagesToSend[0];
+		} else if (imagesToSend.length > 1) {
+			try {
+				imageToSend = await combinePromptImagesAsJpeg(imagesToSend);
+				notify(`Combined ${imagesToSend.length} images into one Coffee Helper prompt image.`, 2800, "info", "coffee");
+			} catch {
+				imageToSend = imagesToSend[0];
+				notify(
+					"Could not combine all selected images. Sending only the first image for this prompt.",
+					4200,
+					"error",
+					"coffee",
+				);
+			}
+		}
 		setIsTyping(true);
 
 		const lowerPrompt = prompt.toLowerCase();
@@ -1228,7 +1765,21 @@ export default function CoffeeRecommender() {
 			chemistryMode && (isMoleculeQuery(prompt) || /CHEMBL\d+/i.test(prompt) || !!extractMoleculeQuery(prompt));
 		const helperModeForPrompt: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
 		const thinkingToggleEnabled = thinkingEnabledByHelper[helperModeForPrompt];
-		const enableThinking = shouldEnableThinkingForPrompt(prompt, hasQwenThinkingAccess, thinkingToggleEnabled);
+		const thinkingEligibleModel = selectedModel === "qwen3_06b_q8_0_gguf" && hasQwenThinkingAccess;
+		const enableThinking = shouldEnableThinkingForPrompt(prompt, thinkingEligibleModel, thinkingToggleEnabled);
+		const selectedTextModelLabel = TEXT_MODEL_LABEL_BY_KEY[selectedModel];
+		const selectedVisionModelLabel = VISION_MODEL_LABEL_BY_KEY[selectedVisionModel];
+
+		if (imageToSend && !hasVisionAccess) {
+			const lockedVisionMsg: Message = {
+				role: "assistant",
+				content: "Image analysis is available for BASIC, PLUS, PRO, MAX, and ULTIMATE subscriptions.",
+				modelUsed: "qwen3-vl-2b-q4_0-gguf-locked-tier",
+			};
+			setChatMessages((m) => [...m, lockedVisionMsg]);
+			setIsTyping(false);
+			return;
+		}
 
 		try {
 			// Create AbortController for this request
@@ -1242,7 +1793,7 @@ export default function CoffeeRecommender() {
 			const shouldUsePython = true;
 			const endpoint = shouldUsePython ? "/api/python-chat" : "/api/chat";
 			const modelForRequest = chemistryMode ? "tanka_chemistry" : "tanka_semantic";
-			const promptScope: "general" | "molecule_helper" = chemistryMode ? "molecule_helper" : "general";
+			const promptScope: PromptScope = chemistryMode ? "molecule_helper" : "general";
 
 			let fetchBody: BodyInit;
 			let fetchHeaders: Record<string, string> = {};
@@ -1259,6 +1810,8 @@ export default function CoffeeRecommender() {
 				fd.append("messages", JSON.stringify([...messagesForApi, userMsg]));
 				fd.append("mode", chatMode);
 				fd.append("model", modelForRequest);
+				fd.append("text_model", selectedModel);
+				fd.append("vision_model", selectedVisionModel);
 				fd.append("subscription", userSubscription || "");
 				fd.append("enable_thinking", String(enableThinking));
 				fd.append("chemistry_mode", String(chemistryMode));
@@ -1277,6 +1830,8 @@ export default function CoffeeRecommender() {
 					messages: [...messagesForApi, userMsg],
 					mode: chatMode,
 					model: modelForRequest,
+					text_model: selectedModel,
+					vision_model: selectedVisionModel,
 					subscription: userSubscription,
 					enable_thinking: enableThinking,
 					chemistry_mode: chemistryMode,
@@ -1331,6 +1886,7 @@ export default function CoffeeRecommender() {
 					);
 					setPromptsRemaining(normalizedCounters.promptsRemaining);
 					setPromptsLimit(normalizedCounters.promptsLimit);
+					updatePromptScopeState(promptScope, normalizedCounters, errorData.reset_date ?? null);
 					setLimitReached(normalizedCounters.promptsRemaining <= 0);
 					const resetText = errorData.reset_date
 						? ` Your limit resets on ${new Date(errorData.reset_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`
@@ -1343,22 +1899,36 @@ export default function CoffeeRecommender() {
 					return;
 				}
 
+				if (errorData.error === "VISION_MODEL_LOCKED") {
+					const lockedMsg: Message = {
+						role: "assistant",
+						content:
+							errorData.message ||
+							"Image analysis is available for BASIC, PLUS, PRO, MAX, and ULTIMATE subscriptions.",
+						modelUsed: errorData.model_used || "qwen3-vl-2b-q4_0-gguf-locked-tier",
+					};
+					setChatMessages((m) => [...m, lockedMsg]);
+					return;
+				}
+
 				if (
 					errorData.error === "QWEN_THINKING_UNAVAILABLE" ||
-					errorData.error === "MOLSCRIBE_UNAVAILABLE" ||
 					isHighDemandUnavailableModel(errorData.model_used) ||
 					String(errorData.message || "")
 						.toLowerCase()
 						.includes("high demand")
 				) {
+					const runtimeLabel = imageToSend ? selectedVisionModelLabel : selectedTextModelLabel;
 					const unavailableMsg: Message = {
 						role: "assistant",
 						content:
 							errorData.message ||
-							(errorData.error === "MOLSCRIBE_UNAVAILABLE"
-								? "MolScribe is in high demand right now, we're sorry for unavailability."
-								: "Qwen 3 Thinking is in high demand right now, we're sorry for unavailability."),
-						modelUsed: errorData.model_used || "qwen3-unavailable-chemistry-high-demand",
+							`${runtimeLabel} runtime is in high demand right now, we're sorry for unavailability.`,
+						modelUsed:
+							errorData.model_used ||
+							(imageToSend
+								? "qwen3-vl-2b-q4_0.gguf-vision-unavailable-high-demand"
+								: "minilm-l6-v2-gguf-unavailable-high-demand"),
 					};
 					setChatMessages((m) => [...m, unavailableMsg]);
 					if (typeof errorData.prompts_remaining === "number" || typeof errorData.prompts_limit === "number") {
@@ -1373,6 +1943,7 @@ export default function CoffeeRecommender() {
 						);
 						setPromptsRemaining(normalizedCounters.promptsRemaining);
 						setPromptsLimit(normalizedCounters.promptsLimit);
+						updatePromptScopeState(promptScope, normalizedCounters);
 						setLimitReached(normalizedCounters.promptsRemaining <= 0);
 					}
 					if (typeof errorData.subscription_tier === "string") {
@@ -1422,6 +1993,7 @@ export default function CoffeeRecommender() {
 				);
 				setPromptsRemaining(normalizedCounters.promptsRemaining);
 				setPromptsLimit(normalizedCounters.promptsLimit);
+				updatePromptScopeState(promptScope, normalizedCounters);
 				setLimitReached(normalizedCounters.promptsRemaining <= 0);
 			} else {
 				setPromptsRemaining((prev) => {
@@ -1430,6 +2002,18 @@ export default function CoffeeRecommender() {
 					if (next <= 0) setLimitReached(true);
 					return next;
 				});
+				setPromptUsageByScope((prev) => {
+					const current = prev[promptScope];
+					if (current.promptsRemaining === null) return prev;
+					const next = Math.max(0, current.promptsRemaining - 1);
+					return {
+						...prev,
+						[promptScope]: {
+							...current,
+							promptsRemaining: next,
+						},
+					};
+				});
 			}
 
 			const modelUsedLabel =
@@ -1437,7 +2021,7 @@ export default function CoffeeRecommender() {
 					? data.model_used
 					: typeof data.model === "string" && data.model.trim().length > 0
 						? data.model
-						: "Tanka";
+						: "Kafelot";
 			const isUnavailableModel =
 				isHighDemandUnavailableModel(modelUsedLabel) ||
 				String(data.response || "")
@@ -1497,12 +2081,14 @@ export default function CoffeeRecommender() {
 						: JSON.stringify(error);
 			const isTimeoutLikeError = /aborterror|timeout|timed out|headers?timeout/i.test(errorText);
 			if (chemistryMode) {
+				const runtimeLabel = imageToSend ? selectedVisionModelLabel : selectedTextModelLabel;
+				const modelUsed = imageToSend
+					? `${selectedVisionModelLabel}-vision-unavailable-high-demand`
+					: `${selectedTextModelLabel}-unavailable-chemistry-high-demand`;
 				const chemistryUnavailableMsg: Message = {
 					role: "assistant",
-					content: imageToSend
-						? "MolScribe is in high demand right now, we're sorry for unavailability."
-						: "Qwen 3 Thinking is in high demand right now, we're sorry for unavailability.",
-					modelUsed: imageToSend ? "molscribe-unavailable-high-demand" : "qwen3-unavailable-chemistry-high-demand",
+					content: `${runtimeLabel} runtime is in high demand right now, we're sorry for unavailability.`,
+					modelUsed,
 				};
 				setChatMessages((m) => [...m, chemistryUnavailableMsg]);
 				return;
@@ -1511,7 +2097,7 @@ export default function CoffeeRecommender() {
 			const assistantMsg: Message = {
 				role: "assistant",
 				content: isTimeoutLikeError
-					? "Qwen 3 is taking too long right now, so I switched to a fast MiniLM fallback response.\n\n" +
+					? "The selected model is taking too long right now, so I switched to a fast MiniLM fallback response.\n\n" +
 						fallbackResponse.response
 					: fallbackResponse.response,
 				modelUsed: isTimeoutLikeError ? "MiniLM (timeout fallback)" : "Local fallback response",
@@ -1525,7 +2111,7 @@ export default function CoffeeRecommender() {
 		}
 	}, [
 		chatInput,
-		chatImage,
+		chatImages,
 		chatMessages,
 		chatMode,
 		userSubscription,
@@ -1533,11 +2119,93 @@ export default function CoffeeRecommender() {
 		smarterAIAvailable,
 		chemistryMode,
 		hasQwenThinkingAccess,
+		selectedModel,
+		selectedVisionModel,
+		hasVisionAccess,
 		thinkingEnabledByHelper,
 		visualizationMode,
 		fetchMoleculeData,
 		isTyping,
+		notify,
 	]);
+
+	const handleVisionFileSelection = useCallback(
+		async (files: File[] | null) => {
+			if (!files || files.length === 0) return;
+
+			const slotsAvailable = Math.max(0, maxImagesPerPrompt - chatImages.length);
+			if (slotsAvailable <= 0) {
+				notify(
+					`You can attach up to ${maxImagesPerPrompt} image${maxImagesPerPrompt === 1 ? "" : "s"} per prompt in this mode.`,
+					3600,
+					"error",
+					"coffee",
+				);
+				return;
+			}
+
+			const acceptedFiles: File[] = [];
+			let previewConvertedCount = 0;
+			let previewConversionFailedCount = 0;
+			const candidateFiles = files.slice(0, slotsAvailable);
+
+			for (const file of candidateFiles) {
+				const validation = await validateVisionUploadCandidate(file, userSubscription);
+				if (!validation.ok) {
+					notify(validation.message, 4200, "error", "coffee");
+					continue;
+				}
+
+				let previewFile = file;
+				const mime = normalizeImageMime(file.type);
+				const extension = extractFileExtension(file.name);
+				const shouldPreviewAsJpeg = hasVisionAutoConvert && !isDirectPngOrJpegType(mime, extension);
+
+				if (shouldPreviewAsJpeg) {
+					try {
+						previewFile = await convertVisionUploadToJpegPreview(file, MIN_VISION_IMAGE_DIMENSION_PX);
+						previewConvertedCount += 1;
+					} catch {
+						previewConversionFailedCount += 1;
+					}
+				}
+
+				acceptedFiles.push(previewFile);
+			}
+
+			if (acceptedFiles.length > 0) {
+				setChatImages((prev) => [...prev, ...acceptedFiles].slice(0, maxImagesPerPrompt));
+			}
+
+			if (files.length > slotsAvailable) {
+				notify(
+					`Only ${maxImagesPerPrompt} image${maxImagesPerPrompt === 1 ? "" : "s"} can be attached per prompt in this mode.`,
+					3200,
+					"info",
+					"coffee",
+				);
+			}
+
+			if (hasVisionAutoConvert && acceptedFiles.length > 0) {
+				if (previewConversionFailedCount > 0) {
+					notify(
+						`Could not create ${previewConversionFailedCount} JPG preview${previewConversionFailedCount === 1 ? "" : "s"} locally. The upload will be converted server-side for ${userSubscription.toUpperCase()}.`,
+						3600,
+						"info",
+						"coffee",
+					);
+				} else if (previewConvertedCount > 0) {
+					notify(
+						`${previewConvertedCount} image${previewConvertedCount === 1 ? "" : "s"} converted to JPG preview. Auto-convert/upscale is enabled for ${userSubscription.toUpperCase()}.`,
+						2800,
+						"info",
+						"coffee",
+					);
+				}
+			}
+		},
+		[chatImages.length, hasVisionAutoConvert, maxImagesPerPrompt, notify, userSubscription],
+	);
 
 	// Stop generation handler
 	const handleStopGeneration = useCallback(async () => {
@@ -1625,8 +2293,8 @@ export default function CoffeeRecommender() {
 								>
 									<BulbSvg className="recommender-inline-icon" />{" "}
 									<div>
-										<strong>Tip:</strong> Log in to unlock chat history and subscription-based Qwen 3 access
-										for Molecule Helper text chemistry.
+										<strong>Tip:</strong> Log in to unlock chat history and subscription-based Qwen 3 for
+										Molecule Helper text chemistry.
 									</div>
 								</div>
 							</div>
@@ -1932,11 +2600,9 @@ export default function CoffeeRecommender() {
 									switchHelperMode(true);
 								}}
 								title={
-									hasQwenAccess
-										? hasQwenThinkingAccess
-											? "Molecule Helper - Text chemistry with Qwen 3 Thinking and image chemistry with MolScribe."
-											: "Molecule Helper - Text chemistry with Qwen 3 and image chemistry with MolScribe."
-										: "Molecule Helper - Image chemistry with MolScribe. Qwen 3 text chemistry requires PRO, MAX, or ULTIMATE."
+									hasVisionAccess
+										? "Molecule Helper - text chemistry plus Qwen 3 VL vision analysis."
+										: "Molecule Helper - text chemistry mode only. Vision upload requires BASIC or higher."
 								}
 							>
 								<BrandGrokIcon size={16} /> Molecule Helper
@@ -1963,38 +2629,30 @@ export default function CoffeeRecommender() {
 											</span>
 										</div>
 										<div className="model-access-list">
-											{chemistryMode ? (
-												hasQwenAccess ? (
-													<>
-														<span className="model-access-chip qwen">
-															<BrandQwenIcon size={13} /> Qwen 3 Access
-														</span>
-														<span className="model-access-chip molscribe">
-															<BrandGrokIcon size={13} /> MolScribe image chemistry
-														</span>
-													</>
-												) : (
-													<>
-														<span className="model-access-chip molscribe">
-															<BrandGrokIcon size={13} /> MolScribe image chemistry
-														</span>
-														<span className="model-access-chip qwen">
-															<LockIcon size={12} /> Qwen 3 text chemistry locked
-														</span>
-													</>
-												)
-											) : hasQwenAccess ? (
-												<>
-													<span className="model-access-chip qwen">
-														<BrandQwenIcon size={13} /> Qwen 3 Access
+											{allowedTextModels.map((modelKey) => (
+												<span
+													key={modelKey}
+													className={`model-access-chip ${modelKey === "minilm_l6_v2_gguf" ? "minilm" : "qwen"}`}
+												>
+													{modelKey === "minilm_l6_v2_gguf" ? (
+														<BrandGeminiIcon size={13} />
+													) : modelKey === "gemma3_1b_it_q4_0_gguf" ? (
+														<BrandAnthropicIcon size={13} />
+													) : (
+														<BrandQwenIcon size={13} />
+													)}
+													{TEXT_MODEL_LABEL_BY_KEY[modelKey]}
+												</span>
+											))}
+											{hasVisionAccess ? (
+												allowedVisionModels.map((visionKey) => (
+													<span key={visionKey} className="model-access-chip clip">
+														<CameraIcon size={13} /> {VISION_MODEL_LABEL_BY_KEY[visionKey]}
 													</span>
-													<span className="model-access-chip minilm">
-														<BrandGeminiIcon size={13} /> MiniLM access (fallback)
-													</span>
-												</>
+												))
 											) : (
-												<span className="model-access-chip minilm">
-													<BrandGeminiIcon size={13} /> MiniLM access
+												<span className="model-access-chip qwen">
+													<LockIcon size={12} /> Vision locked on Free tier
 												</span>
 											)}
 										</div>
@@ -2006,16 +2664,16 @@ export default function CoffeeRecommender() {
 											}}
 										>
 											{chemistryMode
-												? hasQwenAccess
-													? hasQwenThinkingAccess
-														? "Molecule Helper text requests use Qwen 3 access. Turn on Thinking below to enable Qwen 3 Thinking. Uploaded molecule images are analyzed with MolScribe."
-														: "Molecule Helper text requests use Qwen 3 access, while uploaded molecule images are analyzed with MolScribe."
-													: "Molecule Helper can analyse uploaded molecule images with MolScribe. Qwen 3 text chemistry requires PRO, MAX, or ULTIMATE."
-												: hasQwenAccess
-													? hasQwenThinkingAccess
-														? "ULTIMATE includes Qwen 3 access with optional Thinking mode and MiniLM fallback."
-														: "PRO and MAX include Qwen 3 access with MiniLM fallback."
-													: "FREE, BASIC and PLUS use Kafelot Tanka with MiniLM only (no Qwen)."}
+												? hasVisionAccess
+													? "Molecule Helper supports text chemistry plus Qwen 3 VL vision analysis."
+													: "Molecule Helper text chemistry is available. Vision uploads require BASIC or higher."
+												: hasGemmaAccess
+													? "ULTIMATE can choose MiniLM V2, Qwen 3, or Gemma 3."
+													: hasQwenThinkingAccess
+														? "MAX can choose MiniLM V2 or Qwen 3, and can enable Qwen 3 Thinking mode."
+														: hasQwenAccess
+															? "BASIC, PLUS, and PRO can choose MiniLM V2 or Qwen 3."
+															: "FREE uses MiniLM-L6-v2.gguf."}
 										</p>
 										{!isLoggedIn && (
 											<p
@@ -2025,10 +2683,60 @@ export default function CoffeeRecommender() {
 													color: "rgba(250, 204, 144, 0.56)",
 												}}
 											>
-												Log in to unlock subscription-based Qwen 3 chemistry access.
+												Log in to unlock subscription-based model selection and higher prompt limits.
 											</p>
 										)}
 									</div>
+								</div>
+
+								<div className="model-selector">
+									<label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+										<BrandGeminiIcon size={16} /> Text Model
+									</label>
+									<select
+										value={selectedModel}
+										onChange={(e) => setSelectedModel(e.target.value as TextModelKey)}
+										style={{
+											width: "100%",
+											background: "rgba(18, 18, 18, 0.95)",
+											color: "rgba(250, 204, 144, 0.95)",
+											border: "1px solid rgba(250, 204, 144, 0.3)",
+											borderRadius: "8px",
+											padding: "0.55rem 0.65rem",
+										}}
+									>
+										{allowedTextModels.map((modelKey) => (
+											<option key={modelKey} value={modelKey}>
+												{TEXT_MODEL_LABEL_BY_KEY[modelKey]}
+											</option>
+										))}
+									</select>
+								</div>
+
+								<div className="model-selector">
+									<label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+										<CameraIcon size={16} /> Vision Model
+									</label>
+									<select
+										value={selectedVisionModel}
+										onChange={(e) => setSelectedVisionModel(e.target.value as VisionModelKey)}
+										disabled={!hasVisionAccess}
+										style={{
+											width: "100%",
+											background: "rgba(18, 18, 18, 0.95)",
+											color: "rgba(250, 204, 144, 0.95)",
+											border: "1px solid rgba(250, 204, 144, 0.3)",
+											borderRadius: "8px",
+											padding: "0.55rem 0.65rem",
+											opacity: hasVisionAccess ? 1 : 0.6,
+										}}
+									>
+										{(hasVisionAccess ? allowedVisionModels : ["qwen3_vl_2b_q4_0_gguf"]).map((visionKey) => (
+											<option key={visionKey} value={visionKey}>
+												{VISION_MODEL_LABEL_BY_KEY[visionKey as VisionModelKey]}
+											</option>
+										))}
+									</select>
 								</div>
 
 								<div className="model-selector">
@@ -2039,17 +2747,19 @@ export default function CoffeeRecommender() {
 									<button
 										className={thinkingEnabledForActiveHelper ? "active" : ""}
 										onClick={toggleThinkingForActiveHelper}
-										disabled={!hasQwenThinkingAccess}
+										disabled={!hasQwenThinkingAccess || selectedModel !== "qwen3_06b_q8_0_gguf"}
 										title={
 											hasQwenThinkingAccess
-												? "Enable or disable Qwen 3 Thinking for this helper."
-												: "Thinking mode requires Ultimate subscription."
+												? selectedModel === "qwen3_06b_q8_0_gguf"
+													? "Enable or disable Qwen 3 Thinking for this helper."
+													: "Select Qwen 3 to enable this toggle."
+												: "Thinking mode requires MAX or ULTIMATE subscription."
 										}
 									>
 										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
 											<BrandQwenIcon size={16} />
 										</span>
-										{thinkingEnabledForActiveHelper ? "Qwen 3 Thinking ON" : "Qwen 3 Thinking OFF"}
+										{thinkingEnabledForActiveHelper ? "Thinking ON" : "Thinking OFF"}
 									</button>
 								</div>
 								<p
@@ -2060,8 +2770,10 @@ export default function CoffeeRecommender() {
 									}}
 								>
 									{hasQwenThinkingAccess
-										? "Thinking is saved separately for Coffee Helper and Molecule Helper. You can still use /think or /no_think per message."
-										: "Thinking mode requires Ultimate subscription."}
+										? selectedModel === "qwen3_06b_q8_0_gguf"
+											? "Thinking is saved separately for Coffee Helper and Molecule Helper. You can still use /think or /no_think per message."
+											: "Thinking toggle activates only when Qwen 3 is selected."
+										: "Thinking mode requires MAX or ULTIMATE subscription."}
 								</p>
 
 								{chemistryMode && (
@@ -2115,41 +2827,26 @@ export default function CoffeeRecommender() {
 
 								{/* Model descriptions below buttons */}
 								<div className="model-description">
-									{selectedModel === "tanka" && (
-										<div className="description-content">
-											<div
-												style={{
-													fontWeight: 700,
-													display: "flex",
-													alignItems: "center",
-													gap: "0.5rem",
-													marginBottom: "0.25rem",
-												}}
-											>
-												{chemistryMode ? (
-													<BrandGrokIcon size={16} />
-												) : hasQwenAccess ? (
-													<BrandQwenIcon size={16} />
-												) : (
-													<BrandGeminiIcon size={16} />
-												)}{" "}
-												Kafelot Tanka
-											</div>
-											<p>
-												{chemistryMode
-													? hasQwenAccess
-														? hasQwenThinkingAccess
-															? "In Molecule Helper, text requests use Qwen 3 access and image requests use MolScribe. Turn Thinking on to enable Qwen 3 Thinking."
-															: "In Molecule Helper, text requests use Qwen 3 access and image requests use MolScribe."
-														: "In Molecule Helper, upload a molecule image to use MolScribe. Qwen 3 text chemistry requires PRO, MAX, or ULTIMATE."
-													: hasQwenAccess
-														? hasQwenThinkingAccess
-															? "Uses Qwen 3 access for primary coffee generation, with optional Thinking mode and MiniLM fallback when needed."
-															: "Uses Qwen 3 access for primary coffee generation, with MiniLM fallback when needed."
-														: "Uses MiniLM-only coffee generation for this subscription tier."}
-											</p>
+									<div className="description-content">
+										<div
+											style={{
+												fontWeight: 700,
+												display: "flex",
+												alignItems: "center",
+												gap: "0.5rem",
+												marginBottom: "0.25rem",
+											}}
+										>
+											<SparklesIcon size={16} /> Kafelot
 										</div>
-									)}
+										<p>
+											Text model: {TEXT_MODEL_LABEL_BY_KEY[selectedModel]}. Vision model:{" "}
+											{hasVisionAccess
+												? VISION_MODEL_LABEL_BY_KEY[selectedVisionModel]
+												: "Locked on Free tier"}
+											.
+										</p>
+									</div>
 								</div>
 							</>
 						}
@@ -2177,9 +2874,7 @@ export default function CoffeeRecommender() {
 											<div style={{ fontWeight: 600 }}>
 												<BrandGrokIcon size={16} className="inline mr-1" />{" "}
 												<strong>Molecule Helper</strong>{" "}
-												<span style={{ color: "rgba(250, 204, 144, 0.6)" }}>
-													(MolScribe AI — Ultimate)
-												</span>
+												<span style={{ color: "rgba(250, 204, 144, 0.6)" }}>(Qwen 3 VL Vision)</span>
 											</div>
 											<p>Explore molecular structures with 2D/3D visualizations! Try asking:</p>
 											<ul>
@@ -2223,6 +2918,14 @@ export default function CoffeeRecommender() {
 										: "";
 								const interactive3d =
 									has3d && Boolean(molecule?.sdf?.includes("<script") || molecule?.sdf?.includes("<!DOCTYPE"));
+								const messageImages =
+									msg.role === "user"
+										? Array.isArray(msg.images) && msg.images.length > 0
+											? msg.images
+											: msg.image
+												? [msg.image]
+												: []
+										: [];
 
 								return (
 									<div key={idx} className={`chat-message ${msg.role}`}>
@@ -2231,20 +2934,26 @@ export default function CoffeeRecommender() {
 												<GithubCopilotIcon size={20} />
 											</div>
 										)}
-										{msg.role === "user" && msg.image && (
-											<div className="chat-bubble-image">
-												<img
-													src={msg.image}
-													alt="Attached image"
-													className="chat-clickable-image"
-													onClick={() =>
-														setMediaLightbox({
-															type: "image",
-															src: msg.image!,
-															title: "Attached image",
-														})
-													}
-												/>
+										{msg.role === "user" && messageImages.length > 0 && (
+											<div
+												className="chat-bubble-image"
+												style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}
+											>
+												{messageImages.map((imageSrc, imageIdx) => (
+													<img
+														key={`${idx}-img-${imageIdx}`}
+														src={imageSrc}
+														alt={`Attached image ${imageIdx + 1}`}
+														className="chat-clickable-image"
+														onClick={() =>
+															setMediaLightbox({
+																type: "image",
+																src: imageSrc,
+																title: `Attached image ${imageIdx + 1}`,
+															})
+														}
+													/>
+												))}
 											</div>
 										)}
 										{msg.content && (
@@ -2280,8 +2989,6 @@ export default function CoffeeRecommender() {
 																<BrandQwenIcon size={12} />
 															) : stylizedModel.accent === "minilm" ? (
 																<BrandGeminiIcon size={12} />
-															) : stylizedModel.accent === "molscribe" ? (
-																<BrandGrokIcon size={12} />
 															) : stylizedModel.accent === "clip" ? (
 																<CameraIcon size={12} />
 															) : (
@@ -2465,16 +3172,26 @@ export default function CoffeeRecommender() {
 							)}
 						</div>
 						<div className="chat-input-area">
-							{chatImage && (
-								<div className="chat-image-preview">
-									<img
-										src={URL.createObjectURL(chatImage)}
-										alt="Selected image"
-										style={{ maxHeight: "80px", borderRadius: "6px", objectFit: "contain" }}
-									/>
-									<button onClick={() => setChatImage(null)} className="chat-image-clear" title="Remove image">
-										×
-									</button>
+							{chatImages.length > 0 && (
+								<div className="chat-image-preview" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+									{chatImages.map((imageFile, imageIdx) => (
+										<div key={`${imageFile.name}-${imageIdx}`} style={{ position: "relative" }}>
+											<img
+												src={URL.createObjectURL(imageFile)}
+												alt={`Selected image ${imageIdx + 1}`}
+												style={{ maxHeight: "80px", borderRadius: "6px", objectFit: "contain" }}
+											/>
+											<button
+												onClick={() =>
+													setChatImages((prev) => prev.filter((_, idxToKeep) => idxToKeep !== imageIdx))
+												}
+												className="chat-image-clear"
+												title="Remove image"
+											>
+												×
+											</button>
+										</div>
+									))}
 								</div>
 							)}
 							{editingMessageIdx !== null && (
@@ -2493,13 +3210,13 @@ export default function CoffeeRecommender() {
 								</div>
 							)}
 							<div className="chat-input-row">
-								{!["none", "free", "basic", "plus"].includes(userSubscription) && (
+								{hasVisionAccess && (
 									<button
 										className="camera-btn"
 										onClick={() => fileInputRef.current?.click()}
 										title="Attach image"
 										aria-label="Attach image"
-										style={{ color: chatImage ? "var(--accent-gold, #f5c842)" : "currentColor" }}
+										style={{ color: chatImages.length > 0 ? "var(--accent-gold, #f5c842)" : "currentColor" }}
 									>
 										<CameraIcon size={20} />
 									</button>
@@ -2524,7 +3241,7 @@ export default function CoffeeRecommender() {
 								/>
 								<button
 									onClick={isTyping ? handleStopGeneration : handleChatSubmit}
-									disabled={!isTyping && !chatInput.trim() && !chatImage}
+									disabled={!isTyping && !chatInput.trim() && chatImages.length === 0}
 									className={`send-btn${isTyping ? " stop-btn" : ""}`}
 									title={isTyping ? "Stop generation" : "Send message"}
 									aria-label={isTyping ? "Stop generation" : "Send message"}
@@ -2544,14 +3261,26 @@ export default function CoffeeRecommender() {
 									)}
 								</button>
 							</div>
+							{hasVisionAccess && (
+								<div
+									style={{
+										marginTop: "0.35rem",
+										fontSize: "0.76rem",
+										color: "rgba(250, 204, 144, 0.62)",
+									}}
+								>
+									{visionUploadPolicyHint}
+								</div>
+							)}
 							<input
 								ref={fileInputRef}
 								type="file"
-								accept="image/*"
+								multiple={maxImagesPerPrompt > 1}
+								accept=".webp,.png,.avif,.tif,.tiff,.svg,.jpg,.jpeg,.heic,image/webp,image/png,image/avif,image/tiff,image/svg+xml,image/jpeg,image/heic"
 								style={{ display: "none" }}
 								onChange={(e) => {
-									const file = e.target.files?.[0];
-									if (file) setChatImage(file);
+									const files = Array.from(e.target.files || []);
+									void handleVisionFileSelection(files.length > 0 ? files : null);
 									e.target.value = "";
 								}}
 							/>

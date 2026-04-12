@@ -67,6 +67,137 @@ async function ensureAppSchema() {
 		`);
 
 		await client.query(`
+			CREATE TABLE IF NOT EXISTS security_event_ledger (
+				id BIGSERIAL PRIMARY KEY,
+				chain_scope VARCHAR(64) NOT NULL DEFAULT 'global',
+				event_type VARCHAR(96) NOT NULL,
+				service_name VARCHAR(96) NOT NULL,
+				actor_type VARCHAR(32) NOT NULL DEFAULT 'service',
+				actor_id VARCHAR(128),
+				correlation_id VARCHAR(128),
+				prev_hash CHAR(64) NOT NULL,
+				event_hash CHAR(64) NOT NULL,
+				payload_canonical TEXT NOT NULL,
+				event_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+				occurred_at TIMESTAMP NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				CONSTRAINT chk_security_ledger_prev_hash CHECK (prev_hash ~ '^[0-9a-f]{64}$'),
+				CONSTRAINT chk_security_ledger_event_hash CHECK (event_hash ~ '^[0-9a-f]{64}$')
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS security_event_ledger_archive (
+				id BIGSERIAL PRIMARY KEY,
+				original_id BIGINT,
+				chain_scope VARCHAR(64) NOT NULL,
+				event_type VARCHAR(96) NOT NULL,
+				service_name VARCHAR(96) NOT NULL,
+				actor_type VARCHAR(32) NOT NULL,
+				actor_id VARCHAR(128),
+				correlation_id VARCHAR(128),
+				prev_hash CHAR(64) NOT NULL,
+				event_hash CHAR(64) NOT NULL,
+				payload_canonical TEXT NOT NULL,
+				event_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+				encrypted_payload TEXT,
+				envelope_key_id VARCHAR(64),
+				envelope_version VARCHAR(16),
+				ciphertext_hash CHAR(64),
+				occurred_at TIMESTAMP NOT NULL,
+				archived_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				CONSTRAINT chk_security_archive_prev_hash CHECK (prev_hash ~ '^[0-9a-f]{64}$'),
+				CONSTRAINT chk_security_archive_event_hash CHECK (event_hash ~ '^[0-9a-f]{64}$')
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS service_contract_registry (
+				id BIGSERIAL PRIMARY KEY,
+				service_name VARCHAR(96) NOT NULL,
+				contract_name VARCHAR(96) NOT NULL,
+				contract_version VARCHAR(24) NOT NULL,
+				direction VARCHAR(16) NOT NULL CHECK (direction IN ('outbound', 'inbound')),
+				schema_body JSONB NOT NULL DEFAULT '{}'::jsonb,
+				active BOOLEAN NOT NULL DEFAULT TRUE,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE (service_name, contract_name, contract_version, direction)
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS zk_circuit_registry (
+				id BIGSERIAL PRIMARY KEY,
+				circuit_name VARCHAR(96) NOT NULL,
+				circuit_version VARCHAR(32) NOT NULL,
+				governance_status VARCHAR(16) NOT NULL DEFAULT 'proposed'
+					CHECK (governance_status IN ('proposed', 'active', 'deprecated', 'revoked')),
+				verification_key TEXT NOT NULL,
+				verification_key_hash CHAR(64) NOT NULL,
+				created_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE (circuit_name, circuit_version)
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS zk_proof_sessions (
+				id BIGSERIAL PRIMARY KEY,
+				operation_id VARCHAR(128) NOT NULL UNIQUE,
+				account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+				circuit_name VARCHAR(96) NOT NULL,
+				circuit_version VARCHAR(32) NOT NULL,
+				public_inputs JSONB NOT NULL DEFAULT '{}'::jsonb,
+				witness_hash CHAR(64) NOT NULL,
+				proof_hash CHAR(64) NOT NULL,
+				typed_event JSONB NOT NULL DEFAULT '{}'::jsonb,
+				verified BOOLEAN NOT NULL DEFAULT FALSE,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				verified_at TIMESTAMP
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS mpc_quorum_sessions (
+				id BIGSERIAL PRIMARY KEY,
+				operation_id VARCHAR(128) NOT NULL UNIQUE,
+				operation_type VARCHAR(64) NOT NULL,
+				payload_hash CHAR(64) NOT NULL,
+				quorum_required INTEGER NOT NULL,
+				status VARCHAR(16) NOT NULL DEFAULT 'pending'
+					CHECK (status IN ('pending', 'ready', 'finalized', 'cancelled', 'expired')),
+				created_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				finalized_at TIMESTAMP
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS mpc_quorum_participants (
+				id BIGSERIAL PRIMARY KEY,
+				session_id BIGINT NOT NULL REFERENCES mpc_quorum_sessions(id) ON DELETE CASCADE,
+				account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				partial_signature TEXT,
+				signed_at TIMESTAMP,
+				UNIQUE (session_id, account_id)
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS mpc_quorum_transcripts (
+				id BIGSERIAL PRIMARY KEY,
+				session_id BIGINT NOT NULL REFERENCES mpc_quorum_sessions(id) ON DELETE CASCADE,
+				participant_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+				event_type VARCHAR(48) NOT NULL,
+				event_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+				signature TEXT,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)
+		`);
+
+		await client.query(`
 			CREATE TABLE IF NOT EXISTS auth_login_attempts (
 				id BIGSERIAL PRIMARY KEY,
 				login_key VARCHAR(254) NOT NULL UNIQUE,
@@ -92,6 +223,75 @@ async function ensureAppSchema() {
 			)
 		`);
 
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS security_operation_replay_guard (
+				id BIGSERIAL PRIMARY KEY,
+				operation_scope VARCHAR(64) NOT NULL,
+				operation_id VARCHAR(128) NOT NULL,
+				actor_id VARCHAR(128),
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				expires_at TIMESTAMP NOT NULL,
+				UNIQUE (operation_scope, operation_id)
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS security_key_registry (
+				id BIGSERIAL PRIMARY KEY,
+				key_name VARCHAR(96) NOT NULL UNIQUE,
+				active_key_id VARCHAR(128) NOT NULL,
+				provider VARCHAR(64) NOT NULL DEFAULT 'local-env',
+				metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+				rotated_at TIMESTAMP,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS security_key_lifecycle_events (
+				id BIGSERIAL PRIMARY KEY,
+				key_name VARCHAR(96) NOT NULL,
+				key_id VARCHAR(128),
+				event_type VARCHAR(48) NOT NULL,
+				provider VARCHAR(64) NOT NULL DEFAULT 'local-env',
+				actor_id VARCHAR(128),
+				details JSONB NOT NULL DEFAULT '{}'::jsonb,
+				occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS threshold_operations (
+				id BIGSERIAL PRIMARY KEY,
+				operation_id VARCHAR(128) NOT NULL UNIQUE,
+				operation_type VARCHAR(64) NOT NULL,
+				payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+				status VARCHAR(16) NOT NULL DEFAULT 'pending'
+					CHECK (status IN ('pending', 'approved', 'executed', 'rejected', 'expired', 'cancelled')),
+				required_approvals INTEGER NOT NULL DEFAULT 2,
+				created_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+				executed_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+				approved_at TIMESTAMP,
+				executed_at TIMESTAMP,
+				expires_at TIMESTAMP NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)
+		`);
+
+		await client.query(`
+			CREATE TABLE IF NOT EXISTS threshold_operation_approvals (
+				id BIGSERIAL PRIMARY KEY,
+				threshold_operation_id BIGINT NOT NULL REFERENCES threshold_operations(id) ON DELETE CASCADE,
+				account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+				operation_id VARCHAR(128) NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE (threshold_operation_id, account_id),
+				UNIQUE (operation_id)
+			)
+		`);
+
 		await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS admin_mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
 		await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS admin_mfa_secret_encrypted TEXT`);
 		await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS admin_mfa_enabled_at TIMESTAMP`);
@@ -102,6 +302,10 @@ async function ensureAppSchema() {
 		await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS oauth_subject VARCHAR(191)`);
 		await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS oauth_linked_at TIMESTAMP`);
 		await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS google_sub VARCHAR(191)`);
+		await client.query(`ALTER TABLE security_event_ledger_archive ADD COLUMN IF NOT EXISTS encrypted_payload TEXT`);
+		await client.query(`ALTER TABLE security_event_ledger_archive ADD COLUMN IF NOT EXISTS envelope_key_id VARCHAR(64)`);
+		await client.query(`ALTER TABLE security_event_ledger_archive ADD COLUMN IF NOT EXISTS envelope_version VARCHAR(16)`);
+		await client.query(`ALTER TABLE security_event_ledger_archive ADD COLUMN IF NOT EXISTS ciphertext_hash CHAR(64)`);
 		await client.query(`DROP INDEX IF EXISTS idx_accounts_apple_sub`);
 		await client.query(`ALTER TABLE accounts DROP COLUMN IF EXISTS apple_sub`);
 
@@ -149,6 +353,25 @@ async function ensureAppSchema() {
 			`CREATE INDEX IF NOT EXISTS idx_auth_security_events_login_key ON auth_security_events(login_key, created_at DESC)`,
 		);
 		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_security_operation_replay_expires ON security_operation_replay_guard(expires_at)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_security_operation_replay_actor ON security_operation_replay_guard(actor_id, created_at DESC)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_security_key_lifecycle_events_key ON security_key_lifecycle_events(key_name, occurred_at DESC)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_security_key_lifecycle_events_type ON security_key_lifecycle_events(event_type, occurred_at DESC)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_threshold_operations_status ON threshold_operations(status, created_at DESC)`,
+		);
+		await client.query(`CREATE INDEX IF NOT EXISTS idx_threshold_operations_expires ON threshold_operations(expires_at)`);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_threshold_approvals_operation ON threshold_operation_approvals(threshold_operation_id, created_at DESC)`,
+		);
+		await client.query(
 			`CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_oauth_provider_subject ON accounts(oauth_provider, oauth_subject) WHERE oauth_provider IS NOT NULL AND oauth_subject IS NOT NULL`,
 		);
 		await client.query(
@@ -169,10 +392,55 @@ async function ensureAppSchema() {
 		await client.query(
 			`CREATE INDEX IF NOT EXISTS idx_service_health_incidents_service ON service_health_incidents(service_key, occurred_at DESC)`,
 		);
+		await client.query(
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_security_event_ledger_chain_hash ON security_event_ledger(chain_scope, event_hash)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_security_event_ledger_chain_id ON security_event_ledger(chain_scope, id DESC)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_security_event_ledger_occurred ON security_event_ledger(occurred_at DESC)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_security_event_ledger_correlation ON security_event_ledger(correlation_id) WHERE correlation_id IS NOT NULL`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_security_event_archive_occurred ON security_event_ledger_archive(occurred_at DESC)`,
+		);
+		await client.query(
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_security_event_archive_original_id ON security_event_ledger_archive(original_id) WHERE original_id IS NOT NULL`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_service_contract_registry_active ON service_contract_registry(service_name, contract_name, active)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_zk_circuit_registry_status ON zk_circuit_registry(circuit_name, governance_status)`,
+		);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_zk_proof_sessions_verified ON zk_proof_sessions(verified, created_at DESC)`,
+		);
+		await client.query(`CREATE INDEX IF NOT EXISTS idx_mpc_sessions_status ON mpc_quorum_sessions(status, created_at DESC)`);
+		await client.query(
+			`CREATE INDEX IF NOT EXISTS idx_mpc_transcripts_session ON mpc_quorum_transcripts(session_id, created_at DESC)`,
+		);
 
 		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_account ON kafelot_prompt_usage(account_id)`);
 		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_month ON kafelot_prompt_usage(month_year)`);
 		await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_scope ON kafelot_prompt_usage(usage_scope)`);
+
+		// Keep existing usage rows aligned with active policy:
+		// Coffee Helper (general) ULTIMATE = 1000, Molecule Helper = 200.
+		await client.query(`
+			UPDATE kafelot_prompt_usage
+			SET prompts_limit = CASE
+				WHEN usage_scope = 'general' AND LOWER(subscription_tier) = 'ultimate' THEN 1000
+				WHEN usage_scope = 'molecule_helper' THEN 200
+				ELSE prompts_limit
+			END,
+			updated_at = CURRENT_TIMESTAMP
+			WHERE (usage_scope = 'general' AND LOWER(subscription_tier) = 'ultimate' AND prompts_limit <> 1000)
+			   OR (usage_scope = 'molecule_helper' AND prompts_limit <> 200)
+		`);
 
 		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency_code VARCHAR(3) NOT NULL DEFAULT 'RON'`);
 		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000`);
@@ -186,8 +454,29 @@ async function ensureAppSchema() {
 		await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS destination_country VARCHAR(100)`);
 
 		await client.query(`
+			CREATE OR REPLACE FUNCTION prevent_security_log_mutation()
+			RETURNS trigger AS $immutable$
+			BEGIN
+				RAISE EXCEPTION 'Mutation is not allowed for immutable security log table %', TG_TABLE_NAME;
+			END;
+			$immutable$ LANGUAGE plpgsql;
+		`);
+
+		await client.query(`
 			DO $$
 			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'forbid_security_event_ledger_update') THEN
+					CREATE TRIGGER forbid_security_event_ledger_update
+					BEFORE UPDATE OR DELETE ON security_event_ledger
+					FOR EACH ROW EXECUTE FUNCTION prevent_security_log_mutation();
+				END IF;
+
+				IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'forbid_security_event_archive_update') THEN
+					CREATE TRIGGER forbid_security_event_archive_update
+					BEFORE UPDATE OR DELETE ON security_event_ledger_archive
+					FOR EACH ROW EXECUTE FUNCTION prevent_security_log_mutation();
+				END IF;
+
 				IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at_column') THEN
 					IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_kafelot_anonymous_users_updated_at') THEN
 						CREATE TRIGGER update_kafelot_anonymous_users_updated_at
@@ -200,9 +489,33 @@ async function ensureAppSchema() {
 						BEFORE UPDATE ON kafelot_prompt_usage
 						FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 					END IF;
+
+					IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_threshold_operations_updated_at') THEN
+						CREATE TRIGGER update_threshold_operations_updated_at
+						BEFORE UPDATE ON threshold_operations
+						FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+					END IF;
 				END IF;
 			END $$;
 		`);
+
+		await client.query(`
+			DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'filspresso_security_writer') THEN
+					CREATE ROLE filspresso_security_writer NOLOGIN;
+				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'filspresso_security_reader') THEN
+					CREATE ROLE filspresso_security_reader NOLOGIN;
+				END IF;
+			END $$;
+		`);
+
+		await client.query(`REVOKE ALL ON security_event_ledger FROM PUBLIC`);
+		await client.query(`REVOKE ALL ON security_event_ledger_archive FROM PUBLIC`);
+		await client.query(`GRANT INSERT, SELECT ON security_event_ledger TO filspresso_security_writer`);
+		await client.query(`GRANT SELECT ON security_event_ledger TO filspresso_security_reader`);
+		await client.query(`GRANT SELECT ON security_event_ledger_archive TO filspresso_security_reader`);
 	} finally {
 		client.release();
 	}

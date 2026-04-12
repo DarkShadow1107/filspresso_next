@@ -85,16 +85,82 @@ npm run dev
 - Java Invoice health: http://localhost:8082/api/invoices/health
 - Go Ops health: http://localhost:8083/health
 - Kotlin Subscriptions health: http://localhost:8084/api/subscriptions/health
+- Rust Crypto health: http://localhost:8090/health
 
 ### Quick verification checklist
 
-- `docker compose ps` shows `postgres`, `redis`, `backend`, `ai`, `invoice_java`, `go_ops`, and `kotlin_subscriptions` as running
+- `docker compose ps` shows `postgres`, `redis`, `backend`, `ai`, `invoice_java`, `go_ops`, `kotlin_subscriptions`, `rust_crypto`, and OPA as running
 - `GET /health` on port 4000 returns status ok
 - `GET /api/health` on port 5000 returns status ok
 - `GET /api/invoices/health` on port 8082 returns status ok
 - `GET /health` on port 8083 returns status ok
 - `GET /api/subscriptions/health` on port 8084 returns status ok
 - Home page loads at port 3000 and can navigate between pages
+
+### Titan V0.74 security verification (Docker)
+
+Run the full automated verification suite:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\scripts\run_titan_v0_74_tests.ps1 -SkipSignedHistory
+```
+
+Useful flags:
+
+```powershell
+# Use explicit service-events key for protected endpoints
+pwsh -ExecutionPolicy Bypass -File .\scripts\run_titan_v0_74_tests.ps1 -ServiceEventsKey "<your-key>"
+
+# Skip Docker checks if running code-only validations
+pwsh -ExecutionPolicy Bypass -File .\scripts\run_titan_v0_74_tests.ps1 -SkipDocker
+```
+
+After changing security middleware or observability logic, rebuild and restart:
+
+```bash
+docker compose down
+docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml up --build -d
+```
+
+Check the hardened backend runtime config is loaded:
+
+```bash
+docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml exec backend sh -lc 'env | grep -E "CSRF_REQUIRE_ORIGIN_FOR_COOKIE|SECURITY_LEDGER_ARCHIVE_ENABLED|SECURITY_OBSERVABILITY_WINDOW_MINUTES"'
+```
+
+Verify observability snapshot endpoint:
+
+```bash
+curl -sS "http://localhost:4000/health/security/observability" \
+    -H "x-service-events-key: change-this-service-events-key"
+```
+
+Verify alert summary endpoint:
+
+```bash
+curl -sS "http://localhost:4000/health/security/alerts" \
+    -H "x-service-events-key: change-this-service-events-key"
+```
+
+Trigger manual alert dispatch (returns `webhook_not_configured` until a webhook is configured):
+
+```bash
+curl -sS -X POST "http://localhost:4000/health/security/alerts/dispatch" \
+    -H "Content-Type: application/json" \
+    -H "x-service-events-key: change-this-service-events-key" \
+    --data '{"force":"true"}'
+```
+
+Verify CSRF hardening blocks unsafe cookie-authenticated requests without Origin/Referer:
+
+```bash
+curl -i -X POST "http://localhost:4000/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -H "Cookie: sid=test" \
+    --data '{"username":"demo","password":"demo"}'
+```
+
+Expected result: `403` with reason indicating missing Origin/Referer.
 
 ---
 
@@ -523,39 +589,45 @@ Outside Docker (host machine):
 
 ### Express
 
-| Variable                          | Typical Value                    | Purpose                              |
-| --------------------------------- | -------------------------------- | ------------------------------------ |
-| PORT                              | 4000                             | Express listening port               |
-| DB_HOST                           | postgres or localhost            | PostgreSQL host                      |
-| DB_PORT                           | 5432                             | PostgreSQL port                      |
-| DB_NAME                           | filspresso                       | DB name                              |
-| DB_USER                           | filspresso_user                  | DB user                              |
-| DB_PASSWORD                       | secret                           | DB password                          |
-| JWT_SECRET                        | secret                           | JWT signing                          |
-| ENCRYPTION_KEY                    | secret                           | encryption helper key                |
-| CORS_ORIGIN                       | http://localhost:3000            | Allowed origin list                  |
-| PYTHON_AI_HOST                    | http://ai:5000                   | AI health and integration host       |
-| INVOICE_SERVICE_URL               | http://invoice-java:8082         | Java invoice service base URL        |
-| GO_OPS_URL                        | http://go-ops:8083               | Go operational service base URL      |
-| GO_OPS_API_KEY                    | filspresso-ops-key               | Go ops ingest authentication key     |
-| KOTLIN_SUBSCRIPTIONS_URL          | http://kotlin-subscriptions:8084 | Kotlin subscription service base URL |
-| DISABLE_RATE_LIMIT_FOR_DEV        | true or false                    | dev toggle                           |
-| DISABLE_RATE_LIMIT                | true or false                    | explicit global rate-limiter toggle  |
-| CART_RESERVATION_MINUTES          | 20                               | cart reservation contention window   |
-| CART_STOCK_BUFFER_UNITS           | 0                                | optional safety buffer               |
-| SERVICE_INCIDENT_RETENTION_DAYS   | 180                              | incident retention window            |
-| SERVICE_INCIDENT_RETENTION_JOB_MS | 21600000                         | cleanup job interval                 |
+| Variable                          | Typical Value                    | Purpose                               |
+| --------------------------------- | -------------------------------- | ------------------------------------- |
+| PORT                              | 4000                             | Express listening port                |
+| DB_HOST                           | postgres or localhost            | PostgreSQL host                       |
+| DB_PORT                           | 5432                             | PostgreSQL port                       |
+| DB_NAME                           | filspresso                       | DB name                               |
+| DB_USER                           | filspresso_user                  | DB user                               |
+| DB_PASSWORD                       | secret                           | DB password                           |
+| DB_PASSWORD_FILE                  | /run/secrets/db_password         | Docker secret-file fallback           |
+| JWT_SECRET                        | secret                           | JWT signing                           |
+| JWT_SECRET_FILE                   | /run/secrets/jwt_secret          | Docker secret-file fallback           |
+| ENCRYPTION_KEY                    | secret                           | encryption helper key                 |
+| ENCRYPTION_KEY_FILE               | /run/secrets/encryption_key      | Docker secret-file fallback           |
+| CORS_ORIGIN                       | http://localhost:3000            | Allowed origin list                   |
+| PYTHON_AI_HOST                    | http://ai:5000                   | AI health and integration host        |
+| INVOICE_SERVICE_URL               | http://invoice-java:8082         | Java invoice service base URL         |
+| GO_OPS_URL                        | http://go-ops:8083               | Go operational service base URL       |
+| GO_OPS_API_KEY                    | filspresso-ops-key               | Go ops ingest authentication key      |
+| GO_OPS_API_KEY_FILE               | /run/secrets/go_ops_api_key      | Docker secret-file fallback           |
+| KOTLIN_SUBSCRIPTIONS_URL          | http://kotlin-subscriptions:8084 | Kotlin subscription service base URL  |
+| DISABLE_RATE_LIMIT_FOR_DEV        | true or false                    | dev toggle                            |
+| DISABLE_RATE_LIMIT                | true or false                    | explicit global rate-limiter toggle   |
+| REQUEST_TIMEOUT_MS                | 20000                            | API timeout guardrail in milliseconds |
+| CART_RESERVATION_MINUTES          | 20                               | cart reservation contention window    |
+| CART_STOCK_BUFFER_UNITS           | 0                                | optional safety buffer                |
+| SERVICE_INCIDENT_RETENTION_DAYS   | 180                              | incident retention window             |
+| SERVICE_INCIDENT_RETENTION_JOB_MS | 21600000                         | cleanup job interval                  |
 
 ### Python AI
 
-| Variable       | Typical Value         | Purpose         |
-| -------------- | --------------------- | --------------- |
-| PYTHON_AI_PORT | 5000                  | Flask bind port |
-| DB_HOST        | postgres or localhost | PostgreSQL host |
-| DB_PORT        | 5432                  | PostgreSQL port |
-| DB_NAME        | filspresso            | DB name         |
-| DB_USER        | filspresso_user       | DB user         |
-| DB_PASSWORD    | secret                | DB password     |
+| Variable         | Typical Value            | Purpose                     |
+| ---------------- | ------------------------ | --------------------------- |
+| PYTHON_AI_PORT   | 5000                     | Flask bind port             |
+| DB_HOST          | postgres or localhost    | PostgreSQL host             |
+| DB_PORT          | 5432                     | PostgreSQL port             |
+| DB_NAME          | filspresso               | DB name                     |
+| DB_USER          | filspresso_user          | DB user                     |
+| DB_PASSWORD      | secret                   | DB password                 |
+| DB_PASSWORD_FILE | /run/secrets/db_password | Docker secret-file fallback |
 
 ---
 
@@ -654,6 +726,62 @@ docker compose logs -f ai
 docker compose down
 ```
 
+### Hardened production profile (Titan V0.74)
+
+The repository includes a defense-in-depth compose override at `docker-compose.security.yml`.
+
+Security profile highlights:
+
+- internal-only service/data networks for east-west traffic
+- Docker secrets for DB/API/crypto credentials
+- OPA policy engine for deny-by-default authorization decisions on sensitive ingestion flows
+- optional Ed25519 signed service assertions for internal service-to-service writes
+- non-root runtime images for Express and AI services
+- `no-new-privileges` and dropped Linux capabilities for application containers
+- explicit seccomp profile wiring plus AppArmor default profile mapping in hardened overlay
+- read-only root filesystems with constrained tmpfs write areas
+- strict per-service DB credential separation (`BACKEND_DB_USER` / `AI_DB_USER`) with bootstrap login-role init script
+- backend outbound egress host allowlist guard for internal upstream dependencies
+- reduced attack surface by removing public port bindings from internal services
+
+Security profile startup sequence:
+
+1. Create real secret files under `secrets/` (templates are in `secrets/*.txt.example`) or auto-generate from `.env`:
+
+```bash
+npm run security:bootstrap-secrets
+```
+
+Use dry-run to verify mapping without writing files:
+
+```bash
+npm run security:bootstrap-secrets:dry-run
+```
+
+2. (Optional, recommended for service-identity hardening) generate local mTLS certificates for backend/go_ops:
+
+```bash
+npm run security:generate-mtls-dev
+```
+
+3. Copy `security.env.example` to your deployment-specific env file and adjust values (including service users and strict credential flags).
+4. Start with both compose files:
+
+```bash
+docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml up --build -d
+```
+
+5. Validate controls:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.security.yml ps
+docker compose -f docker-compose.yml -f docker-compose.security.yml exec backend node -e "console.log(process.getuid && process.getuid())"
+```
+
+Expected: internal services have no host port bindings, and app containers run as non-root users.
+
+Titan implementation checklist and security backlog are consolidated in `docs/README.md`.
+
 ---
 
 ## 9. Frontend Architecture
@@ -689,8 +817,11 @@ The frontend uses a page-slug pattern where root page resolves component based o
 - enforce security middleware
 - apply CORS policy with localhost allowlist
 - optionally apply global rate limiting
+- attach request correlation IDs (`x-request-id`) to every response
+- enforce bounded request timeout fail-fast behavior
 - verify schema compatibility via ensureAppSchema
 - expose health and incident endpoints
+- append tamper-evident ledger entries for service incident ingestion
 - mount feature route modules under /api
 
 ### Responsibilities moved out of Express
@@ -724,6 +855,7 @@ Express now orchestrates these domains and enforces auth, validation, and respon
 - GET /health
 - GET /health/services
 - GET /health/services/events
+- GET /health/services/ledger/verify
 - POST /health/services/events/bulk
 
 ---
@@ -868,6 +1000,8 @@ This section documents how Filspresso is currently secured, how security is moni
 - strict CORS origin checks are enabled with credential support
 - express identifies no implementation details via disabled `x-powered-by`
 - strict JSON parsing is enabled to reject malformed payloads
+- every response includes correlation-friendly `x-request-id`
+- request timeout guardrails return controlled `503` payloads for hung calls
 
 #### Authentication and session model
 
@@ -900,12 +1034,9 @@ This section documents how Filspresso is currently secured, how security is moni
 
 #### Secrets and configuration hardening
 
-- sensitive values are required from environment (no hardcoded runtime fallback secrets)
-- docker compose now requires explicit values for:
-    - `DB_PASSWORD`
-    - `JWT_SECRET`
-    - `ENCRYPTION_KEY`
-    - `SERVICE_EVENTS_API_KEY`
+- sensitive values are loaded from environment or Docker-style `*_FILE` secrets (no hardcoded fallback secrets)
+- hardened runtime profile uses mounted secrets under `/run/secrets/*`
+- secret templates are provided in `secrets/*.txt.example` and real values are git-ignored
 - service event ingestion is protected by dedicated API key validation
 
 #### CI security gates
@@ -933,6 +1064,13 @@ Admin-only telemetry endpoints:
     - purpose: operational unlock for a specific login key during support incidents
     - action is logged as `lockout_cleared_admin`
 
+Security-operations endpoint:
+
+- `GET /health/services/ledger/verify`
+    - purpose: recompute and verify SHA3-256 hash-chain integrity for `security_event_ledger`
+    - auth: service-events API key (`x-service-events-key` or Bearer token)
+    - query: `chainScope` (default `service-health`), `maxRows` (1 to 100000)
+
 ### Secrets rotation runbook
 
 The project uses active rotation for authentication and data-access secrets.
@@ -942,18 +1080,19 @@ The project uses active rotation for authentication and data-access secrets.
 - `JWT_SECRET`
 - `ENCRYPTION_KEY`
 - `SERVICE_EVENTS_API_KEY`
+- `GO_OPS_API_KEY`
 - `DB_PASSWORD`
 
 #### Rotation procedure
 
 1. Generate new cryptographically strong random values.
-2. Update both environment files used in local/docker workflows:
-    - `.env`
-    - `express-api/.env`
-3. Apply database password rotation at the PostgreSQL role level.
-4. Recreate backend and dependent services so new environment values are loaded.
-5. Invalidate active sessions where appropriate (for JWT secret rotation, clear old sessions).
-6. Verify health endpoints and login behavior.
+2. Update mounted secret files in `secrets/` (or your production secret manager path).
+3. Update any environment variables still used by local-only workflows (`.env`, `express-api/.env`).
+4. Apply database password rotation at the PostgreSQL role level.
+5. Recreate backend and dependent services so new environment values are loaded.
+6. Invalidate active sessions where appropriate (for JWT secret rotation, clear old sessions).
+7. Verify health endpoints and login behavior.
+8. Run ledger verification and archive the verification result with the release record.
 
 #### Rotation cadence
 
@@ -971,6 +1110,7 @@ Run this checklist for each release:
 5. Review authentication telemetry for unusual failed-login spikes.
 6. Review lockout telemetry and top source IPs for abuse indicators.
 7. Confirm incident retention settings match policy.
+8. Verify tamper-evident ledger chain status with `GET /health/services/ledger/verify` or `npm --prefix express-api run security:verify-ledger`.
 
 ### Incident response guidance (auth attacks)
 
@@ -1319,7 +1459,7 @@ You can automate capture with Playwright/Cypress in CI and export to docs/screen
 - Capture each page in both desktop and mobile breakpoints where possible.
 - Keep browser UI (tabs/address bar) outside the image frame.
 - Use PNG for UI fidelity, especially where text overlays gradients.
-- Keep naming consistent with `docs/SCREENSHOTS.md` so gallery links remain valid.
+- Keep naming consistent with the screenshot index in `docs/README.md` so gallery links remain valid.
 - Prefer deterministic captures after data is loaded (avoid intermediate loading states).
 
 ---
@@ -1377,6 +1517,187 @@ Execution platform:
 4. Click `Run workflow`.
 5. Choose branch and confirm `Run workflow`.
 6. Open the run to inspect per-job logs and failures.
+
+---
+
+## 20. Unified Documentation Atlas (Titan V0.74)
+
+This section is a consolidated, repository-wide markdown digest intended to centralize architecture, security, service ownership, and operations.
+
+It complements the service-level README files and the docs compendium, and it is intended to function as the single top-level navigation and synthesis point.
+
+### 20.1 Canonical Documentation Sources
+
+Primary architecture and program docs:
+
+- `docs/README.md`
+
+Evidence and diagram docs:
+
+- `docs/README.md` (screenshot and diagram gallery)
+- `docs/uml/*.mmd`
+
+Infrastructure and secret docs:
+
+- `infrastructure/README.md`
+- `infrastructure/terraform/transparency-backend/README.md`
+- `secrets/README.md`
+
+Service-level docs:
+
+- `express-api/README.md`
+- `go-ops-service/README.md`
+- `java-invoice-service/README.md`
+- `kotlin-subscription-service/README.md`
+- `models/README.md`
+- `rust-crypto-service/README.md`
+- `rust-wasm/README.md`
+- `scripts/README.md`
+- `security/README.md`
+
+### 20.2 Combined Architecture Narrative
+
+The platform architecture follows a layered trust and control model:
+
+1. Client and edge shield
+
+- Next.js frontend and edge proxy controls
+- CSP, secure headers, route-level constraints, and anti-CSRF protections
+
+2. Identity and policy plane
+
+- workload/service identity controls
+- short-lived assertions and policy decisions through OPA integration paths
+
+3. Cryptographic control plane
+
+- deterministic commitment and verification services
+- replay-aware assertion checks
+- key usage policy boundaries for sensitive operations
+
+4. Domain service plane (polyglot)
+
+- Express orchestration service
+- Java invoice rendering service
+- Kotlin subscription quote/reconciliation service
+- Go operational ingestion service
+- Python AI service plus model runtime integrations
+
+5. Data and audit vault
+
+- PostgreSQL-backed domain state and security ledger tables
+- hash-chained tamper evidence and ledger verification flows
+- anchoring and archival automation
+
+### 20.3 Service Topology Summary
+
+Frontend and gateway:
+
+- Next.js app router and frontend APIs
+
+Core backend:
+
+- Express API: auth, commerce, operations, security telemetry orchestration
+
+Polyglot domain services:
+
+- Go Ops (`go-ops-service`): operational event ingestion/stats with assertion and optional mTLS support
+- Java Invoice (`java-invoice-service`): PDF rendering pipeline with deterministic formatting
+- Kotlin Subscriptions (`kotlin-subscription-service`): pricing quote and reconciliation rules
+- Rust Crypto (`rust-crypto-service`): commitment and verification endpoints with optional strict assertion verification
+- Rust WASM (`rust-wasm`): deterministic client commitment and witness preprocessing helpers
+
+Data and infrastructure:
+
+- PostgreSQL + Redis
+- OPA policy engine
+- Terraform transparency backend module for external immutable anchoring support
+
+### 20.4 Security Program Consolidation
+
+From all security markdown sources, the active control themes are:
+
+- supply-chain trust
+    - CI policy drift checks
+    - image signature policy templates and admission enforcement path
+
+- runtime hardening
+    - hardened compose overlay with reduced privileges and segmented networks
+    - secret loading through env plus `*_FILE` pattern
+
+- service trust boundaries
+    - service assertion verification
+    - operation-scoped and replay-aware control checks
+
+- cryptographic evidence
+    - tamper-evident ledger
+    - periodic anchor publication
+    - incident-time integrity verification scripts
+
+- observability and response
+    - dashboard-ready security endpoints
+    - severity-based anomaly workflows
+    - containment and post-incident runbooks
+
+### 20.5 Combined Checklist And Backlog View
+
+When the implementation checklist and gap-closure backlog are merged, the current program state can be summarized as:
+
+- implemented in repository
+    - foundational policy-plane and assertion primitives
+    - security ledger and verification paths
+    - archive/anchor automation scripts
+    - hardened compose profile and multiple runtime safeguards
+
+- partially implemented and requiring rollout completion
+    - cluster-side enforcement of admission and policy controls
+    - full service-edge assertion coverage in production topology
+    - complete key lifecycle automation with external custody systems
+    - full observability dashboard and alert ownership execution
+
+- external/platform dependencies
+    - managed KMS/HSM operational integration
+    - immutable transparency backend production provisioning
+    - independent review and red-team closure cycles
+
+### 20.6 Documentation Operating Model
+
+To keep docs synchronized with implementation:
+
+1. Update service-specific README files when routes, env vars, ports, or contracts change.
+2. Update `docs/README.md` and `security/README.md` whenever security workflow behavior changes.
+3. Update checklist and backlog sections in README files after each merged milestone.
+4. Keep diagram sources under `docs/uml/` in sync with compose and runtime flows.
+5. Preserve this atlas as the root entrypoint for architecture and operations context.
+
+### 20.7 Repository Structure Snapshot
+
+High-level folder intent:
+
+- `src/`: Next.js app and frontend components
+- `express-api/`: orchestration backend and security automation
+- `go-ops-service/`: operational event plane
+- `java-invoice-service/`: invoice PDF domain service
+- `kotlin-subscription-service/`: subscription quote/reconciliation domain service
+- `rust-crypto-service/`: cryptographic verification microservice
+- `rust-wasm/`: browser-side crypto helper module
+- `models/`: optional model-related assets and compatibility dependencies
+- `scripts/`: automation and validation scripts
+- `security/`: policy and hardening artifacts
+- `docs/`: human-readable architecture, security, screenshot, and checklist documentation
+- `infrastructure/`: Terraform IaC for external support systems
+
+### 20.8 Final Consolidated Note
+
+Titan V0.74 in this repository is not a single feature; it is a defense-in-depth program spanning code, policy, runtime, and operations.
+
+The practical success criteria are:
+
+- secure-by-default runtime posture
+- deterministic and verifiable cryptographic workflows
+- testable policy enforcement
+- auditable incident and recovery pathways
+- continuously maintained documentation tied to real implementation state
 
 ### How to run the same checks locally (CI parity)
 
@@ -1470,6 +1791,33 @@ The workflow fails when any of the following happen:
 4. Deploy Next.js and verify frontend integration
 5. Execute smoke flows: login, browse, cart, checkout, AI chat
 
+### Recommended hardened deployment command
+
+```bash
+docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml up --build -d
+```
+
+### Post-deploy security verification
+
+1. Check service health and dependency graph:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.security.yml ps
+curl -sS http://localhost:4000/health/services | jq
+```
+
+2. Verify ledger integrity:
+
+```bash
+curl -sS -H "x-service-events-key: <SERVICE_EVENTS_API_KEY>" "http://localhost:4000/health/services/ledger/verify?chainScope=service-health&maxRows=10000" | jq
+```
+
+3. Verify container hardening posture:
+
+```bash
+docker inspect filspresso_backend --format '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}}'
+```
+
 ### Release checklist
 
 - environment variables verified
@@ -1513,6 +1861,20 @@ The workflow fails when any of the following happen:
 - run docker compose ps
 - inspect specific service logs
 - verify DB credentials and dependency ordering
+
+### Hardened profile fails to start
+
+- confirm real secret files exist under `secrets/` and are non-empty
+- verify `security.env.example` (or your env file) points to valid secret file paths
+- run `docker compose -f docker-compose.yml -f docker-compose.security.yml config` to inspect merged configuration
+- if redis auth errors occur, confirm `redis_password.txt` matches `REDIS_PASSWORD_FILE` path
+
+### Ledger verification reports mismatch
+
+- stop write traffic to the affected chain scope
+- run `npm --prefix express-api run security:verify-ledger -- service-health 100000` for a wider scan
+- export `security_event_ledger` rows and incident records for forensic review
+- treat mismatches as potential integrity incidents and execute key-rotation + incident-response playbook
 
 ### Invoice PDF has missing signature
 
@@ -1756,7 +2118,7 @@ This snapshot is source-focused and excludes generated/dependency-heavy director
 
 ### docs/
 
-- `docs/SCREENSHOTS.md`
+- `docs/README.md`
 - `docs/screenshots/` (gallery image folder)
 - `docs/uml/` (UML SVG snapshots)
 
@@ -1869,3 +2231,312 @@ For a refreshed snapshot, run the same tree command used during documentation up
 ---
 
 This README is intentionally extensive and operations-focused so new contributors, maintainers, and deployment engineers can use one document for onboarding, development, debugging, and release execution.
+
+---
+
+## 28. April 2026 Complete Update Ledger (Everything Current)
+
+This section is the explicit "what is live in this repository now" ledger.
+
+It is intended to remove ambiguity for maintainers by listing the latest runtime, security, documentation, and operations model in one place.
+
+### 28.1 Documentation Model (Repository Policy)
+
+Current policy:
+
+- Documentation is consolidated into README files.
+- Non-README markdown docs were folded into README coverage.
+
+Primary documentation entrypoints:
+
+- root system handbook: `README.md`
+- docs atlas with screenshot and UML galleries: `docs/README.md`
+- security controls and rollout boundaries: `security/README.md`
+- service-level runbooks:
+    - `express-api/README.md`
+    - `go-ops-service/README.md`
+    - `java-invoice-service/README.md`
+    - `kotlin-subscription-service/README.md`
+    - `rust-crypto-service/README.md`
+    - `rust-wasm/README.md`
+    - `models/README.md`
+    - `scripts/README.md`
+    - `infrastructure/README.md`
+    - `infrastructure/terraform/transparency-backend/README.md`
+    - `secrets/README.md`
+
+### 28.2 Service Runtime And Port Matrix
+
+| Service               | Stack        | Compose Name                       | Primary Port | Purpose                                        |
+| --------------------- | ------------ | ---------------------------------- | ------------ | ---------------------------------------------- |
+| Web frontend          | Next.js      | `frontend` (root app runtime path) | 3000 (dev)   | UI and edge routing                            |
+| API backend           | Node/Express | `backend`                          | 4000         | Commerce orchestration + security control APIs |
+| AI service            | Python       | `ai`                               | 5000         | AI and model-assisted workflows                |
+| Ops ingest            | Go           | `go_ops`                           | 8083         | Event ingestion and bounded ops history        |
+| Invoice service       | Java         | `invoice_java`                     | 8082         | PDF invoice rendering                          |
+| Subscriptions service | Kotlin       | `kotlin_subscriptions`             | 8084         | Pricing quote and reconcile logic              |
+| Crypto service        | Rust         | `rust_crypto`                      | 8090         | Commit/verify cryptographic endpoints          |
+| Policy engine         | OPA          | `opa`                              | 8181         | Authorization policy decision plane            |
+| Database              | PostgreSQL   | `postgres`                         | 5432         | Primary transactional and ledger data          |
+| Cache/event store     | Redis        | `redis`                            | 6379         | Operational event/state support                |
+
+### 28.3 Core API Surface Snapshot
+
+Backend (`express-api`) high-value endpoints:
+
+- `/health`
+- `/health/services`
+- `/health/security/observability`
+- `/health/security/alerts`
+- `/health/security/alerts/dispatch`
+- `/health/services/events`
+- `/health/services/events/bulk`
+- `/health/services/ledger/verify`
+
+Go Ops endpoints:
+
+- `/health`
+- `/events/ingest`
+- `/events/stats`
+
+Rust Crypto endpoints:
+
+- `/health`
+- `/v1/commitment/sha3-256`
+- `/v1/verify/sha3-256`
+
+Invoice service endpoints:
+
+- `/api/invoices/health`
+- `/api/invoices/render`
+
+Kotlin subscriptions endpoints:
+
+- `/api/subscriptions/health`
+- `/api/subscriptions/quote`
+- `/api/subscriptions/reconcile`
+
+### 28.4 Security Control Snapshot (Implemented vs Rollout)
+
+Implemented in repository code/config:
+
+- signed service assertion verification on critical internal paths
+- OPA policy integration path and policy asset source
+- CSRF origin/fetch metadata guard tightening for backend unsafe requests
+- tamper-evident ledger append and verification workflows
+- archive and anchoring automation scripts
+- hardened compose overlay controls (read-only rootfs, seccomp, dropped caps, no-new-privileges)
+- deploy-signature policy assets and local CI drift checks
+
+Requires external platform rollout for completion:
+
+- cluster-level admission enforcement in live environments
+- production immutable transparency backend provisioning
+- managed KMS/HSM custody and revocation workflows
+- external independent security/crypto review cycles
+
+### 28.5 Docker Profiles And Operational Modes
+
+Standard profile:
+
+```bash
+docker compose up --build -d
+```
+
+Hardened profile:
+
+```bash
+docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml up --build -d
+```
+
+Compose policy and merge validation:
+
+```bash
+docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml config
+```
+
+### 28.6 Verification And Test Matrix
+
+Primary stack verification command:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_titan_v0_74_tests.ps1 -SkipSignedHistory
+```
+
+Policy-focused checks:
+
+```bash
+node scripts/verifyDeploySignaturePolicy.mjs
+node scripts/verifyDockerfileBaseImages.mjs
+```
+
+Backend assertion matrix:
+
+```bash
+npm --prefix express-api run test:internal-assertion-matrix
+```
+
+Ledger verification:
+
+```bash
+npm --prefix express-api run security:verify-ledger
+```
+
+### 28.7 Secrets And Key Material Workflow
+
+Bootstrap secrets from env:
+
+```bash
+node scripts/bootstrapSecretsFromEnv.mjs --env-file .env --out-dir secrets --force
+```
+
+Generate local mTLS materials:
+
+```bash
+node scripts/generateDevMtlsCerts.mjs
+```
+
+Critical safety rule:
+
+- Secret runtime files remain local operational assets and are not committed.
+
+### 28.8 Infrastructure And External Anchor Path
+
+Terraform module:
+
+- `infrastructure/terraform/transparency-backend`
+
+Provisioning focus:
+
+- object-lock-enabled S3 backend
+- KMS-encrypted anchor objects
+- write-only publisher IAM policy
+
+Baseline Terraform workflow:
+
+```bash
+cd infrastructure/terraform/transparency-backend
+terraform init
+terraform fmt
+terraform validate
+terraform plan -var-file=environment.tfvars
+terraform apply -var-file=environment.tfvars
+```
+
+### 28.9 Incident And Recovery Quick Path
+
+1. Detect:
+
+- observe `/health/security/observability` and `/health/security/alerts`.
+
+2. Contain:
+
+- execute containment playbook via Express security scripts.
+
+3. Verify integrity:
+
+- run ledger verification and post-incident checks.
+
+4. Archive evidence:
+
+- run archive workflow for incident window.
+
+5. Recover:
+
+- validate service health matrix and critical business flows.
+
+### 28.10 Maintainer Execution Checklist
+
+Before merge:
+
+- run local lint/build/tests for touched stacks
+- run policy and image verification scripts
+- run PowerShell end-to-end verification suite
+- confirm docs updates in relevant README files
+
+Before release:
+
+- hardened compose config validates
+- critical services report healthy
+- ledger verification passes
+- rollback path documented
+
+After release:
+
+- monitor security observability endpoints
+- monitor incident stream and dependency health
+- update README-ledger sections with newly shipped controls
+
+### 28.11 Integrated Titan V0.74 Architecture (Implementation-Focused)
+
+This section integrates the architecture blueprint directly into the operational handbook.
+
+Mission in implementation terms:
+
+- enforce least-privilege trust boundaries between services
+- prove integrity with tamper-evident security records
+- keep security controls testable through scripts, endpoints, and CI checks
+
+Security objectives mapped to implementation:
+
+| Objective       | Current Implementation                                                                           | How To Verify                                                                                                                                                     |
+| --------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Confidentiality | secret loading via env and `*_FILE`; hardened compose profile; internal-network segmentation     | run `docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml config` and verify secret file paths and network scoping |
+| Integrity       | hash-chained security ledger + verification endpoint + CLI verifier                              | run `npm --prefix express-api run security:verify-ledger` and `/health/services/ledger/verify`                                                                    |
+| Availability    | multi-service health endpoints + bounded request middleware + resilient compose dependency model | check `/health`, `/health/services`, and `docker compose ps`                                                                                                      |
+| Verifiability   | policy scripts, deploy signature policy assets, repeatable tests                                 | run `node scripts/verifyDeploySignaturePolicy.mjs` and `scripts/run_titan_v0_74_tests.ps1`                                                                        |
+| Operability     | README-first runbooks and service-level contracts                                                | review this file and all service `README.md` files                                                                                                                |
+
+Layered architecture mapped to what is implemented now:
+
+| Layer                                | Implemented In Repo                                                                                                        | Implementation Status                                      |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Layer A: Client and Edge Shield      | edge request policy headers, tightened backend origin/fetch-metadata guard, route hardening in frontend/backend boundaries | partial to strong baseline                                 |
+| Layer B: Identity and Policy Plane   | JWT identity flows, service assertions, OPA policy gate integration, deny-by-default hardened compose posture              | strong baseline, rollout-dependent completion              |
+| Layer C: Cryptographic Control Plane | rust-crypto commitment/verify APIs, key-usage policy utilities, replay-aware assertion checks                              | strong baseline                                            |
+| Layer D: Domain Service Plane        | polyglot service split with explicit HTTP boundaries, service assertion filters, per-service contracts                     | strong baseline with ongoing least-privilege hardening     |
+| Layer E: Data and Audit Vault        | append-only security ledger, chain verification, archive/anchor automation scripts                                         | strong baseline with external transparency rollout pending |
+
+Threat model translated to active controls:
+
+1. External attackers:
+
+- route-level validation, auth middleware, rate limiting, policy checks, observability endpoints.
+
+2. Malicious insider / key misuse risk:
+
+- service assertion scoping, key usage policy controls, ledgered critical security events.
+
+3. Supply chain and deploy tampering:
+
+- deploy signature policy assets, base image verification scripts, CI vulnerability gates.
+
+4. Runtime lateral movement risk:
+
+- hardened compose profile, seccomp controls, read-only rootfs, reduced capabilities, internal networks.
+
+5. Audit/log tampering risk:
+
+- tamper-evident chain verification and anchoring workflow.
+
+ZK and MPC integration status (implementation-first):
+
+- ZK helper path present with deterministic rust-wasm preprocessing and backend verification plumbing.
+- MPC/threshold workflow support exists for critical operation classes.
+- Full production-grade rollout remains gated on external assurance and platform maturity checkpoints.
+
+Key management status:
+
+- implemented: key provider abstraction, lifecycle automation hooks, managed key rotation scripts.
+- pending platform rollout: full external KMS/HSM custody and automated revocation operations.
+
+Definition-of-done posture today:
+
+- repository-level engineering controls: strong and testable.
+- platform rollout requirements: still required for full-assurance closure.
+
+### 28.12 Final Practical Statement
+
+Filspresso documentation and operations are aligned around a README-first model with architecture and implementation context consolidated in this root handbook.
+
+This root README should always be treated as the canonical operational source, while folder/service READMEs provide local contract detail and implementation context.

@@ -17,7 +17,7 @@ interface ModelConfig {
 
 const MODEL_CONFIGS: Record<ModelTier, ModelConfig> = {
 	tanka: {
-		name: "Tanka",
+		name: "Kafelot",
 		parameters: "30M",
 		contextWindow: 12,
 		knowledgeDepth: 0.75,
@@ -295,7 +295,7 @@ export async function POST(request: NextRequest) {
 			response: result.response,
 			products: result.products,
 			model: selectedModel,
-			model_used: `Local ${selectedModel} fallback`,
+			model_used: "Local Kafelot fallback",
 			mode: "coffee",
 			smarterAI: false,
 			...(typeof promptsRemaining === "number" ? { prompts_remaining: promptsRemaining } : {}),

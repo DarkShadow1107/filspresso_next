@@ -28,7 +28,7 @@ load_dotenv(dotenv_path=env_path)
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "filspresso"),
     "user": os.getenv("DB_USER", "filspresso_user"),
-    "password": os.getenv("DB_PASSWORD"),
+    "password": os.getenv("DB_PASSWORD", "filspresso_secure_2024"),
     "host": os.getenv("DB_HOST", "localhost"),
     "port": os.getenv("DB_PORT", "5432"),
 }

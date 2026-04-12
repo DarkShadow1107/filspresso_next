@@ -1,0 +1,43 @@
+name: Enforce Cluster Security Policies
+
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - main
+        paths:
+            - security/kubernetes/policies/**
+            - .github/workflows/enforce-cluster-security-policies.yml
+
+permissions:
+    contents: read
+
+jobs:
+    apply-policies:
+        name: Apply Kyverno Admission Policies
+        runs-on: ubuntu-latest
+        if: ${{ secrets.KUBE_CONFIG_B64 != '' }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup kubectl
+              uses: azure/setup-kubectl@v4
+              with:
+                  version: v1.31.0
+
+            - name: Configure kubeconfig
+              run: |
+                  mkdir -p "$HOME/.kube"
+                  echo "${KUBE_CONFIG_B64}" | base64 --decode > "$HOME/.kube/config"
+              env:
+                  KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+
+            - name: Validate policy bundle via server-side dry run
+              run: kubectl apply --dry-run=server -k security/kubernetes/policies
+
+            - name: Apply policy bundle
+              run: kubectl apply -k security/kubernetes/policies
+
+            - name: Verify policy installed
+              run: kubectl get clusterpolicy verify-image-signatures-and-provenance -o yaml

@@ -1,21 +1,6 @@
-# ============================================================
-# Tanka AI — model-specific requirements
-# ============================================================
-#
-# IMPORTANT: molscribe 1.1.1 declares torch<2.0, but we run torch 2.7.1.
-# Install molscribe + OpenNMT-py with --no-deps so they reuse the existing
-# torch/torchvision. This file lists all their real dependencies that ARE
-# compatible, so pip can resolve the rest cleanly.
-#
-# Full local install order:
-#   1. pip install -r requirements.txt          (installs torch 2.7.1, etc.)
-#   2. pip install ftfy regex tqdm              (CLIP deps)
-#   3. pip install git+https://github.com/openai/CLIP.git
-#   4. pip install -r models/requirements.txt   (this file)
-#   5. pip install --no-deps OpenNMT-py==2.2.0 molscribe
-# ============================================================
-
-# MolScribe — molecule structure recognition from images
+# Optional legacy chemistry/image dependencies.
+# These are no longer installed by Dockerfile.ai in the llama.cpp runtime path,
+# but are kept for optional local experiments.
 opencv-python-headless>=4.5.5
 albumentations==1.1.0
 timm>=0.9.0
@@ -23,7 +8,3 @@ einops>=0.6.0
 configargparse
 pyonmttok>=1.23,<2
 rdkit-pypi>=2021.03.2
-# Install these three with --no-deps to avoid torch/torchtext/fastprogress conflicts:
-#   pip install --no-deps SmilesPE==0.0.3
-#   pip install --no-deps OpenNMT-py==2.2.0
-#   pip install --no-deps molscribe

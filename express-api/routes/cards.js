@@ -23,20 +23,29 @@ router.get("/", authenticate, async (req, res) => {
 			const result = await client.query(
 				`SELECT id, card_holder, card_type, card_last_four, card_expiry_encrypted, card_cvv_encrypted, is_default, created_at
         FROM user_cards WHERE account_id = $1 ORDER BY is_default DESC, created_at DESC`,
-				[req.user.id]
+				[req.user.id],
 			);
 
-			// Decrypt expiry and CVV for each card
-			const cards = result.rows.map((card) => ({
-				id: Number(card.id),
-				card_holder: card.card_holder,
-				card_type: card.card_type,
-				card_last_four: card.card_last_four,
-				card_expiry: decrypt(card.card_expiry_encrypted),
-				card_cvv: card.card_cvv_encrypted ? decrypt(card.card_cvv_encrypted) : null,
-				is_default: Boolean(card.is_default),
-				created_at: card.created_at,
-			}));
+			// Decrypt expiry/CVV. If decryption fails for legacy rows, return null plus a flag.
+			const cards = result.rows.map((card) => {
+				const decryptedExpiry = decrypt(card.card_expiry_encrypted);
+				const decryptedCvv = card.card_cvv_encrypted ? decrypt(card.card_cvv_encrypted) : "";
+				const hasExpiryCipher = Boolean(card.card_expiry_encrypted);
+				const hasCvvCipher = Boolean(card.card_cvv_encrypted);
+				const hasDecryptionIssue = (hasExpiryCipher && !decryptedExpiry) || (hasCvvCipher && !decryptedCvv);
+
+				return {
+					id: Number(card.id),
+					card_holder: card.card_holder,
+					card_type: card.card_type,
+					card_last_four: card.card_last_four,
+					card_expiry: decryptedExpiry || null,
+					card_cvv: decryptedCvv || null,
+					has_decryption_issue: hasDecryptionIssue,
+					is_default: Boolean(card.is_default),
+					created_at: card.created_at,
+				};
+			});
 
 			res.json({ cards });
 		} finally {
@@ -84,7 +93,7 @@ router.post("/", authenticate, async (req, res) => {
         (account_id, card_number_encrypted, card_expiry_encrypted, card_cvv_encrypted,
             card_holder, card_type, card_last_four, is_default)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-				[req.user.id, encryptedNumber, encryptedExpiry, encryptedCvv, cardHolder, cardType, lastFour, isDefault || false]
+				[req.user.id, encryptedNumber, encryptedExpiry, encryptedCvv, cardHolder, cardType, lastFour, isDefault || false],
 			);
 
 			const cardId = Number(result.rows[0].id);
@@ -151,7 +160,7 @@ router.put("/:id", authenticate, async (req, res) => {
 				params.push(cardId);
 				await client.query(
 					`UPDATE user_cards SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${paramIdx}`,
-					params
+					params,
 				);
 			}
 

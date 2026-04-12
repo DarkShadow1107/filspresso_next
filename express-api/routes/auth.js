@@ -12,8 +12,19 @@ const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 const pool = require("../db/connection");
-const { generateToken, authenticate, buildSessionExpiryDate } = require("../middleware/auth");
+const {
+	generateToken,
+	verifyToken,
+	authenticate,
+	buildSessionExpiryDate,
+	JWT_SECRET,
+	JWT_ACCESS_TTL_SECONDS,
+	getOpenIdConfiguration,
+	getJwtJwks,
+	jwtSupportsOidcJwks,
+} = require("../middleware/auth");
 const { encrypt, decrypt } = require("../utils/encryption");
+const { hashPassword, verifyPassword, needsPasswordRehash } = require("../utils/passwords");
 const {
 	sendTransactionalEmail,
 	buildEmailVerificationHtml,
@@ -22,15 +33,14 @@ const {
 } = require("../utils/resendMailer");
 
 const router = express.Router();
-const SALT_ROUNDS = 12;
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync("filspresso_dummy_password", SALT_ROUNDS);
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync("filspresso_dummy_password", 12);
 const IS_NON_PROD = process.env.NODE_ENV !== "production";
 const RELAX_AUTH_LIMITS_IN_DEV =
 	IS_NON_PROD && process.env.ENABLE_STRICT_AUTH_LIMITS !== "true" && process.env.DISABLE_RATE_LIMIT !== "false";
 
 const AUTH_WINDOW_MS = Math.max(60_000, Number.parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || "900000", 10));
 const AUTH_MAX_ATTEMPTS = Math.max(20, Number.parseInt(process.env.AUTH_RATE_LIMIT_MAX || "120", 10));
-const AUTH_LOCK_THRESHOLD = Math.max(5, Number.parseInt(process.env.AUTH_LOCK_THRESHOLD || "10", 10));
+const AUTH_LOCK_THRESHOLD = Math.max(8, Number.parseInt(process.env.AUTH_LOCK_THRESHOLD || "10", 10));
 const AUTH_FAILURE_WINDOW_MINUTES = Math.max(1, Number.parseInt(process.env.AUTH_FAILURE_WINDOW_MINUTES || "20", 10));
 const AUTH_LOCK_BASE_SECONDS = Math.max(5, Number.parseInt(process.env.AUTH_LOCK_BASE_SECONDS || "30", 10));
 const AUTH_LOCK_MAX_SECONDS = Math.max(AUTH_LOCK_BASE_SECONDS, Number.parseInt(process.env.AUTH_LOCK_MAX_SECONDS || "900", 10));
@@ -86,6 +96,12 @@ function getClientIp(req) {
 
 function normalizeLoginKey(loginField) {
 	return normalizeCredentialField(loginField, 254).toLowerCase();
+}
+
+function computeLoginAttemptKey(loginKey, ipAddress) {
+	const normalizedLoginKey = normalizeLoginKey(loginKey);
+	const normalizedIp = (typeof ipAddress === "string" ? ipAddress.trim() : "") || "unknown";
+	return crypto.createHash("sha256").update(`${normalizedLoginKey}|${normalizedIp}`).digest("hex");
 }
 
 function computeLockSeconds(failedAttempts) {
@@ -384,7 +400,7 @@ function createOAuthState(provider, mode, returnTo) {
 		nonce: crypto.randomBytes(12).toString("hex"),
 	};
 	const serialized = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-	const signature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(serialized).digest("base64url");
+	const signature = crypto.createHmac("sha256", JWT_SECRET).update(serialized).digest("base64url");
 	return `${serialized}.${signature}`;
 }
 
@@ -394,7 +410,7 @@ function verifyOAuthState(state, expectedProvider) {
 	}
 	const [serialized, signature] = state.split(".");
 	if (!serialized || !signature) return null;
-	const expectedSignature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(serialized).digest("base64url");
+	const expectedSignature = crypto.createHmac("sha256", JWT_SECRET).update(serialized).digest("base64url");
 	if (signature !== expectedSignature) {
 		return null;
 	}
@@ -436,7 +452,7 @@ function createEmailVerificationToken({ accountId, email }) {
 	};
 
 	const serialized = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-	const signature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(serialized).digest("base64url");
+	const signature = crypto.createHmac("sha256", JWT_SECRET).update(serialized).digest("base64url");
 	return `${serialized}.${signature}`;
 }
 
@@ -448,7 +464,7 @@ function verifyEmailVerificationToken(token) {
 	const [serialized, signature] = token.split(".");
 	if (!serialized || !signature) return null;
 
-	const expectedSignature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(serialized).digest("base64url");
+	const expectedSignature = crypto.createHmac("sha256", JWT_SECRET).update(serialized).digest("base64url");
 	if (expectedSignature !== signature) return null;
 
 	const payload = parseJsonSafe(Buffer.from(serialized, "base64url").toString("utf8"));
@@ -550,6 +566,46 @@ function buildOAuthFailureRedirect(returnTo, errorCode) {
 	return url.toString();
 }
 
+function resolveBackendPublicBaseUrl(req) {
+	const configured = String(BACKEND_PUBLIC_URL || "").trim();
+	if (configured) {
+		return configured.replace(/\/$/, "");
+	}
+
+	const protocol =
+		String(req.headers["x-forwarded-proto"] || req.protocol || "http")
+			.split(",")[0]
+			.trim() || "http";
+	const host =
+		String(req.headers["x-forwarded-host"] || req.headers.host || "localhost:4000")
+			.split(",")[0]
+			.trim() || "localhost:4000";
+	return `${protocol}://${host}`.replace(/\/$/, "");
+}
+
+router.get("/.well-known/openid-configuration", (req, res) => {
+	if (!jwtSupportsOidcJwks()) {
+		return res.status(503).json({
+			status: "error",
+			message: "OIDC discovery is unavailable because JWT signing keys are not configured",
+		});
+	}
+
+	const baseUrl = resolveBackendPublicBaseUrl(req);
+	return res.json(getOpenIdConfiguration(baseUrl));
+});
+
+router.get("/.well-known/jwks.json", (req, res) => {
+	if (!jwtSupportsOidcJwks()) {
+		return res.status(503).json({
+			status: "error",
+			message: "JWKS is unavailable because JWT signing keys are not configured",
+		});
+	}
+
+	return res.json(getJwtJwks());
+});
+
 async function findOrCreateOAuthAccount(client, { provider, subject, email, displayName, pictureUrl }) {
 	const providerColumn = "google_sub";
 	const normalizedEmail = normalizeCredentialField(email, 254).toLowerCase();
@@ -597,7 +653,7 @@ async function findOrCreateOAuthAccount(client, { provider, subject, email, disp
 
 	const usernameBase = normalizedEmail.split("@")[0] || `user_${provider}`;
 	const username = await createUniqueUsername(client, usernameBase);
-	const randomPasswordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), SALT_ROUNDS);
+	const randomPasswordHash = await hashPassword(crypto.randomBytes(32).toString("hex"));
 	const created = await client.query(
 		`INSERT INTO accounts (
 			username,
@@ -865,7 +921,7 @@ router.post("/register", authAttemptLimiter, async (req, res) => {
 			}
 
 			// Hash password
-			const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+			const passwordHash = await hashPassword(password);
 
 			// Insert user
 			const result = await client.query(
@@ -963,6 +1019,7 @@ router.post("/login", authAttemptLimiter, async (req, res) => {
 		const loginField = email || username;
 		const loginKey = normalizeLoginKey(loginField);
 		const ipAddress = getClientIp(req);
+		const loginAttemptKey = computeLoginAttemptKey(loginKey, ipAddress);
 		const userAgent = String(req.get("user-agent") || "").slice(0, 512);
 		const includeQrCode = Boolean(req.body?.includeQrCode);
 
@@ -976,7 +1033,7 @@ router.post("/login", authAttemptLimiter, async (req, res) => {
 
 		const client = await pool.connect();
 		try {
-			const lockState = await getLockState(client, loginKey);
+			const lockState = await getLockState(client, loginAttemptKey);
 			if (lockState.isLocked) {
 				await logAuthSecurityEvent(client, "login_locked", {
 					loginKey,
@@ -1000,8 +1057,8 @@ router.post("/login", authAttemptLimiter, async (req, res) => {
 			const user = userRes.rows[0];
 
 			if (!user) {
-				await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
-				const failed = await recordFailedAttempt(client, loginKey);
+				await verifyPassword(password, DUMMY_PASSWORD_HASH);
+				const failed = await recordFailedAttempt(client, loginAttemptKey);
 				await logAuthSecurityEvent(client, "login_failed", {
 					loginKey,
 					ipAddress,
@@ -1012,9 +1069,9 @@ router.post("/login", authAttemptLimiter, async (req, res) => {
 			}
 
 			// Verify password normally
-			const validPassword = await bcrypt.compare(password, user.password_hash);
+			const validPassword = await verifyPassword(password, user.password_hash);
 			if (!validPassword) {
-				const failed = await recordFailedAttempt(client, loginKey);
+				const failed = await recordFailedAttempt(client, loginAttemptKey);
 				await logAuthSecurityEvent(client, "login_failed", {
 					loginKey,
 					accountId: user.id,
@@ -1025,12 +1082,24 @@ router.post("/login", authAttemptLimiter, async (req, res) => {
 				return res.status(401).json({ status: "error", message: "Invalid credentials" });
 			}
 
-			await clearFailedAttempts(client, loginKey);
+			if (needsPasswordRehash(user.password_hash)) {
+				try {
+					const upgradedPasswordHash = await hashPassword(password);
+					await client.query("UPDATE accounts SET password_hash = $1, updated_at = NOW() WHERE id = $2", [
+						upgradedPasswordHash,
+						user.id,
+					]);
+				} catch (rehashError) {
+					console.warn("Password rehash skipped:", rehashError.message || String(rehashError));
+				}
+			}
+
+			await clearFailedAttempts(client, loginAttemptKey);
 			if (user.email) {
-				await clearFailedAttempts(client, String(user.email).toLowerCase());
+				await clearFailedAttempts(client, computeLoginAttemptKey(String(user.email).toLowerCase(), ipAddress));
 			}
 			if (user.username) {
-				await clearFailedAttempts(client, String(user.username).toLowerCase());
+				await clearFailedAttempts(client, computeLoginAttemptKey(String(user.username).toLowerCase(), ipAddress));
 			}
 			await invalidateExpiredUserMfaChallenges(client);
 
@@ -1104,6 +1173,81 @@ router.post("/login", authAttemptLimiter, async (req, res) => {
 	} catch (error) {
 		console.error("Login error:", error);
 		res.status(500).json({ status: "error", message: "Login failed" });
+	}
+});
+
+router.post("/refresh", async (req, res) => {
+	try {
+		const authHeader = String(req.headers.authorization || "");
+		const activeToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+		if (!activeToken) {
+			return res.status(401).json({ status: "error", message: "Authentication required" });
+		}
+
+		const decoded = verifyToken(activeToken);
+		if (!decoded || !Number.isInteger(decoded.id)) {
+			return res.status(401).json({ status: "error", message: "Invalid or expired token" });
+		}
+
+		const client = await pool.connect();
+		try {
+			const sessionRes = await client.query(
+				`SELECT a.id, a.username, a.email, a.name, a.icon, a.subscription, a.role, a.created_at
+				 FROM accounts a
+				 JOIN user_sessions s ON s.account_id = a.id
+				 WHERE s.session_token = $1
+				   AND s.expires_at > NOW()
+				 LIMIT 1`,
+				[activeToken],
+			);
+
+			const user = sessionRes.rows[0];
+			if (!user) {
+				return res.status(401).json({ status: "error", message: "Invalid or expired session" });
+			}
+
+			const nextToken = generateToken(user);
+			const nextSessionExpiry = buildSessionExpiryDate();
+			const updateSession = await client.query(
+				`UPDATE user_sessions
+				 SET session_token = $1,
+					 expires_at = $2,
+					 ip_address = $3,
+					 user_agent = $4
+				 WHERE account_id = $5
+				   AND session_token = $6
+				   AND expires_at > NOW()`,
+				[
+					nextToken,
+					nextSessionExpiry,
+					getClientIp(req),
+					String(req.get("user-agent") || "").slice(0, 512),
+					user.id,
+					activeToken,
+				],
+			);
+
+			if (!updateSession.rowCount) {
+				return res.status(409).json({ status: "error", message: "Session refresh conflict; retry login" });
+			}
+
+			await logAuthSecurityEvent(client, "token_refreshed", {
+				accountId: user.id,
+				ipAddress: getClientIp(req),
+				userAgent: String(req.get("user-agent") || "").slice(0, 512),
+			});
+
+			return res.json({
+				status: "success",
+				token: nextToken,
+				expiresIn: JWT_ACCESS_TTL_SECONDS,
+			});
+		} finally {
+			client.release();
+		}
+	} catch (error) {
+		console.error("Token refresh error:", error);
+		return res.status(500).json({ status: "error", message: "Token refresh failed" });
 	}
 });
 
@@ -1460,7 +1604,7 @@ router.put("/password", authenticate, async (req, res) => {
 			}
 
 			// Verify current password
-			const validPassword = await bcrypt.compare(currentPassword, user.password_hash);
+			const validPassword = await verifyPassword(currentPassword, user.password_hash);
 			if (!validPassword) {
 				await logAuthSecurityEvent(client, "password_change_failed", {
 					accountId: req.user?.id,
@@ -1472,7 +1616,7 @@ router.put("/password", authenticate, async (req, res) => {
 			}
 
 			// Hash new password
-			const newPasswordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+			const newPasswordHash = await hashPassword(newPassword);
 
 			// Update password
 			await client.query("UPDATE accounts SET password_hash = $1, updated_at = NOW() WHERE id = $2", [

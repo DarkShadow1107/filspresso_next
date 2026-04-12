@@ -14,6 +14,10 @@ const fs = require("fs");
 const pool = require("../db/connection");
 const { authenticate } = require("../middleware/auth");
 const { v4: uuidv4 } = require("uuid");
+const { getEnvOrFile } = require("../utils/secrets");
+const { issueServiceAssertion } = require("../utils/serviceAssertions");
+const { assertAllowedEgress } = require("../utils/egressPolicy");
+const { assertServiceContract } = require("../utils/serviceContracts");
 const { sendTransactionalEmail, buildOrderEmailHtml } = require("../utils/resendMailer");
 
 let sharp = null;
@@ -25,6 +29,19 @@ try {
 
 const router = express.Router();
 const INVOICE_SERVICE_URL = process.env.INVOICE_SERVICE_URL || "http://localhost:8082";
+const INVOICE_REQUIRE_SERVICE_ASSERTION =
+	String(process.env.INVOICE_REQUIRE_SERVICE_ASSERTION || "true")
+		.trim()
+		.toLowerCase() === "true";
+const INVOICE_SERVICE_ASSERTION_SCOPE =
+	String(process.env.INVOICE_SERVICE_ASSERTION_SCOPE || "service-invoice:render").trim() || "service-invoice:render";
+const SERVICE_ASSERTION_PRIVATE_KEY = getEnvOrFile("SERVICE_ASSERTION_PRIVATE_KEY", { required: false, defaultValue: "" });
+const SERVICE_ASSERTION_ISSUER = String(process.env.SERVICE_ASSERTION_ISSUER || "filspresso-backend").trim();
+const SERVICE_ASSERTION_SUBJECT = String(process.env.SERVICE_ASSERTION_SUBJECT || "backend").trim();
+const SERVICE_ASSERTION_TTL_SECONDS = Math.min(
+	Math.max(Number.parseInt(process.env.SERVICE_ASSERTION_TTL_SECONDS || "120", 10) || 120, 30),
+	600,
+);
 const FRONTEND_ORIGIN =
 	process.env.FRONTEND_ORIGIN ||
 	process.env.NEXT_PUBLIC_FRONTEND_URL ||
@@ -57,6 +74,39 @@ function invoiceServiceUrlCandidates() {
 	pushCandidate("http://localhost:8082");
 
 	return candidates;
+}
+
+function filterAllowedInvoiceServiceUrls(candidates) {
+	const allowed = [];
+	for (const candidate of candidates) {
+		try {
+			assertAllowedEgress(candidate, "INVOICE_SERVICE_URL");
+			allowed.push(candidate);
+		} catch {
+			// Ignore disallowed fallback candidates while preserving allowlisted targets.
+		}
+	}
+	return allowed;
+}
+
+function createInvoiceServiceAssertionHeader() {
+	if (!SERVICE_ASSERTION_PRIVATE_KEY) {
+		return "";
+	}
+
+	try {
+		const issued = issueServiceAssertion({
+			privateKeyPem: SERVICE_ASSERTION_PRIVATE_KEY,
+			issuer: SERVICE_ASSERTION_ISSUER,
+			subject: SERVICE_ASSERTION_SUBJECT,
+			scope: INVOICE_SERVICE_ASSERTION_SCOPE,
+			ttlSeconds: SERVICE_ASSERTION_TTL_SECONDS,
+		});
+		return issued.token;
+	} catch (error) {
+		console.warn("Failed to issue invoice service assertion:", error.message || String(error));
+		return "";
+	}
 }
 
 // Tier discount percentages
@@ -117,6 +167,215 @@ function formatAddress(address) {
 			.join(", ");
 	}
 	return "";
+}
+
+function normalizeCardTypeLabel(cardType) {
+	if (!cardType || typeof cardType !== "string") return "";
+	const normalized = cardType
+		.trim()
+		.toLowerCase()
+		.replace(/[._-]+/g, " ")
+		.replace(/\s+/g, " ");
+
+	if (!normalized) return "";
+	if (normalized.includes("american express") || normalized === "amex" || normalized.includes(" amex")) {
+		return "American Express";
+	}
+	if (normalized.includes("master") && normalized.includes("card")) {
+		return "Mastercard";
+	}
+	if (normalized.includes("visa")) {
+		return "Visa";
+	}
+	if (normalized.includes("discover")) {
+		return "Discover";
+	}
+
+	return normalized
+		.split(/\s+/)
+		.filter(Boolean)
+		.map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+		.join(" ");
+}
+
+function stripPaymentCurrencySuffix(paymentMethod) {
+	if (!paymentMethod || typeof paymentMethod !== "string") return "";
+	return paymentMethod.replace(/\([A-Za-z]{3}\)\s*$/, "").trim();
+}
+
+function extractCardFromPaymentMethod(paymentMethod) {
+	const withoutCurrency = stripPaymentCurrencySuffix(paymentMethod);
+	if (!withoutCurrency) {
+		return { cardType: "", cardLastFour: "" };
+	}
+
+	const maskedDigitsMatch = withoutCurrency.match(/^(.+?)\s*[•*xX]{2,}\s*(\d{4})$/);
+	if (maskedDigitsMatch) {
+		return {
+			cardType: normalizeCardTypeLabel(maskedDigitsMatch[1]),
+			cardLastFour: maskedDigitsMatch[2].trim(),
+		};
+	}
+
+	const plainDigitsMatch = withoutCurrency.match(/^(.+?)\s+(\d{4})$/);
+	if (plainDigitsMatch) {
+		return {
+			cardType: normalizeCardTypeLabel(plainDigitsMatch[1]),
+			cardLastFour: plainDigitsMatch[2].trim(),
+		};
+	}
+
+	return {
+		cardType: normalizeCardTypeLabel(withoutCurrency),
+		cardLastFour: "",
+	};
+}
+
+function getCardLogoPath(cardType) {
+	const normalized = normalizeCardTypeLabel(cardType).toLowerCase();
+	const imageMap = {
+		visa: "/images/Payment/Visa.png",
+		mastercard: "/images/Payment/Mastercard.png",
+		"american express": "/images/Payment/American_Express.png",
+		discover: "/images/Payment/Discover.png",
+	};
+	return imageMap[normalized] || null;
+}
+
+function buildPaymentDetails({ cardType, cardLastFour, paymentMethod }) {
+	const fallback = stripPaymentCurrencySuffix(typeof paymentMethod === "string" ? paymentMethod : "");
+	const parsed = extractCardFromPaymentMethod(fallback);
+	const normalizeLastFour = (value) => {
+		const digits = String(value ?? "")
+			.replace(/[^0-9]/g, "")
+			.trim();
+		return digits ? digits.slice(-4) : "";
+	};
+
+	const normalizedType = normalizeCardTypeLabel(cardType) || parsed.cardType;
+	const normalizedLastFour = normalizeLastFour(cardLastFour) || normalizeLastFour(parsed.cardLastFour);
+
+	if (normalizedType || normalizedLastFour) {
+		return {
+			cardType: normalizedType,
+			cardLastFour: normalizedLastFour,
+			cardLogo: getCardLogoPath(normalizedType),
+			summary: normalizedLastFour ? `•••• ${normalizedLastFour}` : "••••",
+		};
+	}
+
+	return {
+		cardType: "",
+		cardLastFour: "",
+		cardLogo: null,
+		summary: fallback || "Card",
+	};
+}
+
+function buildPaymentSummary({ cardType, cardLastFour, paymentMethod }) {
+	return buildPaymentDetails({ cardType, cardLastFour, paymentMethod }).summary;
+}
+
+function normalizeLastFourDigits(value) {
+	const digits = String(value ?? "")
+		.replace(/[^0-9]/g, "")
+		.trim();
+	return digits ? digits.slice(-4) : "";
+}
+
+async function fetchUserCardsForFallback(client, accountId) {
+	const cardsResult = await client.query(
+		`SELECT id, card_type, card_last_four, created_at
+		 FROM user_cards
+		 WHERE account_id = $1
+		 ORDER BY created_at DESC`,
+		[accountId],
+	);
+
+	return cardsResult.rows.map((card) => ({
+		...card,
+		normalizedType: normalizeCardTypeLabel(card.card_type).toLowerCase(),
+		normalizedLastFour: normalizeLastFourDigits(card.card_last_four),
+	}));
+}
+
+function applyOrderCardFallback(order, savedCards) {
+	if (!order || !Array.isArray(savedCards) || savedCards.length === 0) {
+		return order;
+	}
+
+	const existingType = normalizeCardTypeLabel(order.card_type);
+	const existingLastFour = normalizeLastFourDigits(order.card_last_four);
+	const parsed = extractCardFromPaymentMethod(typeof order.payment_method === "string" ? order.payment_method : "");
+	const inferredType = existingType || normalizeCardTypeLabel(parsed.cardType);
+	const inferredLastFour = existingLastFour || normalizeLastFourDigits(parsed.cardLastFour);
+
+	if (inferredType) {
+		order.card_type = inferredType;
+	}
+	if (inferredLastFour) {
+		order.card_last_four = inferredLastFour;
+	}
+
+	if (order.card_last_four) {
+		return order;
+	}
+
+	if (!inferredType) {
+		return order;
+	}
+
+	const typeKey = inferredType.toLowerCase();
+	const candidates = savedCards.filter((card) => card.normalizedType === typeKey && card.normalizedLastFour);
+	if (candidates.length === 0) {
+		return order;
+	}
+
+	let selectedCard = candidates[0];
+	const orderTimestamp = new Date(order.created_at || 0).getTime();
+	if (Number.isFinite(orderTimestamp) && orderTimestamp > 0) {
+		const beforeOrEqual = candidates.find((card) => {
+			const cardTimestamp = new Date(card.created_at || 0).getTime();
+			return Number.isFinite(cardTimestamp) && cardTimestamp <= orderTimestamp;
+		});
+		if (beforeOrEqual) {
+			selectedCard = beforeOrEqual;
+		}
+	}
+
+	order.card_type = normalizeCardTypeLabel(selectedCard.card_type || inferredType);
+	order.card_last_four = selectedCard.normalizedLastFour;
+	return order;
+}
+
+let orderCardColumnSupportCache = null;
+
+async function getOrderCardSelectColumns(client) {
+	if (!orderCardColumnSupportCache) {
+		const supportResult = await client.query(
+			`SELECT column_name
+			 FROM information_schema.columns
+			 WHERE table_schema = current_schema()
+			 	AND table_name = 'orders'
+			 	AND column_name = ANY($1::text[])`,
+			[["card_type", "card_last_four"]],
+		);
+
+		const supportedColumns = new Set(supportResult.rows.map((row) => row.column_name));
+		orderCardColumnSupportCache = {
+			hasCardType: supportedColumns.has("card_type"),
+			hasCardLastFour: supportedColumns.has("card_last_four"),
+		};
+	}
+
+	return {
+		cardTypeSelect: orderCardColumnSupportCache.hasCardType
+			? "COALESCE(uc.card_type, o.card_type) AS card_type"
+			: "uc.card_type AS card_type",
+		cardLastFourSelect: orderCardColumnSupportCache.hasCardLastFour
+			? "COALESCE(uc.card_last_four, o.card_last_four) AS card_last_four"
+			: "uc.card_last_four AS card_last_four",
+	};
 }
 
 function sanitizeInvoiceProductName(rawName) {
@@ -214,18 +473,36 @@ async function buildInvoiceItemsPayload(items) {
 }
 
 async function renderInvoicePdfBuffer(payload) {
-	const attempts = invoiceServiceUrlCandidates();
+	const attempts = filterAllowedInvoiceServiceUrls(invoiceServiceUrlCandidates());
+	if (attempts.length === 0) {
+		console.error("No allowlisted invoice service URL candidates are available");
+		return null;
+	}
+
+	assertServiceContract("invoice_render_request_v1", payload);
+
+	const serviceAssertion = createInvoiceServiceAssertionHeader();
+	if (INVOICE_REQUIRE_SERVICE_ASSERTION && !serviceAssertion) {
+		console.error("Invoice service assertion is required but could not be issued");
+		return null;
+	}
 
 	for (const baseUrl of attempts) {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 10000);
 		try {
+			const headers = {
+				"Content-Type": "application/json",
+				Accept: "application/pdf",
+			};
+			if (serviceAssertion) {
+				headers["x-service-name"] = "filspresso-backend";
+				headers["x-service-assertion"] = serviceAssertion;
+			}
+
 			const response = await fetch(`${baseUrl}/api/invoices/render`, {
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Accept: "application/pdf",
-				},
+				headers,
 				body: JSON.stringify(payload),
 				signal: controller.signal,
 			});
@@ -255,6 +532,12 @@ async function sendOrderEmail({ to, subject, intro, extraNote, order, items, cus
 		...item,
 		productImage: toAbsoluteImageUrl(item.productImage),
 	}));
+	const paymentDetails = buildPaymentDetails({
+		cardType: order.card_type,
+		cardLastFour: order.card_last_four,
+		paymentMethod: order.payment_method,
+	});
+	const paymentSummary = paymentDetails.summary;
 
 	const html = buildOrderEmailHtml({
 		title: "Filspresso Order Update",
@@ -286,7 +569,10 @@ async function sendOrderEmail({ to, subject, intro, extraNote, order, items, cus
 			customerEmail,
 			billingAddress: formatAddress(order.billing_address),
 			shippingAddress: formatAddress(order.shipping_address),
-			paymentSummary: order.payment_method || "Card",
+			paymentSummary,
+			paymentCardType: paymentDetails.cardType,
+			paymentCardLastFour: paymentDetails.cardLastFour,
+			paymentCardLogo: paymentDetails.cardLogo,
 			baseCurrencyCode: "RON",
 			currencyCode,
 			exchangeRate: Number(order.exchange_rate || 1),
@@ -1213,15 +1499,19 @@ router.get("/", authenticate, async (req, res) => {
 
 		const client = await pool.connect();
 		try {
+			const { cardTypeSelect, cardLastFourSelect } = await getOrderCardSelectColumns(client);
+
 			let query = `
         SELECT o.id, o.order_number, o.status, o.subtotal, o.shipping_cost, 
                 o.tax, o.total, o.created_at, o.weather_condition, o.estimated_delivery,
                 o.expected_delivery_date,
                 o.discount_tier, o.discount_percent, o.discount_amount,
+			o.payment_method,
 		o.currency_code, o.exchange_rate, o.conversion_fee_percent,
 		o.charged_subtotal, o.charged_shipping_cost, o.charged_tax, o.charged_total,
 		o.destination_country,
-                uc.card_type, uc.card_last_four,
+	                ${cardTypeSelect},
+	                ${cardLastFourSelect},
                 (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
         FROM orders o
         LEFT JOIN user_cards uc ON o.card_id = uc.id
@@ -1240,7 +1530,8 @@ router.get("/", authenticate, async (req, res) => {
 			params.push(limit, offset);
 
 			const result = await client.query(query, params);
-			const orders = serializeBigInt(result.rows);
+			const userCards = await fetchUserCardsForFallback(client, req.user.id);
+			const orders = serializeBigInt(result.rows).map((order) => applyOrderCardFallback(order, userCards));
 
 			// Get total count
 			const countResult = await client.query("SELECT COUNT(*) as total FROM orders WHERE account_id = $1", [req.user.id]);
@@ -1366,9 +1657,12 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 		}
 
 		client = await pool.connect();
+		const { cardTypeSelect, cardLastFourSelect } = await getOrderCardSelectColumns(client);
 
 		const orderResult = await client.query(
-			`SELECT o.*, uc.card_type, uc.card_last_four,
+			`SELECT o.*,
+					${cardTypeSelect},
+					${cardLastFourSelect},
 					COALESCE(a.name, a.username, 'Filspresso Customer') AS customer_name,
 					a.email AS customer_email
 			 FROM orders o
@@ -1382,6 +1676,9 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 		if (!order) {
 			return res.status(404).json({ error: "Order not found" });
 		}
+
+		const userCards = await fetchUserCardsForFallback(client, req.user.id);
+		applyOrderCardFallback(order, userCards);
 
 		const itemsResult = await client.query(
 			`SELECT product_name, product_id, product_type, product_image, quantity, unit_price, total_price
@@ -1431,6 +1728,12 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 			}),
 		);
 
+		const invoicePaymentDetails = buildPaymentDetails({
+			cardType: order.card_type,
+			cardLastFour: order.card_last_four,
+			paymentMethod: order.payment_method,
+		});
+
 		const payload = {
 			invoiceNumber: `INV-${order.order_number}`,
 			orderNumber: order.order_number,
@@ -1442,10 +1745,10 @@ router.get("/:id/invoice", authenticate, async (req, res) => {
 			customerEmail: order.customer_email,
 			billingAddress: formatAddress(order.billing_address),
 			shippingAddress: formatAddress(order.shipping_address),
-			paymentSummary:
-				order.card_type && order.card_last_four
-					? `${order.card_type.toUpperCase()} •••• ${order.card_last_four}`
-					: order.payment_method || "Card",
+			paymentSummary: invoicePaymentDetails.summary,
+			paymentCardType: invoicePaymentDetails.cardType,
+			paymentCardLastFour: invoicePaymentDetails.cardLastFour,
+			paymentCardLogo: invoicePaymentDetails.cardLogo,
 			baseCurrencyCode: "RON",
 			currencyCode: (order.currency_code || "RON").toUpperCase(),
 			exchangeRate: Number(order.exchange_rate || 1),
@@ -1490,10 +1793,14 @@ router.get("/:id", authenticate, async (req, res) => {
 
 		const client = await pool.connect();
 		try {
+			const { cardTypeSelect, cardLastFourSelect } = await getOrderCardSelectColumns(client);
+
 			// Get order
 			const result = await client.query(
-				`SELECT o.*, 
-                uc.card_holder, uc.card_type, uc.card_last_four
+				`SELECT o.*,
+								uc.card_holder,
+								${cardTypeSelect},
+								${cardLastFourSelect}
         FROM orders o
         LEFT JOIN user_cards uc ON o.card_id = uc.id
         WHERE o.id = $1 AND o.account_id = $2`,
@@ -1504,6 +1811,9 @@ router.get("/:id", authenticate, async (req, res) => {
 			if (!order) {
 				return res.status(404).json({ error: "Order not found" });
 			}
+
+			const userCards = await fetchUserCardsForFallback(client, req.user.id);
+			applyOrderCardFallback(order, userCards);
 
 			// Get order items
 			const itemsResult = await client.query(
@@ -1687,6 +1997,30 @@ router.post("/", authenticate, async (req, res) => {
 				normalizedCurrencyCode === "RON" ? 0 : Math.round((normalizedChargedTax / normalizedExchangeRate) * 100) / 100;
 			const calculatedRonTotal = Math.round((subtotalAfterDiscount + finalShippingCost + tax) * 100) / 100;
 			const finalTotal = total !== undefined ? Number(total) : calculatedRonTotal;
+			const parsedCardId = Number.parseInt(String(cardId), 10);
+			const normalizedCardId = Number.isInteger(parsedCardId) && parsedCardId > 0 ? parsedCardId : null;
+
+			let selectedCardType = null;
+			let selectedCardLastFour = null;
+			if (normalizedCardId) {
+				const selectedCardResult = await client.query(
+					`SELECT card_type, card_last_four
+					 FROM user_cards
+					 WHERE id = $1 AND account_id = $2`,
+					[normalizedCardId, req.user.id],
+				);
+				if (!selectedCardResult.rows[0]) {
+					throw createHttpError(400, "Selected payment card is invalid");
+				}
+				selectedCardType = selectedCardResult.rows[0].card_type;
+				selectedCardLastFour = selectedCardResult.rows[0].card_last_four;
+			}
+
+			const paymentSummary = buildPaymentSummary({
+				cardType: selectedCardType,
+				cardLastFour: selectedCardLastFour,
+				paymentMethod,
+			});
 
 			// Generate order number - use SUB prefix for subscriptions
 			const orderPrefix = isSubscription ? "SUB" : "ORD";
@@ -1713,8 +2047,8 @@ router.post("/", authenticate, async (req, res) => {
 					finalTotal,
 					JSON.stringify(shippingAddress),
 					JSON.stringify(billingAddress || shippingAddress),
-					paymentMethod || "card",
-					cardId || null,
+					paymentSummary,
+					normalizedCardId,
 					notes || null,
 					isSubscription ? null : weatherCondition,
 					estimatedDelivery,
@@ -1795,7 +2129,9 @@ router.post("/", authenticate, async (req, res) => {
 				created_at: new Date().toISOString(),
 				shipping_address: shippingAddress,
 				billing_address: billingAddress || shippingAddress,
-				payment_method: paymentMethod || "card",
+				payment_method: paymentSummary,
+				card_type: selectedCardType,
+				card_last_four: selectedCardLastFour,
 				subtotal,
 				discount_amount: discountAmount,
 				shipping_cost: finalShippingCost,

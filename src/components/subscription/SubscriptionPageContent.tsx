@@ -63,12 +63,16 @@ const plans = [
 			"200 capsules par mois",
 			"Espressor Gran Lattissima Noir Élégant",
 			"1x Suport capsules Mia Lume",
-			"🤖 Kafelot Tanka - 1000 prompts/month",
-			"🤖 Qwen 3 access + Thinking access",
-			"🧠 MiniLM access (fallback)",
+			"🤖 Kafelot - 1000 prompts/month",
+			"🧠 MiniLM V2 access",
+			"🧠 Qwen 3 access",
+			"🧠 Qwen 3 Thinking access",
+			"🧠 Gemma 3 access",
+			"📷 Qwen 3 Vision access",
+			"📷 Auto-convert image formats to JPG + auto-upscale (min 128px)",
+			"📷 Coffee Helper - up to 3 images per prompt",
 			"💾 200-conversation memory",
-			"📷 CLIP Image Search - 50 queries/month",
-			"🧬 Molecule Helper - 200 prompts/month (MolScribe AI)",
+			"🧬 Molecule Helper - 200 prompts/month (Qwen 3 Vision)",
 			"✏️ Edit prompt feature",
 		],
 	},
@@ -85,11 +89,14 @@ const plans = [
 			"120 capsules par mois",
 			"Espressor Vertuo Next C Rouge Cerise",
 			"1x Suport des bonbons",
-			"🤖 Kafelot Tanka - 300 prompts/month",
-			"🤖 Qwen 3 access",
-			"🧠 MiniLM access (fallback)",
+			"🤖 Kafelot - 300 prompts/month",
+			"🧠 MiniLM V2 access",
+			"🧠 Qwen 3 access",
+			"🧠 Qwen 3 Thinking access",
+			"📷 Qwen 3 Vision access",
+			"📷 Auto-convert image formats to JPG + auto-upscale (min 128px)",
+			"📷 Coffee Helper - up to 3 images per prompt",
 			"💾 100-conversation memory",
-			"📷 CLIP Image Search - 25 queries/month",
 			"✏️ Edit prompt feature",
 		],
 	},
@@ -106,11 +113,12 @@ const plans = [
 			"60 capsules par mois",
 			"Espressor Vertuo Next C Rouge Cerise",
 			"1x Suport des bonbons",
-			"🤖 Kafelot Tanka - 150 prompts/month",
-			"🤖 Qwen 3 access",
-			"🧠 MiniLM access (fallback)",
+			"🤖 Kafelot - 150 prompts/month",
+			"🧠 MiniLM V2 access",
+			"🧠 Qwen 3 access",
+			"📷 Qwen 3 Vision access",
+			"📷 Auto-convert image formats to JPG + auto-upscale (min 128px)",
 			"💾 50-conversation memory",
-			"📷 CLIP Image Search - 10 queries/month",
 		],
 	},
 	{
@@ -125,8 +133,11 @@ const plans = [
 		benefits: [
 			"30 capsules par mois",
 			"Espressor Essenza Mini Piano Noir C30",
-			"🤖 Kafelot Tanka - 100 prompts/month",
-			"🧠 MiniLM access",
+			"🤖 Kafelot - 100 prompts/month",
+			"🧠 MiniLM V2 access",
+			"🧠 Qwen 3 access",
+			"📷 Qwen 3 Vision access",
+			"📷 PNG/JPG upload only (min 128px)",
 			"💾 20-conversation memory",
 		],
 	},
@@ -142,8 +153,11 @@ const plans = [
 		benefits: [
 			"10 capsules par mois",
 			"Espressor Essenza Mini Piano Noir C30",
-			"🤖 Kafelot Tanka - 50 prompts/month",
-			"🧠 MiniLM access",
+			"🤖 Kafelot - 50 prompts/month",
+			"🧠 MiniLM V2 access",
+			"🧠 Qwen 3 access",
+			"📷 Qwen 3 Vision access",
+			"📷 PNG/JPG upload only (min 128px)",
 			"💾 5-conversation memory",
 		],
 	},
@@ -157,9 +171,9 @@ const plans = [
 		recommended: false,
 		tier: 0,
 		benefits: [
-			"🤖 Kafelot Tanka - 5 prompts/month (anonymous)",
-			"🤖 Kafelot Tanka - 15 prompts/month (with account)",
-			"🧠 MiniLM access",
+			"🤖 Kafelot - 5 prompts/month (anonymous)",
+			"🤖 Kafelot - 15 prompts/month (with account)",
+			"🧠 MiniLM V2 access",
 			"Default for all accounts",
 		],
 	},
@@ -712,9 +726,9 @@ export default function SubscriptionPageContent() {
 									<ul className="card_bullets" style={{ padding: 0, listStyle: "none" }}>
 										{(plan.id === "free"
 											? [
-													"Kafelot Tanka - 5 prompts/month (anonymous)",
-													"Kafelot Tanka - 15 prompts/month (with account)",
-													"MiniLM access",
+													"Kafelot - 5 prompts/month (anonymous)",
+													"Kafelot - 15 prompts/month (with account)",
+													"MiniLM V2 access",
 													"Default for all accounts",
 												]
 											: (plan.benefits as readonly string[])
@@ -732,13 +746,14 @@ export default function SubscriptionPageContent() {
 													return <BrandOllamaIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("🤖"))
 													return <BrandGeminiIcon size={iconSize} color={iconColor} />;
-												if (benefit.includes("🧠")) return <CpuIcon size={iconSize} color={iconColor} />;
+												if (benefit.includes("🧠"))
+													return <BrandGeminiIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("💾"))
 													return <HistoryCircleIcon size={iconSize} color={iconColor} />;
-												// CLIP Image Search → Ollama icon
+												// Vision model access → Ollama icon
 												if (benefit.includes("📷"))
 													return <BrandOllamaIcon size={iconSize} color={iconColor} />;
-												// Molecule Helper (MolScribe) → Grok icon
+												// Molecule Helper (Qwen3-VL) → Grok icon
 												if (benefit.includes("🧬"))
 													return <BrandGrokIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("📊"))

@@ -5,6 +5,7 @@ import com.lowagie.text.Element;
 import com.lowagie.text.Font;
 import com.lowagie.text.FontFactory;
 import com.lowagie.text.Image;
+import com.lowagie.text.Chunk;
 import com.lowagie.text.PageSize;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
@@ -210,7 +211,7 @@ public class InvoiceController {
         meta.setPadding(12);
         meta.addElement(metaLine("Order date", req.orderDate()));
         meta.addElement(metaLine("Status", req.status().toUpperCase()));
-        meta.addElement(metaLine("Payment", req.paymentSummary()));
+        addPaymentMetaLine(meta, req);
 
         grid.addCell(customer);
         grid.addCell(meta);
@@ -225,6 +226,106 @@ public class InvoiceController {
         line.add(new Phrase(right, val));
         line.setSpacingAfter(4);
         return line;
+    }
+
+    private void addPaymentMetaLine(PdfPCell container, InvoiceRequest req) {
+        Font val = FontFactory.getFont(FontFactory.HELVETICA, 9, Color.DARK_GRAY);
+
+        Paragraph line = new Paragraph();
+
+        Image cardLogo = tryLoadPaymentCardLogo(req);
+        if (cardLogo != null) {
+            cardLogo.scaleToFit(28f, 18f);
+            cardLogo.setAlignment(Element.ALIGN_LEFT);
+            line.add(new Chunk(cardLogo, 0f, -3f, true));
+            line.add(new Phrase("  ", val));
+        }
+
+        line.add(new Phrase(paymentMaskedDisplay(req), val));
+        line.setSpacingAfter(4);
+        container.addElement(line);
+    }
+
+    private String paymentMaskedDisplay(InvoiceRequest req) {
+        String explicitLastFour = digitsOnly(req.paymentCardLastFour());
+        if (!explicitLastFour.isBlank()) {
+            return "•••• " + explicitLastFour;
+        }
+
+        String summary = req.paymentSummary() == null ? "" : req.paymentSummary().trim();
+        if (!summary.isBlank()) {
+            String sanitized = summary.replaceAll("\\([A-Za-z]{3}\\)\\s*$", "").trim();
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d{4})$").matcher(sanitized);
+            if (matcher.find()) {
+                return "•••• " + matcher.group(1);
+            }
+            if (sanitized.contains("••••")) {
+                return "••••";
+            }
+        }
+
+        return "••••";
+    }
+
+    private String digitsOnly(String raw) {
+        if (raw == null) return "";
+        String digits = raw.replaceAll("[^0-9]", "");
+        if (digits.length() > 4) {
+            return digits.substring(digits.length() - 4);
+        }
+        return digits;
+    }
+
+    private Image tryLoadPaymentCardLogo(InvoiceRequest req) {
+        String directLogo = req.paymentCardLogo();
+        if (directLogo != null && !directLogo.isBlank()) {
+            Image loaded = tryLoadProductImage(directLogo);
+            if (loaded != null) {
+                return loaded;
+            }
+        }
+
+        String normalizedType = normalizeCardTypeLabel(req.paymentCardType()).toLowerCase();
+        String mappedLogoPath = switch (normalizedType) {
+            case "visa" -> "/images/Payment/Visa.png";
+            case "mastercard" -> "/images/Payment/Mastercard.png";
+            case "american express" -> "/images/Payment/American_Express.png";
+            case "discover" -> "/images/Payment/Discover.png";
+            default -> "";
+        };
+
+        if (!mappedLogoPath.isBlank()) {
+            return tryLoadProductImage(mappedLogoPath);
+        }
+
+        return null;
+    }
+
+    private String normalizeCardTypeLabel(String cardType) {
+        if (cardType == null || cardType.isBlank()) {
+            return "";
+        }
+
+        String normalized = cardType
+                .trim()
+                .toLowerCase()
+                .replaceAll("[._-]+", " ")
+                .replaceAll("\\s+", " ");
+
+        if (normalized.contains("american express") || normalized.equals("amex") || normalized.contains(" amex")) {
+            return "American Express";
+        }
+        if (normalized.contains("master") && normalized.contains("card")) {
+            return "Mastercard";
+        }
+        if (normalized.contains("visa")) {
+            return "Visa";
+        }
+        if (normalized.contains("discover")) {
+            return "Discover";
+        }
+
+        return normalized;
     }
 
     private void addItems(Document doc, InvoiceRequest req) throws Exception {
@@ -674,6 +775,9 @@ public class InvoiceController {
             String billingAddress,
             String shippingAddress,
             String paymentSummary,
+            String paymentCardType,
+            String paymentCardLastFour,
+            String paymentCardLogo,
             String baseCurrencyCode,
             String currencyCode,
             BigDecimal exchangeRate,
@@ -709,6 +813,9 @@ public class InvoiceController {
                     safe(billingAddress, ""),
                     safe(shippingAddress, ""),
                     safe(paymentSummary, "Card"),
+                    safe(paymentCardType, ""),
+                    safe(paymentCardLastFour, ""),
+                    safe(paymentCardLogo, ""),
                     safe(baseCurrencyCode, "RON"),
                     safe(currencyCode, "RON"),
                     nonNull(exchangeRate),

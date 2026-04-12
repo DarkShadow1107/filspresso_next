@@ -1,20 +1,34 @@
-FROM node:20-alpine
+# syntax=docker/dockerfile:1.7
+FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS deps
 
 WORKDIR /app
 
-# Copy package files
 COPY express-api/package*.json ./
+RUN --mount=type=cache,target=/root/.npm apk add --no-cache python3 make g++ \
+	&& npm ci --omit=dev
 
-# Install dependencies
-RUN npm install --production
+FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
 
-# Copy application code
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=4000
+
+RUN apk add --no-cache dumb-init \
+	&& addgroup -S appgroup \
+	&& adduser -S appuser -G appgroup
+
+COPY --from=deps /app/node_modules ./node_modules
 COPY express-api/ ./
 COPY src/data/coffee.generated.json ./bootstrap-data/coffee.generated.json
 COPY src/data/machines.generated.json ./bootstrap-data/machines.generated.json
 
-# Expose port
+RUN mkdir -p /tmp/filspresso \
+	&& chown -R appuser:appgroup /app /tmp/filspresso
+
+USER appuser
+
 EXPOSE 4000
 
-# Start the server
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "server.js"]
