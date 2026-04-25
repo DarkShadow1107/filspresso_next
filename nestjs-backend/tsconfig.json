@@ -1,0 +1,28 @@
+{
+	"compilerOptions": {
+		"module": "Node16",
+		"target": "ES2022",
+		"lib": ["ES2022"],
+		"moduleResolution": "node16",
+
+		"declaration": true,
+		"sourceMap": true,
+		"outDir": "./dist",
+		"rootDir": ".",
+		"removeComments": false,
+		"strict": true,
+		"noImplicitOverride": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": false,
+		"noFallthroughCasesInSwitch": true,
+		"forceConsistentCasingInFileNames": true,
+		"esModuleInterop": true,
+		"jsx": "react-jsx",
+		"emitDecoratorMetadata": true,
+		"experimentalDecorators": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true
+	},
+	"include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts"],
+	"exclude": ["node_modules", "dist"]
+}

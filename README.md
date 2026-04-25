@@ -111,11 +111,20 @@ Useful flags:
 # Use explicit service-events key for protected endpoints
 pwsh -ExecutionPolicy Bypass -File .\scripts\run_titan_v0_74_tests.ps1 -ServiceEventsKey "<your-key>"
 
-# Skip Docker checks if running code-only validations
-pwsh -ExecutionPolicy Bypass -File .\scripts\run_titan_v0_74_tests.ps1 -SkipDocker
+# Use an explicit service assertion token for strict zero-trust endpoint auth checks
+pwsh -ExecutionPolicy Bypass -File .\scripts\run_titan_v0_74_tests.ps1 -ServiceAssertionToken "<signed-assertion-token>"
 ```
 
-After changing security middleware or observability logic, rebuild and restart:
+Important: Docker-backed security validation is mandatory in this suite and cannot be skipped.
+The suite does not build images or recreate containers; it only starts existing services and validates restart resilience.
+
+Precondition (one-time or after topology/image changes):
+
+```bash
+docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml up -d
+```
+
+After changing security middleware or observability logic, you may refresh runtime separately from the suite:
 
 ```bash
 docker compose down
@@ -1466,9 +1475,10 @@ You can automate capture with Playwright/Cypress in CI and export to docs/screen
 
 ## 19. Testing, Validation, And Quality Gates
 
-This repository currently ships one GitHub Actions workflow that acts as the CI quality gate:
+This repository currently ships two GitHub Actions workflows that together enforce CI quality and deployment policy posture:
 
 - `.github/workflows/security-ci.yml`
+- `.github/workflows/enforce-cluster-security-policies.yml`
 
 It focuses on build integrity and dependency security for frontend, backend, and Python layers.
 

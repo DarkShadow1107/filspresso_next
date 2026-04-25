@@ -7,4 +7,4 @@ RUN apt-get update && apt-get install -y \
 
 # The extensions need to be enabled in each database
 # We can do this via a script in /docker-entrypoint-initdb.d/
-COPY ./express-api/data/extensions.sql /docker-entrypoint-initdb.d/extensions.sql
+COPY ./nestjs-backend/data/extensions.sql /docker-entrypoint-initdb.d/extensions.sql

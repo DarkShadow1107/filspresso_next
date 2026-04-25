@@ -15,14 +15,14 @@ These are used to validate Docker/runtime hardening and security policy invarian
 
 ## 2. Script Matrix (What To Run And When)
 
-| Script | Purpose | Typical Trigger |
-| --- | --- | --- |
-| `run_titan_v0_74_tests.ps1` | End-to-end local verification suite | before merge / release |
-| `verifyDeploySignaturePolicy.mjs` | Validate deploy admission policy assets | CI policy check |
-| `verifyDockerfileBaseImages.mjs` | Verify Docker base-image pinning policy | Dockerfile updates |
-| `verifySignedHistory.mjs` | Validate signed-history constraints | release/hardening checkpoints |
-| `bootstrapSecretsFromEnv.mjs` | Generate runtime secret files from env | local secured compose setup |
-| `generateDevMtlsCerts.mjs` | Generate local dev mTLS cert chain | service identity local testing |
+| Script                            | Purpose                                                     | Typical Trigger                |
+| --------------------------------- | ----------------------------------------------------------- | ------------------------------ |
+| `run_titan_v0_74_tests.ps1`       | End-to-end zero-trust verification suite (Docker mandatory) | before merge / release         |
+| `verifyDeploySignaturePolicy.mjs` | Validate deploy admission policy assets                     | CI policy check                |
+| `verifyDockerfileBaseImages.mjs`  | Verify Docker base-image pinning policy                     | Dockerfile updates             |
+| `verifySignedHistory.mjs`         | Validate signed-history constraints                         | release/hardening checkpoints  |
+| `bootstrapSecretsFromEnv.mjs`     | Generate runtime secret files from env                      | local secured compose setup    |
+| `generateDevMtlsCerts.mjs`        | Generate local dev mTLS cert chain                          | service identity local testing |
 
 ## 3. Data And Content Scripts
 
@@ -51,6 +51,9 @@ PowerShell test suite:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_titan_v0_74_tests.ps1 -SkipSignedHistory
 ```
+
+The Titan suite enforces Docker-backed checks for hardened compose runtime, cross-service health paths, protected security endpoints, ledger verification, and CSRF policy behavior. Docker checks are mandatory and cannot be skipped.
+It does not build images or recreate containers; it starts existing services and validates restart resilience.
 
 ## 6. Recommended Workflow
 

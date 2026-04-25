@@ -92,6 +92,7 @@ CORS(
 # ---------------------------------------------------------------------------
 
 STRICT_SERVICE_DB_CREDENTIALS = env_bool("STRICT_SERVICE_DB_CREDENTIALS", False)
+AI_SCHEMA_BOOTSTRAP_ENABLED = env_bool("AI_SCHEMA_BOOTSTRAP_ENABLED", not STRICT_SERVICE_DB_CREDENTIALS)
 ROOT_DB_USER = (os.getenv("DB_USER") or "filspresso_user").strip() or "filspresso_user"
 AI_DB_USER = (os.getenv("AI_DB_USER") or "").strip()
 EFFECTIVE_AI_DB_USER = AI_DB_USER or ROOT_DB_USER
@@ -261,7 +262,10 @@ def ensure_molecules_schema():
         conn.close()
 
 
-ensure_molecules_schema()
+if AI_SCHEMA_BOOTSTRAP_ENABLED:
+    ensure_molecules_schema()
+else:
+    logger.info("AI schema bootstrap disabled (AI_SCHEMA_BOOTSTRAP_ENABLED=false); relying on managed migrations")
 
 
 def _parse_optional_bool(value):

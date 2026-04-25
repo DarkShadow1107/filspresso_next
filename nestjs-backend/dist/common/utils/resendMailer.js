@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.toAbsoluteImageUrl = exports.formatMoney = exports.escapeHtml = exports.buildSecurityLoginHtml = exports.buildWelcomeHtml = exports.buildOrderEmailHtml = exports.buildEmailVerificationHtml = exports.sendTransactionalEmail = void 0;
+const legacyMailer = require("../../legacy-bridge/utils/resendMailer");
+exports.sendTransactionalEmail = legacyMailer.sendTransactionalEmail;
+exports.buildEmailVerificationHtml = legacyMailer.buildEmailVerificationHtml;
+exports.buildOrderEmailHtml = legacyMailer.buildOrderEmailHtml;
+exports.buildWelcomeHtml = legacyMailer.buildWelcomeHtml;
+exports.buildSecurityLoginHtml = legacyMailer.buildSecurityLoginHtml;
+exports.escapeHtml = legacyMailer.escapeHtml;
+exports.formatMoney = legacyMailer.formatMoney;
+exports.toAbsoluteImageUrl = legacyMailer.toAbsoluteImageUrl;

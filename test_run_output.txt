@@ -1,0 +1,183 @@
+Running Titan V0.74 verification suite from: C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next
+v22.14.0
+[PASS] Node available
+11.4.2
+[PASS] npm available
+{
+  "status": "success",
+  "policy": "security/kubernetes/policies/kyverno-verify-image-signatures.yaml",
+  "checks": 7
+}
+[PASS] scripts/verifyDeploySignaturePolicy.mjs
+{
+  "status": "success",
+  "enforceDigest": true,
+  "dockerfilesChecked": 7,
+  "report": [
+    {
+      "file": "Dockerfile.ai",
+      "entries": [
+        {
+          "image": "python:3.11-slim@sha256:233de06753d30d120b1a3ce359d8d3be8bda78524cd8f520c99883bfe33964cf",
+          "hasDigest": true,
+          "usesLatest": false
+        }
+      ]
+    },
+    {
+      "file": "Dockerfile.db",
+      "entries": [
+        {
+          "image": "postgres:16@sha256:5a65324fe84dc41709ff914e90b07f3e2f577073ed27bf917d4873aca0c9ec51",
+          "hasDigest": true,
+          "usesLatest": false
+        }
+      ]
+    },
+    {
+      "file": "Dockerfile.express",
+      "entries": [
+        {
+          "image": "node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c",
+          "hasDigest": true,
+          "usesLatest": false
+        },
+        {
+          "image": "node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c",
+          "hasDigest": true,
+          "usesLatest": false
+        }
+      ]
+    },
+    {
+      "file": "go-ops-service/Dockerfile",
+      "entries": [
+        {
+          "image": "golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052",
+          "hasDigest": true,
+          "usesLatest": false
+        },
+        {
+          "image": "alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
+          "hasDigest": true,
+          "usesLatest": false
+        }
+      ]
+    },
+    {
+      "file": "rust-crypto-service/Dockerfile",
+      "entries": [
+        {
+          "image": "rust:1.88-alpine@sha256:9dfaae478ecd298b6b5a039e1f2cc4fc040fc818a2de9aa78fa714dea036574d",
+          "hasDigest": true,
+          "usesLatest": false
+        },
+        {
+          "image": "alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
+          "hasDigest": true,
+          "usesLatest": false
+        }
+      ]
+    },
+    {
+      "file": "java-invoice-service/Dockerfile",
+      "entries": [
+        {
+          "image": "maven:3.9.9-eclipse-temurin-17@sha256:f58d59b6273e785ac0a4477f6e9b5ba1d7731c75b906c0f7b34076f1851318cc",
+          "hasDigest": true,
+          "usesLatest": false
+        },
+        {
+          "image": "eclipse-temurin:17-jre@sha256:25e5ea42bca3a7f1d9b6a96f99416873346002f553954f5ec802d9060a115ecd",
+          "hasDigest": true,
+          "usesLatest": false
+        }
+      ]
+    },
+    {
+      "file": "kotlin-subscription-service/Dockerfile",
+      "entries": [
+        {
+          "image": "maven:3.9.9-eclipse-temurin-17@sha256:f58d59b6273e785ac0a4477f6e9b5ba1d7731c75b906c0f7b34076f1851318cc",
+          "hasDigest": true,
+          "usesLatest": false
+        },
+        {
+          "image": "eclipse-temurin:17-jre@sha256:25e5ea42bca3a7f1d9b6a96f99416873346002f553954f5ec802d9060a115ecd",
+          "hasDigest": true,
+          "usesLatest": false
+        }
+      ]
+    }
+  ],
+  "findings": []
+}
+[PASS] scripts/verifyDockerfileBaseImages.mjs
+[SKIP] scripts/verifySignedHistory.mjs - skipped by flag
+
+> filspresso-express-api@1.0.0 test:internal-assertion-matrix
+> node --test tests/internal_assertion_matrix.test.mjs
+
+TAP version 13
+# Subtest: internal outbound edges require service assertions by default
+ok 1 - internal outbound edges require service assertions by default
+  ---
+  duration_ms: 6.9019
+  ...
+# Subtest: internal ingress edge enforces strict signed assertions
+ok 2 - internal ingress edge enforces strict signed assertions
+  ---
+  duration_ms: 2.341
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 305.5117
+[PASS] Express internal assertion matrix
+[PASS] Syntax check express-api/server.js
+Docker version 29.2.1, build a5c7197
+[PASS] Docker available
+[PASS] Security secrets file sanity
+[PASS] Go Ops mTLS PEM sanity
+[PASS] Compose render validation
+[PASS] Compose stack exists (no recreate mode)
+[PASS] Compose start hardened security stack (no recreate)
+[PASS] Service assertion keypair consistency
+DO
+DO
+[PASS] Postgres service role password sync
+[PASS] Restart services after secret reconciliation
+[WAIT] baseline services (6s/600s): backend: state=running, health=starting; go_ops: state=running, health=starting; invoice_java: state=running, health=starting; kotlin_subscriptions: state=running, health=starting; rust_crypto: state=running, health=starting
+[PASS] Compose services running (baseline)
+[PASS] Compose restart resilience check (no recreate)
+[WAIT] restarted service set (12s/420s): backend: state=running, health=starting; go_ops: state=running, health=starting; invoice_java: state=running, health=starting; kotlin_subscriptions: state=running, health=starting; rust_crypto: state=running, health=starting
+[WAIT] restarted service set (40s/420s): go_ops: state=restarting, health=starting
+[PASS] Compose services running after restart
+[FAIL] Backend health endpoint - An error occurred while sending the request.
+[FAIL] Backend service health endpoint - An error occurred while sending the request.
+[FAIL] Backend e2e operations health path - An error occurred while sending the request.
+[FAIL] Backend e2e rust-crypto health path - An error occurred while sending the request.
+[FAIL] Backend e2e subscription health path - An error occurred while sending the request.
+[PASS] Backend internal invoice service health path
+[PASS] Security endpoint auth material
+[FAIL] Security observability rejects unauthenticated request - An error occurred while sending the request.
+[FAIL] CSRF enforcement check - Expected status 403 but got 000
+
+Titan V0.74 verification summary
+Passed: 20
+Skipped: 1
+Failed: 7
+
+Failed checks:
+- Backend health endpoint: An error occurred while sending the request.
+- Backend service health endpoint: An error occurred while sending the request.
+- Backend e2e operations health path: An error occurred while sending the request.
+- Backend e2e rust-crypto health path: An error occurred while sending the request.
+- Backend e2e subscription health path: An error occurred while sending the request.
+- Security observability rejects unauthenticated request: An error occurred while sending the request.
+- CSRF enforcement check: Expected status 403 but got 000

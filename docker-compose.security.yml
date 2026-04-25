@@ -99,6 +99,7 @@ services:
             BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-}
             BACKEND_DB_PASSWORD_FILE: /run/secrets/backend_db_password
             STRICT_SERVICE_DB_CREDENTIALS: ${STRICT_SERVICE_DB_CREDENTIALS:-true}
+            APP_SCHEMA_BOOTSTRAP_ENABLED: ${APP_SCHEMA_BOOTSTRAP_ENABLED:-false}
             JWT_SECRET: ${JWT_SECRET:-}
             JWT_SECRET_FILE: /run/secrets/jwt_secret
             JWT_SIGNING_PRIVATE_KEY: ${JWT_SIGNING_PRIVATE_KEY:-}
@@ -292,6 +293,7 @@ services:
             AI_DB_PASSWORD: ${AI_DB_PASSWORD:-}
             AI_DB_PASSWORD_FILE: /run/secrets/ai_db_password
             STRICT_SERVICE_DB_CREDENTIALS: ${STRICT_SERVICE_DB_CREDENTIALS:-true}
+            AI_SCHEMA_BOOTSTRAP_ENABLED: ${AI_SCHEMA_BOOTSTRAP_ENABLED:-false}
         secrets:
             - db_password
             - ai_db_password
