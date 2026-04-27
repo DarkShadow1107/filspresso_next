@@ -52,7 +52,7 @@ const SUBSCRIPTION_PRICES = {
 	ultimate: { monthly: 599.99, annual: 6299.99 },
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 
 const getCardTypeImage = (cardType: string): string => {
 	const type = cardType?.toLowerCase() || "unknown";

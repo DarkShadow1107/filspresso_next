@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
 import { readAccountSession } from "@/lib/accountSession";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000") + "/api";
+const API_BASE = (typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "") + "/api";
 
 export type CartItem = {
 	id: string;

@@ -43,7 +43,7 @@ export type WeatherRecommendationData = {
 	recommendation: WeatherRecommendation | null;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 
 /**
  * Fetch full weather data including hourly forecast

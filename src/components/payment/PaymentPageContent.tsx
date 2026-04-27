@@ -22,7 +22,7 @@ import {
 	type SupportedCurrencyCode,
 } from "@/lib/paymentCurrency";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 
 type CardType = {
 	name: string;

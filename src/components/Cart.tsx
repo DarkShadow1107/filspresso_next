@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
 import { readAccountSession } from "@/lib/accountSession";
+import { readSnapshot, writeSnapshot } from "@/lib/clientSnapshotCache";
 import type { CoffeeProduct } from "@/data/coffee";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
@@ -35,6 +36,21 @@ type StockInfo = {
 };
 
 type CapsuleVariant = "original" | "vertuo";
+
+const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
+const POPULAR_PRODUCTS_CACHE_KEY = "filspresso_popular_products_cache";
+const POPULAR_PRODUCTS_CACHE_TTL_MS = 10 * 60 * 1000;
+
+const MACHINE_IMAGE_LOOKUP = new Map<string, string>();
+for (const collection of machineCollections) {
+	for (const group of collection.groups) {
+		for (const product of group.products) {
+			if (product?.id && product?.image) {
+				MACHINE_IMAGE_LOOKUP.set(product.id, product.image);
+			}
+		}
+	}
+}
 
 function formatRon(value: number) {
 	return `${value.toFixed(2).replace(".", ",")} RON`;
@@ -67,30 +83,32 @@ function parsePopularNameAndPrice(raw: string) {
 }
 
 // Helper function to get product image from data
-function getProductImage(productId: string, coffeeData: CoffeeProduct[]): string | undefined {
+function getProductImage(
+	productId: string,
+	coffeeData: CoffeeProduct[],
+	coffeeLookup?: Map<string, CoffeeProduct>,
+): string | undefined {
+	const cached = coffeeLookup?.get(productId);
+	if (cached) return cached.image;
+
 	for (const product of coffeeData) {
 		if (product.id === productId) return product.image;
 	}
 
-	// Search in machine collections
-	for (const collection of machineCollections) {
-		for (const group of collection.groups) {
-			for (const product of group.products) {
-				if (product.id === productId) {
-					return product.image;
-				}
-			}
-		}
-	}
-
-	return undefined;
+	return MACHINE_IMAGE_LOOKUP.get(productId);
 }
 
 function getProductDataByIdAndImage(
 	productId: string,
 	productImage: string | null,
 	coffeeData: CoffeeProduct[],
+	coffeeLookup?: Map<string, CoffeeProduct>,
 ): CoffeeProduct | undefined {
+	const cached = coffeeLookup?.get(productId);
+	if (cached && (!productImage || normalizePath(cached.image) === normalizePath(productImage))) {
+		return cached;
+	}
+
 	const idMatches = coffeeData.filter((p) => p.id === productId);
 	if (idMatches.length <= 1) return idMatches[0];
 
@@ -102,7 +120,8 @@ function getProductDataByIdAndImage(
 
 export default function Cart() {
 	const { collections } = useCoffeeCollections();
-	const coffeeData = collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [];
+	const coffeeData = useMemo(() => collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [], [collections]);
+	const coffeeDataById = useMemo(() => new Map(coffeeData.map((product) => [product.id, product])), [coffeeData]);
 	const { items, currentSum, memberDiscount, reset, placeOrder, removeItem, updateQuantity, addItem } = useCart();
 	const { notify } = useNotifications();
 	const router = useRouter();
@@ -112,14 +131,17 @@ export default function Cart() {
 	const [popularProducts, setPopularProducts] = useState<PopularProduct[]>([]);
 	const [stockMap, setStockMap] = useState<Record<string, StockInfo>>({});
 	const hasItems = items.length > 0;
-	const getProductImageForId = useCallback((productId: string) => getProductImage(productId, coffeeData), [coffeeData]);
+	const getProductImageForId = useCallback(
+		(productId: string) => getProductImage(productId, coffeeData, coffeeDataById),
+		[coffeeData, coffeeDataById],
+	);
 
 	// Calculate subtotal before discount (for display purposes)
 	const subtotalBeforeDiscount = items.reduce((sum, item) => sum + item.price * item.qty, 0);
 
 	useEffect(() => {
-		setIsHydrated(true);
 		if (typeof window === "undefined") return;
+		const hydrateTimer = window.setTimeout(() => setIsHydrated(true), 0);
 
 		const syncLoginState = () => {
 			const session = readAccountSession();
@@ -129,10 +151,15 @@ export default function Cart() {
 		window.addEventListener("session-update", syncLoginState);
 		window.addEventListener("storage", syncLoginState);
 
+		const cachedPopular = readSnapshot<PopularProduct[]>(POPULAR_PRODUCTS_CACHE_KEY, POPULAR_PRODUCTS_CACHE_TTL_MS);
+		let cachedPopularTimer: number | null = null;
+		if (cachedPopular?.length) {
+			cachedPopularTimer = window.setTimeout(() => setPopularProducts(cachedPopular), 0);
+		}
+
 		// Fetch weather for shipping warnings
 		const fetchWeather = async () => {
 			try {
-				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 				const res = await fetch(`${API_BASE}/api/weather`, { keepalive: true });
 				if (res.ok) {
 					const data = await res.json();
@@ -147,11 +174,12 @@ export default function Cart() {
 		// Fetch popular products for "Members also buy"
 		const fetchPopular = async () => {
 			try {
-				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 				const res = await fetch(`${API_BASE}/api/orders/popular?limit=7`, { keepalive: true });
 				if (res.ok) {
 					const data = await res.json();
-					setPopularProducts(data.products || []);
+					const products = data.products || [];
+					setPopularProducts(products);
+					writeSnapshot(POPULAR_PRODUCTS_CACHE_KEY, products);
 				}
 			} catch {
 				// Silent fail - recommendations are optional
@@ -162,7 +190,6 @@ export default function Cart() {
 		// Fetch coffee stock for recommendations
 		const fetchStock = async () => {
 			try {
-				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 				const res = await fetch(`${API_BASE}/api/products/coffee`, { keepalive: true });
 				if (res.ok) {
 					const data = await res.json();
@@ -186,13 +213,17 @@ export default function Cart() {
 		fetchStock();
 
 		return () => {
+			if (cachedPopularTimer !== null) {
+				window.clearTimeout(cachedPopularTimer);
+			}
+			window.clearTimeout(hydrateTimer);
 			window.removeEventListener("session-update", syncLoginState);
 			window.removeEventListener("storage", syncLoginState);
 		};
 	}, []);
 
 	const handleAddPopularItem = async (popular: PopularProduct) => {
-		const product = getProductDataByIdAndImage(popular.product_id, popular.product_image, coffeeData);
+		const product = getProductDataByIdAndImage(popular.product_id, popular.product_image, coffeeData, coffeeDataById);
 		const parsed = parsePopularNameAndPrice(popular.product_name);
 		const itemName = product?.name || parsed.name;
 		const itemPrice = product?.priceRon ?? parsed.priceRon;
@@ -509,7 +540,7 @@ export default function Cart() {
 						</h3>
 						<div className="popular-products-carousel">
 							{popularProducts.map((pop, index) => {
-								const product = getProductDataByIdAndImage(pop.product_id, pop.product_image, coffeeData);
+								const product = getProductDataByIdAndImage(pop.product_id, pop.product_image, coffeeData, coffeeDataById);
 								const parsed = parsePopularNameAndPrice(pop.product_name);
 								const img = pop.product_image || product?.image || getProductImageForId(pop.product_id);
 								const alreadyInCart = items.some(

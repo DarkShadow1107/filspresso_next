@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { useNotifications } from "./NotificationsProvider";
 import { readAccountSession } from "@/lib/accountSession";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000") + "/api";
+const API_BASE = (typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "") + "/api";
 
 export type FavoriteItem = {
 	product_type: "capsule" | "machine";

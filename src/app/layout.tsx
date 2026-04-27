@@ -1,4 +1,3 @@
-/* eslint-disable @next/next/no-page-custom-font */
 import React, { Suspense } from "react";
 import "./globals.css";
 import "../styles/notifications.css";

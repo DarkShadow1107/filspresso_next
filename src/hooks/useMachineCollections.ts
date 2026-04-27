@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { machineCollections, type MachineCollection, type MachineProduct } from "@/data/machines";
+import { readSnapshot, writeSnapshot } from "@/lib/clientSnapshotCache";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
+const MACHINE_CACHE_KEY = "filspresso_machine_products_cache";
+const MACHINE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export type UseMachineCollectionsResult = {
 	collections: MachineCollection[];
@@ -47,6 +50,10 @@ type SharedMachineData = {
 
 let sharedMachineDataPromise: Promise<SharedMachineData> | null = null;
 let sharedMachineDataSnapshot: SharedMachineData | null = null;
+const cachedMachineSnapshot = readSnapshot<SharedMachineData>(MACHINE_CACHE_KEY, MACHINE_CACHE_TTL_MS);
+if (cachedMachineSnapshot) {
+	sharedMachineDataSnapshot = cachedMachineSnapshot;
+}
 
 const normalizeKey = (value: string) =>
 	(value || "")
@@ -88,15 +95,13 @@ const fetchSharedMachineData = async (): Promise<SharedMachineData> => {
 	if (!sharedMachineDataPromise) {
 		sharedMachineDataPromise = (async () => {
 			try {
-				const res = await fetch(`${API_BASE}/api/products/machines`);
+				const res = await fetch(`${API_BASE}/api/products/machines`, { cache: "force-cache" });
 				if (!res.ok) {
-					const snapshot: SharedMachineData = {
+					return {
 						products: [],
 						error: `API responded with ${res.status}`,
 						apiDown: true,
 					};
-					sharedMachineDataSnapshot = snapshot;
-					return snapshot;
 				}
 				const data = await res.json();
 				const snapshot: SharedMachineData = {
@@ -105,17 +110,19 @@ const fetchSharedMachineData = async (): Promise<SharedMachineData> => {
 					apiDown: false,
 				};
 				sharedMachineDataSnapshot = snapshot;
+				writeSnapshot(MACHINE_CACHE_KEY, snapshot);
 				return snapshot;
 			} catch (err: any) {
-				const snapshot: SharedMachineData = {
+				return {
 					products: [],
 					error: err?.message ?? "Failed to load machine collections",
 					apiDown: true,
 				};
-				sharedMachineDataSnapshot = snapshot;
-				return snapshot;
 			}
 		})();
+		sharedMachineDataPromise.finally(() => {
+			sharedMachineDataPromise = null;
+		});
 	}
 	return sharedMachineDataPromise;
 };
@@ -125,7 +132,7 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 	const [collections, setCollections] = useState<MachineCollection[]>(machineCollections);
 	const [stockData, setStockData] = useState<Map<string, MachineStockInfo>>(new Map());
 	const [apiDown, setApiDown] = useState(false);
-	const [loading, setLoading] = useState(true);
+	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {

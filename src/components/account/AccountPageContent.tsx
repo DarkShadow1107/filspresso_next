@@ -271,7 +271,7 @@ export default function AccountPageContent() {
 
 			if (typeof window !== "undefined") {
 				try {
-					const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+					const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 					const response = await fetch(`${API_BASE}/api/auth/register`, {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
@@ -328,7 +328,7 @@ export default function AccountPageContent() {
 
 		// Use backend login endpoint
 		try {
-			const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+			const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 			const response = await fetch(`${API_BASE}/api/auth/login`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -372,7 +372,7 @@ export default function AccountPageContent() {
 		}
 
 		try {
-			const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+			const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 			const response = await fetch(`${API_BASE}/api/auth/login/mfa-verify`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -423,7 +423,7 @@ export default function AccountPageContent() {
 		(provider: "google") => {
 			if (typeof window === "undefined") return;
 			setSocialProviderLoading(provider);
-			const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+			const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 			const mode = isSignUp ? "signup" : "login";
 			const returnTo = encodeURIComponent("/?page=account");
 			window.location.assign(`${API_BASE}/api/auth/oauth/${provider}/start?mode=${mode}&returnTo=${returnTo}`);

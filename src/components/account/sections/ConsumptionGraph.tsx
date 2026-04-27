@@ -145,7 +145,7 @@ export default function ConsumptionGraph({
 	const saveThemePreference = async (newTheme: GraphTheme) => {
 		if (!accountId) return;
 		try {
-			await fetch("http://localhost:4000/api/accounts/preferences", {
+			await fetch("/api/accounts/preferences", {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ accountId, graph_theme: newTheme }),

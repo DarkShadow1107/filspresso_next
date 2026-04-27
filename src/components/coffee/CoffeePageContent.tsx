@@ -12,8 +12,6 @@ import CoffeeRecommender from "@/components/CoffeeRecommender";
 import type { CoffeeCollection, CoffeeGroup, CoffeeProduct } from "@/data/coffee";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
 export type StockInfo = {
 	productId: string;
 	stock: number;

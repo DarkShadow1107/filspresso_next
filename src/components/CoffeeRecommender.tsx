@@ -6,6 +6,7 @@ import Image from "next/image";
 import useCart from "@/hooks/useCart";
 import type { CoffeeProduct } from "@/data/coffee";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
+import { readSnapshot } from "@/lib/clientSnapshotCache";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import { smartSearchMolecule, isMoleculeQuery, extractMoleculeQuery } from "@/lib/moleculeSearch";
@@ -629,6 +630,8 @@ function shouldEnableThinkingForPrompt(prompt: string, hasThinkingAccess: boolea
 }
 
 const STORAGE_KEY = "coffee-recommender-history";
+const POPULAR_PRODUCTS_CACHE_KEY = "filspresso_popular_products_cache";
+const POPULAR_PRODUCTS_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_HISTORY = 50; // Increased history limit
 let lastSavedHistoryPayload = "";
 
@@ -659,6 +662,7 @@ async function saveChatHistory(history: ChatHistory[]) {
 
 export default function CoffeeRecommender() {
 	const allProducts = useAllProducts();
+	const allProductsById = useMemo(() => new Map(allProducts.map((product) => [product.id, product])), [allProducts]);
 	const [mounted, setMounted] = useState(false);
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<"greeting" | "prefs" | "results" | "chat" | "history" | "stats">("greeting");
@@ -734,7 +738,7 @@ export default function CoffeeRecommender() {
 		const set = new Set<string>();
 		allProducts.forEach((p) => p.notes?.forEach((n) => set.add(n)));
 		return Array.from(set).sort();
-	}, []);
+	}, [allProducts]);
 	const activeHelperMode: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
 	const activePromptScope: PromptScope = chemistryMode ? "molecule_helper" : "general";
 	const activePromptScopeRef = useRef<PromptScope>(activePromptScope);
@@ -892,7 +896,7 @@ export default function CoffeeRecommender() {
 
 	async function fetchPromptStatus(token?: string, scope: PromptScope = "general", updateDisplay = true) {
 		try {
-			const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+			const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 			const normalizedScope: PromptScope = scope === "molecule_helper" ? "molecule_helper" : "general";
 			const fp = getOrCreateFingerprint();
 			fingerprintRef.current = fp;
@@ -951,7 +955,7 @@ export default function CoffeeRecommender() {
 		// Fetch stock data for coffee products
 		const fetchStockData = async () => {
 			try {
-				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+				const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 				const res = await fetch(`${API_BASE}/api/products/coffee`);
 				if (res.ok) {
 					const data = await res.json();
@@ -982,8 +986,10 @@ export default function CoffeeRecommender() {
 					);
 					setStockData(stockMap);
 				}
-			} catch (error) {
-				console.warn("Coffee stock endpoint unavailable for recommender.");
+			} catch {
+				if (process.env.NODE_ENV !== "production") {
+					console.warn("Coffee stock unavailable; recommender is using local product data.");
+				}
 			}
 		};
 		fetchStockData();
@@ -999,7 +1005,7 @@ export default function CoffeeRecommender() {
 				if (accountSession) {
 					const token = accountSession.token;
 					if (token) {
-						const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+						const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 						const authHeaders = { Authorization: `Bearer ${token}` };
 						const expireSession = () => {
 							clearAccountSession();
@@ -1009,8 +1015,6 @@ export default function CoffeeRecommender() {
 							fetchPromptStatus(undefined, "general");
 						};
 
-						// Fetch prompt status with the user's token
-						fetchPromptStatus(token, "general");
 						// Primary: Fetch subscription tier from subscriptions API (database)
 						fetch(`${API_BASE}/api/subscriptions`, {
 							headers: authHeaders,
@@ -1077,11 +1081,6 @@ export default function CoffeeRecommender() {
 				}
 			} catch {
 				// ignore errors
-			}
-			// Load prompt status for anonymous users (no session)
-			const accountSessionForFp = readAccountSession();
-			if (!accountSessionForFp) {
-				fetchPromptStatus(undefined, "general");
 			}
 			// Load chat history only if logged in
 			const accountSessionForHistory = readAccountSession();
@@ -2317,18 +2316,30 @@ export default function CoffeeRecommender() {
 							<button
 								onClick={async () => {
 									setStep("results");
+									const cachedPopular = readSnapshot<Array<{ product_id: string }>>(
+										POPULAR_PRODUCTS_CACHE_KEY,
+										POPULAR_PRODUCTS_CACHE_TTL_MS,
+									);
+									if (cachedPopular?.length) {
+										const popular = cachedPopular
+											.map((p) => allProductsById.get(p.product_id))
+											.filter(Boolean) as CoffeeProduct[];
+										if (popular.length > 0) {
+											setResults(popular);
+											return;
+										}
+									}
+
 									// Try to fetch popular from API first
 									try {
-										const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+										const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 										const res = await fetch(`${API_BASE}/api/orders/popular?limit=5`);
 										if (res.ok) {
 											const data = await res.json();
 											if (data.products && data.products.length > 0) {
 												// Map API products to CoffeeProduct objects
 												const popular = data.products
-													.map((p: { product_id: string }) =>
-														allProducts.find((prod) => prod.id === p.product_id),
-													)
+													.map((p: { product_id: string }) => allProductsById.get(p.product_id))
 													.filter(Boolean) as CoffeeProduct[];
 												if (popular.length > 0) {
 													setResults(popular);

@@ -44,6 +44,31 @@ const WeatherIcon = ({ icon, size }: { icon: string; size: number }) => {
 	return <IconComp size={size} />;
 };
 
+const WEATHER_CACHE_KEY = "filspresso_weather_snapshot";
+const WEATHER_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function readCachedWeather(): WeatherData | null {
+	if (typeof window === "undefined") return null;
+	try {
+		const raw = window.sessionStorage.getItem(WEATHER_CACHE_KEY);
+		if (!raw) return null;
+		const cached = JSON.parse(raw) as { timestamp: number; data: WeatherData };
+		if (!cached?.data || Date.now() - cached.timestamp > WEATHER_CACHE_TTL_MS) return null;
+		return cached.data;
+	} catch {
+		return null;
+	}
+}
+
+function writeCachedWeather(data: WeatherData) {
+	if (typeof window === "undefined") return;
+	try {
+		window.sessionStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ timestamp: Date.now(), data }));
+	} catch {
+		// Storage is an optional speed cache.
+	}
+}
+
 export default function WeatherWidget({
 	weather: initialWeather,
 	compact = false,
@@ -62,16 +87,31 @@ export default function WeatherWidget({
 		}
 
 		const fetchWeather = async () => {
+			const cached = readCachedWeather();
+			if (cached) {
+				setWeather(cached);
+				setLoading(false);
+			}
+
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 2500);
 			try {
-				const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-				const res = await fetch(`${API_BASE}/api/weather`);
+				const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
+				const res = await fetch(`${API_BASE}/api/weather`, {
+					cache: "force-cache",
+					signal: controller.signal,
+				});
 				if (!res.ok) throw new Error("Failed to fetch weather");
 				const data = await res.json();
 				setWeather(data);
+				writeCachedWeather(data);
 			} catch (err) {
 				setError("Weather unavailable");
-				console.error("Weather fetch error:", err);
+				if (process.env.NODE_ENV !== "production") {
+					console.warn("Weather unavailable; using cached or hidden widget.", err);
+				}
 			} finally {
+				clearTimeout(timeout);
 				setLoading(false);
 			}
 		};

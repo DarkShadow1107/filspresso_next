@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { coffeeCollections, type CoffeeCollection } from "@/data/coffee";
+import { readSnapshot, writeSnapshot } from "@/lib/clientSnapshotCache";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
+const COFFEE_CACHE_KEY = "filspresso_coffee_products_cache";
+const COFFEE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export type UseCoffeeCollectionsResult = {
 	collections: CoffeeCollection[];
@@ -44,6 +47,10 @@ type SharedCoffeeData = {
 
 let sharedCoffeeDataPromise: Promise<SharedCoffeeData> | null = null;
 let sharedCoffeeDataSnapshot: SharedCoffeeData | null = null;
+const cachedCoffeeSnapshot = readSnapshot<SharedCoffeeData>(COFFEE_CACHE_KEY, COFFEE_CACHE_TTL_MS);
+if (cachedCoffeeSnapshot) {
+	sharedCoffeeDataSnapshot = cachedCoffeeSnapshot;
+}
 
 // Map user-facing category to folder name (mirrors admin uploader logic)
 const CATEGORY_FOLDER_MAP: Record<string, Record<string, string>> = {
@@ -171,7 +178,7 @@ const fetchSharedCoffeeData = async (): Promise<SharedCoffeeData> => {
 	if (!sharedCoffeeDataPromise) {
 		sharedCoffeeDataPromise = (async () => {
 			try {
-				const res = await fetch(`${API_BASE}/api/products/coffee`);
+				const res = await fetch(`${API_BASE}/api/products/coffee`, { cache: "force-cache" });
 				if (!res.ok) throw new Error(`API responded with ${res.status}`);
 				const data = await res.json();
 				const snapshot: SharedCoffeeData = {
@@ -179,16 +186,18 @@ const fetchSharedCoffeeData = async (): Promise<SharedCoffeeData> => {
 					error: null,
 				};
 				sharedCoffeeDataSnapshot = snapshot;
+				writeSnapshot(COFFEE_CACHE_KEY, snapshot);
 				return snapshot;
 			} catch (err: any) {
-				const snapshot: SharedCoffeeData = {
+				return {
 					products: [],
 					error: err?.message ?? "Failed to load coffee collections",
 				};
-				sharedCoffeeDataSnapshot = snapshot;
-				return snapshot;
 			}
 		})();
+		sharedCoffeeDataPromise.finally(() => {
+			sharedCoffeeDataPromise = null;
+		});
 	}
 	return sharedCoffeeDataPromise;
 };
@@ -234,7 +243,7 @@ const convertToCoffeeProduct = (product: ApiProduct) => {
 export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 	const [collections, setCollections] = useState<CoffeeCollection[]>(coffeeCollections);
 	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
-	const [loading, setLoading] = useState(true);
+	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {

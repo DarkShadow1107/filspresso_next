@@ -12,7 +12,7 @@ import FavoriteItemCard from "./FavoriteItemCard";
 import { motion } from "motion/react";
 import { HeartIcon, CoffeeIcon, RocketIcon } from "@/icons";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 
 export default function FavoritesPageContent() {
 	const { favorites } = useFavorites();
