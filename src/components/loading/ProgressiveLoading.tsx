@@ -117,11 +117,7 @@ export function ProgressiveLoading({ active, variant, subjectLabel }: Progressiv
 	}
 
 	return (
-		<div
-			aria-busy="true"
-			aria-live="polite"
-			className="fixed inset-0 z-90 overflow-y-auto bg-[#070707]/90 backdrop-blur-md"
-		>
+		<div aria-busy="true" aria-live="polite" className="fixed inset-0 z-90 overflow-y-auto bg-[#070707]/90 backdrop-blur-md">
 			{loadState.phase === "skeleton" ? (
 				variant === "coffee" ? (
 					<CoffeeSkeleton />
@@ -137,7 +133,11 @@ export function ProgressiveLoading({ active, variant, subjectLabel }: Progressiv
 							<LoadingSpinner className="h-5 w-5 text-[#C8977B]" />
 							<div>
 								<p className="text-sm uppercase tracking-[0.28em] text-[#C8977B]">
-									{variant === "coffee" ? "Brewing the coffee showcase" : variant === "machines" ? "Warming up the machines showcase" : "Loading Filspresso"}
+									{variant === "coffee"
+										? "Brewing the coffee showcase"
+										: variant === "machines"
+											? "Warming up the machines showcase"
+											: "Loading Filspresso"}
 								</p>
 								<p className="mt-2 text-lg font-semibold text-white">{loadState.statusMessage}</p>
 							</div>

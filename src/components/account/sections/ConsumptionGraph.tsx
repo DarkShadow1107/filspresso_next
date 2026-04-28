@@ -202,7 +202,7 @@ export default function ConsumptionGraph({
 
 	const maxVal = Math.max(
 		...data.map((d) => Math.max(getVal(d, `original_${type}`), getVal(d, `vertuo_${type}`))),
-		type === "capsules" ? 50 : 1
+		type === "capsules" ? 50 : 1,
 	);
 
 	const getX = (dateStr: string) => {
