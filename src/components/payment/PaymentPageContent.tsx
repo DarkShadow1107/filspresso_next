@@ -595,119 +595,183 @@ export default React.memo(function PaymentPageContent() {
 		setIsProcessingPayment(true);
 
 		try {
+			const shippingCost = baseShippingCost;
+			const paymentTotal = chargedTotal;
 
-		const shippingCost = baseShippingCost;
-		const paymentTotal = chargedTotal;
+			const accountSession = readAccountSession();
+			const token = accountSession?.token || "";
+			const isLoggedIn = Boolean(token);
 
-		const accountSession = readAccountSession();
-		const token = accountSession?.token || "";
-		const isLoggedIn = Boolean(token);
-
-		if (isLoggedIn) {
-			// Validation for saved card
-			if (selectedSavedCard) {
-				if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
-					notify("Please enter your CVV to confirm payment with your saved card.", 5000, "error", "payment");
-					return;
-				}
-			} else {
-				// Validation for new card
-				if (cType === "Unknown" || !cType) {
-					notify("You need to enter a valid form of payment! For example a Visa card.", 5000, "error", "payment");
-					return;
-				} else if (cardDigits.length !== 16 && cardDigits.length !== 15 && cType !== "American Express") {
-					notify(
-						"You need to enter a card number formed of 16 digits or 15 digits if it is an American Express card!",
-						5000,
-						"error",
-						"payment",
-					);
-					return;
-				} else if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
-					notify(
-						"Your CVV code should be formed of 3 digits or 4 if it is an American Express card!",
-						5000,
-						"error",
-						"payment",
-					);
-					return;
-				}
-			}
-
-			// Successful payment
-			try {
-				window.sessionStorage.removeItem("allow_payment_ts");
-			} catch {}
-
-			if (shouldSaveCard && !selectedSavedCard && token) {
-				try {
-					await fetch(`${API_BASE}/api/cards`, {
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							Authorization: `Bearer ${token}`,
-						},
-						body: JSON.stringify({
-							cardNumber: cardDigits,
-							expiry,
-							cvv,
-							cardType: cType,
-							cardHolder: accountSession?.full_name || accountSession?.username || "Valued Customer",
-						}),
-					});
-					notify("Card saved securely!", 3000, "success", "payment");
-				} catch (e) {
-					console.error("Failed to save card", e);
-				}
-			}
-
-			// Check if this is a subscription purchase
-			const subscriptionItem = items.find((item) => item.id.startsWith("sub-"));
-			const isSubscriptionPurchase = !!subscriptionItem;
-
-			if (isSubscriptionPurchase && subscriptionItem) {
-				// Extract subscription details from item id (e.g., "sub-ultimate")
-				const subscriptionTier = subscriptionItem.id.replace("sub-", "");
-				const billingCycle = subscriptionItem.name.toLowerCase().includes("yearly") ? "annual" : "monthly";
-
-				// Create subscription via API
-				try {
-					const subResponse = await fetch(`${API_BASE}/api/subscriptions`, {
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							Authorization: `Bearer ${token}`,
-						},
-						body: JSON.stringify({
-							tier: subscriptionTier,
-							billingCycle: billingCycle,
-							cardId: selectedSavedCard?.id || null,
-						}),
-					});
-
-					if (subResponse.ok) {
-						const subData = await subResponse.json();
-						const renewalDate = subData.subscription?.renewal_date
-							? new Date(subData.subscription.renewal_date).toLocaleDateString("en-US", {
-									weekday: "long",
-									year: "numeric",
-									month: "long",
-									day: "numeric",
-								})
-							: "";
-
-						// Show subscription-specific notification (no delivery, confirmed immediately)
+			if (isLoggedIn) {
+				// Validation for saved card
+				if (selectedSavedCard) {
+					if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
+						notify("Please enter your CVV to confirm payment with your saved card.", 5000, "error", "payment");
+						return;
+					}
+				} else {
+					// Validation for new card
+					if (cType === "Unknown" || !cType) {
+						notify("You need to enter a valid form of payment! For example a Visa card.", 5000, "error", "payment");
+						return;
+					} else if (cardDigits.length !== 16 && cardDigits.length !== 15 && cType !== "American Express") {
 						notify(
-							`Subscription confirmed! Your ${
-								subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)
-							} plan is now active. Next renewal: ${renewalDate}`,
-							6000,
-							"success",
+							"You need to enter a card number formed of 16 digits or 15 digits if it is an American Express card!",
+							5000,
+							"error",
 							"payment",
 						);
+						return;
+					} else if (!(isUnsignedNumeric(cvvNumber) && cvvNumber.length >= 3)) {
+						notify(
+							"Your CVV code should be formed of 3 digits or 4 if it is an American Express card!",
+							5000,
+							"error",
+							"payment",
+						);
+						return;
+					}
+				}
 
-						// Also create an order record for the subscription
-						try {
+				// Successful payment
+				try {
+					window.sessionStorage.removeItem("allow_payment_ts");
+				} catch {}
+
+				if (shouldSaveCard && !selectedSavedCard && token) {
+					try {
+						await fetch(`${API_BASE}/api/cards`, {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: `Bearer ${token}`,
+							},
+							body: JSON.stringify({
+								cardNumber: cardDigits,
+								expiry,
+								cvv,
+								cardType: cType,
+								cardHolder: accountSession?.full_name || accountSession?.username || "Valued Customer",
+							}),
+						});
+						notify("Card saved securely!", 3000, "success", "payment");
+					} catch (e) {
+						console.error("Failed to save card", e);
+					}
+				}
+
+				// Check if this is a subscription purchase
+				const subscriptionItem = items.find((item) => item.id.startsWith("sub-"));
+				const isSubscriptionPurchase = !!subscriptionItem;
+
+				if (isSubscriptionPurchase && subscriptionItem) {
+					// Extract subscription details from item id (e.g., "sub-ultimate")
+					const subscriptionTier = subscriptionItem.id.replace("sub-", "");
+					const billingCycle = subscriptionItem.name.toLowerCase().includes("yearly") ? "annual" : "monthly";
+
+					// Create subscription via API
+					try {
+						const subResponse = await fetch(`${API_BASE}/api/subscriptions`, {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: `Bearer ${token}`,
+							},
+							body: JSON.stringify({
+								tier: subscriptionTier,
+								billingCycle: billingCycle,
+								cardId: selectedSavedCard?.id || null,
+							}),
+						});
+
+						if (subResponse.ok) {
+							const subData = await subResponse.json();
+							const renewalDate = subData.subscription?.renewal_date
+								? new Date(subData.subscription.renewal_date).toLocaleDateString("en-US", {
+										weekday: "long",
+										year: "numeric",
+										month: "long",
+										day: "numeric",
+									})
+								: "";
+
+							// Show subscription-specific notification (no delivery, confirmed immediately)
+							notify(
+								`Subscription confirmed! Your ${
+									subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1)
+								} plan is now active. Next renewal: ${renewalDate}`,
+								6000,
+								"success",
+								"payment",
+							);
+
+							// Also create an order record for the subscription
+							try {
+								await fetch(`${API_BASE}/api/orders`, {
+									method: "POST",
+									headers: {
+										"Content-Type": "application/json",
+										Authorization: `Bearer ${token}`,
+									},
+									body: JSON.stringify({
+										items: [
+											{
+												productId: subscriptionItem.id,
+												productName: subscriptionItem.name,
+												productType: "subscription",
+												quantity: 1,
+												unitPrice: subscriptionItem.price,
+												productImage: null,
+											},
+										],
+										shippingCost: 0,
+										total: ronEquivalentTotal,
+										paymentMethod: paymentMethodSummary,
+										cardId: selectedSavedCard?.id || null,
+										isSubscription: true,
+										currencyCode: selectedCurrency,
+										exchangeRate: selectedRate || 1,
+										conversionFeePercent,
+										chargedSubtotal: convertedSubtotal,
+										chargedShippingCost: 0,
+										chargedTax: conversionFeeAmount,
+										chargedTotal: paymentTotal,
+										destinationCountry: selectedDestination.name,
+										shippingAddress: {
+											country: selectedDestination.name,
+											region: selectedDestination.shippingRegion,
+										},
+									}),
+								});
+							} catch (e) {
+								console.error("Failed to save subscription order", e);
+							}
+
+							// Keep account state synchronized in both local and session storage.
+							const updatedAccountData = {
+								...(accountSession || {}),
+								subscription: subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1),
+							};
+							writeAccountSession(updatedAccountData);
+						} else {
+							notify("Subscription activation failed. Please contact support.", 5000, "error", "payment");
+						}
+					} catch (e) {
+						console.error("Failed to create subscription", e);
+						notify("Subscription activation failed. Please try again.", 5000, "error", "payment");
+					}
+				} else {
+					// Regular product order
+					notify(
+						`Your ${cType} card will be charged ${formatMoney(paymentTotal, selectedCurrency)}. ${shipmentRuleMessage}`,
+						4000,
+						"success",
+						"payment",
+					);
+
+					// Save order to backend
+					try {
+						if (token && items.length > 0) {
 							await fetch(`${API_BASE}/api/orders`, {
 								method: "POST",
 								headers: {
@@ -715,26 +779,23 @@ export default React.memo(function PaymentPageContent() {
 									Authorization: `Bearer ${token}`,
 								},
 								body: JSON.stringify({
-									items: [
-										{
-											productId: subscriptionItem.id,
-											productName: subscriptionItem.name,
-											productType: "subscription",
-											quantity: 1,
-											unitPrice: subscriptionItem.price,
-											productImage: null,
-										},
-									],
-									shippingCost: 0,
+									items: items.map((item) => ({
+										productId: item.id,
+										productName: item.name,
+										productType: item.productType || "capsule",
+										quantity: item.qty,
+										unitPrice: item.price,
+										productImage: item.image,
+									})),
+									shippingCost: shippingCost,
 									total: ronEquivalentTotal,
 									paymentMethod: paymentMethodSummary,
 									cardId: selectedSavedCard?.id || null,
-									isSubscription: true,
 									currencyCode: selectedCurrency,
 									exchangeRate: selectedRate || 1,
 									conversionFeePercent,
 									chargedSubtotal: convertedSubtotal,
-									chargedShippingCost: 0,
+									chargedShippingCost: convertedShippingCost,
 									chargedTax: conversionFeeAmount,
 									chargedTotal: paymentTotal,
 									destinationCountry: selectedDestination.name,
@@ -744,104 +805,42 @@ export default React.memo(function PaymentPageContent() {
 									},
 								}),
 							});
-						} catch (e) {
-							console.error("Failed to save subscription order", e);
 						}
-
-						// Keep account state synchronized in both local and session storage.
-						const updatedAccountData = {
-							...(accountSession || {}),
-							subscription: subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1),
-						};
-						writeAccountSession(updatedAccountData);
-					} else {
-						notify("Subscription activation failed. Please contact support.", 5000, "error", "payment");
+					} catch (e) {
+						console.error("Failed to save order", e);
 					}
-				} catch (e) {
-					console.error("Failed to create subscription", e);
-					notify("Subscription activation failed. Please try again.", 5000, "error", "payment");
 				}
+
+				reset({ silent: true });
+
+				redirectTimerRef.current = setTimeout(() => {
+					router.push(buildPageHref("coffee"));
+				}, 4300);
 			} else {
-				// Regular product order
-				notify(
-					`Your ${cType} card will be charged ${formatMoney(paymentTotal, selectedCurrency)}. ${shipmentRuleMessage}`,
-					4000,
-					"success",
-					"payment",
-				);
-
-				// Save order to backend
-				try {
-					if (token && items.length > 0) {
-						await fetch(`${API_BASE}/api/orders`, {
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								Authorization: `Bearer ${token}`,
-							},
-							body: JSON.stringify({
-								items: items.map((item) => ({
-									productId: item.id,
-									productName: item.name,
-									productType: item.productType || "capsule",
-									quantity: item.qty,
-									unitPrice: item.price,
-									productImage: item.image,
-								})),
-								shippingCost: shippingCost,
-								total: ronEquivalentTotal,
-								paymentMethod: paymentMethodSummary,
-								cardId: selectedSavedCard?.id || null,
-								currencyCode: selectedCurrency,
-								exchangeRate: selectedRate || 1,
-								conversionFeePercent,
-								chargedSubtotal: convertedSubtotal,
-								chargedShippingCost: convertedShippingCost,
-								chargedTax: conversionFeeAmount,
-								chargedTotal: paymentTotal,
-								destinationCountry: selectedDestination.name,
-								shippingAddress: {
-									country: selectedDestination.name,
-									region: selectedDestination.shippingRegion,
-								},
-							}),
-						});
-					}
-				} catch (e) {
-					console.error("Failed to save order", e);
-				}
+				// Offer navigation to account page
+				notify("You need to log in or make an account with us first!", 8000, "error", "payment", {
+					actions: [
+						{
+							id: "go-account",
+							label: "OK",
+							variant: "primary",
+							onClick: () => router.push(buildPageHref("account")),
+						},
+						{
+							id: "stay",
+							label: "No",
+							variant: "ghost",
+						},
+					],
+					persist: true,
+				});
 			}
 
-			reset({ silent: true });
+			sessionStorage.removeItem("cType");
 
-			redirectTimerRef.current = setTimeout(() => {
-				router.push(buildPageHref("coffee"));
-			}, 4300);
-		} else {
-			// Offer navigation to account page
-			notify("You need to log in or make an account with us first!", 8000, "error", "payment", {
-				actions: [
-					{
-						id: "go-account",
-						label: "OK",
-						variant: "primary",
-						onClick: () => router.push(buildPageHref("account")),
-					},
-					{
-						id: "stay",
-						label: "No",
-						variant: "ghost",
-					},
-				],
-				persist: true,
-			});
-		}
-
-		sessionStorage.removeItem("cType");
-
-		reloadTimerRef.current = setTimeout(() => {
-			window.location.reload();
-		}, 5000);
+			reloadTimerRef.current = setTimeout(() => {
+				window.location.reload();
+			}, 5000);
 		} finally {
 			setIsProcessingPayment(false);
 		}

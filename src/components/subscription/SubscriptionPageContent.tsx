@@ -362,47 +362,50 @@ export default function SubscriptionPageContent() {
 		}
 	};
 
-	const handleAdd = useCallback((planId: string, planTitle: string, monthlyPrice: number, yearlyPrice: number, isPlanChange = false) => {
-		const price = billingPeriod === "yearly" ? yearlyPrice : monthlyPrice;
-		const period = billingPeriod === "yearly" ? "yearly" : "monthly";
+	const handleAdd = useCallback(
+		(planId: string, planTitle: string, monthlyPrice: number, yearlyPrice: number, isPlanChange = false) => {
+			const price = billingPeriod === "yearly" ? yearlyPrice : monthlyPrice;
+			const period = billingPeriod === "yearly" ? "yearly" : "monthly";
 
-		if (!isLoggedIn) {
-			notify("You need to be logged in to subscribe. Please log in to your account.", 8000, "error", "subscription", {
-				actions: [
-					{
-						id: "go-account",
-						label: "Go to Account",
-						variant: "primary",
-						onClick: () => router.push(buildPageHref("account")),
-					},
-					{
-						id: "stay",
-						label: "Stay",
-						variant: "ghost",
-					},
-				],
-				persist: true,
-			});
-			return;
-		}
-
-		// Add subscription to cart and go directly to payment
-		addItem({ id: `sub-${planId}`, name: `${planTitle} Subscription (${period}) - ${formatRon(price)}`, price });
-		notify(`${planTitle} subscription selected! Proceeding to payment...`, 3000, "success", "subscription");
-
-		// Store the timestamp token and redirect to payment
-		if (typeof window !== "undefined") {
-			try {
-				window.sessionStorage.setItem("allow_payment_ts", String(Date.now()));
-			} catch {
-				// ignore storage errors
+			if (!isLoggedIn) {
+				notify("You need to be logged in to subscribe. Please log in to your account.", 8000, "error", "subscription", {
+					actions: [
+						{
+							id: "go-account",
+							label: "Go to Account",
+							variant: "primary",
+							onClick: () => router.push(buildPageHref("account")),
+						},
+						{
+							id: "stay",
+							label: "Stay",
+							variant: "ghost",
+						},
+					],
+					persist: true,
+				});
+				return;
 			}
-		}
 
-		setTimeout(() => {
-			router.push(buildPageHref("payment"));
-		}, 500);
-	}, [billingPeriod, isLoggedIn, addItem, notify, router]);
+			// Add subscription to cart and go directly to payment
+			addItem({ id: `sub-${planId}`, name: `${planTitle} Subscription (${period}) - ${formatRon(price)}`, price });
+			notify(`${planTitle} subscription selected! Proceeding to payment...`, 3000, "success", "subscription");
+
+			// Store the timestamp token and redirect to payment
+			if (typeof window !== "undefined") {
+				try {
+					window.sessionStorage.setItem("allow_payment_ts", String(Date.now()));
+				} catch {
+					// ignore storage errors
+				}
+			}
+
+			setTimeout(() => {
+				router.push(buildPageHref("payment"));
+			}, 500);
+		},
+		[billingPeriod, isLoggedIn, addItem, notify, router],
+	);
 
 	useEffect(() => {
 		if (typeof window === "undefined") return;
@@ -886,7 +889,8 @@ export default function SubscriptionPageContent() {
 						</h3>
 						<div style={{ color: "#888", marginBottom: "1.5rem", lineHeight: 1.6 }}>
 							<p style={{ marginBottom: "1rem" }}>
-								You&apos;re changing from <strong style={{ color: "#c4a77d" }}>{currentSubscription?.tier}</strong> to{" "}
+								You&apos;re changing from{" "}
+								<strong style={{ color: "#c4a77d" }}>{currentSubscription?.tier}</strong> to{" "}
 								<strong style={{ color: getPlanAction(pendingPlan) === "upgrade" ? "#10b981" : "#f59e0b" }}>
 									{pendingPlan.title}
 								</strong>

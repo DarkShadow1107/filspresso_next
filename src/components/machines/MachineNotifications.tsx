@@ -45,7 +45,7 @@ export default function MachineNotificationsProvider({ children }: { children: R
 			clearTimer(id);
 			setItems((s) => s.filter((it) => it.id !== id));
 		},
-		[clearTimer]
+		[clearTimer],
 	);
 
 	const notify = useCallback((message: string, duration = 6000, variant: MachineNotification["variant"] = "info") => {
@@ -105,11 +105,11 @@ export default function MachineNotificationsProvider({ children }: { children: R
 						return { ...n, remaining: 0, isPaused: true };
 					}
 					return { ...n, remaining, isPaused: true };
-				})
+				}),
 			);
 			if (shouldDismiss) dismiss(id);
 		},
-		[dismiss, clearTimer]
+		[dismiss, clearTimer],
 	);
 
 	const resume = useCallback(
@@ -123,11 +123,11 @@ export default function MachineNotificationsProvider({ children }: { children: R
 						return n;
 					}
 					return { ...n, isPaused: false };
-				})
+				}),
 			);
 			if (shouldDismiss) dismiss(id);
 		},
-		[dismiss]
+		[dismiss],
 	);
 
 	const value = useMemo(() => ({ notify, dismiss }), [notify, dismiss]);

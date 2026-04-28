@@ -242,7 +242,8 @@ export default React.memo(function AccountPageContent() {
 
 			if (typeof window !== "undefined") {
 				try {
-					const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
+					const API_BASE =
+						typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 					const response = await fetch(`${API_BASE}/api/auth/register`, {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },

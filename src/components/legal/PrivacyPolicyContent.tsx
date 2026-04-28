@@ -9,8 +9,9 @@ const sections = [
 		content: (
 			<>
 				<p>
-					Filspresso (&quot;<strong>we</strong>&quot;, &quot;<strong>our</strong>&quot;, or &quot;<strong>us</strong>&quot;) operates the Filspresso
-					website, mobile-optimised web application, and associated IoT services (collectively, the &quot;
+					Filspresso (&quot;<strong>we</strong>&quot;, &quot;<strong>our</strong>&quot;, or &quot;<strong>us</strong>
+					&quot;) operates the Filspresso website, mobile-optimised web application, and associated IoT services
+					(collectively, the &quot;
 					<strong>Service</strong>&quot;). This Privacy Policy explains how we collect, use, and protect your personal
 					information when you use the Service.
 				</p>

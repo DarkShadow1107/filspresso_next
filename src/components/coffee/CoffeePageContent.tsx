@@ -565,7 +565,7 @@ export default function CoffeePageContent() {
 									</li>
 								))}
 							</ul>
-								<ProgressiveLoading active={isLoading} variant="coffee" subjectLabel="coffee" />
+							<ProgressiveLoading active={isLoading} variant="coffee" subjectLabel="coffee" />
 						</nav>
 					</div>
 				</div>

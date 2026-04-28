@@ -9,9 +9,10 @@ const sections = [
 		content: (
 			<>
 				<p>
-					By accessing or using the Filspresso website, web application, or any associated services (collectively the &quot;
-					<strong>Service</strong>&quot;), you confirm that you have read, understood, and agree to be bound by these Terms
-					of Use (&quot;<strong>Terms</strong>&quot;). If you do not agree, you must not use the Service.
+					By accessing or using the Filspresso website, web application, or any associated services (collectively the
+					&quot;
+					<strong>Service</strong>&quot;), you confirm that you have read, understood, and agree to be bound by these
+					Terms of Use (&quot;<strong>Terms</strong>&quot;). If you do not agree, you must not use the Service.
 				</p>
 				<p>
 					<em>Last updated: March 11, 2026</em>
