@@ -1005,7 +1005,8 @@ export default React.memo(function CoffeeRecommender() {
 				if (accountSession) {
 					const token = accountSession.token;
 					if (token) {
-						const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
+						const API_BASE =
+							typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 						const authHeaders = { Authorization: `Bearer ${token}` };
 						const expireSession = () => {
 							clearAccountSession();
@@ -2336,7 +2337,10 @@ export default React.memo(function CoffeeRecommender() {
 
 									// Try to fetch popular from API first
 									try {
-										const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
+										const API_BASE =
+											typeof window === "undefined"
+												? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
+												: "";
 										const res = await fetch(`${API_BASE}/api/orders/popular?limit=5`);
 										if (res.ok) {
 											const data = await res.json();

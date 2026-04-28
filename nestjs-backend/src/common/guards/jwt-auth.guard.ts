@@ -8,7 +8,7 @@ interface AuthenticatedRequest extends Request {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor() {}
+	constructor() {}
 
 	canActivate(context: ExecutionContext): boolean {
 		const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -19,7 +19,7 @@ export class JwtAuthGuard implements CanActivate {
 		}
 
 		const token = authHeader.slice(7).trim();
-    const decoded = verifyToken(token);
+		const decoded = verifyToken(token);
 
 		if (!decoded) {
 			throw new UnauthorizedException({ error: "Invalid or expired token" });
