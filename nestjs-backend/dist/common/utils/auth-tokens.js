@@ -32,6 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.JWT_ACCESS_TTL_SECONDS = exports.JWT_SIGNING_PUBLIC_KEY = exports.AUTH_SESSION_IDLE_TIMEOUT_DAYS = exports.JWT_SIGNING_PREVIOUS_PUBLIC_KEYS_JSON = exports.JWT_SIGNING_KEY_ID = exports.JWT_SIGNING_PUBLIC_KEY_RAW = exports.JWT_SIGNING_PRIVATE_KEY = exports.JWT_AUDIENCE = exports.JWT_ISSUER = exports.JWT_EXPIRES_IN = exports.JWT_SECRET = void 0;
 exports.buildSessionExpiryDate = buildSessionExpiryDate;
@@ -43,7 +46,7 @@ exports.getJwtJwks = getJwtJwks;
 const crypto = __importStar(require("crypto"));
 const secrets_1 = require("./secrets");
 const keyUsagePolicy_1 = require("./keyUsagePolicy");
-const jwt = require("jsonwebtoken");
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 exports.JWT_SECRET = (0, secrets_1.getEnvOrFile)("JWT_SECRET", { required: true });
 exports.JWT_EXPIRES_IN = String(process.env.JWT_EXPIRES_IN || process.env.JWT_ACCESS_TOKEN_TTL || "15m").trim() || "15m";
 exports.JWT_ISSUER = String(process.env.JWT_ISSUER || process.env.BACKEND_PUBLIC_URL || "http://localhost:4000").trim().replace(/\/$/, "");
@@ -103,7 +106,7 @@ function parsePreviousPublicKeys(raw) {
         }
         if (parsed && typeof parsed === "object") {
             return Object.entries(parsed)
-                .map(([kid, publicKey]) => ({ kid: String(kid || "").trim(), publicKey: normalizePem(publicKey) }))
+                .map(([kid, publicKey]) => ({ kid: String(kid || "").trim(), publicKey: normalizePem(String(publicKey || "")) }))
                 .filter((entry) => entry.kid && entry.publicKey);
         }
     }
@@ -142,6 +145,11 @@ function buildSessionExpiryDate() {
     expiresAt.setDate(expiresAt.getDate() + exports.AUTH_SESSION_IDLE_TIMEOUT_DAYS);
     return expiresAt;
 }
+const signJwt = jsonwebtoken_1.default.sign;
+const verifyJwt = jsonwebtoken_1.default.verify;
+function isJwtClaims(value) {
+    return Boolean(value && typeof value === "object" && "id" in value);
+}
 function generateToken(user, options = {}) {
     const payload = {
         id: user.id,
@@ -156,7 +164,7 @@ function generateToken(user, options = {}) {
             requestedScope: "access_token",
             keyId: exports.JWT_SIGNING_KEY_ID,
         });
-        return jwt.sign(payload, normalizePem(exports.JWT_SIGNING_PRIVATE_KEY), {
+        return signJwt(payload, normalizePem(exports.JWT_SIGNING_PRIVATE_KEY), {
             algorithm: "EdDSA",
             expiresIn,
             issuer: exports.JWT_ISSUER,
@@ -173,7 +181,7 @@ function generateToken(user, options = {}) {
         requestedScope: "access_token",
         keyId: "legacy-hs256",
     });
-    return jwt.sign(payload, exports.JWT_SECRET, {
+    return signJwt(payload, exports.JWT_SECRET, {
         expiresIn,
         issuer: exports.JWT_ISSUER,
         audience: exports.JWT_AUDIENCE,
@@ -182,7 +190,7 @@ function generateToken(user, options = {}) {
 }
 function verifyToken(token) {
     try {
-        const decoded = jwt.decode(token, { complete: true });
+        const decoded = jsonwebtoken_1.default.decode(token, { complete: true });
         const algorithm = String(decoded?.header?.alg || "HS256").trim();
         if (algorithm === "EdDSA") {
             const kid = String(decoded?.header?.kid || "").trim();
@@ -190,24 +198,27 @@ function verifyToken(token) {
             if (!verificationKey) {
                 return null;
             }
-            return jwt.verify(token, verificationKey, {
+            const verified = verifyJwt(token, verificationKey, {
                 algorithms: ["EdDSA"],
                 issuer: exports.JWT_ISSUER,
                 audience: exports.JWT_AUDIENCE,
             });
+            return isJwtClaims(verified) ? verified : null;
         }
         if (algorithm !== "HS256") {
             return null;
         }
         try {
-            return jwt.verify(token, exports.JWT_SECRET, {
+            const verified = verifyJwt(token, exports.JWT_SECRET, {
                 algorithms: ["HS256"],
                 issuer: exports.JWT_ISSUER,
                 audience: exports.JWT_AUDIENCE,
             });
+            return isJwtClaims(verified) ? verified : null;
         }
         catch {
-            return jwt.verify(token, exports.JWT_SECRET, { algorithms: ["HS256"] });
+            const verified = verifyJwt(token, exports.JWT_SECRET, { algorithms: ["HS256"] });
+            return isJwtClaims(verified) ? verified : null;
         }
     }
     catch (error) {

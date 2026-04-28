@@ -6,23 +6,42 @@ declare module "*.module.scss";
 declare module "*.png";
 declare module "*.jpg";
 declare module "*.jpeg";
-declare module "*.svg";
-declare module "*.gif";
-declare module "*.webp";
-declare module "*.avif";
-declare module "*.html";
+declare module "*.svg" {
+	import type { FC, SVGProps } from "react";
+	export const ReactComponent: FC<SVGProps<SVGSVGElement>>;
+	const src: string;
+	export default src;
+}
 
 declare global {
+	// Google Authentication Platform types
+	type GoogleBasicProfile = {
+		getId: () => string;
+		getName: () => string;
+		getImageUrl: () => string;
+		getEmail: () => string | null;
+	};
+
+	type GoogleUser = {
+		getBasicProfile: () => GoogleBasicProfile;
+	};
+
+	type GoogleAuthInstance = {
+		signOut: () => Promise<unknown>;
+	};
+
+	type GoogleApi = {
+		load: (modules: string, callback: () => void) => void;
+		auth2: {
+			init: (config: { client_id: string; scope?: string }) => unknown;
+			getAuthInstance: () => GoogleAuthInstance;
+		};
+	};
+
 	interface Window {
-		onSignIn?: (googleUser: {
-			getBasicProfile: () => {
-				getId: () => string;
-				getName: () => string;
-				getImageUrl: () => string;
-				getEmail: () => string | null;
-			};
-		}) => void;
+		onSignIn?: (googleUser: GoogleUser) => void;
 		signOut?: () => Promise<void>;
+		gapi?: GoogleApi;
 	}
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
@@ -11,6 +12,7 @@ import { readAccountSession, writeAccountSession } from "@/lib/accountSession";
 import { buildPageHref } from "@/lib/pages";
 import CreditCard from "@/icons/credit-card";
 import LockIcon from "@/icons/lock-icon";
+import { InlineLoadingSpinner } from "@/components/loading/ProgressiveLoading";
 import {
 	CURRENCY_CONFIG,
 	FALLBACK_FX_RATES,
@@ -31,6 +33,16 @@ type CardType = {
 	pattern: RegExp;
 	format: string;
 	image: string;
+};
+
+type SavedCard = {
+	id: number;
+	card_holder?: string;
+	card_type: string;
+	card_last_four: string;
+	card_expiry?: string;
+	card_cvv?: string;
+	has_decryption_issue?: boolean;
 };
 
 const CARD_TYPES: Record<string, CardType> = {
@@ -135,7 +147,7 @@ function isUnsignedNumeric(value: string): boolean {
 // The payment page will use the provider's `notify` function instead of
 // the legacy DOM helper.
 
-export default function PaymentPageContent() {
+export default React.memo(function PaymentPageContent() {
 	const router = useRouter();
 	const { items, currentSum, memberDiscount, reset } = useCart();
 	const { notify } = useNotifications();
@@ -185,8 +197,8 @@ export default function PaymentPageContent() {
 	const [ccLength, setCcLength] = useState<number | undefined>(undefined);
 	const [expiry, setExpiry] = useState("");
 	const [cvv, setCvv] = useState("");
-	const [savedCards, setSavedCards] = useState<any[]>([]);
-	const [selectedSavedCard, setSelectedSavedCard] = useState<any | null>(null);
+	const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
+	const [selectedSavedCard, setSelectedSavedCard] = useState<SavedCard | null>(null);
 	const [shouldSaveCard, setShouldSaveCard] = useState(false);
 	const [isCardDropdownOpen, setIsCardDropdownOpen] = useState(false);
 	const [isDestinationDropdownOpen, setIsDestinationDropdownOpen] = useState(false);
@@ -197,6 +209,7 @@ export default function PaymentPageContent() {
 	const [fxRates, setFxRates] = useState<Partial<Record<SupportedCurrencyCode, number>>>(FALLBACK_FX_RATES);
 	const [fxUpdatedAt, setFxUpdatedAt] = useState<string | null>(null);
 	const [fxError, setFxError] = useState<string | null>(null);
+	const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 	const destinationDropdownRef = useRef<HTMLDivElement | null>(null);
 	const currencyDropdownRef = useRef<HTMLDivElement | null>(null);
 
@@ -579,6 +592,10 @@ export default function PaymentPageContent() {
 			return;
 		}
 
+		setIsProcessingPayment(true);
+
+		try {
+
 		const shippingCost = baseShippingCost;
 		const paymentTotal = chargedTotal;
 
@@ -825,6 +842,9 @@ export default function PaymentPageContent() {
 		reloadTimerRef.current = setTimeout(() => {
 			window.location.reload();
 		}, 5000);
+		} finally {
+			setIsProcessingPayment(false);
+		}
 	}, [
 		ccNum,
 		cvv,
@@ -848,6 +868,7 @@ export default function PaymentPageContent() {
 		reset,
 		router,
 		notify,
+		shipmentRuleMessage,
 	]);
 
 	const handleSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
@@ -1497,9 +1518,16 @@ export default function PaymentPageContent() {
 					onClick={handlePayment}
 					id="pay"
 					className="payment-pay-button"
-					disabled={selectedCurrency !== "RON" && !canConvertCurrency}
+					disabled={isProcessingPayment || (selectedCurrency !== "RON" && !canConvertCurrency)}
 				>
-					Pay {formatMoney(chargedTotal, selectedCurrency)}
+					{isProcessingPayment ? (
+						<span className="inline-flex items-center gap-3">
+							<InlineLoadingSpinner className="h-4 w-4 text-current" />
+							<span>Processing payment...</span>
+						</span>
+					) : (
+						<>Pay {formatMoney(chargedTotal, selectedCurrency)}</>
+					)}
 				</button>
 			</div>
 			<div className="payment-built-with">
@@ -1535,4 +1563,4 @@ export default function PaymentPageContent() {
 			</div>
 		</div>
 	);
-}
+});

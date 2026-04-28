@@ -184,7 +184,7 @@ const sections = [
 						<strong>Correction</strong> — ask us to correct inaccurate data.
 					</li>
 					<li>
-						<strong>Deletion</strong> — ask us to erase your data ("right to be forgotten").
+						<strong>Deletion</strong> — ask us to erase your data (&quot;right to be forgotten&quot;).
 					</li>
 					<li>
 						<strong>Objection / restriction</strong> — object to or restrict certain processing.

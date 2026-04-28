@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
@@ -188,7 +188,10 @@ export default function SubscriptionPageContent() {
 	const cardsInnerRef = useRef<HTMLDivElement | null>(null);
 	const overlayRef = useRef<HTMLDivElement | null>(null);
 	const router = useRouter();
-	const [isLoggedIn, setIsLoggedIn] = useState(false);
+	const [isLoggedIn, setIsLoggedIn] = useState(() => {
+		if (typeof window === "undefined") return false;
+		return Boolean(readAccountSession()?.token);
+	});
 	const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
 	const [currentSubscription, setCurrentSubscription] = useState<CurrentSubscription | null>(null);
 	const [scheduledSubscription, setScheduledSubscription] = useState<ScheduledSubscription | null>(null);
@@ -202,7 +205,6 @@ export default function SubscriptionPageContent() {
 		if (typeof window === "undefined") return;
 		const accountSession = readAccountSession();
 		const token = accountSession?.token || "";
-		setIsLoggedIn(Boolean(token));
 
 		// Fetch current subscription if logged in
 		if (token) {
@@ -360,7 +362,7 @@ export default function SubscriptionPageContent() {
 		}
 	};
 
-	const handleAdd = (planId: string, planTitle: string, monthlyPrice: number, yearlyPrice: number, isPlanChange = false) => {
+	const handleAdd = useCallback((planId: string, planTitle: string, monthlyPrice: number, yearlyPrice: number, isPlanChange = false) => {
 		const price = billingPeriod === "yearly" ? yearlyPrice : monthlyPrice;
 		const period = billingPeriod === "yearly" ? "yearly" : "monthly";
 
@@ -400,7 +402,7 @@ export default function SubscriptionPageContent() {
 		setTimeout(() => {
 			router.push(buildPageHref("payment"));
 		}, 500);
-	};
+	}, [billingPeriod, isLoggedIn, addItem, notify, router]);
 
 	useEffect(() => {
 		if (typeof window === "undefined") return;
@@ -884,7 +886,7 @@ export default function SubscriptionPageContent() {
 						</h3>
 						<div style={{ color: "#888", marginBottom: "1.5rem", lineHeight: 1.6 }}>
 							<p style={{ marginBottom: "1rem" }}>
-								You're changing from <strong style={{ color: "#c4a77d" }}>{currentSubscription?.tier}</strong> to{" "}
+								You&apos;re changing from <strong style={{ color: "#c4a77d" }}>{currentSubscription?.tier}</strong> to{" "}
 								<strong style={{ color: getPlanAction(pendingPlan) === "upgrade" ? "#10b981" : "#f59e0b" }}>
 									{pendingPlan.title}
 								</strong>

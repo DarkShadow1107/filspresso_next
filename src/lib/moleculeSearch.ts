@@ -4,7 +4,28 @@
  */
 
 // Load molecules from local data (should be bundled with your app)
-let moleculesCache: any[] | null = null;
+type MoleculeRecord = {
+	chembl_id?: string;
+	name?: string;
+	synonyms?: string[];
+	molecular_formula?: string;
+	molecular_weight?: number;
+	alogp?: number;
+	logp?: number;
+	polar_surface_area?: number;
+	tpsa?: number;
+	hba?: number;
+	hbd?: number;
+	[key: string]: unknown;
+};
+
+type MoleculeVisualizationResult = {
+	svg?: string;
+	sdf?: string;
+	error?: string;
+};
+
+let moleculesCache: MoleculeRecord[] | null = null;
 const moleculeApiBase = "/api/molecule";
 
 const MOLECULE_PROMPT_PREFIX_PATTERNS = [
@@ -78,7 +99,7 @@ function buildSearchCandidates(query: string): string[] {
 	return [...candidates].filter(Boolean);
 }
 
-export async function loadMoleculesData(): Promise<any[]> {
+export async function loadMoleculesData(): Promise<MoleculeRecord[]> {
 	if (moleculesCache) {
 		return moleculesCache;
 	}
@@ -108,7 +129,7 @@ export async function loadMoleculesData(): Promise<any[]> {
 	}
 }
 
-export function searchMoleculesByName(molecules: any[], query: string): any[] {
+export function searchMoleculesByName(molecules: MoleculeRecord[], query: string): MoleculeRecord[] {
 	const lowerQuery = query.toLowerCase().trim();
 
 	return molecules
@@ -133,14 +154,14 @@ export function searchMoleculesByName(molecules: any[], query: string): any[] {
 		.slice(0, 5); // Return top 5 matches
 }
 
-export function searchMoleculesByChEMBLId(molecules: any[], chemblId: string): any | null {
+export function searchMoleculesByChEMBLId(molecules: MoleculeRecord[], chemblId: string): MoleculeRecord | null {
 	return molecules.find((mol) => mol.chembl_id === chemblId.toUpperCase()) || null;
 }
 
 /**
  * Smart molecule search - tries exact match, then partial matches
  */
-export async function smartSearchMolecule(query: string): Promise<any | null> {
+export async function smartSearchMolecule(query: string): Promise<MoleculeRecord | null> {
 	const trimmedQuery = query.trim();
 	if (!trimmedQuery) return null;
 	const candidates = buildSearchCandidates(trimmedQuery);
@@ -186,12 +207,8 @@ export async function getMoleculeVisualization(
 	moleculeIdentifier: string,
 	visualizationMode: "text" | "2d" | "3d" | "both",
 	useApi: boolean = true,
-): Promise<{
-	svg?: string;
-	sdf?: string;
-	error?: string;
-}> {
-	const result: any = {};
+): Promise<MoleculeVisualizationResult> {
+	const result: MoleculeVisualizationResult = {};
 
 	// Skip API if explicitly disabled
 	if (!useApi) {
@@ -266,7 +283,7 @@ export async function getMoleculeVisualization(
 /**
  * Get a simple text-based molecule card when visualizations fail
  */
-export function getMoleculeCard(molecule: any): string {
+export function getMoleculeCard(molecule: MoleculeRecord | null): string {
 	if (!molecule) return "";
 
 	const name = molecule.name || molecule.chembl_id || "Unknown";

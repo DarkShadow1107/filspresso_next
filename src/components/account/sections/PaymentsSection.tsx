@@ -41,28 +41,21 @@ export function PaymentsSection({
 	const REPAIRS_PER_PAGE = 3;
 	const ORDERS_PER_PAGE = 6;
 
-	// Clamp pages when data changes
-	useEffect(() => {
-		const totalPages = Math.max(1, Math.ceil(savedCards.length / CARDS_PER_PAGE));
-		setCardPage((p) => Math.min(Math.max(p, 1), totalPages));
-	}, [savedCards]);
+	// Compute valid page bounds
+	const maxCardPage = Math.max(1, Math.ceil(savedCards.length / CARDS_PER_PAGE));
+	const maxRepairsPage = Math.max(1, Math.ceil(repairs.length / REPAIRS_PER_PAGE));
+	const nonRepairOrders = orders.filter((o) => !o.order_number.startsWith("REP-"));
+	const maxOrdersPage = Math.max(1, Math.ceil(nonRepairOrders.length / ORDERS_PER_PAGE));
 
-	useEffect(() => {
-		const totalPages = Math.max(1, Math.ceil(repairs.length / REPAIRS_PER_PAGE));
-		setRepairsPage((p) => Math.min(Math.max(p, 1), totalPages));
-	}, [repairs]);
-
-	useEffect(() => {
-		const nonRepairOrders = orders.filter((o) => !o.order_number.startsWith("REP-"));
-		const totalPages = Math.max(1, Math.ceil(nonRepairOrders.length / ORDERS_PER_PAGE));
-		setOrdersPage((p) => Math.min(Math.max(p, 1), totalPages));
-	}, [orders]);
+	// Clamp pages to valid range
+	const validCardPage = Math.min(Math.max(cardPage, 1), maxCardPage);
+	const validRepairsPage = Math.min(Math.max(repairsPage, 1), maxRepairsPage);
+	const validOrdersPage = Math.min(Math.max(ordersPage, 1), maxOrdersPage);
 
 	// Paginated data slices
-	const paginatedCards = savedCards.slice((cardPage - 1) * CARDS_PER_PAGE, cardPage * CARDS_PER_PAGE);
-	const nonRepairOrders = orders.filter((o) => !o.order_number.startsWith("REP-"));
-	const paginatedOrders = nonRepairOrders.slice((ordersPage - 1) * ORDERS_PER_PAGE, ordersPage * ORDERS_PER_PAGE);
-	const paginatedRepairs = repairs.slice((repairsPage - 1) * REPAIRS_PER_PAGE, repairsPage * REPAIRS_PER_PAGE);
+	const paginatedCards = savedCards.slice((validCardPage - 1) * CARDS_PER_PAGE, validCardPage * CARDS_PER_PAGE);
+	const paginatedOrders = nonRepairOrders.slice((validOrdersPage - 1) * ORDERS_PER_PAGE, validOrdersPage * ORDERS_PER_PAGE);
+	const paginatedRepairs = repairs.slice((validRepairsPage - 1) * REPAIRS_PER_PAGE, validRepairsPage * REPAIRS_PER_PAGE);
 
 	const renderPager = (page: number, total: number, onChange: (p: number) => void) => {
 		if (total <= 1) return null;

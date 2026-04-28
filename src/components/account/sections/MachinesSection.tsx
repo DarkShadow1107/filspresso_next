@@ -86,7 +86,7 @@ export function MachinesSection({
 						{userMachines.map((machine) => {
 							const warrantyEndDate = new Date(machine.warranty_end_date);
 							const daysUntilWarrantyEnd = Math.ceil(
-								(warrantyEndDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+								(warrantyEndDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
 							);
 							const machineImage = machine.product_image || getProductImage(machine.product_id);
 

@@ -38,7 +38,7 @@ export type AccountData = Pick<DBAccount, "username" | "email" | "icon"> & {
 	};
 };
 
-export type Message = { role: DBChatMessage["role"]; content: string; products?: any[] };
+export type Message = { role: DBChatMessage["role"]; content: string; products?: unknown[] };
 export type ChatHistory = {
 	id: string;
 	timestamp: number;

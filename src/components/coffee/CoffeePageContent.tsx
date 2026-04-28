@@ -11,6 +11,8 @@ import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import CoffeeRecommender from "@/components/CoffeeRecommender";
 import type { CoffeeCollection, CoffeeGroup, CoffeeProduct } from "@/data/coffee";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
+import { ProgressiveLoading } from "@/components/loading/ProgressiveLoading";
+import { useProgressiveLoadState } from "@/hooks/useProgressiveLoadState";
 
 export type StockInfo = {
 	productId: string;
@@ -536,10 +538,12 @@ export default function CoffeePageContent() {
 	const { collections, stockData, loading } = useCoffeeCollections();
 	const coffeeCollections = collections ?? [];
 	const isLoading = loading;
+	const loadState = useProgressiveLoadState(isLoading, "coffee", "coffee");
+	const hideContent = loadState.phase !== "idle";
 
 	return (
 		<StockContext.Provider value={{ stockData, isLoading }}>
-			<main>
+			<main className={hideContent ? "pointer-events-none select-none opacity-0" : "transition-opacity duration-300"}>
 				<div className="coffee_pres">
 					<Image
 						src="/images/coffee_background_subheader.png"
@@ -561,6 +565,7 @@ export default function CoffeePageContent() {
 									</li>
 								))}
 							</ul>
+								<ProgressiveLoading active={isLoading} variant="coffee" subjectLabel="coffee" />
 						</nav>
 					</div>
 				</div>

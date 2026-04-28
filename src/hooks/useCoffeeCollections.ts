@@ -188,10 +188,11 @@ const fetchSharedCoffeeData = async (): Promise<SharedCoffeeData> => {
 				sharedCoffeeDataSnapshot = snapshot;
 				writeSnapshot(COFFEE_CACHE_KEY, snapshot);
 				return snapshot;
-			} catch (err: any) {
+			} catch (err: unknown) {
+				const message = err instanceof Error ? err.message : "Failed to load coffee collections";
 				return {
 					products: [],
-					error: err?.message ?? "Failed to load coffee collections",
+					error: message,
 				};
 			}
 		})();
@@ -243,11 +244,12 @@ const convertToCoffeeProduct = (product: ApiProduct) => {
 export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 	const [collections, setCollections] = useState<CoffeeCollection[]>(coffeeCollections);
 	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
-	const [loading, setLoading] = useState(false);
+	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
+		setLoading(true);
 		async function fetchFromApi() {
 			try {
 				const data = await fetchSharedCoffeeData();
@@ -354,9 +356,10 @@ export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 					setStockData(buildStockMap(products));
 					setError(data.error);
 				}
-			} catch (err: any) {
+			} catch (err: unknown) {
 				if (!cancelled) {
-					setError(err?.message ?? "Failed to load coffee collections");
+					const message = err instanceof Error ? err.message : "Failed to load coffee collections";
+					setError(message);
 					setStockData(new Map());
 				}
 			} finally {

@@ -87,7 +87,6 @@ export default function MachineNotificationsProvider({ children }: { children: R
 		if (!pathname) return;
 		timersRef.current.forEach((v) => clearTimeout(v.timeout));
 		timersRef.current.clear();
-		setItems([]);
 	}, [pathname]);
 
 	const pause = useCallback(
@@ -144,9 +143,6 @@ export default function MachineNotificationsProvider({ children }: { children: R
 	const renderIcon = useCallback(() => {
 		return <GearIcon size={18} className="notif-icon" />;
 	}, []);
-
-	const [mounted, setMounted] = useState(false);
-	useEffect(() => setMounted(true), []);
 
 	const node = (
 		<div className={`notifications-root machine-only ${compact ? "compact" : ""}`} aria-live="polite" aria-atomic="true">
@@ -251,7 +247,7 @@ export default function MachineNotificationsProvider({ children }: { children: R
 	return (
 		<MachineNotificationsContext.Provider value={value}>
 			{children}
-			{mounted && typeof document !== "undefined" ? createPortal(node, document.body) : null}
+			{typeof document !== "undefined" ? createPortal(node, document.body) : null}
 		</MachineNotificationsContext.Provider>
 	);
 }

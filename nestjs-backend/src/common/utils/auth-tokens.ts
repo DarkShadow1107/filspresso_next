@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import { getEnvOrFile } from "./secrets";
 import { assertKeyUsage } from "./keyUsagePolicy";
 
-const jwt: any = require("jsonwebtoken");
+import jwt, { type SignOptions } from "jsonwebtoken";
 
 export const JWT_SECRET = getEnvOrFile("JWT_SECRET", { required: true });
 export const JWT_EXPIRES_IN = String(process.env.JWT_EXPIRES_IN || process.env.JWT_ACCESS_TOKEN_TTL || "15m").trim() || "15m";
@@ -23,7 +23,7 @@ function normalizePem(value: string) {
   return text;
 }
 
-function parseTtlToSeconds(value: any) {
+function parseTtlToSeconds(value: string | number) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(60, Math.min(Math.floor(value), 86400));
   }
@@ -53,7 +53,9 @@ function parseTtlToSeconds(value: any) {
   return Math.max(60, Math.min(amount * multiplier, 86400));
 }
 
-function parsePreviousPublicKeys(raw: string) {
+type PreviousPublicKeyEntry = { kid: string; publicKey: string };
+
+function parsePreviousPublicKeys(raw: string): PreviousPublicKeyEntry[] {
   if (!raw) {
     return [];
   }
@@ -71,7 +73,7 @@ function parsePreviousPublicKeys(raw: string) {
 
     if (parsed && typeof parsed === "object") {
       return Object.entries(parsed)
-        .map(([kid, publicKey]) => ({ kid: String(kid || "").trim(), publicKey: normalizePem(publicKey as string) }))
+        .map(([kid, publicKey]) => ({ kid: String(kid || "").trim(), publicKey: normalizePem(String(publicKey || "")) }))
         .filter((entry) => entry.kid && entry.publicKey);
     }
   } catch {
@@ -96,7 +98,7 @@ function derivePublicKeyPem(privateKeyPem: string) {
 
 export const JWT_SIGNING_PUBLIC_KEY = normalizePem(JWT_SIGNING_PUBLIC_KEY_RAW) || derivePublicKeyPem(normalizePem(JWT_SIGNING_PRIVATE_KEY));
 const JWT_PREVIOUS_PUBLIC_KEYS = parsePreviousPublicKeys(JWT_SIGNING_PREVIOUS_PUBLIC_KEYS_JSON);
-const JWT_EDDSA_PUBLIC_KEYS = new Map();
+const JWT_EDDSA_PUBLIC_KEYS = new Map<string, string>();
 if (JWT_SIGNING_PUBLIC_KEY) {
   JWT_EDDSA_PUBLIC_KEYS.set(JWT_SIGNING_KEY_ID, JWT_SIGNING_PUBLIC_KEY);
 }
@@ -115,7 +117,38 @@ export function buildSessionExpiryDate() {
   return expiresAt;
 }
 
-export function generateToken(user: any, options: any = {}) {
+type JwtUserLike = {
+  id: number | string;
+  email?: string | null;
+  username?: string | null;
+};
+
+export type JwtClaims = {
+  id: number | string;
+  email?: string | null;
+  username?: string | null;
+  [key: string]: unknown;
+};
+
+type JwtIssueOptions = Partial<Pick<SignOptions, "expiresIn">>;
+
+const signJwt = jwt.sign as unknown as (
+  payload: object,
+  secretOrPrivateKey: string,
+  options: Record<string, unknown>,
+) => string;
+
+const verifyJwt = jwt.verify as unknown as (
+  token: string,
+  secretOrPublicKey: string,
+  options?: Record<string, unknown>,
+) => unknown;
+
+function isJwtClaims(value: unknown): value is JwtClaims {
+  return Boolean(value && typeof value === "object" && "id" in value);
+}
+
+export function generateToken(user: JwtUserLike, options: JwtIssueOptions = {}) {
   const payload = {
     id: user.id,
     email: user.email,
@@ -131,7 +164,7 @@ export function generateToken(user: any, options: any = {}) {
       keyId: JWT_SIGNING_KEY_ID,
     });
 
-    return jwt.sign(payload, normalizePem(JWT_SIGNING_PRIVATE_KEY), {
+    return signJwt(payload, normalizePem(JWT_SIGNING_PRIVATE_KEY), {
       algorithm: "EdDSA",
       expiresIn,
       issuer: JWT_ISSUER,
@@ -150,7 +183,7 @@ export function generateToken(user: any, options: any = {}) {
     keyId: "legacy-hs256",
   });
 
-  return jwt.sign(payload, JWT_SECRET, {
+  return signJwt(payload, JWT_SECRET, {
     expiresIn,
     issuer: JWT_ISSUER,
     audience: JWT_AUDIENCE,
@@ -158,9 +191,9 @@ export function generateToken(user: any, options: any = {}) {
   });
 }
 
-export function verifyToken(token: string) {
+export function verifyToken(token: string): JwtClaims | null {
   try {
-    const decoded: any = jwt.decode(token, { complete: true });
+    const decoded = jwt.decode(token, { complete: true }) as { header?: { alg?: string; kid?: string } } | null;
     const algorithm = String(decoded?.header?.alg || "HS256").trim();
 
     if (algorithm === "EdDSA") {
@@ -171,11 +204,12 @@ export function verifyToken(token: string) {
         return null;
       }
 
-      return jwt.verify(token, verificationKey, {
+      const verified = verifyJwt(token, verificationKey, {
         algorithms: ["EdDSA"],
         issuer: JWT_ISSUER,
         audience: JWT_AUDIENCE,
       });
+      return isJwtClaims(verified) ? verified : null;
     }
 
     if (algorithm !== "HS256") {
@@ -183,13 +217,15 @@ export function verifyToken(token: string) {
     }
 
     try {
-      return jwt.verify(token, JWT_SECRET, {
+      const verified = verifyJwt(token, JWT_SECRET, {
         algorithms: ["HS256"],
         issuer: JWT_ISSUER,
         audience: JWT_AUDIENCE,
       });
+      return isJwtClaims(verified) ? verified : null;
     } catch {
-      return jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
+      const verified = verifyJwt(token, JWT_SECRET, { algorithms: ["HS256"] });
+      return isJwtClaims(verified) ? verified : null;
     }
   } catch (error) {
     return null;

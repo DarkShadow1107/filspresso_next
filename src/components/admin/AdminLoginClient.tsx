@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import "@/styles/admin.css";
 import { EyeIcon, EyeOffIcon, LockIcon, QrCodeIcon, UserCheckIcon } from "@/icons";
+import { InlineLoadingSpinner } from "@/components/loading/ProgressiveLoading";
 
 export default function AdminLoginClient() {
 	const router = useRouter();
@@ -151,7 +152,10 @@ export default function AdminLoginClient() {
 						{loginError && <div className="error-message">{loginError}</div>}
 						<button type="submit" className="login-button" disabled={isLoading}>
 							{isLoading ? (
-								"Verifying credentials..."
+								<span className="inline-flex items-center gap-3">
+									<InlineLoadingSpinner className="h-4 w-4 text-current" />
+									<span>Verifying credentials...</span>
+								</span>
 							) : (
 								<>
 									<UserCheckIcon size={20} /> <span className="login-button-label">Continue</span>
@@ -207,7 +211,14 @@ export default function AdminLoginClient() {
 						</div>
 						{loginError && <div className="error-message">{loginError}</div>}
 						<button type="submit" className="login-button" disabled={isLoading}>
-							{isLoading ? "Verifying MFA..." : "Complete Secure Login"}
+							{isLoading ? (
+								<span className="inline-flex items-center gap-3">
+									<InlineLoadingSpinner className="h-4 w-4 text-current" />
+									<span>Verifying MFA...</span>
+								</span>
+							) : (
+								"Complete Secure Login"
+							)}
 						</button>
 					</form>
 				)}

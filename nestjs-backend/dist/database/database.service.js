@@ -39,9 +39,13 @@ let DatabaseService = DatabaseService_1 = class DatabaseService {
             database: process.env.DB_NAME || "filspresso",
             user: DB_USER,
             password: DB_PASSWORD,
-            max: 10,
+            max: 20,
+            min: 2,
             idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 2000,
+            connectionTimeoutMillis: 3000,
+            statement_timeout: 30000,
+            query_timeout: 30000,
+            application_name: "filspresso-nestjs-backend",
         });
         this.pool
             .query("SELECT NOW()")

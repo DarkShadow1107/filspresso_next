@@ -42,6 +42,7 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const core_1 = require("@nestjs/core");
 const helmet_1 = __importDefault(require("helmet"));
+const compression_1 = __importDefault(require("compression"));
 const express_1 = require("express");
 const app_module_1 = require("./app.module");
 const database_service_1 = require("./database/database.service");
@@ -113,6 +114,7 @@ async function bootstrap() {
     }
     app.use((0, express_1.json)({ limit: "10mb", strict: true }));
     app.use((0, express_1.urlencoded)({ extended: true }));
+    app.use((0, compression_1.default)({ level: 6, threshold: 1024 }));
     app.use(origin_guard_middleware_1.originGuardMiddleware);
     app.use((0, request_timeout_middleware_1.createRequestTimeoutMiddleware)(configService.get("requestTimeoutMs") || constants_1.DEFAULT_REQUEST_TIMEOUT_MS));
     app.useGlobalPipes(new trim_strings_pipe_1.TrimStringsPipe(), new common_1.ValidationPipe({

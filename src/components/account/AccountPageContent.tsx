@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from "react";
+import React, { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from "react";
 import Head from "next/head";
 import Script from "next/script";
 import AccountIconGenerator from "@/components/AccountIconGenerator";
@@ -8,35 +8,6 @@ import { createDefaultAvatarDataUrl, writeAccountSession } from "@/lib/accountSe
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { UserPlusIcon, UserCheckIcon, LockIcon, AtSignIcon, EyeIcon, EyeOffIcon, BrandGoogleIcon } from "@/icons";
-
-type GoogleBasicProfile = {
-	getId: () => string;
-	getName: () => string;
-	getImageUrl: () => string;
-	getEmail: () => string | null;
-};
-
-type GoogleUser = {
-	getBasicProfile: () => GoogleBasicProfile;
-};
-
-type GoogleAuthInstance = {
-	signOut: () => Promise<unknown>;
-};
-
-type GoogleApi = {
-	load: (modules: string, callback: () => void) => void;
-	auth2: {
-		init: (config: { client_id: string; scope?: string }) => unknown;
-		getAuthInstance: () => GoogleAuthInstance;
-	};
-};
-
-declare global {
-	interface Window {
-		gapi?: GoogleApi;
-	}
-}
 
 const ALLOWED_EMAIL_SUFFIXES = ["@gmail.com", "@outlook.com", "@yahoo.com"];
 
@@ -57,7 +28,7 @@ function formatNamePlaceholder(name?: string | null) {
 	return name;
 }
 
-export default function AccountPageContent() {
+export default React.memo(function AccountPageContent() {
 	const router = useRouter();
 	const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 	const [isSignUp, setIsSignUp] = useState(false);
@@ -722,4 +693,4 @@ export default function AccountPageContent() {
 			</div>
 		</main>
 	);
-}
+});

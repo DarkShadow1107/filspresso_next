@@ -36,13 +36,13 @@ const eslintConfig = [
 			"@typescript-eslint": tsEslintPlugin,
 		},
 		rules: {
-			"@typescript-eslint/no-explicit-any": "warn",
+			"@typescript-eslint/no-explicit-any": "error",
 			"@typescript-eslint/no-require-imports": "warn",
 			"@typescript-eslint/no-this-alias": "warn",
-			"react-hooks/set-state-in-effect": "warn",
+			"react-hooks/set-state-in-effect": "error",
 			"react-hooks/purity": "warn",
 			"react-hooks/preserve-manual-memoization": "warn",
-			"react/no-unescaped-entities": "warn",
+			"react/no-unescaped-entities": "error",
 		},
 	},
 ];

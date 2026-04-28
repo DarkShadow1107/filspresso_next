@@ -830,9 +830,9 @@ export default function ManageSubscriptionContent() {
 							Cancel Subscription?
 						</h3>
 						<p style={{ color: "#888", marginBottom: "1.5rem", lineHeight: 1.6 }}>
-							You'll still have access to your {tierName} features until{" "}
+							You&apos;ll still have access to your {tierName} features until{" "}
 							<strong style={{ color: "#c4a77d" }}>{formatDate(subscription.renewal_date)}</strong>. After that,
-							you'll be downgraded to the free plan.
+							you&apos;ll be downgraded to the free plan.
 						</p>
 						<div style={{ display: "flex", gap: "1rem" }}>
 							<button

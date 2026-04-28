@@ -4,6 +4,7 @@ import { Logger, ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import helmet from "helmet";
+import compression from "compression";
 import { json, urlencoded } from "express";
 import { AppModule } from "./app.module";
 import { DatabaseService } from "./database/database.service";
@@ -93,6 +94,7 @@ async function bootstrap(): Promise<void> {
 
 	app.use(json({ limit: "10mb", strict: true }));
 	app.use(urlencoded({ extended: true }));
+	app.use(compression({ level: 6, threshold: 1024 }));
 	app.use(originGuardMiddleware);
 
 	app.use(createRequestTimeoutMiddleware(configService.get<number>("requestTimeoutMs") || DEFAULT_REQUEST_TIMEOUT_MS));

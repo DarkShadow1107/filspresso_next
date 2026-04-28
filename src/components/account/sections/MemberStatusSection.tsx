@@ -224,7 +224,7 @@ export function MemberStatusSection({
 							}}
 						>
 							<ShieldCheck size={20} />
-							<span>You've reached the highest tier!</span>
+							<span>You&apos;ve reached the highest tier!</span>
 						</div>
 					)}
 

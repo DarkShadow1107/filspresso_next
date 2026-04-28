@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useNotifications } from "./NotificationsProvider";
 import { readAccountSession } from "@/lib/accountSession";
 
@@ -30,7 +30,6 @@ function getAuthToken(): string | null {
 export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 	const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
 	const { notify } = useNotifications();
-	const initialSyncDone = useRef(false);
 
 	const fetchFavorites = useCallback(async () => {
 		const token = getAuthToken();
@@ -66,7 +65,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
 		const local = localStorage.getItem("filspresso_favorites");
 		if (!local) {
-			fetchFavorites();
+			await fetchFavorites();
 			return;
 		}
 
@@ -88,30 +87,32 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 					notify("Your local favorites have been saved to your account!", 5000, "success");
 				}
 			}
-			fetchFavorites();
+			await fetchFavorites();
 		} catch (error) {
 			console.error("Sync favorites error", error);
-			fetchFavorites();
+			await fetchFavorites();
 		}
-	}, [fetchFavorites]);
+	}, [fetchFavorites, notify]);
 
 	useEffect(() => {
-		// Initial fetch
-		fetchFavorites();
-
-		// Check if we need to sync guest favorites on mount (e.g. if user was already logged in)
-		const token = getAuthToken();
-		const local = localStorage.getItem("filspresso_favorites");
-		if (token && local) {
-			syncFavorites();
-		}
+		const timeoutId = window.setTimeout(() => {
+			void fetchFavorites();
+			const token = getAuthToken();
+			const local = localStorage.getItem("filspresso_favorites");
+			if (token && local) {
+				void syncFavorites();
+			}
+		}, 0);
 
 		const handleSessionUpdate = () => {
-			syncFavorites();
+			void syncFavorites();
 		};
 
 		window.addEventListener("session-update", handleSessionUpdate);
-		return () => window.removeEventListener("session-update", handleSessionUpdate);
+		return () => {
+			window.clearTimeout(timeoutId);
+			window.removeEventListener("session-update", handleSessionUpdate);
+		};
 	}, [fetchFavorites, syncFavorites]);
 
 	const isFavorite = useCallback(

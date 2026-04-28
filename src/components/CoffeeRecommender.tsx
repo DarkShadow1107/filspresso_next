@@ -107,7 +107,7 @@ type MoleculeMessageView = {
 	molecular_weight?: number;
 	svg?: string;
 	sdf?: string;
-	[key: string]: any;
+	[key: string]: unknown;
 };
 
 type Message = {
@@ -660,7 +660,7 @@ async function saveChatHistory(history: ChatHistory[]) {
 	}
 }
 
-export default function CoffeeRecommender() {
+export default React.memo(function CoffeeRecommender() {
 	const allProducts = useAllProducts();
 	const allProductsById = useMemo(() => new Map(allProducts.map((product) => [product.id, product])), [allProducts]);
 	const [mounted, setMounted] = useState(false);
@@ -701,7 +701,7 @@ export default function CoffeeRecommender() {
 	const abortControllerRef = useRef<AbortController | null>(null);
 	const currentRequestIdRef = useRef<string | null>(null);
 	const submitCooldownRef = useRef<number>(0);
-	const moleculeVizCacheRef = useRef<Record<string, { molecule: any; svg?: string; sdf?: string }>>({});
+	const moleculeVizCacheRef = useRef<Record<string, { molecule: Record<string, unknown>; svg?: string; sdf?: string }>>({});
 	const [chatImages, setChatImages] = useState<File[]>([]);
 
 	// Prompt limit tracking
@@ -1624,7 +1624,7 @@ export default function CoffeeRecommender() {
 
 	// Fetch molecule data from backend
 	const fetchMoleculeData = useCallback(
-		async (moleculeIdentifier: string, fallbackMolecule?: Record<string, any>) => {
+		async (moleculeIdentifier: string, fallbackMolecule?: Record<string, unknown>) => {
 			try {
 				const encodedIdentifier = encodeURIComponent(moleculeIdentifier);
 				const smilesQuery =
@@ -1643,14 +1643,18 @@ export default function CoffeeRecommender() {
 					};
 				}
 
-				let molecule = fallbackMolecule ?? null;
+				let molecule: Record<string, unknown> | null = fallbackMolecule ?? null;
 				if (!molecule) {
 					const detailsRes = await fetch(`/api/molecule/${encodedIdentifier}`);
 					if (!detailsRes.ok) {
 						throw new Error(`Failed to fetch molecule details: ${detailsRes.statusText}`);
 					}
-					const detailsData = await detailsRes.json();
-					molecule = detailsData.molecule;
+					const detailsData = (await detailsRes.json()) as { molecule?: Record<string, unknown> };
+					molecule = detailsData.molecule ?? null;
+				}
+
+				if (!molecule) {
+					throw new Error("Molecule payload missing");
 				}
 
 				// Fetch SVG if needed
@@ -3481,4 +3485,4 @@ export default function CoffeeRecommender() {
 			)}
 		</>
 	);
-}
+});

@@ -206,7 +206,7 @@ const sections = [
 					return. We will send you a return authorisation and shipping instructions within 2 business days.
 				</p>
 				<ul>
-					<li>Return shipping costs are the buyer's responsibility unless the item was damaged or sent in error.</li>
+					<li>Return shipping costs are the buyer&apos;s responsibility unless the item was damaged or sent in error.</li>
 					<li>
 						Refunds are issued to the original payment method within <strong>14 days</strong> of receiving the
 						returned item in good condition.

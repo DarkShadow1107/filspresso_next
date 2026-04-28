@@ -6,6 +6,8 @@ import { buildPageHref } from "@/lib/pages";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { useMachineCollections } from "@/hooks/useMachineCollections";
+import type { CoffeeProduct } from "@/data/coffee";
+import type { MachineProduct } from "@/data/machines";
 import { StockContext, type StockInfo } from "@/components/coffee/CoffeePageContent";
 import { MachineStockContext, type MachineStockInfo } from "@/components/machines/MachinesPageContent";
 import FavoriteItemCard from "./FavoriteItemCard";
@@ -13,6 +15,17 @@ import { motion } from "motion/react";
 import { HeartIcon, CoffeeIcon, RocketIcon } from "@/icons";
 
 const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
+
+type ApiStockProduct = {
+	productId: string;
+	stock: number;
+	stockStatus: StockInfo["stockStatus"];
+};
+
+type FavoriteDisplayItem<TProduct> = {
+	product: TProduct;
+	category: "Original" | "Vertuo";
+};
 
 export default function FavoritesPageContent() {
 	const { favorites } = useFavorites();
@@ -34,8 +47,8 @@ export default function FavoritesPageContent() {
 				if (coffeeRes.ok) {
 					const data = await coffeeRes.json();
 					const map = new Map<string, StockInfo>();
-					const products = Array.isArray(data.products) ? data.products : [];
-					products.forEach((p: any) => {
+					const products = (Array.isArray(data.products) ? data.products : []) as ApiStockProduct[];
+					products.forEach((p) => {
 						map.set(p.productId, {
 							productId: p.productId,
 							stock: p.stock,
@@ -48,8 +61,8 @@ export default function FavoritesPageContent() {
 				if (machineRes.ok) {
 					const data = await machineRes.json();
 					const map = new Map<string, MachineStockInfo>();
-					const products = Array.isArray(data.products) ? data.products : [];
-					products.forEach((p: any) => {
+					const products = (Array.isArray(data.products) ? data.products : []) as ApiStockProduct[];
+					products.forEach((p) => {
 						map.set(p.productId, {
 							productId: p.productId,
 							stock: p.stock,
@@ -72,12 +85,12 @@ export default function FavoritesPageContent() {
 	const organizedFavs = useMemo(() => {
 		const result = {
 			capsules: {
-				Original: [] as any[],
-				Vertuo: [] as any[],
+				Original: [] as FavoriteDisplayItem<CoffeeProduct>[],
+				Vertuo: [] as FavoriteDisplayItem<CoffeeProduct>[],
 			},
 			machines: {
-				Original: [] as any[],
-				Vertuo: [] as any[],
+				Original: [] as FavoriteDisplayItem<MachineProduct>[],
+				Vertuo: [] as FavoriteDisplayItem<MachineProduct>[],
 			},
 		};
 
@@ -152,7 +165,7 @@ export default function FavoritesPageContent() {
 		// Fallback: If it's missing from the map, don't default to out_of_stock immediately
 		// if we are still loading, or if the ID exists but the status hasn't loaded.
 		// However, for most machines, they should be in the list.
-		if (isLoadingStocks) return { productId: id, stock: 0, stockStatus: "loading" as any };
+		if (isLoadingStocks) return { productId: id, stock: 0, stockStatus: "in_stock" as const };
 
 		// If it's really not in the DB, default to something sensible
 		return { productId: id, stock: 99, stockStatus: "in_stock" as const };
@@ -196,7 +209,7 @@ export default function FavoritesPageContent() {
 									href={buildPageHref("coffee")}
 									className="group px-14 py-4 gap-[4%] rounded-full font-bold text-[#1d1919] transition-all hover:scale-105 active:scale-95 text-base flex items-center justify-center gap-3 metallic-button min-w-[240px] h-[56px] whitespace-nowrap"
 								>
-									<span className="flex-shrink-0 -translate-y-[2px]">
+									<span className="shrink-0 -translate-y-px">
 										<CoffeeIcon size={22} color="#1d1919" />
 									</span>
 									<span className="leading-none">Explore Coffee</span>
@@ -207,7 +220,7 @@ export default function FavoritesPageContent() {
 									href={buildPageHref("machines")}
 									className="group px-14 py-4 gap-[4%] rounded-full font-bold text-[#1d1919] transition-all hover:scale-105 active:scale-95 text-base flex items-center justify-center gap-3 metallic-button min-w-[240px] h-[56px] whitespace-nowrap"
 								>
-									<span className="flex-shrink-0 -translate-y-[1px]">
+									<span className="shrink-0 -translate-y-px">
 										<RocketIcon size={22} color="#1d1919" />
 									</span>
 									<span className="leading-none">Meet Machines</span>

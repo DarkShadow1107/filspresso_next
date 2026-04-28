@@ -1,0 +1,11 @@
+node_modules/
+.npm/
+dist/
+ build/
+.vscode/
+.venv/
+**/site-packages/
+**/dist/
+**/__pycache__/
+**/*.pyc
+nestjs-backend/dist/

@@ -205,7 +205,10 @@ export default function NotificationsProvider({ children }: { children: React.Re
 
 	// ensure we only portal after client mount to avoid SSR mismatches
 	const [mounted, setMounted] = useState(false);
-	useEffect(() => setMounted(true), []);
+	useEffect(() => {
+		const frame = window.requestAnimationFrame(() => setMounted(true));
+		return () => window.cancelAnimationFrame(frame);
+	}, []);
 
 	// When the route changes, remove notifications that were created on other pages
 	useEffect(() => {

@@ -117,8 +117,13 @@ interface GraphPoint {
 	color: string;
 }
 
+interface ConsumptionGraphDatum {
+	date: string;
+	[key: string]: number | string | undefined;
+}
+
 interface ConsumptionGraphProps {
-	data: any[];
+	data: ConsumptionGraphDatum[];
 	type: "capsules" | "machines";
 	title: string;
 	consumptionHistory: ConsumptionHistory | null;
@@ -193,7 +198,7 @@ export default function ConsumptionGraph({
 	const maxDate = new Date().getTime();
 	const timeRange = Math.max(maxDate - minDate, 24 * 60 * 60 * 1000);
 
-	const getVal = (d: any, key: string) => Number(d[key] || 0);
+	const getVal = (d: ConsumptionGraphDatum, key: string) => Number(d[key] || 0);
 
 	const maxVal = Math.max(
 		...data.map((d) => Math.max(getVal(d, `original_${type}`), getVal(d, `vertuo_${type}`))),

@@ -11,6 +11,8 @@ import { type MachineCollection, type MachineGroup, type MachineProduct } from "
 import { useMachineCollections } from "@/hooks/useMachineCollections";
 import React from "react";
 import CoffeeRecommender from "@/components/CoffeeRecommender";
+import { ProgressiveLoading } from "@/components/loading/ProgressiveLoading";
+import { useProgressiveLoadState } from "@/hooks/useProgressiveLoadState";
 
 export type MachineStockInfo = {
 	productId: string;
@@ -269,11 +271,13 @@ export default function MachinesPageContent() {
 	const { collections, stockData, apiDown, loading } = useMachineCollections();
 	const machineCollections = collections ?? [];
 	const isLoading = loading;
+	const loadState = useProgressiveLoadState(isLoading, "machines", "machines");
+	const hideContent = loadState.phase !== "idle";
 
 	return (
 		<MachineStockContext.Provider value={{ stockData, isLoading, apiDown }}>
 			<MachineNotificationsProvider>
-				<main>
+				<main className={hideContent ? "pointer-events-none select-none opacity-0" : "transition-opacity duration-300"}>
 					<div className="coffee_pres">
 						<Image
 							src="/images/machines_background_subheader.png"
@@ -301,6 +305,7 @@ export default function MachinesPageContent() {
 					))}
 				</main>
 				<CoffeeRecommender />
+				<ProgressiveLoading active={isLoading} variant="machines" subjectLabel="machines" />
 			</MachineNotificationsProvider>
 		</MachineStockContext.Provider>
 	);

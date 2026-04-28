@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { verifyToken } from "../utils/auth-tokens";
 
 interface AuthenticatedRequest extends Request {
-  user?: Record<string, unknown>;
+	user?: { id?: number | string; email?: string; username?: string; [key: string]: unknown };
 }
 
 @Injectable()
@@ -25,7 +25,7 @@ export class JwtAuthGuard implements CanActivate {
 			throw new UnauthorizedException({ error: "Invalid or expired token" });
 		}
 
-		request.user = decoded;
+		request.user = decoded as AuthenticatedRequest["user"];
 		return true;
 	}
 }

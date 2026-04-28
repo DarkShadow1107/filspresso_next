@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { WeatherData, WeatherRecommendation } from "@/lib/weather";
 import { getWeatherIcon, getWeatherDescription } from "@/lib/weather";
 import {
@@ -69,7 +69,7 @@ function writeCachedWeather(data: WeatherData) {
 	}
 }
 
-export default function WeatherWidget({
+const WeatherWidget = React.memo(function WeatherWidget({
 	weather: initialWeather,
 	compact = false,
 	showRecommendation = true,
@@ -225,7 +225,9 @@ export default function WeatherWidget({
 			)}
 		</div>
 	);
-}
+});
+
+export default WeatherWidget;
 
 /**
  * Compact weather chip for headers/navbars

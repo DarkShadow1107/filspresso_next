@@ -4,6 +4,8 @@
  */
 
 export type Timestamp = string | Date;
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | { [key: string]: JsonValue } | JsonValue[];
 
 // --- 1. ACCOUNTS & AUTH ---
 
@@ -59,8 +61,8 @@ export interface DBCoffeeProduct {
 	price: number;
 	stock: number;
 	description: string | null;
-	notes: any | null; // JSONB
-	servings: any | null; // JSONB
+	notes: JsonValue | null; // JSONB
+	servings: JsonValue | null; // JSONB
 	intensity: number | null;
 	image_filename: string | null;
 	image_extension: string;
@@ -79,14 +81,14 @@ export interface DBMachineProduct {
 	price: number;
 	stock: number;
 	description: string | null;
-	notes: any | null; // JSONB
+	notes: JsonValue | null; // JSONB
 	image: string | null;
 	box_class: string | null;
 	wrapper_class: string | null;
 	unit_label: string | null;
 	price_class: string | null;
 	price_text: string | null;
-	extra_class: any | null; // JSONB
+	extra_class: JsonValue | null; // JSONB
 	created_at: Timestamp;
 	updated_at: Timestamp;
 }
@@ -100,8 +102,8 @@ export interface DBOrder {
 	shipping_cost: number;
 	tax: number;
 	total: number;
-	shipping_address: any | null; // JSONB
-	billing_address: any | null; // JSONB
+	shipping_address: JsonValue | null; // JSONB
+	billing_address: JsonValue | null; // JSONB
 	payment_method: string | null;
 	card_id: number | null;
 	notes: string | null;
@@ -163,7 +165,7 @@ export interface DBSubscriptionPlan {
 	name: string;
 	description: string | null;
 	price_ron: number;
-	features: any; // JSONB
+	features: JsonValue; // JSONB
 	created_at: Timestamp;
 	updated_at: Timestamp;
 }
@@ -241,10 +243,10 @@ export interface DBChatMessage {
 export interface DBIoTCommand {
 	id: number;
 	machine_id: string;
-	recipe: any; // JSONB
+	recipe: JsonValue; // JSONB
 	execute_allowed: boolean;
 	status: string;
-	meta: any | null; // JSONB
+	meta: JsonValue | null; // JSONB
 	created_at: Timestamp;
 	updated_at: Timestamp;
 }
@@ -280,7 +282,7 @@ export interface DBRepair {
 export interface DBWeatherCache {
 	id: number;
 	cache_key: string;
-	data: any;
+	data: JsonValue;
 	timestamp: Timestamp;
 }
 

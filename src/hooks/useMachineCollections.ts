@@ -112,10 +112,11 @@ const fetchSharedMachineData = async (): Promise<SharedMachineData> => {
 				sharedMachineDataSnapshot = snapshot;
 				writeSnapshot(MACHINE_CACHE_KEY, snapshot);
 				return snapshot;
-			} catch (err: any) {
+			} catch (err: unknown) {
+				const message = err instanceof Error ? err.message : "Failed to load machine collections";
 				return {
 					products: [],
-					error: err?.message ?? "Failed to load machine collections",
+					error: message,
 					apiDown: true,
 				};
 			}
@@ -132,11 +133,12 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 	const [collections, setCollections] = useState<MachineCollection[]>(machineCollections);
 	const [stockData, setStockData] = useState<Map<string, MachineStockInfo>>(new Map());
 	const [apiDown, setApiDown] = useState(false);
-	const [loading, setLoading] = useState(false);
+	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
+		setLoading(true);
 		async function fetchFromApi() {
 			try {
 				const data = await fetchSharedMachineData();
@@ -243,9 +245,10 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 					setApiDown(data.apiDown);
 					setError(data.error);
 				}
-			} catch (err: any) {
+			} catch (err: unknown) {
 				if (!cancelled) {
-					setError(err?.message ?? "Failed to load machine collections");
+					const message = err instanceof Error ? err.message : "Failed to load machine collections";
+					setError(message);
 					setApiDown(true);
 					setStockData(new Map());
 				}
