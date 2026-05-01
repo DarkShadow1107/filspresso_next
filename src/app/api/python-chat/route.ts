@@ -359,11 +359,11 @@ function chemistryUnavailablePayload(isImageRequest: boolean, requestId: string,
 
 async function checkPromptLimit(request: Request, dryRun: boolean, scope: PromptScope): Promise<PromptLimitCheck> {
 	try {
-		const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+		const promptLimitUrl = new URL("/api/kafelot/check-and-use", request.url);
 		const headers = buildPromptHeaders(request);
 
 		const callPromptApi = (requestHeaders: Record<string, string>) =>
-			fetch(`${API_BASE}/api/kafelot/check-and-use`, {
+			fetch(promptLimitUrl, {
 				method: "POST",
 				headers: requestHeaders,
 				body: JSON.stringify({ dry_run: dryRun, scope }),

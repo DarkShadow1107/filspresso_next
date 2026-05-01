@@ -22,7 +22,7 @@ interface FavoriteItemCardProps {
 }
 
 export default function FavoriteItemCard({ product, type, category, stockInfo, stockLoading }: FavoriteItemCardProps) {
-	const { addItem } = useCart();
+	const { addItem } = useCart({ passive: true });
 	const { notify } = useNotifications();
 	const { isFavorite, toggleFavorite } = useFavorites();
 	const [popupOpen, setPopupOpen] = useState(false);

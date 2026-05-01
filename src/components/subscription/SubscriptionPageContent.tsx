@@ -184,7 +184,7 @@ function formatRon(value: number) {
 }
 
 export default function SubscriptionPageContent() {
-	const { addItem } = useCart();
+	const { addItem } = useCart({ passive: true });
 	const cardsInnerRef = useRef<HTMLDivElement | null>(null);
 	const overlayRef = useRef<HTMLDivElement | null>(null);
 	const router = useRouter();

@@ -8,7 +8,6 @@ import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./health/health.module";
 import { SecurityModule } from "./security/security.module";
 import { IntegrationsModule } from "./integrations/integrations.module";
-import { LegacyModule } from "./legacy/legacy.module";
 import { AuthModule } from "./auth/auth.module";
 import { AccountsModule } from "./accounts/accounts.module";
 import { CardsModule } from "./cards/cards.module";
@@ -40,7 +39,6 @@ import { KafelotModule } from "./kafelot/kafelot.module";
 		IntegrationsModule,
 		HealthModule,
 		SecurityObservabilityModule,
-		LegacyModule,
 		AuthModule,
 		AccountsModule,
 		CardsModule,

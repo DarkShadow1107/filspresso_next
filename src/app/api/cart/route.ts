@@ -20,7 +20,7 @@ const emptyCart = () =>
 	);
 
 export async function GET(request: NextRequest) {
-	return proxyBackendRequest(request, "/api/cart", { timeoutMs: 1800, fallback: emptyCart });
+	return proxyBackendRequest(request, "/api/cart", { timeoutMs: 4500, fallback: emptyCart });
 }
 
 export async function POST(request: NextRequest) {

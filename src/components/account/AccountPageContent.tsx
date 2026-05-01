@@ -212,8 +212,7 @@ export default React.memo(function AccountPageContent() {
 			if (signIconDataUrl && typeof window !== "undefined") {
 				if (isSvgIcon) {
 					try {
-						const AI_BASE = process.env.NEXT_PUBLIC_AI_URL || "http://localhost:5000";
-						const iconRes = await fetch(`${AI_BASE}/api/icons/save`, {
+						const iconRes = await fetch("/api/icons/save", {
 							method: "POST",
 							headers: { "Content-Type": "application/json" },
 							body: JSON.stringify({ username, svg: signIconDataUrl }),

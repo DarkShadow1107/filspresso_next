@@ -189,7 +189,7 @@ async function checkPromptLimit(
 		};
 
 		const scope = normalizePromptScope(request.headers.get("x-kafelot-scope"));
-		const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+		const promptLimitUrl = new URL("/api/kafelot/check-and-use", request.url);
 		const headers: Record<string, string> = { "Content-Type": "application/json" };
 		const authHeader = request.headers.get("authorization");
 		if (authHeader) headers["authorization"] = authHeader;
@@ -199,7 +199,7 @@ async function checkPromptLimit(
 		if (forwarded) headers["x-forwarded-for"] = forwarded;
 		headers["x-kafelot-scope"] = scope;
 
-		const res = await fetch(`${API_BASE}/api/kafelot/check-and-use`, {
+		const res = await fetch(promptLimitUrl, {
 			method: "POST",
 			headers,
 			body: JSON.stringify({ dry_run: dryRun, scope }),

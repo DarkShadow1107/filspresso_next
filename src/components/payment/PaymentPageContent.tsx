@@ -5,7 +5,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
-import fx from "money";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { readAccountSession, writeAccountSession } from "@/lib/accountSession";
@@ -508,6 +507,15 @@ export default React.memo(function PaymentPageContent() {
 
 	const selectedDestination =
 		SUPPORTED_DESTINATIONS.find((destination) => destination.code === selectedDestinationCode) ?? SUPPORTED_DESTINATIONS[0];
+	const convertFromRon = useCallback(
+		(amountRon: number) => {
+			if (selectedCurrency === "RON" || !canConvertCurrency) {
+				return roundCurrency(amountRon);
+			}
+			return roundCurrency(amountRon * selectedRate);
+		},
+		[canConvertCurrency, selectedCurrency, selectedRate],
+	);
 
 	useEffect(() => {
 		if (isCurrencyManuallySelected) {
@@ -522,19 +530,8 @@ export default React.memo(function PaymentPageContent() {
 	const selectedRate = selectedCurrency === "RON" ? 1 : Number(fxRates[selectedCurrency] || 0);
 	const canConvertCurrency = selectedCurrency === "RON" || selectedRate > 0;
 
-	if (canConvertCurrency) {
-		fx.base = "RON";
-		fx.rates = { RON: 1, ...(fxRates as Record<string, number>) };
-	}
-
-	const convertedSubtotal = roundCurrency(
-		selectedCurrency === "RON" || !canConvertCurrency ? currentSum : fx(currentSum).from("RON").to(selectedCurrency),
-	);
-	const convertedShippingCost = roundCurrency(
-		selectedCurrency === "RON" || !canConvertCurrency
-			? baseShippingCost
-			: fx(baseShippingCost).from("RON").to(selectedCurrency),
-	);
+	const convertedSubtotal = roundCurrency(convertFromRon(currentSum));
+	const convertedShippingCost = roundCurrency(convertFromRon(baseShippingCost));
 	const conversionFeePercent = CURRENCY_CONFIG[selectedCurrency].feePercent;
 	const subtotalA = roundCurrency(items.reduce((sum, item) => sum + item.price * item.qty, 0));
 	const discountAmount = roundCurrency(memberDiscount.amount || 0);

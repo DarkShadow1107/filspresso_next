@@ -257,6 +257,17 @@ public class ServiceAssertionFilter extends OncePerRequestFilter {
     private static String envOrFile(String name) {
         String direct = safeTrim(System.getenv(name));
         if (!direct.isBlank()) {
+            // If it looks like a path and not a PEM key, try reading it
+            if ((direct.contains("/") || direct.contains("\\") || direct.startsWith("./")) &&
+                    !direct.startsWith("-----BEGIN")) {
+                try {
+                    Path path = Path.of(direct);
+                    if (Files.exists(path)) {
+                        return Files.readString(path, StandardCharsets.UTF_8).trim();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
             return direct;
         }
 

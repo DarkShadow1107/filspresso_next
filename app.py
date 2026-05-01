@@ -47,6 +47,15 @@ logger = logging.getLogger(__name__)
 def read_env_or_file(name: str, default: str | None = None, required: bool = False) -> str | None:
     value = (os.getenv(name) or "").strip()
     if value:
+        if ("/" in value or "\\" in value or value.startswith("./")) and not value.startswith("-----BEGIN"):
+            try:
+                if Path(value).exists():
+                    with open(value, "r", encoding="utf-8") as handle:
+                        loaded = (handle.read() or "").strip()
+                        if loaded:
+                            return loaded
+            except Exception:
+                pass
         return value
 
     file_path = (os.getenv(f"{name}_FILE") or "").strip()

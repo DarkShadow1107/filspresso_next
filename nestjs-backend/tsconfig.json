@@ -5,6 +5,7 @@
 		"lib": ["ES2022"],
 		"moduleResolution": "node16",
 
+		"allowJs": true,
 		"declaration": true,
 		"sourceMap": true,
 		"outDir": "./dist",
@@ -21,7 +22,8 @@
 		"emitDecoratorMetadata": true,
 		"experimentalDecorators": true,
 		"resolveJsonModule": true,
-		"skipLibCheck": true
+		"skipLibCheck": true,
+		"strict": false
 	},
 	"include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts"],
 	"exclude": ["node_modules", "dist"]

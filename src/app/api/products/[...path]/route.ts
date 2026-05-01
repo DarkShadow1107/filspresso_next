@@ -101,7 +101,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
 			: undefined;
 
 	return proxyBackendRequest(request, backendPath, {
-		timeoutMs: 1800,
+		timeoutMs: 4500,
 		fallback: kind ? () => fallbackProducts(kind) : undefined,
 		responseHeaders: cacheHeaders,
 	});

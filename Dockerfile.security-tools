@@ -1,0 +1,7 @@
+FROM node:20-alpine
+RUN apk add --no-cache openssl
+WORKDIR /app
+COPY scripts/ ./scripts/
+COPY secrets/ ./secrets/
+RUN mkdir -p /secrets
+CMD ["/bin/sh"]

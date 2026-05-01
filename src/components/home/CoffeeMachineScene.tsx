@@ -133,7 +133,6 @@ const coffeeSceneHtml = `
 		</svg>
 	</div>
 </div>
-<div class="unselect">1</div>
 `;
 
 export default function CoffeeMachineScene() {

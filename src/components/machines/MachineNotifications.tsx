@@ -30,7 +30,13 @@ export function useMachineNotifications() {
 
 export default function MachineNotificationsProvider({ children }: { children: React.ReactNode }) {
 	const [items, setItems] = useState<MachineNotification[]>([]);
+	const [mounted, setMounted] = useState(false);
 	const timersRef = useRef<Map<string, { timeout: ReturnType<typeof setTimeout>; start: number }>>(new Map());
+
+	useEffect(() => {
+		const frame = requestAnimationFrame(() => setMounted(true));
+		return () => cancelAnimationFrame(frame);
+	}, []);
 
 	const clearTimer = useCallback((id: string) => {
 		const active = timersRef.current.get(id);
@@ -247,7 +253,7 @@ export default function MachineNotificationsProvider({ children }: { children: R
 	return (
 		<MachineNotificationsContext.Provider value={value}>
 			{children}
-			{typeof document !== "undefined" ? createPortal(node, document.body) : null}
+			{mounted && typeof document !== "undefined" ? createPortal(node, document.body) : null}
 		</MachineNotificationsContext.Provider>
 	);
 }

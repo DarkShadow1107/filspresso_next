@@ -728,7 +728,7 @@ export default React.memo(function CoffeeRecommender() {
 	const editingMessageIdxRef = useRef<number | null>(null);
 	const lastSavedConversationSignatureRef = useRef<string>("");
 	const [editingMessageIdx, setEditingMessageIdx] = useState<number | null>(null);
-	const { addItem } = useCart();
+	const { addItem } = useCart({ passive: true });
 	const { notify } = useNotifications();
 
 	// Stock data for products

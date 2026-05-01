@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildBackendUrl, fetchJsonWithTimeout } from "@/lib/server/backend";
+import { fetchBackendJsonWithTimeout } from "@/lib/server/backend";
 import type { WeatherData } from "@/lib/weather";
 
 export const runtime = "nodejs";
@@ -31,8 +31,8 @@ function fallbackWeather(): WeatherData {
 
 export async function GET(request: NextRequest) {
 	try {
-		const data = await fetchJsonWithTimeout<WeatherData>(buildBackendUrl("/api/weather", request.nextUrl.search), {
-			timeoutMs: 1500,
+		const data = await fetchBackendJsonWithTimeout<WeatherData>("/api/weather", request.nextUrl.search, {
+			timeoutMs: 3500,
 			cache: "no-store",
 		});
 

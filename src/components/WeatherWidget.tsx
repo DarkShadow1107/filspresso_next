@@ -16,6 +16,15 @@ import {
 	CloudIcon,
 	RainIcon,
 	SnowIcon,
+    CloudFogIcon,
+    CloudDrizzleIcon,
+    CloudLightningIcon,
+    WindIcon,
+    MoonStarIcon,
+    CloudMoonIcon,
+    CloudSunIcon,
+    CloudSunRainIcon,
+    SunFogIcon,
 } from "@/icons";
 
 type WeatherWidgetProps = {
@@ -28,17 +37,20 @@ type WeatherWidgetProps = {
 const WeatherIcon = ({ icon, size }: { icon: string; size: number }) => {
 	const iconMap: Record<string, React.ElementType> = {
 		"clear-day": SunIcon,
-		"clear-night": MoonIcon,
-		"partly-cloudy-day": CloudIcon,
-		"partly-cloudy-night": CloudIcon,
+		"clear-night": MoonStarIcon,
+		"partly-cloudy-day": CloudSunIcon,
+		"partly-cloudy-night": CloudMoonIcon,
 		cloudy: CloudIcon,
-		fog: CloudIcon,
-		drizzle: RainIcon,
+		fog: CloudFogIcon,
+        mist: CloudFogIcon,
+		drizzle: CloudDrizzleIcon,
 		rain: RainIcon,
-		"rain-showers": RainIcon,
+		"rain-showers": CloudSunRainIcon,
 		snow: SnowIcon,
 		"snow-showers": SnowIcon,
-		thunderstorm: TriangleAlertIcon,
+		thunderstorm: CloudLightningIcon,
+        windy: WindIcon,
+        "sun-fog": SunFogIcon, // Additional fallback
 	};
 	const IconComp = iconMap[icon] || SunIcon;
 	return <IconComp size={size} />;

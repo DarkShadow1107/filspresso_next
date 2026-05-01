@@ -194,8 +194,8 @@ export default function Navbar() {
 		const handleStorage = () => checkSession();
 		window.addEventListener("storage", handleStorage);
 		window.addEventListener("session-update", handleStorage);
-		// Also check periodically for session changes (same tab navigation)
-		const interval = setInterval(checkSession, 1000);
+		// Fallback polling for external session mutations that do not emit events.
+		const interval = setInterval(checkSession, 30000);
 		return () => {
 			window.removeEventListener("storage", handleStorage);
 			window.removeEventListener("session-update", handleStorage);
@@ -249,8 +249,6 @@ export default function Navbar() {
 				textDecoration: "none",
 			}
 		: undefined;
-
-	const iconStyle: CSSProperties | undefined = isSmallScreen ? { marginRight: "0.5rem" } : undefined;
 
 	return (
 		<header className="header_body">
@@ -323,7 +321,7 @@ export default function Navbar() {
 															marginRight: 10,
 															display: "inline-block",
 														}}
-														onError={(e) => {
+														onError={() => {
 															if (accountIcon && !accountIcon.startsWith("data:image/")) {
 																lastFailedUrlRef.current = accountIcon;
 																setAccountIcon(fallbackAvatarRef.current || null);

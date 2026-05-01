@@ -26,7 +26,7 @@ function meFallback() {
 export async function GET(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {
 	const path = await backendPath(context.params);
 	return proxyBackendRequest(request, path, {
-		timeoutMs: 1800,
+		timeoutMs: 4500,
 		fallback: path === "/api/auth/me" ? meFallback : undefined,
 	});
 }

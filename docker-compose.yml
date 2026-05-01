@@ -188,6 +188,7 @@ services:
         volumes:
             # Mount product images so the backend can read/write images (admin uploads)
             - ./public/images:/public/images
+            - ./secrets:/app/secrets:ro
         ports:
             - "4000:4000"
         healthcheck:
@@ -222,6 +223,8 @@ services:
             SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-}
             SERVICE_ASSERTION_ENFORCE_REPLAY: ${SERVICE_ASSERTION_ENFORCE_REPLAY:-true}
             SERVICE_ASSERTION_REPLAY_TTL_SECONDS: ${SERVICE_ASSERTION_REPLAY_TTL_SECONDS:-900}
+        volumes:
+            - ./secrets:/app/secrets:ro
         ports:
             - "8090:8090"
         networks:
@@ -255,6 +258,7 @@ services:
             - "8082:8082"
         volumes:
             - ./public/images:/app/public/images:ro
+            - ./secrets:/app/secrets:ro
         networks:
             default:
                 aliases:
@@ -296,6 +300,8 @@ services:
             SERVICE_ASSERTION_PUBLIC_KEY_FILE: ${SERVICE_ASSERTION_PUBLIC_KEY_FILE:-}
             SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
             SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-}
+        volumes:
+            - ./secrets:/app/secrets:ro
         ports:
             - "${GO_OPS_PUBLIC_PORT:-8083}:${GO_OPS_PORT:-8083}"
         networks:
@@ -328,6 +334,8 @@ services:
             SERVICE_ASSERTION_PUBLIC_KEY_FILE: ${SERVICE_ASSERTION_PUBLIC_KEY_FILE:-}
             SERVICE_ASSERTION_AUDIENCE: ${SERVICE_ASSERTION_AUDIENCE:-filspresso-backend}
             SERVICE_ASSERTION_ISSUER_ALLOWLIST: ${SERVICE_ASSERTION_ISSUER_ALLOWLIST:-}
+        volumes:
+            - ./secrets:/app/secrets:ro
         ports:
             - "8084:8084"
         networks:
@@ -391,6 +399,7 @@ services:
         volumes:
             # Persist generated user icons
             - ./public/images/icons:/app/public/images/icons
+            - ./secrets:/app/secrets:ro
         healthcheck:
             test: ["CMD-SHELL", "wget -qO- http://localhost:5000/api/health || exit 1"]
             interval: 20s

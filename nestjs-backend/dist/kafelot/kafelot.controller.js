@@ -44,9 +44,11 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var _a, _b, _c, _d, _e, _f;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.KafelotController = void 0;
 const common_1 = require("@nestjs/common");
+const express_1 = require("express");
 const kafelot_service_1 = require("./kafelot.service");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const optional_jwt_auth_guard_1 = require("../common/guards/optional-jwt-auth.guard");
@@ -154,7 +156,7 @@ __decorate([
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, typeof (_a = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _a : Object]),
     __metadata("design:returntype", Promise)
 ], KafelotController.prototype, "checkAndUse", null);
 __decorate([
@@ -163,7 +165,7 @@ __decorate([
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object, typeof (_b = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _b : Object]),
     __metadata("design:returntype", Promise)
 ], KafelotController.prototype, "getStatus", null);
 __decorate([
@@ -175,7 +177,7 @@ __decorate([
     __param(3, (0, common_1.Query)("search")),
     __param(4, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, String, String, Object]),
+    __metadata("design:paramtypes", [Object, String, String, String, typeof (_c = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _c : Object]),
     __metadata("design:returntype", void 0)
 ], KafelotController.prototype, "getAnonymousUsers", null);
 __decorate([
@@ -185,7 +187,7 @@ __decorate([
     __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
     __param(2, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Number, Object]),
+    __metadata("design:paramtypes", [Object, Number, typeof (_d = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _d : Object]),
     __metadata("design:returntype", void 0)
 ], KafelotController.prototype, "updateAnonymousUser", null);
 __decorate([
@@ -198,7 +200,7 @@ __decorate([
     __param(4, (0, common_1.Query)("scope")),
     __param(5, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, String, String, String, Object]),
+    __metadata("design:paramtypes", [Object, String, String, String, String, typeof (_e = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _e : Object]),
     __metadata("design:returntype", void 0)
 ], KafelotController.prototype, "getUsersUsage", null);
 __decorate([
@@ -208,7 +210,7 @@ __decorate([
     __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
     __param(2, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Number, Object]),
+    __metadata("design:paramtypes", [Object, Number, typeof (_f = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _f : Object]),
     __metadata("design:returntype", void 0)
 ], KafelotController.prototype, "updateUserUsage", null);
 exports.KafelotController = KafelotController = __decorate([

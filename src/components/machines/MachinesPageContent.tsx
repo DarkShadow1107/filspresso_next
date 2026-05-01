@@ -89,7 +89,7 @@ export const safeImageUrl = (url: string) => {
 };
 
 export function MachineProductCard({ product, category }: { product: MachineProduct; category: string }) {
-	const { addItem } = useCart();
+	const { addItem } = useCart({ passive: true });
 	const { isFavorite, toggleFavorite } = useFavorites();
 	const { notify } = useMachineNotifications();
 	const { stockData, isLoading: stockLoading, apiDown } = useMachineStock();
@@ -237,9 +237,7 @@ function MachineGroupSection({ group, category }: { group: MachineGroup; categor
 		<div className="machine_groups">
 			<FadeInWhenVisible className={group.headerClass ?? "machine_groups_head"}>
 				<div className="content_coffee_head">
-					<h3>
-						<strong>{group.title}</strong>
-					</h3>
+					<h3 className="h3_group">{group.title}</h3>
 					<br />
 					<div className="text_head">{group.description}</div>
 				</div>
@@ -277,7 +275,9 @@ export default function MachinesPageContent() {
 	return (
 		<MachineStockContext.Provider value={{ stockData, isLoading, apiDown }}>
 			<MachineNotificationsProvider>
-				<main className={hideContent ? "pointer-events-none select-none opacity-0" : "transition-opacity duration-300"}>
+				<main
+					className={`machines-page-content ${hideContent ? "pointer-events-none select-none opacity-0" : "transition-opacity duration-300"}`}
+				>
 					<div className="coffee_pres">
 						<Image
 							src="/images/machines_background_subheader.png"

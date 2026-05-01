@@ -11,7 +11,7 @@ async function backendPath(params: Promise<{ path?: string[] }>) {
 }
 
 export async function GET(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {
-	return proxyBackendRequest(request, await backendPath(context.params), { timeoutMs: 1800 });
+	return proxyBackendRequest(request, await backendPath(context.params), { timeoutMs: 4500 });
 }
 
 export async function PUT(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {

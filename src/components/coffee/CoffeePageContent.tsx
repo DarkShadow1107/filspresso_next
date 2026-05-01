@@ -317,7 +317,7 @@ export function NotePills({ notes, productId }: { notes: string[]; productId: st
 }
 
 export function CoffeeProductCard({ product, category }: { product: CoffeeProduct; category: string }) {
-	const { addItem } = useCart();
+	const { addItem } = useCart({ passive: true });
 	const { notify } = useNotifications();
 	const { isFavorite, toggleFavorite } = useFavorites();
 	const { stockData, isLoading: stockLoading } = useStock();
@@ -451,8 +451,8 @@ export function CoffeeProductCard({ product, category }: { product: CoffeeProduc
 							<HeartIcon filled={isFavorite("capsule", product.id)} size={20} color="#C8977B" />
 						</button>
 						<div className="capsule_box">
-							{/* Edition limitée badge: detect either by image path or extraClass */}
-							{(product.image?.includes("Limited Edition") || (product.extraClass ?? []).includes("limited")) && (
+							{/* Limited Edition badge: detect by category */}
+							{(product.category === "Limited Edition" || product.image?.includes("Limited Edition") || (product.extraClass ?? []).includes("limited")) && (
 								<span className="badge-limited">Édition limitée</span>
 							)}
 							<Image src={product.image} alt={product.name} width={243} height={165} style={imageStyle} />
@@ -503,9 +503,7 @@ function CoffeeGroupSection({ group, category }: { group: CoffeeGroup; category:
 		<div className="coffee_groups">
 			<FadeInWhenVisible className="coffee_groups_head">
 				<div className="content_coffee_head">
-					<h3>
-						<strong>{group.title}</strong>
-					</h3>
+					<h3 className="h3_group">{group.title}</h3>
 					{group.dimmer ? <div className="text_dimmer">{group.dimmer}</div> : null}
 					<br />
 					<div className="text_head">{group.description}</div>
@@ -543,7 +541,9 @@ export default function CoffeePageContent() {
 
 	return (
 		<StockContext.Provider value={{ stockData, isLoading }}>
-			<main className={hideContent ? "pointer-events-none select-none opacity-0" : "transition-opacity duration-300"}>
+			<main
+				className={`coffee-page-content ${hideContent ? "pointer-events-none select-none opacity-0" : "transition-opacity duration-300"}`}
+			>
 				<div className="coffee_pres">
 					<Image
 						src="/images/coffee_background_subheader.png"

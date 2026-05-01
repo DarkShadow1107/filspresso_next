@@ -24,8 +24,8 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 
-COPY nestjs-backend/src/data/coffee.generated.json ./bootstrap-data/coffee.generated.json
-COPY nestjs-backend/src/data/machines.generated.json ./bootstrap-data/machines.generated.json
+COPY src/data/coffee.generated.json ./bootstrap-data/coffee.generated.json
+COPY src/data/machines.generated.json ./bootstrap-data/machines.generated.json
 
 RUN mkdir -p /tmp/filspresso /app/public/images \
   && ln -sfn /public/images /app/public/images \

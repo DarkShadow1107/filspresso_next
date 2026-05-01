@@ -212,6 +212,16 @@ import CloudIcon from "./cloud-icon";
 import RainIcon from "./rain-icon";
 import SnowIcon from "./snow-icon";
 
+import CloudFogIcon from "./cloud-fog-icon";
+import CloudDrizzleIcon from "./cloud-drizzle-icon";
+import CloudLightningIcon from "./cloud-lightning-icon";
+import WindIcon from "./wind-icon";
+import MoonStarIcon from "./moon-star-icon";
+import CloudMoonIcon from "./cloud-moon-icon";
+import CloudSunIcon from "./cloud-sun-icon";
+import CloudSunRainIcon from "./cloud-sun-rain-icon";
+import SunFogIcon from "./sun-fog-icon";
+
 export interface IconType {
 	name: string;
 	icon: React.ForwardRefExoticComponent<AnimatedIconProps & React.RefAttributes<AnimatedIconHandle>>;
@@ -1279,10 +1289,64 @@ const ICON_LIST: IconType[] = [
 		icon: SnowIcon,
 		keywords: ["snow", "weather", "winter", "cold"],
 	},
+	{
+		name: "cloud-fog-icon",
+		icon: CloudFogIcon,
+		keywords: ["cloud", "fog", "weather"],
+	},
+	{
+		name: "cloud-drizzle-icon",
+		icon: CloudDrizzleIcon,
+		keywords: ["cloud", "drizzle", "rain", "weather"],
+	},
+	{
+		name: "cloud-lightning-icon",
+		icon: CloudLightningIcon,
+		keywords: ["cloud", "lightning", "storm", "thunderstorm", "weather"],
+	},
+	{
+		name: "wind-icon",
+		icon: WindIcon,
+		keywords: ["wind", "weather", "breeze"],
+	},
+	{
+		name: "moon-star-icon",
+		icon: MoonStarIcon,
+		keywords: ["moon", "star", "night", "clear", "weather"],
+	},
+	{
+		name: "cloud-moon-icon",
+		icon: CloudMoonIcon,
+		keywords: ["cloud", "moon", "night", "weather"],
+	},
+	{
+		name: "cloud-sun-icon",
+		icon: CloudSunIcon,
+		keywords: ["cloud", "sun", "day", "weather"],
+	},
+	{
+		name: "cloud-sun-rain-icon",
+		icon: CloudSunRainIcon,
+		keywords: ["cloud", "sun", "rain", "day", "weather"],
+	},
+	{
+		name: "sun-fog-icon",
+		icon: SunFogIcon,
+		keywords: ["sun", "fog", "haze", "weather"],
+	},
 ].sort((a, b) => a.name.localeCompare(b.name));
 
 export type { AnimatedIconProps, AnimatedIconHandle };
 export {
+	CloudFogIcon,
+	CloudDrizzleIcon,
+	CloudLightningIcon,
+	WindIcon,
+	MoonStarIcon,
+	CloudMoonIcon,
+	CloudSunIcon,
+	CloudSunRainIcon,
+	SunFogIcon,
 	AccessibilityIcon,
 	AlarmClockPlusIcon,
 	AlignCenterIcon,

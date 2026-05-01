@@ -20,7 +20,6 @@ const database_module_1 = require("./database/database.module");
 const health_module_1 = require("./health/health.module");
 const security_module_1 = require("./security/security.module");
 const integrations_module_1 = require("./integrations/integrations.module");
-const legacy_module_1 = require("./legacy/legacy.module");
 const auth_module_1 = require("./auth/auth.module");
 const accounts_module_1 = require("./accounts/accounts.module");
 const cards_module_1 = require("./cards/cards.module");
@@ -55,7 +54,6 @@ exports.AppModule = AppModule = __decorate([
             integrations_module_1.IntegrationsModule,
             health_module_1.HealthModule,
             security_observability_module_1.SecurityObservabilityModule,
-            legacy_module_1.LegacyModule,
             auth_module_1.AuthModule,
             accounts_module_1.AccountsModule,
             cards_module_1.CardsModule,

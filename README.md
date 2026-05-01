@@ -2383,13 +2383,13 @@ node scripts/verifyDockerfileBaseImages.mjs
 Backend assertion matrix:
 
 ```bash
-npm --prefix express-api run test:internal-assertion-matrix
+npm --prefix nestjs-backend run test
 ```
 
 Ledger verification:
 
 ```bash
-npm --prefix express-api run security:verify-ledger
+powershell -ExecutionPolicy Bypass -File .\tests\run-all-tests-no-integration.ps1
 ```
 
 ### 28.7 Secrets And Key Material Workflow

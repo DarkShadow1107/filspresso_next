@@ -164,9 +164,8 @@
 	border-radius: 50%;
 	color: rgb(255, 185, 115);
 	background-color: rgba(0, 0, 0, 0.438);
-	font-family: "unicons";
-	content: "\eb4f";
-	z-index: 2;
+	content: "";
+	z-index: 20;
 	top: -10px;
 	left: -10px;
 	line-height: 36px;
@@ -177,6 +176,26 @@
 
 .account-page .checkbox:checked + label:before {
 	transform: translateX(44px) rotate(-270deg);
+}
+
+.account-page .checkbox:checked + label:after,
+.account-page .checkbox:not(:checked) + label:after {
+	content: "";
+	position: absolute;
+	z-index: 21;
+	top: 50%;
+	left: 2px;
+	width: 9px;
+	height: 9px;
+	border-top: 2px solid rgb(255, 185, 115);
+	border-right: 2px solid rgb(255, 185, 115);
+	pointer-events: none;
+	transform: translateY(-50%) rotate(45deg);
+	transition: all 0.5s ease;
+}
+
+.account-page .checkbox:checked + label:after {
+	transform: translate(44px, -50%) rotate(45deg);
 }
 
 .account-page .card-3d-wrap {
@@ -345,7 +364,8 @@
 .account-page .input-toggle {
 	position: absolute;
 	right: 14px;
-	top: 8px;
+	top: 50%;
+	transform: translateY(-50%);
 	height: 32px;
 	width: 36px;
 	border: none;

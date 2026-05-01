@@ -46,8 +46,9 @@ function buildContentSecurityPolicy() {
 		"object-src 'none'",
 		"form-action 'self'",
 		"img-src 'self' data: https:",
-		"font-src 'self' data:",
+		"font-src 'self' data: https://db.onlinewebfonts.com",
 		"style-src 'self' 'unsafe-inline'",
+		"style-src-elem 'self' 'unsafe-inline' https://db.onlinewebfonts.com",
 		"connect-src 'self' https: wss: ws:",
 		IS_PRODUCTION ? "script-src 'self'" : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
 	];

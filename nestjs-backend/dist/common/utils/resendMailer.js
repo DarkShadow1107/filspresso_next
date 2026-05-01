@@ -1,12 +1,145 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.toAbsoluteImageUrl = exports.formatMoney = exports.escapeHtml = exports.buildSecurityLoginHtml = exports.buildWelcomeHtml = exports.buildOrderEmailHtml = exports.buildEmailVerificationHtml = exports.sendTransactionalEmail = void 0;
-const legacyMailer = require("../../legacy-bridge/utils/resendMailer");
-exports.sendTransactionalEmail = legacyMailer.sendTransactionalEmail;
-exports.buildEmailVerificationHtml = legacyMailer.buildEmailVerificationHtml;
-exports.buildOrderEmailHtml = legacyMailer.buildOrderEmailHtml;
-exports.buildWelcomeHtml = legacyMailer.buildWelcomeHtml;
-exports.buildSecurityLoginHtml = legacyMailer.buildSecurityLoginHtml;
-exports.escapeHtml = legacyMailer.escapeHtml;
-exports.formatMoney = legacyMailer.formatMoney;
-exports.toAbsoluteImageUrl = legacyMailer.toAbsoluteImageUrl;
+exports.sendTransactionalEmail = sendTransactionalEmail;
+exports.escapeHtml = escapeHtml;
+exports.formatMoney = formatMoney;
+exports.toAbsoluteImageUrl = toAbsoluteImageUrl;
+exports.buildEmailVerificationHtml = buildEmailVerificationHtml;
+exports.buildOrderEmailHtml = buildOrderEmailHtml;
+exports.buildWelcomeHtml = buildWelcomeHtml;
+exports.buildSecurityLoginHtml = buildSecurityLoginHtml;
+const RESEND_API_URL = "https://api.resend.com/emails";
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
+const MAIL_FROM = String(process.env.MAIL_FROM || "Filspresso <noreply@filspresso.com>").trim();
+const FRONTEND_ORIGIN = String(process.env.FRONTEND_ORIGIN ||
+    process.env.NEXT_PUBLIC_FRONTEND_URL ||
+    String(process.env.CORS_ORIGIN || "http://localhost:3000").split(",")[0].trim() ||
+    "http://localhost:3000").replace(/\/$/, "");
+function getResendApiKey() {
+    const runtimeKey = String(process.env.RESEND_API_KEY || "").trim();
+    return runtimeKey || RESEND_API_KEY;
+}
+async function sendTransactionalEmail(payload) {
+    const apiKey = getResendApiKey();
+    if (!apiKey || !payload.to || !payload.subject) {
+        return { skipped: true };
+    }
+    const response = await fetch(RESEND_API_URL, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            from: payload.from || MAIL_FROM,
+            to: [payload.to],
+            subject: payload.subject,
+            text: payload.text,
+            html: payload.html,
+            reply_to: payload.replyTo,
+        }),
+    });
+    if (!response.ok) {
+        const details = await response.text().catch(() => "");
+        throw new Error(`Resend request failed (${response.status}): ${details}`);
+    }
+    const data = (await response.json().catch(() => ({})));
+    return { id: data.id };
+}
+function escapeHtml(value) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+function formatMoney(value, currency = "USD") {
+    const amount = Number(value);
+    if (!Number.isFinite(amount))
+        return "-";
+    try {
+        return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount);
+    }
+    catch {
+        return amount.toFixed(2);
+    }
+}
+function toAbsoluteImageUrl(imageUrl) {
+    const normalized = String(imageUrl || "").trim();
+    if (!normalized)
+        return "";
+    if (/^https?:\/\//i.test(normalized))
+        return normalized;
+    if (normalized.startsWith("/"))
+        return `${FRONTEND_ORIGIN}${normalized}`;
+    return `${FRONTEND_ORIGIN}/${normalized}`;
+}
+function baseTemplate(title, preview, bodyHtml) {
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+  </head>
+  <body style="margin:0;background:#f6f7fb;color:#1f2937;font-family:Arial,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(preview)}</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e7eb;">
+            <tr>
+              <td style="padding:24px 28px;background:#0f172a;color:#fff;font-size:20px;font-weight:700;">Filspresso</td>
+            </tr>
+            <tr>
+              <td style="padding:28px;line-height:1.6;font-size:15px;">${bodyHtml}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+function buildEmailVerificationHtml(payload) {
+    const displayName = escapeHtml(payload?.displayName || "there");
+    const verificationUrl = escapeHtml(payload?.verificationUrl || `${FRONTEND_ORIGIN}/?page=account`);
+    return baseTemplate("Verify your Filspresso email", "Verify your email to activate your account.", `<h1 style="margin:0 0 14px;font-size:22px;color:#0f172a;">Verify your email</h1>
+     <p style="margin:0 0 16px;">Hi ${displayName}, please verify your email address to finish setting up your account.</p>
+     <p style="margin:20px 0;">
+       <a href="${verificationUrl}" style="display:inline-block;padding:12px 18px;border-radius:10px;background:#0f172a;color:#fff;text-decoration:none;font-weight:600;">Verify Email</a>
+     </p>
+     <p style="margin:0;color:#6b7280;font-size:13px;">If you did not create this account, you can ignore this email.</p>`);
+}
+function buildOrderEmailHtml(payload) {
+    const displayName = escapeHtml(payload?.displayName || "there");
+    const orderId = escapeHtml(payload?.orderId || "-");
+    const total = escapeHtml(formatMoney(payload?.total, payload?.currency || "USD"));
+    const status = escapeHtml(payload?.status || "received");
+    return baseTemplate("Order update", "Your Filspresso order was updated.", `<h1 style="margin:0 0 14px;font-size:22px;color:#0f172a;">Order update</h1>
+     <p style="margin:0 0 16px;">Hi ${displayName}, your order has been ${status}.</p>
+     <p style="margin:0;"><strong>Order:</strong> ${orderId}</p>
+     <p style="margin:6px 0 0;"><strong>Total:</strong> ${total}</p>`);
+}
+function buildWelcomeHtml(payload) {
+    const displayName = escapeHtml(payload?.displayName || "there");
+    const accountUrl = escapeHtml(payload?.accountUrl || `${FRONTEND_ORIGIN}/?page=account`);
+    return baseTemplate("Welcome to Filspresso", "Your account is ready.", `<h1 style="margin:0 0 14px;font-size:22px;color:#0f172a;">Welcome to Filspresso</h1>
+     <p style="margin:0 0 16px;">Hi ${displayName}, your account is ready. You can now manage profile settings and preferences.</p>
+     <p style="margin:20px 0;">
+       <a href="${accountUrl}" style="display:inline-block;padding:12px 18px;border-radius:10px;background:#0f172a;color:#fff;text-decoration:none;font-weight:600;">Open Account</a>
+     </p>`);
+}
+function buildSecurityLoginHtml(payload) {
+    const displayName = escapeHtml(payload?.displayName || "there");
+    const ipAddress = escapeHtml(payload?.ipAddress || "Unknown");
+    const userAgent = escapeHtml(payload?.userAgent || "Unknown");
+    const occurredAt = escapeHtml(payload?.occurredAt || new Date().toISOString());
+    return baseTemplate("Security alert: new login", "A new login to your Filspresso account was detected.", `<h1 style="margin:0 0 14px;font-size:22px;color:#0f172a;">Security alert</h1>
+     <p style="margin:0 0 16px;">Hi ${displayName}, we detected a new login to your account.</p>
+     <p style="margin:0;"><strong>Time:</strong> ${occurredAt}</p>
+     <p style="margin:6px 0 0;"><strong>IP:</strong> ${ipAddress}</p>
+     <p style="margin:6px 0 0;"><strong>Device:</strong> ${userAgent}</p>
+     <p style="margin:16px 0 0;color:#6b7280;font-size:13px;">If this wasn't you, change your password immediately.</p>`);
+}

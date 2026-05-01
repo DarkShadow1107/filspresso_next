@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
@@ -38,11 +38,13 @@ function isLoggedIn(): boolean {
 	return getAuthToken() !== null;
 }
 
-export default function useCart() {
+export default function useCart(options?: { passive?: boolean }) {
+	const passive = options?.passive ?? false;
 	const [items, setItems] = useState<CartItem[]>([]);
 	const [currentSum, setCurrentSum] = useState<number>(0);
 	const [memberDiscount, setMemberDiscount] = useState<MemberDiscount>({ tier: "None", percent: 0, amount: 0 });
 	const [loading, setLoading] = useState(false);
+	const lastFetchWarnAtRef = useRef(0);
 	const { notify } = useNotifications();
 	const router = useRouter();
 
@@ -99,8 +101,12 @@ export default function useCart() {
 				setCurrentSum(0);
 				setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
 			}
-		} catch (error) {
-			console.warn("Cart API unavailable. Retrying automatically.");
+		} catch {
+			const now = Date.now();
+			if (now - lastFetchWarnAtRef.current > 60_000) {
+				console.warn("Cart API unavailable. Retrying automatically.");
+				lastFetchWarnAtRef.current = now;
+			}
 		} finally {
 			setLoading(false);
 		}
@@ -108,6 +114,7 @@ export default function useCart() {
 
 	// Initial fetch and listen for login/logout events
 	useEffect(() => {
+		if (passive) return;
 		fetchCart();
 
 		// Listen for storage events (login/logout)
@@ -122,14 +129,14 @@ export default function useCart() {
 		window.addEventListener("session-update", handleSessionUpdate);
 
 		// Poll for cart updates
-		const interval = setInterval(fetchCart, 30000); // Refresh every 30 seconds
+		const interval = setInterval(fetchCart, 45000); // Refresh every 45 seconds
 
 		return () => {
 			window.removeEventListener("storage", handleStorageChange);
 			window.removeEventListener("session-update", handleSessionUpdate);
 			clearInterval(interval);
 		};
-	}, [fetchCart]);
+	}, [fetchCart, passive]);
 
 	const reset = useCallback(
 		async (options?: { silent?: boolean }) => {
@@ -288,8 +295,10 @@ export default function useCart() {
 				});
 
 				if (res.ok) {
-					// Refresh cart from server to get proper discounted total
-					await fetchCart();
+					// Refresh cart from server to get proper discounted total in active cart views.
+					if (!passive) {
+						await fetchCart();
+					}
 					return true;
 				} else {
 					const data = await res.json();
@@ -302,17 +311,13 @@ export default function useCart() {
 				return false;
 			}
 		},
-		[notify, router, fetchCart],
+		[notify, router, fetchCart, passive],
 	);
 
 	const removeItem = useCallback(
 		async (id: string) => {
 			const token = getAuthToken();
 			if (!token) return;
-
-			// Find the cart item's database ID
-			const cartItem = items.find((i) => i.id === id);
-			if (!cartItem) return;
 
 			try {
 				// We need the database ID, but we store productId
@@ -335,14 +340,16 @@ export default function useCart() {
 					}
 				}
 
-				// Refresh cart from server to get proper discounted total
-				await fetchCart();
+				if (!passive) {
+					// Refresh cart from server to get proper discounted total
+					await fetchCart();
+				}
 			} catch (error) {
 				console.error("Failed to remove item:", error);
 				notify("Failed to remove item from cart.", 5000, "error", "bag");
 			}
 		},
-		[items, notify, fetchCart],
+		[notify, fetchCart, passive],
 	);
 
 	const updateQuantity = useCallback(
@@ -389,14 +396,16 @@ export default function useCart() {
 					}
 				}
 
-				// Refresh cart from server to get proper discounted total
-				await fetchCart();
+				if (!passive) {
+					// Refresh cart from server to get proper discounted total
+					await fetchCart();
+				}
 			} catch (error) {
 				console.error("Failed to update quantity:", error);
 				notify("Failed to update cart.", 5000, "error", "bag");
 			}
 		},
-		[items, notify, fetchCart],
+		[notify, fetchCart, passive],
 	);
 
 	return {

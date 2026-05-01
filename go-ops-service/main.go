@@ -133,7 +133,7 @@ func main() {
 	assertionVerifier, err := newServiceAssertionVerifier(cfg)
 	if err != nil {
 		log.Fatalf("service assertion config error: %v", err)
-	}
+	};
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisURL,
@@ -353,6 +353,16 @@ func envOr(key string, fallback string) string {
 func secretOrEnv(key string) string {
 	direct := strings.TrimSpace(os.Getenv(key))
 	if direct != "" {
+		// If it looks like a path and not a PEM key, try reading it
+		if (strings.Contains(direct, "/") || strings.Contains(direct, "\\") || strings.HasPrefix(direct, "./")) &&
+			!strings.HasPrefix(direct, "-----BEGIN") {
+			if _, err := os.Stat(direct); err == nil {
+				bytes, err := os.ReadFile(direct)
+				if err == nil {
+					return strings.TrimSpace(string(bytes))
+				}
+			}
+		}
 		return direct
 	}
 
@@ -451,17 +461,21 @@ func parseEd25519PublicKey(publicKeyPEM string) (ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("failed to parse SERVICE_ASSERTION_PUBLIC_KEY PEM")
 	}
 
+	// Try parsing as PKIX
 	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse SERVICE_ASSERTION_PUBLIC_KEY: %w", err)
+	if err == nil {
+		if publicKey, ok := parsed.(ed25519.PublicKey); ok {
+			return publicKey, nil
+		}
+		return nil, fmt.Errorf("SERVICE_ASSERTION_PUBLIC_KEY is not Ed25519, got: %T", parsed)
 	}
 
-	publicKey, ok := parsed.(ed25519.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("SERVICE_ASSERTION_PUBLIC_KEY is not Ed25519")
+	// If PKIX fails, it might be a raw key
+	if len(block.Bytes) == ed25519.PublicKeySize {
+		return ed25519.PublicKey(block.Bytes), nil
 	}
 
-	return publicKey, nil
+	return nil, fmt.Errorf("failed to parse SERVICE_ASSERTION_PUBLIC_KEY as PKIX or raw: %w", err)
 }
 
 func (v *serviceAssertionVerifier) verify(token string) (*serviceAssertionClaims, error) {

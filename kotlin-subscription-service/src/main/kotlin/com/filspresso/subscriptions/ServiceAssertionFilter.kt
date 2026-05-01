@@ -262,6 +262,17 @@ class ServiceAssertionFilter : OncePerRequestFilter() {
     private fun envOrFile(name: String): String {
         val direct = System.getenv(name)?.trim().orEmpty()
         if (direct.isNotBlank()) {
+            // If it looks like a path and not a PEM key, try reading it
+            if ((direct.contains("/") || direct.contains("\\") || direct.startsWith("./")) &&
+                !direct.startsWith("-----BEGIN")) {
+                try {
+                    val path = Path.of(direct)
+                    if (Files.exists(path)) {
+                        return Files.readString(path, StandardCharsets.UTF_8).trim()
+                    }
+                } catch (_: Exception) {
+                }
+            }
             return direct
         }
 

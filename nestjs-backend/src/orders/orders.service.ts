@@ -72,10 +72,8 @@ export class OrdersService {
     const client = await pool.connect();
     try {
       const result = await client.query(
-        `SELECT oi.product_id, oi.product_name, oi.product_image,
-                SUM(oi.quantity) as total_ordered, COUNT(DISTINCT oi.order_id) as order_count
-         FROM order_items oi WHERE oi.product_type = 'capsule'
-         GROUP BY oi.product_id, oi.product_name, oi.product_image
+        `SELECT product_id, product_name, product_image, total_ordered
+         FROM popular_products_cache
          ORDER BY total_ordered DESC LIMIT $1`,
         [safeLimit],
       );

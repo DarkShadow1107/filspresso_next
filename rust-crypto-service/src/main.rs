@@ -589,16 +589,25 @@ fn env_or(name: &str, default: &str) -> String {
 
 fn env_or_file(name: &str) -> String {
     let direct = std::env::var(name).unwrap_or_default();
-    if !direct.trim().is_empty() {
-        return direct.trim().to_string();
+    let trimmed = direct.trim();
+    if !trimmed.is_empty() {
+        // If it looks like a path and not a PEM key, try reading it
+        if (trimmed.contains('/') || trimmed.contains('\\') || trimmed.starts_with("./")) &&
+            !trimmed.starts_with("-----BEGIN") {
+            if let Ok(content) = std::fs::read_to_string(trimmed) {
+                return content.trim().to_string();
+            }
+        }
+        return trimmed.to_string();
     }
 
     let file_path = std::env::var(format!("{name}_FILE")).unwrap_or_default();
-    if file_path.trim().is_empty() {
+    let trimmed_path = file_path.trim();
+    if trimmed_path.is_empty() {
         return String::new();
     }
 
-    std::fs::read_to_string(file_path.trim())
+    std::fs::read_to_string(trimmed_path)
         .map(|value| value.trim().to_string())
         .unwrap_or_default()
 }

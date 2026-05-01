@@ -60,42 +60,64 @@ function Test-HttpEndpoint {
         [string]$Method = "GET",
         [object]$Body = $null,
         [int[]]$ExpectedStatus = @(200),
-        [int]$TimeoutSec = 15
+        [int]$TimeoutSec = 15,
+        [int]$MaxRetries = 4,
+        [int]$RetryDelaySec = 2
     )
 
-    $invokeParams = @{
-        Uri = $Uri
-        Method = $Method
-        Headers = $Headers
-        TimeoutSec = $TimeoutSec
-    }
-    if ($null -ne $Body) {
-        $invokeParams["Body"] = $Body
-        $invokeParams["ContentType"] = "application/json"
-    }
-    if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey("UseBasicParsing")) {
-        $invokeParams["UseBasicParsing"] = $true
-    }
+    $attempt = 0
+    $lastError = $null
 
-    try {
-        $response = Invoke-WebRequest @invokeParams
-        $statusCode = [int]$response.StatusCode
-        if ($ExpectedStatus -notcontains $statusCode) {
-            throw "Expected status $ExpectedStatus but got $statusCode"
+    while ($attempt -lt $MaxRetries) {
+        $attempt++
+        $invokeParams = @{
+            Uri = $Uri
+            Method = $Method
+            Headers = $Headers
+            TimeoutSec = $TimeoutSec
         }
-        return $response
-    }
-    catch {
-        $exception = $_.Exception
-        $hasResponse = $null -ne $exception -and $exception.PSObject.Properties.Match("Response").Count -gt 0 -and $null -ne $exception.Response
-        if ($hasResponse) {
-            $statusCode = [int]$exception.Response.StatusCode
+        if ($null -ne $Body) {
+            $invokeParams["Body"] = $Body
+            $invokeParams["ContentType"] = "application/json"
+        }
+        if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey("UseBasicParsing")) {
+            $invokeParams["UseBasicParsing"] = $true
+        }
+
+        try {
+            $response = Invoke-WebRequest @invokeParams
+            $statusCode = [int]$response.StatusCode
             if ($ExpectedStatus -notcontains $statusCode) {
                 throw "Expected status $ExpectedStatus but got $statusCode"
             }
+            return $response
         }
-        throw
+        catch {
+            $lastError = $_
+            $exception = $_.Exception
+            $hasResponse =
+                $null -ne $exception -and
+                $exception.PSObject.Properties.Match("Response").Count -gt 0 -and
+                $null -ne $exception.Response
+
+            if ($hasResponse) {
+                $statusCode = [int]$exception.Response.StatusCode
+                if ($ExpectedStatus -contains $statusCode) {
+                    return $exception.Response
+                }
+            }
+
+            if ($attempt -lt $MaxRetries) {
+                Start-Sleep -Seconds $RetryDelaySec
+                continue
+            }
+        }
     }
+
+    if ($null -ne $lastError) {
+        throw $lastError
+    }
+    throw "HTTP endpoint test failed without captured error for $Uri"
 }
 
 function Invoke-NodeCode {

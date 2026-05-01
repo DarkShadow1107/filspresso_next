@@ -28,7 +28,7 @@ function statusFallback(request: NextRequest) {
 export async function GET(request: NextRequest, context: { params: Promise<{ path?: string[] }> }) {
 	const path = await backendPath(context.params);
 	return proxyBackendRequest(request, path, {
-		timeoutMs: 1600,
+		timeoutMs: 4500,
 		fallback: path.endsWith("/status") ? () => statusFallback(request) : undefined,
 	});
 }

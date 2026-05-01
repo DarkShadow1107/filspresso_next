@@ -5,6 +5,7 @@ import { readSnapshot, writeSnapshot } from "@/lib/clientSnapshotCache";
 const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 const MACHINE_CACHE_KEY = "filspresso_machine_products_cache";
 const MACHINE_CACHE_TTL_MS = 5 * 60 * 1000;
+const MACHINE_FETCH_TIMEOUT_MS = 3000;
 
 export type UseMachineCollectionsResult = {
 	collections: MachineCollection[];
@@ -94,8 +95,13 @@ const fetchSharedMachineData = async (): Promise<SharedMachineData> => {
 	}
 	if (!sharedMachineDataPromise) {
 		sharedMachineDataPromise = (async () => {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), MACHINE_FETCH_TIMEOUT_MS);
 			try {
-				const res = await fetch(`${API_BASE}/api/products/machines`, { cache: "force-cache" });
+				const res = await fetch(`${API_BASE}/api/products/machines`, {
+					cache: "force-cache",
+					signal: controller.signal,
+				});
 				if (!res.ok) {
 					return {
 						products: [],
@@ -119,6 +125,8 @@ const fetchSharedMachineData = async (): Promise<SharedMachineData> => {
 					error: message,
 					apiDown: true,
 				};
+			} finally {
+				clearTimeout(timeout);
 			}
 		})();
 		sharedMachineDataPromise.finally(() => {
@@ -133,12 +141,14 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 	const [collections, setCollections] = useState<MachineCollection[]>(machineCollections);
 	const [stockData, setStockData] = useState<Map<string, MachineStockInfo>>(new Map());
 	const [apiDown, setApiDown] = useState(false);
-	const [loading, setLoading] = useState(true);
+	const [loading, setLoading] = useState(() => !sharedMachineDataSnapshot);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
-		setLoading(true);
+		if (!sharedMachineDataSnapshot) {
+			setLoading(true);
+		}
 		async function fetchFromApi() {
 			try {
 				const data = await fetchSharedMachineData();

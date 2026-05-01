@@ -113,7 +113,7 @@ __decorate([
     __param(2, (0, common_1.Query)("maxRows")),
     __param(3, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object, Object, Object]),
+    __metadata("design:paramtypes", [Object, String, String, Object]),
     __metadata("design:returntype", Promise)
 ], SecurityObservabilityController.prototype, "verifyServiceLedger", null);
 __decorate([

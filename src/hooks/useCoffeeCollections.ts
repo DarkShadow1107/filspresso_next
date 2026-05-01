@@ -5,6 +5,7 @@ import { readSnapshot, writeSnapshot } from "@/lib/clientSnapshotCache";
 const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 const COFFEE_CACHE_KEY = "filspresso_coffee_products_cache";
 const COFFEE_CACHE_TTL_MS = 5 * 60 * 1000;
+const COFFEE_FETCH_TIMEOUT_MS = 3000;
 
 export type UseCoffeeCollectionsResult = {
 	collections: CoffeeCollection[];
@@ -136,8 +137,8 @@ const buildImagePath = (product: ApiProduct) => {
 };
 
 const normalizeStockStatus = (status: unknown, stock: number): StockInfo["stockStatus"] => {
-	if (status === "in_stock" || status === "low_stock" || status === "out_of_stock") return status;
 	if (stock <= 0) return "out_of_stock";
+	if (status === "in_stock" || status === "low_stock" || status === "out_of_stock") return status as StockInfo["stockStatus"];
 	if (stock < 40) return "low_stock";
 	return "in_stock";
 };
@@ -177,8 +178,13 @@ const fetchSharedCoffeeData = async (): Promise<SharedCoffeeData> => {
 	}
 	if (!sharedCoffeeDataPromise) {
 		sharedCoffeeDataPromise = (async () => {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), COFFEE_FETCH_TIMEOUT_MS);
 			try {
-				const res = await fetch(`${API_BASE}/api/products/coffee`, { cache: "force-cache" });
+				const res = await fetch(`${API_BASE}/api/products/coffee`, {
+					cache: "force-cache",
+					signal: controller.signal,
+				});
 				if (!res.ok) throw new Error(`API responded with ${res.status}`);
 				const data = await res.json();
 				const snapshot: SharedCoffeeData = {
@@ -194,6 +200,8 @@ const fetchSharedCoffeeData = async (): Promise<SharedCoffeeData> => {
 					products: [],
 					error: message,
 				};
+			} finally {
+				clearTimeout(timeout);
 			}
 		})();
 		sharedCoffeeDataPromise.finally(() => {
@@ -244,12 +252,14 @@ const convertToCoffeeProduct = (product: ApiProduct) => {
 export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 	const [collections, setCollections] = useState<CoffeeCollection[]>(coffeeCollections);
 	const [stockData, setStockData] = useState<Map<string, StockInfo>>(new Map());
-	const [loading, setLoading] = useState(true);
+	const [loading, setLoading] = useState(() => !sharedCoffeeDataSnapshot);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
-		setLoading(true);
+		if (!sharedCoffeeDataSnapshot) {
+			setLoading(true);
+		}
 		async function fetchFromApi() {
 			try {
 				const data = await fetchSharedCoffeeData();

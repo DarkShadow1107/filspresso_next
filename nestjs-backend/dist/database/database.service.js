@@ -18,7 +18,9 @@ let DatabaseService = DatabaseService_1 = class DatabaseService {
     logger = new common_1.Logger(DatabaseService_1.name);
     pool;
     constructor() {
-        const STRICT_SERVICE_DB_CREDENTIALS = String(process.env.STRICT_SERVICE_DB_CREDENTIALS || "false").trim().toLowerCase() === "true";
+        const STRICT_SERVICE_DB_CREDENTIALS = String(process.env.STRICT_SERVICE_DB_CREDENTIALS || "false")
+            .trim()
+            .toLowerCase() === "true";
         const BACKEND_DB_USER = String(process.env.BACKEND_DB_USER || "").trim();
         const ROOT_DB_USER = String(process.env.DB_USER || "filspresso_user").trim();
         const DB_USER = BACKEND_DB_USER || ROOT_DB_USER;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ArrowNarrowUpIcon } from "@/icons";
+import { DownCheveron } from "@/icons";
 
 export default function ScrollToTopButton() {
 	const [visible, setVisible] = useState(false);
@@ -26,7 +26,7 @@ export default function ScrollToTopButton() {
 			}}
 			title="Top"
 		>
-			<i className="fa fa-chevron-up"></i>
+			<DownCheveron size={28} strokeWidth={4} className="rotate-180" />
 		</a>
 	);
 }

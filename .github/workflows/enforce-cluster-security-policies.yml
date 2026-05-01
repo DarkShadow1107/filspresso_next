@@ -16,28 +16,37 @@ jobs:
     apply-policies:
         name: Apply Kyverno Admission Policies
         runs-on: ubuntu-latest
-        if: ${{ secrets.KUBE_CONFIG_B64 != '' }}
+        env:
+            KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
         steps:
+            - name: Skip when kubeconfig is not configured
+              if: env.KUBE_CONFIG_B64 == ''
+              run: echo "KUBE_CONFIG_B64 is not configured; skipping cluster policy enforcement."
+
             - name: Checkout
+              if: env.KUBE_CONFIG_B64 != ''
               uses: actions/checkout@v4
 
             - name: Setup kubectl
+              if: env.KUBE_CONFIG_B64 != ''
               uses: azure/setup-kubectl@v4
               with:
                   version: v1.31.0
 
             - name: Configure kubeconfig
+              if: env.KUBE_CONFIG_B64 != ''
               run: |
                   mkdir -p "$HOME/.kube"
                   echo "${KUBE_CONFIG_B64}" | base64 --decode > "$HOME/.kube/config"
-              env:
-                  KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
 
             - name: Validate policy bundle via server-side dry run
+              if: env.KUBE_CONFIG_B64 != ''
               run: kubectl apply --dry-run=server -k security/kubernetes/policies
 
             - name: Apply policy bundle
+              if: env.KUBE_CONFIG_B64 != ''
               run: kubectl apply -k security/kubernetes/policies
 
             - name: Verify policy installed
+              if: env.KUBE_CONFIG_B64 != ''
               run: kubectl get clusterpolicy verify-image-signatures-and-provenance -o yaml

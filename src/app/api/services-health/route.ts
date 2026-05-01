@@ -2,7 +2,68 @@ import { NextResponse } from "next/server";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const DEFAULT_BACKEND_ORIGIN = "http://localhost:4000";
+const CONTAINER_BACKEND_ORIGINS = ["http://backend:4000", "http://nestjs-backend:4000"];
+const configuredBackendOrigins = [
+	process.env.BACKEND_API_URL || "",
+	process.env.INTERNAL_BACKEND_API_URL || "",
+	process.env.NESTJS_BACKEND_URL || "",
+	process.env.NEXT_PUBLIC_API_URL || "",
+	DEFAULT_BACKEND_ORIGIN,
+	...CONTAINER_BACKEND_ORIGINS,
+];
+
+function normalizeOrigin(origin: string) {
+	return origin.replace(/\/+$/, "");
+}
+
+function uniqueOrigins(origins: string[]) {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const origin of origins) {
+		const normalized = normalizeOrigin(origin.trim());
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		result.push(normalized);
+	}
+	return result;
+}
+
+const backendOrigins = uniqueOrigins(configuredBackendOrigins.filter(Boolean));
+let activeBackendOrigin = backendOrigins[0] || DEFAULT_BACKEND_ORIGIN;
+
+function getBackendOrigins() {
+	return uniqueOrigins([activeBackendOrigin, ...backendOrigins]);
+}
+
+async function fetchWithBackendFallback(pathname: string, init: RequestInit, timeoutMs = 4500) {
+	const path = pathname.startsWith("/") ? pathname : `/${pathname}`;
+	const deadline = Date.now() + timeoutMs;
+	let lastError: unknown;
+
+	for (const origin of getBackendOrigins()) {
+		const remainingMs = deadline - Date.now();
+		if (remainingMs <= 250) break;
+
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), Math.max(800, remainingMs));
+		try {
+			const response = await fetch(`${origin}${path}`, {
+				...init,
+				signal: controller.signal,
+			});
+			activeBackendOrigin = origin;
+			return response;
+		} catch (error) {
+			lastError = error;
+		} finally {
+			clearTimeout(timeout);
+		}
+	}
+
+	throw lastError instanceof Error ? lastError : new Error("Backend unavailable across all configured origins");
+}
+
 const STRICT_DB_ONLY_METRICS = process.env.SERVICE_METRICS_STRICT_DB_ONLY === "true";
 const LOGS_DIR = path.join(process.cwd(), "logs");
 const INCIDENT_BUFFER_FILE = path.join(LOGS_DIR, "services-incidents-buffer.log");
@@ -278,14 +339,6 @@ async function loadBufferedIncidents(): Promise<ServiceIncident[]> {
 	}
 }
 
-async function clearBufferedIncidents() {
-	try {
-		await rm(INCIDENT_BUFFER_FILE, { force: true });
-	} catch {
-		// noop
-	}
-}
-
 async function clearRecoveryLogs() {
 	try {
 		await rm(INCIDENT_BUFFER_FILE, { force: true });
@@ -299,7 +352,7 @@ async function clearRecoveryLogs() {
 async function persistIncidents(events: ServiceIncident[]) {
 	if (events.length === 0) return;
 
-	const response = await fetch(`${API_BASE}/health/services/events/bulk`, {
+	const response = await fetchWithBackendFallback("/health/services/events/bulk", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ events }),
@@ -322,10 +375,13 @@ async function replayBufferedIncidents() {
 async function loadIncidentHistory(windowHours: number, limit = 120, allowLogFallback = true): Promise<ServiceIncident[]> {
 	const clampedWindowHours = Math.min(Math.max(windowHours, 1), 24 * 365);
 	try {
-		const response = await fetch(`${API_BASE}/health/services/events?limit=${limit}&windowHours=${clampedWindowHours}`, {
-			cache: "no-store",
-			headers: { Accept: "application/json" },
-		});
+		const response = await fetchWithBackendFallback(
+			`/health/services/events?limit=${limit}&windowHours=${clampedWindowHours}`,
+			{
+				cache: "no-store",
+				headers: { Accept: "application/json" },
+			},
+		);
 		if (!response.ok) {
 			throw new Error(`Failed to fetch incident history (${response.status})`);
 		}
@@ -359,7 +415,7 @@ export async function GET(request: Request) {
 
 		if (STRICT_DB_ONLY_METRICS) {
 			const previous = inMemoryState;
-			const response = await fetch(`${API_BASE}/health/services`, {
+			const response = await fetchWithBackendFallback("/health/services", {
 				method: "GET",
 				headers: { Accept: "application/json" },
 				cache: "no-store",
@@ -393,18 +449,22 @@ export async function GET(request: Request) {
 		await ensureLogsDir();
 		const previous = await loadPreviousState();
 
-		const response = await fetch(`${API_BASE}/health/services`, {
+		const response = await fetchWithBackendFallback("/health/services", {
 			method: "GET",
 			headers: { Accept: "application/json" },
 			cache: "no-store",
 		});
 
 		if (!response.ok) {
-			const healthProbe = await fetch(`${API_BASE}/health`, {
-				method: "GET",
-				headers: { Accept: "application/json" },
-				cache: "no-store",
-			}).catch(() => null);
+			const healthProbe = await fetchWithBackendFallback(
+				"/health",
+				{
+					method: "GET",
+					headers: { Accept: "application/json" },
+					cache: "no-store",
+				},
+				3500,
+			).catch(() => null);
 
 			const payload: ServicesPayload = healthProbe?.ok
 				? await createDatabaseOnlyFallbackPayload(
@@ -413,13 +473,11 @@ export async function GET(request: Request) {
 				: createBackendDownFallbackPayload(`Backend health endpoint returned ${response.status}`);
 
 			const incidents = buildIncidents(previous, payload);
-			let persistedToBuffer = false;
 			try {
 				await replayBufferedIncidents();
 				await persistIncidents(incidents);
 			} catch {
 				await appendBufferedIncidents(incidents);
-				persistedToBuffer = true;
 			}
 
 			await updateState(payload, true);

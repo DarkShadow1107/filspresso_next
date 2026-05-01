@@ -49,7 +49,9 @@ const keyUsagePolicy_1 = require("./keyUsagePolicy");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 exports.JWT_SECRET = (0, secrets_1.getEnvOrFile)("JWT_SECRET", { required: true });
 exports.JWT_EXPIRES_IN = String(process.env.JWT_EXPIRES_IN || process.env.JWT_ACCESS_TOKEN_TTL || "15m").trim() || "15m";
-exports.JWT_ISSUER = String(process.env.JWT_ISSUER || process.env.BACKEND_PUBLIC_URL || "http://localhost:4000").trim().replace(/\/$/, "");
+exports.JWT_ISSUER = String(process.env.JWT_ISSUER || process.env.BACKEND_PUBLIC_URL || "http://localhost:4000")
+    .trim()
+    .replace(/\/$/, "");
 exports.JWT_AUDIENCE = String(process.env.JWT_AUDIENCE || "filspresso-users").trim() || "filspresso-users";
 exports.JWT_SIGNING_PRIVATE_KEY = (0, secrets_1.getEnvOrFile)("JWT_SIGNING_PRIVATE_KEY", { required: false, defaultValue: "" });
 exports.JWT_SIGNING_PUBLIC_KEY_RAW = (0, secrets_1.getEnvOrFile)("JWT_SIGNING_PUBLIC_KEY", { required: false, defaultValue: "" });
@@ -69,7 +71,9 @@ function parseTtlToSeconds(value) {
     if (typeof value === "number" && Number.isFinite(value)) {
         return Math.max(60, Math.min(Math.floor(value), 86400));
     }
-    const text = String(value || "").trim().toLowerCase();
+    const text = String(value || "")
+        .trim()
+        .toLowerCase();
     if (!text)
         return 900;
     if (/^\d+$/.test(text)) {
@@ -194,7 +198,11 @@ function verifyToken(token) {
         const algorithm = String(decoded?.header?.alg || "HS256").trim();
         if (algorithm === "EdDSA") {
             const kid = String(decoded?.header?.kid || "").trim();
-            const verificationKey = kid ? JWT_EDDSA_PUBLIC_KEYS.get(kid) : JWT_EDDSA_PUBLIC_KEYS.size === 1 ? Array.from(JWT_EDDSA_PUBLIC_KEYS.values())[0] : "";
+            const verificationKey = kid
+                ? JWT_EDDSA_PUBLIC_KEYS.get(kid)
+                : JWT_EDDSA_PUBLIC_KEYS.size === 1
+                    ? Array.from(JWT_EDDSA_PUBLIC_KEYS.values())[0]
+                    : "";
             if (!verificationKey) {
                 return null;
             }

@@ -8,7 +8,7 @@ const root = process.cwd();
 const dockerfiles = [
 	"Dockerfile.ai",
 	"Dockerfile.db",
-	"Dockerfile.express",
+	"nestjs-backend/Dockerfile",
 	"go-ops-service/Dockerfile",
 	"rust-crypto-service/Dockerfile",
 	"java-invoice-service/Dockerfile",
