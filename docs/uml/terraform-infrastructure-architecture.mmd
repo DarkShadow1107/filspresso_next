@@ -1,0 +1,79 @@
+---
+title: Filspresso Next - Terraform/Infrastructure Architecture Diagram
+---
+
+flowchart TB
+    subgraph Terraform["Terraform Configuration (infrastructure/terraform/)"]
+        direction TB
+        MainConfig["main.tf<br/>Provider configuration<br/>Terraform settings"]
+        VariablesConfig["variables.tf<br/>Input variables<br/>Region, bucket name, etc."]
+        OutputsConfig["outputs.tf<br/>Output values<br/>Bucket ARN, endpoint"]
+        S3Backend["backend.tf<br/>Remote state storage<br/>S3 backend config"]
+    end
+
+    subgraph AWS_Resources["AWS Resources Provisioned"]
+        direction TB
+        S3Bucket["S3 Bucket<br/>Transparency Backend<br/>Object Lock enabled"]
+        IAMUser["IAM User<br/>Terraform deployer<br/>Least privilege policy"]
+        IAMPolicy["IAM Policy<br/>s3:PutObject, s3:GetObject<br/>s3:PutObjectRetention"]
+        BucketPolicy["Bucket Policy<br/>Deny insecure transport<br/>Require encryption at rest"]
+    end
+
+    subgraph S3_Configuration["S3 Bucket Configuration"]
+        ObjectLock["Object Lock<br/>Governance mode<br/>Prevent deletion/modification"]
+        Versioning["Versioning<br/>Keep all versions<br/>Audit trail"]
+        Encryption["Encryption<br/>SSE-S3 or SSE-KMS<br/>AES-256 at rest"]
+        LifecycleRules["Lifecycle Rules<br/>Transition to Glacier<br/>after N days"]
+        AccessLogging["Access Logging<br/>Log all bucket access<br/>to separate bucket"]
+    end
+
+    subgraph Transparency_Backend["Transparency Backend Purpose"]
+        SecurityLedger["Security Event Ledger<br/>SHA3-256 hash chain<br/>Tamper-evident log"]
+        AnchorStorage["Anchor Storage<br/>Store ledger anchors<br/>Cryptographic proofs"]
+        AuditTrail["Audit Trail<br/>Immutable record<br/>Compliance requirement"]
+        Verification["Verification<br/>Third-party auditors<br/>Verify ledger integrity"]
+    end
+
+    subgraph Deployment_Flow["Deployment Flow"]
+        LocalDev["Local Development<br/>terraform init<br/>terraform plan"]
+        CI_Pipeline["CI Pipeline<br/>GitHub Actions<br/>terraform apply"]
+        StateManagement["State Management<br/>Remote state in S3<br/>State locking with DynamoDB"]
+        DriftDetection["Drift Detection<br/>Scheduled plan checks<br/>Alert on drift"]
+    end
+
+    MainConfig --> S3Backend
+    VariablesConfig --> MainConfig
+    OutputsConfig --> MainConfig
+
+    MainConfig --> S3Bucket
+    MainConfig --> IAMUser
+    MainConfig --> IAMPolicy
+    MainConfig --> BucketPolicy
+
+    S3Bucket --> ObjectLock
+    S3Bucket --> Versioning
+    S3Bucket --> Encryption
+    S3Bucket --> LifecycleRules
+    S3Bucket --> AccessLogging
+
+    S3Bucket --> SecurityLedger
+    SecurityLedger --> AnchorStorage
+    AnchorStorage --> AuditTrail
+    AuditTrail --> Verification
+
+    LocalDev --> CI_Pipeline
+    CI_Pipeline --> StateManagement
+    StateManagement --> DriftDetection
+    DriftDetection --> S3Bucket
+
+    classDef terraform fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef aws fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef s3 fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef purpose fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef deployment fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+    class MainConfig,VariablesConfig,OutputsConfig,S3Backend terraform
+    class S3Bucket,IAMUser,IAMPolicy,BucketPolicy aws
+    class ObjectLock,Versioning,Encryption,LifecycleRules,AccessLogging s3
+    class SecurityLedger,AnchorStorage,AuditTrail,Verification purpose
+    class LocalDev,CI_Pipeline,StateManagement,DriftDetection deployment

@@ -1,0 +1,121 @@
+---
+title: Filspresso Next - Repair/Warranty Workflow State Diagram
+---
+
+stateDiagram-v2
+    [*] --> Draft: User starts repair request
+
+    state Draft {
+        [*] --> FillingForm
+        FillingForm --> ValidatingData: User submits form
+        ValidatingData --> FillingForm: Validation errors
+        ValidatingData --> ReadyToSubmit: All fields valid
+    }
+
+    Draft --> Pending: User submits repair request
+
+    state Pending {
+        [*] --> AwaitingReview
+        AwaitingReview --> DocumentsRequested: Admin requests additional docs
+        DocumentsRequested --> DocumentsProvided: User uploads documents
+        DocumentsProvided --> AwaitingReview
+        AwaitingReview --> Approved: Admin approves
+        AwaitingReview --> Rejected: Admin rejects (out of warranty)
+    }
+
+    Pending --> Approved: Warranty validated
+
+    state Approved {
+        [*] --> SchedulingRepair
+        SchedulingRepair --> InProgress: Technician assigned
+    }
+
+    Approved --> InProgress: Repair begins
+
+    state InProgress {
+        [*] --> Diagnosis
+        Diagnosis --> PartsOrdered: Parts needed
+        PartsOrdered --> PartsReceived: Parts delivered
+        PartsReceived --> Repairing
+        Diagnosis --> Repairing: No parts needed
+        Repairing --> QualityCheck: Repair complete
+        QualityCheck --> Diagnosis: Issues found
+        QualityCheck --> ReadyForShipping: QC passed
+    }
+
+    InProgress --> Completed: Repair finished
+
+    Completed --> Shipped: Device shipped back to user
+
+    state Shipped {
+        [*] --> TrackingGenerated
+        TrackingGenerated --> InTransit
+        InTransit --> OutForDelivery
+        OutForDelivery --> Delivered
+    }
+
+    Shipped --> Delivered: User receives device
+
+    Delivered --> Closed: User confirms satisfaction
+
+    Closed --> [*]
+
+    Pending --> Cancelled: User cancels request
+    Approved --> Cancelled: User cancels before repair
+    InProgress --> Cancelled: User cancels (with fee)
+
+    Rejected --> [*]
+    Cancelled --> [*]
+
+    note right of Draft
+        User fills repair request form:
+        - Machine serial number
+        - Purchase date
+        - Issue description
+        - Photos/videos of issue
+        - Warranty status check
+    end note
+
+    note right of Pending
+        Admin reviews request:
+        - Validates warranty period
+        - Checks purchase records
+        - Reviews issue description
+        - May request additional info
+    end note
+
+    note right of Approved
+        Repair scheduling:
+        - Assign technician
+        - Schedule drop-off/pickup
+        - Send confirmation to user
+    end note
+
+    note right of InProgress
+        Repair execution:
+        - Diagnose issue
+        - Order parts if needed
+        - Perform repair
+        - Quality check
+    end note
+
+    note right of Shipped
+        Return shipping:
+        - Generate tracking number
+        - Ship via courier
+        - User can track status
+    end note
+
+    note right of Closed
+        Completion:
+        - User confirms device works
+        - Close repair ticket
+        - Request feedback survey
+    end note
+
+    classDef userState fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef adminState fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef terminalState fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+    class Draft,Pending,Approved,InProgress,Completed,Shipped,Delivered,Closed userState
+    class Rejected,Cancelled terminalState

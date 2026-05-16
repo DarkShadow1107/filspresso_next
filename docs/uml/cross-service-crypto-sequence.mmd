@@ -1,0 +1,63 @@
+---
+title: Filspresso Next - Cross-Service Cryptographic Commitment Flow
+---
+
+sequenceDiagram
+    participant NEST as NestJS Backend
+    participant EGRESS as Egress Policy
+    participant ASSERT as Service Assertions
+    participant CONTRACT as Service Contracts
+    participant RUST as Rust Crypto Service
+    participant LEDGER as Security Ledger
+
+    Note over NEST,RUST: CREATE COMMITMENT
+
+    NEST->>EGRESS: assertAllowedEgress(http://rust-crypto:8090)
+    Note over EGRESS: Check host against INTERNAL_EGRESS_ALLOWLIST<br/>Parse URL then extract hostname then match rule<br/>Wildcards: *.filspresso.local to filspresso.local
+    EGRESS-->>NEST: Allowed
+
+    NEST->>ASSERT: issueServiceAssertion(scope="service-crypto:commitment")
+    Note over ASSERT: assertKeyUsage("service_assertion_signing",<br/>"issue_service_assertion", "service-crypto:commitment")<br/>Check KEY_USAGE_POLICY_JSON for allowed operations
+    ASSERT-->>NEST: EdDSA JWT token<br/>{ iss, sub, aud, scope, iat, nbf, exp, jti, op_id }<br/>TTL: 120s default (30-600 configurable)
+
+    NEST->>CONTRACT: assertServiceContract("rust_commitment_request_v1", payload)
+    Note over CONTRACT: Schema validation for 8 contract types:<br/>go_ops_event_v1, kotlin_quote_v1,<br/>rust_commitment_request_v1, rust_verify_request_v1,<br/>invoice_render_v1, invoice_metadata_v1,<br/>repair_cost_change_v1, pii_anonymization_v1
+    CONTRACT-->>NEST: Payload valid
+
+    NEST->>RUST: POST /v1/commitment/sha3-256<br/>Headers: x-service-assertion, x-operation-id<br/>Body: { domain, payload }
+    Note over NEST,RUST: Rust Crypto Service verifies
+
+    activate RUST
+        RUST->>RUST: decode_service_assertion(header)
+        Note over RUST: Split JWT then verify EdDSA signature<br/>against SERVICE_ASSERTION_PUBLIC_KEY
+
+        RUST->>RUST: check exp, nbf (time bounds)
+        RUST->>RUST: verify aud equals "filspresso-backend"
+        RUST->>RUST: verify iss in allowlist
+        RUST->>RUST: verify scope equals "service-crypto:commitment"
+        RUST->>RUST: verify jti not replayed (in-memory TTL cache)
+        RUST->>RUST: verify op_id matches x-operation-id header
+
+        RUST->>RUST: canonical_payload(payload)
+        Note over RUST: Deterministic JSON serialization<br/>Recursively sort object keys
+
+        RUST->>RUST: compute_commitment(domain, payload)
+        Note over RUST: SHA3-256(domain + "|" + payload)
+    deactivate RUST
+
+    RUST-->>NEST: { commitment_hash, algorithm: "sha3-256" }
+
+    NEST->>LEDGER: appendSecurityLedgerEvent(commitment)
+    Note over LEDGER: SELECT prev_hash FOR UPDATE<br/>buildLedgerMaterial to SHA3-256<br/>INSERT with prev_hash, event_hash<br/>Immutable hash chain
+
+    rect rgb(240, 245, 255)
+        Note over NEST,RUST: VERIFY COMMITMENT<br/>Same flow but POST /v1/verify/sha3-256<br/>Returns { verified: bool, expected_hash, computed_hash }
+    end
+
+    rect rgb(255, 245, 240)
+        Note over NEST,RUST: THRESHOLD OPERATION<br/>POST /v1/threshold/initiate to approve to execute<br/>Quorum-based M-of-N MPC with participant tracking<br/>ZK circuit registry: SHA3-256 hashed verification keys<br/>ZK proof verification with ledger anchoring<br/>MPC quorum with transcript signatures + rate limiting
+    end
+
+    rect rgb(245, 255, 245)
+        Note over NEST,LEDGER: ARCHIVE FLOW<br/>Scheduled: runSecurityLedgerArchiveJob()<br/>SELECT events older than N hours<br/>Envelope-encrypt payload with VAULT_KEK<br/>Generate random DEK then AES-256-GCM encrypt payload<br/>Encrypt DEK with KEK<br/>INSERT into security_event_ledger_archive<br/>DELETE originals from security_event_ledger
+    end

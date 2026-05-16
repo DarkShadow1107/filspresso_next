@@ -1,38 +1,71 @@
+---
+title: Filspresso Next - Request Routing Sequence Diagram
+---
+
 sequenceDiagram
     participant B as Browser
-    participant N as Next.js
-    participant E as Express API
-    participant P as Python AI
+    participant N as Next.js (BFF)
+    participant NEST as NestJS Backend
+    participant OPA as OPA Policy Engine
+    participant P as Python AI Service
     participant J as Java Invoice
     participant K as Kotlin Subscriptions
     participant G as Go Ops
+    participant RC as Rust Crypto
     participant DB as PostgreSQL
 
-    B->>N: Load page / navigate / client actions
-    N->>E: Commerce API calls (/api/products, /api/cart, /api/orders)
-    E->>DB: SQL reads/writes
-    DB-->>E: Result rows / conflicts
-    E-->>N: JSON responses
+    rect rgb(240, 248, 255)
+        Note over B,N: Page Navigation (proxy.ts rewrites /coffee → /?page=coffee)
+        B->>N: GET /coffee
+        N->>N: proxy middleware rewrites to /?page=coffee
+        N-->>B: Rendered page shell + security headers (CSP)
+    end
 
-    B->>N: AI chat request
-    N->>E: Kafelot prompt check
-    E-->>N: Allowed / blocked
-    N->>P: /api/chat or /api/ask-coffee
-    P->>DB: Vector or transactional access
-    P-->>N: AI response payload
-    N-->>B: Rendered AI result
+    rect rgb(255, 248, 240)
+        Note over B,NEST: Commerce API (via Next.js BFF proxy)
+        B->>N: GET /api/products/[...path]
+        N->>NEST: Proxy request (auth + cookie forwarded)
+        NEST->>OPA: Authorization check (allow?)
+        OPA-->>NEST: Allow / Deny
+        NEST->>DB: SQL reads / writes
+        DB-->>NEST: Result rows
+        NEST-->>N: JSON response
+        N-->>B: Rendered data
+    end
 
-    B->>N: Download invoice
-    N->>E: GET /api/orders/:id/invoice
-    E->>J: POST /api/invoices/render
-    J-->>E: PDF bytes
-    E-->>N: application/pdf
-    N-->>B: Browser download
+    rect rgb(240, 255, 240)
+        Note over B,P: AI Chat Flow
+        B->>N: POST /api/chat
+        N->>NEST: Kafelot prompt quota check
+        NEST-->>N: Allowed / blocked
+        N->>P: /api/chat (semantic or chemistry)
+        P->>DB: pgvector similarity search
+        P-->>N: AI response payload
+        N-->>B: Rendered chat message
+    end
 
-    B->>N: Subscription quote request
-    N->>E: POST /api/subscriptions-engine/quote
-    E->>K: POST /api/subscriptions/quote
-    K-->>E: Quote payload
-    E-->>N: Quote JSON
+    rect rgb(255, 240, 255)
+        Note over B,J: Invoice Download
+        B->>N: GET api/orders/:id/invoice
+        N->>NEST: Proxy request
+        NEST->>J: POST /api/invoices/render
+        J-->>NEST: PDF bytes
+        NEST-->>N: application/pdf
+        N-->>B: Browser download
+    end
 
-    E->>G: POST /events/ingest (operational events)
+    rect rgb(248, 255, 255)
+        Note over B,K: Subscription Quote
+        B->>N: api/subscriptions-engine/quote
+        N->>NEST: Proxy
+        NEST->>K: POST /api/subscriptions/quote
+        K-->>NEST: Quote payload
+        NEST-->>N: Quote JSON
+    end
+
+    rect rgb(255, 255, 240)
+        Note over B,G: Operational Events
+        NEST->>G: POST /events/ingest
+        G->>G: Write to Redis ops:events list
+        Note over NEST,G: mTLS or service assertion token enforced
+    end

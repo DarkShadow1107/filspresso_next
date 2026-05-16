@@ -1,36 +1,126 @@
+---
+title: Filspresso Next - Container / Component Diagram
+---
+
 flowchart LR
-    U[User Browser] --> N[Next.js App Router]
-    N --> E[Express API Orchestrator]
-    N --> P[Python AI Service]
+    U[User Browser] --> N[Next.js App Router<br/>BFF & UI Renderer<br/>Port :3000]
 
-    E --> O[Orders Domain]
-    E --> C[Cart Domain]
-    E --> A[Accounts/Auth Domain]
-    E --> PR[Products Domain]
-    E --> F[Favorites Domain]
-    E --> KAF[Kafelot Guardrails]
+    N --> NEST[NestJS Backend<br/>Commerce & Auth Core<br/>Port :4000]
+    N --> P[Python AI Service<br/>Flask Gateway<br/>Port :5000]
+    N --> RUST[Rust Crypto Service<br/>Actix-web<br/>Port :8090]
 
-    E --> J[Java Invoice Service]
-    E --> K[Kotlin Subscription Service]
-    E --> G[Go Ops Service]
-    G --> R[(Redis)]
-
-    E --> DB[(PostgreSQL)]
-    P --> DB
-
-    subgraph Core Orchestration
-        E
-        O
-        C
-        A
-        PR
-        F
-        KAF
+    subgraph NestJS_Modules["NestJS Modules (nestjs-backend/src/)"]
+        direction TB
+        AUTH[auth/<br/>AuthController, AuthService<br/>JWT EdDSA/HS256, Argon2id<br/>Google/Apple OAuth, MFA, Sessions]
+        ACCOUNTS[accounts/<br/>AccountsController, AccountsService<br/>User CRUD, profile, membership]
+        CARDS[cards/<br/>CardsController, CardsService<br/>AES-256-GCM encrypted cards]
+        CART[cart/<br/>CartController, CartService<br/>Stock reservation validation]
+        ORDERS[orders/<br/>OrdersController, OrdersService<br/>SELECT FOR UPDATE checkout]
+        PRODUCTS[products/<br/>ProductsController, ProductsService<br/>Coffee + Machine catalog]
+        FAVORITES[favorites/<br/>FavoritesController, FavoritesService<br/>User product bookmarks]
+        CHAT[chat/<br/>ChatController, ChatService<br/>Sessions, messages, tokens]
+        KAFELOT[kafelot/<br/>KafelotController, KafelotService<br/>Prompt quota management]
+        ADMIN[admin/<br/>AdminController, AdminService<br/>Security telemetry, raw SQL]
+        REPAIRS[repairs/<br/>RepairsController, RepairsService<br/>Warranty request lifecycle]
+        SUBS[subscriptions/<br/>SubscriptionsController, SubscriptionsService<br/>Plans, user subscriptions]
+        SUBS_ENGINE[subscriptions-engine/<br/>Proxy to Kotlin service<br/>Quotes, reconciliation]
+        OPS[operations/<br/>OperationsController, OperationsService<br/>Proxy to Go Ops events]
+        CRYPTO[crypto/<br/>CryptoController, CryptoService<br/>Proxy to Rust Crypto]
+        WEATHER[weather/<br/>WeatherController, WeatherService<br/>Weather API + caching]
+        HEALTH[health/<br/>HealthController, HealthService<br/>Multi-service health, incidents]
+        SEC_OBS[security-observability/<br/>Metrics, alerts, webhooks<br/>ServiceEventsAuthGuard]
+        SECURITY[security/<br/>Service assertions, egress policy<br/>OPA integration, PolicyGuard]
+        INTEGRATIONS[integrations/<br/>Cross-service communication<br/>Java, Kotlin, Go, Rust, Python]
+        DATABASE[database/<br/>PostgreSQL pool, schema verify<br/>ensureAppSchema]
+        CONFIG[config/<br/>Env validation with Joi<br/>Configuration constants]
+        COMMON[common/<br/>Guards, decorators, interceptors<br/>Global filters]
     end
 
-    subgraph Specialized Services
+    NEST --> AUTH
+    NEST --> ACCOUNTS
+    NEST --> CARDS
+    NEST --> CART
+    NEST --> ORDERS
+    NEST --> PRODUCTS
+    NEST --> FAVORITES
+    NEST --> CHAT
+    NEST --> KAFELOT
+    NEST --> ADMIN
+    NEST --> REPAIRS
+    NEST --> SUBS
+    NEST --> SUBS_ENGINE
+    NEST --> OPS
+    NEST --> CRYPTO
+    NEST --> WEATHER
+    NEST --> HEALTH
+    NEST --> SEC_OBS
+    NEST --> SECURITY
+    NEST --> INTEGRATIONS
+
+    NEST --> OPA[OPA Policy Engine<br/>Authz Decisions<br/>Port :8181]
+    NEST --> J[Java Invoice Service<br/>OpenPDF Rendering<br/>Port :8082]
+    NEST --> K[Kotlin Subscription Service<br/>Pricing Quotes<br/>Port :8084]
+    NEST --> G[Go Ops Service<br/>Event Ingestion + Redis<br/>Port :8083]
+    NEST --> RUST
+    NEST --> DB[(PostgreSQL 16<br/>pgvector + RDKit<br/>Port :5432)]
+
+    P --> DB
+    P --> MINILM[llama.cpp MiniLM<br/>Semantic Embeddings]
+    P --> QWEN[llama.cpp Qwen3-0.6B<br/>LLM Generation]
+    P --> GEMMA[llama.cpp Gemma3-1B<br/>LLM Generation]
+    P --> VL[llama.cpp Qwen3-VL-2B<br/>Vision-Language]
+
+    G --> R[(Redis 7<br/>AOF Persisted<br/>Port :6379)]
+
+    OPS --> G
+    CRYPTO --> RUST
+    SUBS_ENGINE --> K
+
+    subgraph Frontend_Layer
+        N
+    end
+
+    subgraph Core_Orchestration__NestJS
+        NEST
+        AUTH
+        ACCOUNTS
+        CARDS
+        CART
+        ORDERS
+        PRODUCTS
+        FAVORITES
+        CHAT
+        KAFELOT
+        ADMIN
+        REPAIRS
+        SUBS
+        SUBS_ENGINE
+        OPS
+        CRYPTO
+        WEATHER
+        HEALTH
+        SEC_OBS
+        SECURITY
+        INTEGRATIONS
+        DATABASE
+        CONFIG
+        COMMON
+    end
+
+    subgraph Specialized_Services
         J
         K
         G
+        RUST
         P
+        OPA
+        MINILM
+        QWEN
+        GEMMA
+        VL
+    end
+
+    subgraph Data_Layer
+        DB
+        R
     end

@@ -1,0 +1,99 @@
+---
+title: Filspresso Next - Member Status/Loyalty Tier Progression State Diagram
+---
+
+stateDiagram-v2
+    [*] --> None: New user registers
+
+    None --> Bronze: First purchase<br/>(1+ capsules)
+
+    state Bronze {
+        [*] --> Active
+        Active --> TierReview: Annual review date
+        TierReview --> Active: Stay Bronze<br/>(capsule count maintained)
+        TierReview --> Downgraded: Capsule count dropped
+    }
+
+    Bronze --> Silver: 50+ capsules/year<br/>(annual threshold)
+
+    state Silver {
+        [*] --> Active
+        Active --> BenefitsUnlocked: Perks activated
+        BenefitsUnlocked --> TierReview: Annual review
+        TierReview --> Active: Stay Silver<br/>(50+ capsules maintained)
+        TierReview --> DowngradedToBronze: < 50 capsules
+        TierReview --> UpgradedToGold: 100+ capsules
+    }
+
+    Silver --> Gold: 100+ capsules/year<br/>(annual threshold)
+
+    state Gold {
+        [*] --> Active
+        Active --> PremiumBenefits: Premium perks activated
+        PremiumBenefits --> TierReview: Annual review
+        TierReview --> Active: Stay Gold<br/>(100+ capsules maintained)
+        TierReview --> DowngradedToSilver: < 100 capsules
+        TierReview --> UpgradedToPlatinum: 200+ capsules
+    }
+
+    Gold --> Platinum: 200+ capsules/year<br/>(annual threshold)
+
+    state Platinum {
+        [*] --> Active
+        Active --> EliteBenefits: Elite perks activated
+        EliteBenefits --> TierReview: Annual review
+        TierReview --> Active: Stay Platinum<br/>(200+ capsules maintained)
+        TierReview --> DowngradedToGold: < 200 capsules
+    }
+
+    Downgraded --> Bronze: Recalculate tier
+    DowngradedToBronze --> Bronze: Demote to Bronze
+    DowngradedToSilver --> Silver: Demote to Silver
+    DowngradedToGold --> Gold: Demote to Gold
+    UpgradedToGold --> Gold: Promote to Gold
+    UpgradedToPlatinum --> Platinum: Promote to Platinum
+
+    state "Tier Benefits" as benefits
+    None --> benefits: No benefits
+    Bronze --> benefits: Bronze benefits:<br/>- Free shipping over 50 EUR<br/>- Birthday capsule
+    Silver --> benefits: Silver benefits:<br/>- Free shipping always<br/>- 5% discount<br/>- Early access to new products
+    Gold --> benefits: Gold benefits:<br/>- 10% discount<br/>- Priority support<br/>- Exclusive blends access
+    Platinum --> benefits: Platinum benefits:<br/>- 15% discount<br/>- VIP support<br/>- Free machine maintenance<br/>- Limited edition capsules
+
+    state "Capsule Count Tracking" as tracking
+    Bronze --> tracking: Track purchases
+    Silver --> tracking: Track purchases
+    Gold --> tracking: Track purchases
+    Platinum --> tracking: Track purchases
+
+    tracking --> TierReview: Annual aggregation
+    TierReview --> Bronze: Recalculate
+    TierReview --> Silver: Recalculate
+    TierReview --> Gold: Recalculate
+    TierReview --> Platinum: Recalculate
+
+    note right of None
+        New user starts with no tier.
+        First purchase triggers tier assignment.
+        member_status table tracks:
+        - current_tier
+        - capsule_count_current_year
+        - tier_achieved_at
+        - next_review_date
+    end note
+
+    note right of TierReview
+        Annual review process:
+        1. Count capsules purchased in past year
+        2. Compare against tier thresholds
+        3. Update tier if changed
+        4. Log change in member_status_history
+        5. Notify user of new tier/benefits
+    end note
+
+    classDef tierState fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef transition fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef terminal fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+    class None,Bronze,Silver,Gold,Platinum tierState
+    class TierReview,Downgraded,DowngradedToBronze,DowngradedToSilver,DowngradedToGold,UpgradedToGold,UpgradedToPlatinum transition

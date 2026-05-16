@@ -1,0 +1,132 @@
+---
+title: Filspresso Next - Zero Trust Architecture -6 Defense-in-Depth Rings
+---
+
+flowchart TB
+    %% ── ENTRY POINT ──
+    CLIENT[Client Request<br/>Browser / IoT / Service]
+
+    %% ════════════════════════════════════════════════════════════════
+    %% RING 1: NETWORK / INFRASTRUCTURE
+    %% ════════════════════════════════════════════════════════════════
+    subgraph RING1["<br/>RING 1: NETWORK & INFRASTRUCTURE<br/>"]
+        R1_01[Docker Security Overlay<br/>no-new-privileges: true]
+        R1_02[Capability Dropping<br/>cap_drop: ALL]
+        R1_03[Read-Only Rootfs<br/>read_only: true + tmpfs /tmp]
+        R1_04[Seccomp Profiles<br/>security/docker/seccomp-default.json<br/>400+ syscalls, default ERRNO]
+        R1_05[PID Limits & Ulimits<br/>pids_limit: 512, nproc/nofile caps]
+        R1_06[Network Segmentation<br/>edge_net / service_net internal / data_net internal]
+        R1_07[Kyverno Admission Control<br/>Image signature + SLSA provenance<br/>GH Actions OIDC for ghcr.io/x images]
+        R1_08[Docker Secrets<br/>All credentials via /run/secrets/x_FILE]
+    end
+
+    %% ════════════════════════════════════════════════════════════════
+    %% RING 2: REQUEST ENTRY POINTS
+    %% ════════════════════════════════════════════════════════════════
+    subgraph RING2["<br/>RING 2: REQUEST ENTRY POINTS -Middleware Pipeline<br/>"]
+        R2_01[Request ID Middleware<br/>Assigns UUID / sanitizes x-request-id]
+        R2_02[Origin Guard Middleware<br/>CSRF: Sec-Fetch-Site + Origin/Referer validation]
+        R2_03[Request Timeout Middleware<br/>Returns 503 after configurable deadline]
+        R2_04[Global Rate Limit<br/>NestJS ThrottlerModule, configurable TTL/limit]
+    end
+
+    %% ════════════════════════════════════════════════════════════════
+    %% RING 3: AUTHENTICATION
+    %% ════════════════════════════════════════════════════════════════
+    subgraph RING3["<br/>RING 3: AUTHENTICATION -Guards<br/>"]
+        R3_01[JwtAuthGuard<br/>Enforce Bearer token<br/>EdDSA asymmetric or HS256 fallback]
+        R3_02[OptionalJwtAuthGuard<br/>Best-effort user population<br/>Allows unauthenticated requests through]
+        R3_03[ServiceEventsAuthGuard<br/>Dual-mode: EdDSA assertion OR API key<br/>Enforces operation_id binding on assertions]
+        R3_04[Brute Force Protection<br/>SHA-256 login attempt keys<br/>Exponential lockout 30 times 2 to the power of n-10 seconds]
+    end
+
+    %% ════════════════════════════════════════════════════════════════
+    %% RING 4: AUTHORIZATION
+    %% ════════════════════════════════════════════════════════════════
+    subgraph RING4["<br/>RING 4: AUTHORIZATION -Policy Engine<br/>"]
+        R4_01["@Policy- Decorator<br/>Sets resource + action metadata"]
+        R4_02[PolicyGuard<br/>Extracts identity from req.user / adminSession / serviceIdentity]
+        R4_03[OpaPolicyService<br/>POST to OPA /v1/data/filspresso/authz/allow]
+        R4_04[OPA Rego Policy<br/>default deny = false + default reason = deny_by_default]
+        R4_05[Fail Mode Toggle<br/>OPA_FAIL_CLOSED: false → allow on error / true → deny on error]
+    end
+
+    %% ════════════════════════════════════════════════════════════════
+    %% RING 5: INTER-SERVICE TRUST
+    %% ════════════════════════════════════════════════════════════════
+    subgraph RING5["<br/>RING 5: INTER-SERVICE TRUST -Zero Trust Communication<br/>"]
+        R5_01[Egress Policy<br/>assertAllowedEgress- checks host against INTERNAL_EGRESS_ALLOWLIST]
+        R5_02[Service Assertions Issuance<br/>EdDSA JWT: iss, sub, aud, scope, iat, nbf, exp, jti, op_id]
+        R5_03[Service Assertions Verification<br/>Signature, expiry, nbf, audience, issuer allowlist, scope, jti]
+        R5_04[Service Contracts<br/>Schema validation for 8 cross-service payload types]
+        R5_05[Replay Guard<br/>DB-backed idempotency: INSERT ON CONFLICT DO NOTHING<br/>TTL-based expiry, scope+operation_id deduplication]
+        R5_06[Key Usage Policy<br/>Restricts which keys can sign which operations<br/>service_assertion_signing + user_identity_signing policies]
+        R5_07[mTLS Transport<br/>Go Ops: TLS server cert + client CA cert<br/>Backend: client cert + key + CA cert]
+    end
+
+    %% ════════════════════════════════════════════════════════════════
+    %% RING 6: AUDIT & OBSERVABILITY
+    %% ════════════════════════════════════════════════════════════════
+    subgraph RING6["<br/>RING 6: AUDIT & OBSERVABILITY<br/>"]
+        R6_01[Security Ledger<br/>SHA3-256 hash-chained immutable audit trail<br/>FOR UPDATE row lock for chain integrity]
+        R6_02[Security Observability<br/>Metrics: policy denials, ZK failures, MPC stalls<br/>Severity: low / medium / high / critical]
+        R6_03[Webhook Alerts<br/>Dispatch on severity threshold<br/>Configurable endpoint + timeout]
+        R6_04[Archive Job<br/>Periodic archival of old ledger events<br/>Envelope encryption with VAULT_KEK]
+        R6_05[Trigger Protection<br/>BEFORE UPDATE/DELETE triggers on ledger tables<br/>prevent_security_log_mutation- function]
+    end
+
+    %% ════════════════════════════════════════════════════════════════
+    %% SERVICE TARGET -after all rings passed
+    %% ════════════════════════════════════════════════════════════════
+    TARGET[Controller / Service Method<br/>Business logic executes]
+
+    %% ── CONNECTIONS ──
+    CLIENT --> RING1
+    RING1 --> RING2
+    RING2 --> RING3
+    RING3 --> RING4
+    RING4 --> RING5
+    RING5 --> RING6
+    RING6 --> TARGET
+
+    %% ── REJECTION PATHS ──
+    RING2 -->|CSRF violation| REJ_403A[<b>403 Forbidden</b><br/>Cross-site request blocked]
+    RING2 -->|Timeout| REJ_503A[<b>503 Unavailable</b><br/>Request deadline exceeded]
+
+    RING3 -->|No/invalid token| REJ_401[<b>401 Unauthorized</b><br/>JWT invalid or expired]
+    RING3 -->|Brute force lock| REJ_429[<b>429 Too Many Requests</b><br/>Account locked for N seconds]
+
+    RING4 -->|OPA deny| REJ_403B[<b>403 Forbidden</b><br/>Policy denied by OPA]
+
+    RING5 -->|Egress blocked| REJ_500A[<b>500 Internal Error</b><br/>Host not in egress allowlist]
+    RING5 -->|Assertion fail| REJ_401B[<b>401 Unauthorized</b><br/>Service assertion invalid]
+    RING5 -->|Replay detected| REJ_409[<b>409 Conflict</b><br/>Operation ID already consumed]
+
+    %% ── LEDGER ANCHORING -from service to ledger ──
+    TARGET -->|append| R6_01
+    RING3 -.->|log login attempt| R6_01
+    RING4 -.->|log policy decision| R6_01
+
+    %% ── STYLES ──
+    classDef ring fill:#f8f9fa,stroke:#6c757d,stroke-width:2px,color:#212529
+    classDef control fill:#eef7ff,stroke:#3a7bd5,color:#111
+    classDef reject fill:#fee2e2,stroke:#dc2626,color:#991b1b
+    classDef success fill:#dcfce7,stroke:#22c55e,color:#166534
+    classDef entry fill:#fef3c7,stroke:#f59e0b,color:#92400e
+    classDef infra fill:#e0e7ff,stroke:#4f46e5,color:#3730a3
+    classDef entryPoint fill:#fce7f3,stroke:#db2777,color:#9d174d
+    classDef auth fill:#ccfbf1,stroke:#0d9488,color:#134e4a
+    classDef authz fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef trust fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+    classDef audit fill:#f0fdf4,stroke:#16a34a,color:#14532d
+    classDef target fill:#dcfce7,stroke:#22c55e,stroke-width:3px,color:#14532d
+
+    class R1_01,R1_02,R1_03,R1_04,R1_05,R1_06,R1_07,R1_08 infra
+    class R2_01,R2_02,R2_03,R2_04 entryPoint
+    class R3_01,R3_02,R3_03,R3_04 auth
+    class R4_01,R4_02,R4_03,R4_04,R4_05 authz
+    class R5_01,R5_02,R5_03,R5_04,R5_05,R5_06,R5_07 trust
+    class R6_01,R6_02,R6_03,R6_04,R6_05 audit
+    class CLIENT entry
+    class TARGET target
+    class REJ_401,REJ_401B,REJ_403A,REJ_403B,REJ_409,REJ_429,REJ_500A,REJ_503A reject

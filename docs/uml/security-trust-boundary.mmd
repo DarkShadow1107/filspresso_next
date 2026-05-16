@@ -1,28 +1,60 @@
-flowchart LR
-    U[User Browser] -->|HTTPS| NX[Next.js]
-    NX -->|Bearer token| EX[Express API]
+    ---
+    title: Filspresso Next - Security Trust Boundary Map
+    ---
 
-    EX -->|service call| JV[Java Invoice]
-    EX -->|service call| KT[Kotlin Subscriptions]
-    EX -->|service call + API key| GO[Go Ops]
-    NX -->|proxy| PY[Python AI]
+    flowchart LR
+        U[User Browser] -->|HTTPS + CSP + COOP| NX[Next.js Frontend\n:3000]
+        I[IoT Device] -->|API auth| PY
 
-    EX -->|parameterized SQL| PG[(PostgreSQL)]
-    PY --> PG
+        subgraph Public_Internet["Public Internet (Untrusted)"]
+            U
+            I
+        end
 
-    subgraph Public_Internet
-        U
-    end
+        subgraph DMZ["Edge Layer"]
+            NX
+        end
 
-    subgraph Internal_Service_Network
-        NX
-        EX
-        JV
-        KT
-        GO
-        PY
-    end
+        NX -->|Bearer JWT + cookie| NEST[NestJS Backend\n:4000]
+        NX -->|proxy| PY[Python AI Service\n:5000]
+        NX -->|proxy| RC[Rust Crypto Service\n:8090]
 
-    subgraph Data_Boundary
-        PG
-    end
+        subgraph Internal_Services["Internal Service Network (Trusted)"]
+            NEST
+            OPA[OPA Policy Engine\n:8181]
+            PY
+            JV[Java Invoice\n:8082]
+            KT[Kotlin Subscriptions\n:8084]
+            GO[Go Ops\n:8083]
+            RC
+            MINILM[llama.cpp MiniLM]
+            QWEN[llama.cpp Qwen3]
+            GEMMA[llama.cpp Gemma3]
+            VL[llama.cpp Qwen3-VL]
+        end
+
+        NEST -->|policy query| OPA
+        NEST -->|service assertion token\nor mTLS| GO
+        NEST -->|service assertion token| JV
+        NEST -->|service assertion token| KT
+        NEST -->|service assertion token| RC
+        NEST -->|parameterized SQL\nservice-scoped credentials| PG
+        PY -->|parameterized SQL\nAI-scoped credentials| PG
+        PY -->|HTTP localhost| MINILM
+        PY -->|HTTP localhost| QWEN
+        PY -->|HTTP localhost| GEMMA
+        PY -->|HTTP localhost| VL
+
+        GO -->|authenticated| REDIS
+
+        subgraph Data_Boundary["Data Layer (Hardened)"]
+            PG[(PostgreSQL 16\npgvector + RDKit)]
+            REDIS[(Redis 7\nAOF)]
+        end
+
+        subgraph Model_Boundary["Model Layer (Read-only)"]
+            MINILM
+            QWEN
+            GEMMA
+            VL
+        end

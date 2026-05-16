@@ -1,0 +1,100 @@
+---
+title: Filspresso Next - IoT Command Lifecycle Sequence Diagram
+---
+
+sequenceDiagram
+    participant ESP32 as ESP32 Device<br/>(Coffee Machine)
+    participant NextJS as Next.js Frontend<br/>(Port :3000)
+    participant NestJS as NestJS Backend<br/>(Port :4000)
+    participant IoTModule as IoT Module<br/>(commands, status)
+    participant DB as PostgreSQL<br/>(iot_commands table)
+    participant GoOps as Go Ops Service<br/>(Port :8083)
+    participant Redis as Redis<br/>(Event queue)
+
+    Note over ESP32,Redis: COMMAND CREATION FLOW (from web app)
+
+    Browser->>NextJS: User schedules machine command<br/>POST /api/iot/commands
+    NextJS->>NestJS: POST /iot/commands<br/>{account_id, machine_id,<br/>command_type, recipe, scheduled_at}
+    NestJS->>IoTModule: createCommand(data)
+    IoTModule->>DB: INSERT INTO iot_commands<br/>(account_id, machine_id, command_type,<br/>recipe_json, status='pending',<br/>scheduled_at, created_at)
+    DB-->>IoTModule: {command_id}
+    IoTModule-->>NestJS: 201 {command_id, status: 'pending'}
+    NestJS-->>NextJS: 201
+    NextJS-->>Browser: Command scheduled confirmation
+
+    Note over ESP32,Redis: DEVICE POLLING FLOW
+
+    ESP32->>NestJS: GET /iot/commands/pending<br/>{machine_id, api_key}
+    NestJS->>IoTModule: getPendingCommands(machine_id)
+    IoTModule->>DB: SELECT * FROM iot_commands<br/>WHERE machine_id = ?<br/>AND status = 'pending'<br/>AND scheduled_at <= now()<br/>ORDER BY created_at ASC<br/>LIMIT 10
+    DB-->>IoTModule: Pending commands list
+    IoTModule-->>NestJS: 200 {commands: [...]}
+    NestJS-->>ESP32: 200 {commands}
+
+    alt No pending commands
+        ESP32->>ESP32: Wait polling interval<br/>(e.g., 30 seconds)
+        ESP32->>NestJS: Retry GET /iot/commands/pending
+    else Commands available
+        NestJS->>IoTModule: updateStatus(command_id, 'sent')
+        IoTModule->>DB: UPDATE iot_commands<br/>SET status='sent', sent_at=now()<br/>WHERE id = ?
+    end
+
+    Note over ESP32,Redis: COMMAND EXECUTION FLOW
+
+    ESP32->>ESP32: Parse command JSON<br/>Extract recipe parameters
+    ESP32->>ESP32: Execute command on machine<br/>(brew, clean, descale, etc.)
+
+    alt Command execution success
+        ESP32->>ESP32: Monitor execution<br/>(temperature, pressure, time)
+        ESP32->>NestJS: POST /iot/commands/{id}/complete<br/>{command_id, status='completed',<br/>execution_data, duration_ms}
+        NestJS->>IoTModule: completeCommand(id, data)
+        IoTModule->>DB: UPDATE iot_commands<br/>SET status='completed',<br/>completed_at=now(),<br/>execution_data=?, duration_ms=?<br/>WHERE id = ?
+        IoTModule->>GoOps: Publish event<br/>iot_command_completed
+        GoOps->>Redis: LPUSH events<br/>{type: 'iot_command_completed',<br/>command_id, machine_id, timestamp}
+        IoTModule-->>NestJS: 200
+        NestJS-->>ESP32: 200 ACK
+    else Command execution failed
+        ESP32->>NestJS: POST /iot/commands/{id}/fail<br/>{command_id, status='failed',<br/>error_code, error_message}
+        NestJS->>IoTModule: failCommand(id, error)
+        IoTModule->>DB: UPDATE iot_commands<br/>SET status='failed',<br/>failed_at=now(),<br/>error_code=?, error_message=?<br/>WHERE id = ?
+        IoTModule->>GoOps: Publish event<br/>iot_command_failed
+        GoOps->>Redis: LPUSH events<br/>{type: 'iot_command_failed',<br/>command_id, error_code}
+        IoTModule-->>NestJS: 200
+        NestJS-->>ESP32: 200 ACK
+    end
+
+    Note over ESP32,Redis: DEVICE REGISTRATION FLOW
+
+    ESP32->>NestJS: POST /iot/devices/register<br/>{device_id, machine_type,<br/>firmware_version, api_key}
+    NestJS->>IoTModule: registerDevice(data)
+    IoTModule->>DB: INSERT/UPDATE machine_products<br/>(device_id, status='online',<br/>last_seen=now(), firmware_version)
+    IoTModule-->>NestJS: 200 {device_token}
+    NestJS-->>ESP32: 200 {device_token}
+    ESP32->>ESP32: Store device_token<br/>for authenticated requests
+
+    Note over ESP32,Redis: DEVICE HEARTBEAT FLOW
+
+    loop Every 60 seconds
+        ESP32->>NestJS: POST /iot/devices/heartbeat<br/>{device_id, token, status}
+        NestJS->>IoTModule: updateHeartbeat(device_id)
+        IoTModule->>DB: UPDATE machine_products<br/>SET last_seen=now(), status='online'<br/>WHERE device_id = ?
+        IoTModule->>GoOps: Publish event<br/>device_heartbeat
+        GoOps->>Redis: LPUSH events<br/>{type: 'device_heartbeat',<br/>device_id, timestamp}
+    end
+
+    Note over ESP32,Redis: COMMAND STATUS QUERY (from web app)
+
+    Browser->>NextJS: GET /api/iot/commands/{id}
+    NextJS->>NestJS: GET /iot/commands/{id}
+    NestJS->>IoTModule: getCommandStatus(id)
+    IoTModule->>DB: SELECT * FROM iot_commands<br/>WHERE id = ?
+    DB-->>IoTModule: Command record
+    IoTModule-->>NestJS: 200 {command, status}
+    NestJS-->>NextJS: 200
+    NextJS-->>Browser: Display command status<br/>(pending/sent/completed/failed)
+
+    Note over ESP32,Redis: RECIPE JSON STRUCTURE
+
+    Note right of ESP32: recipe example:<br/>{<br/>  "type": "brew",<br/>  "capsule_type": "original",<br/>  "volume_ml": 40,<br/>  "temperature_c": 92,<br/>  "pressure_bar": 19,<br/>  "preinfusion_sec": 3<br/>}
+
+

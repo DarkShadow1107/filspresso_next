@@ -1,11 +1,49 @@
+---
+title: Filspresso Next - Docker Compose Service Dependency Graph
+---
+
 flowchart TD
-    PG[postgres] --> BE[backend]
-    RD[redis] --> GO[go_ops]
-    PG --> AI[ai]
-    BE --> JI[invoice_java]
-    BE --> GO[go_ops]
-    BE --> KS[kotlin_subscriptions]
-    BE --> IMG[public/images mount]
-    AI --> HFC[hf_cache volume]
-    AI --> CLC[clip_cache volume]
-    AI --> MSC[molscribe_model volume]
+    BE[backend<br/>NestJS :4000] -->|depends_on| PG[(postgres<br/>:5432)]
+    BE -->|depends_on| OPA[opa<br/>:8181]
+    BE -->|depends_on| RC[rust_crypto<br/>:8090]
+    BE -->|depends_on| JI[invoice_java<br/>:8082]
+    BE -->|depends_on| GO[go_ops<br/>:8083]
+    BE -->|depends_on| KS[kotlin_subscriptions<br/>:8084]
+
+    GO -->|depends_on| RD[(redis<br/>:6379)]
+
+    AI[ai<br/>Python AI :5000] -->|depends_on| PG
+    AI -->|depends_on| LM[llama_minilm<br/>:8080]
+    AI -->|depends_on| LQ[llama_qwen<br/>:8080]
+    AI -->|depends_on| LG[llama_gemma<br/>:8080]
+    AI -->|depends_on| LV[llama_vision_qwen3_vl<br/>:8080]
+
+    BE --> IMG[(public/images)]
+    JI --> IMG
+    AI --> ICONS[(public/images/icons)]
+
+    LM --> MOD[(models/model)]
+    LQ --> MOD
+    LG --> MOD
+    LV --> MOD
+
+    BE --> SEC[(secrets)]
+    JI --> SEC
+    GO --> SEC
+    KS --> SEC
+    RC --> SEC
+    AI --> SEC
+
+    PG --> INITDB[(nestjs-backend/data<br/>initdb.d)]
+
+    OPA --> POLICIES[(security/opa/policies)]
+
+    classDef svc fill:#eef7ff,stroke:#3a7bd5,color:#111
+    classDef db fill:#fff6e8,stroke:#c17d2d,color:#111
+    classDef vol fill:#fdf4ff,stroke:#c026d3,color:#111
+    classDef llm fill:#f0fdf4,stroke:#22c55e,color:#111
+
+    class BE,JI,GO,KS,AI,RC,OPA svc
+    class PG,RD db
+    class LM,LQ,LG,LV llm
+    class IMG,ICONS,MOD,SEC,INITDB,POLICIES vol

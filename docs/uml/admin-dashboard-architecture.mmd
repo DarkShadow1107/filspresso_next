@@ -1,0 +1,121 @@
+---
+title: Filspresso Next - Admin Dashboard Architecture
+---
+
+flowchart TB
+    subgraph Admin_Pages["Admin Pages (src/app/admin/)"]
+        AdminLayout["layout.tsx<br/>Admin Layout"]
+        AdminDashboard["page.tsx<br/>Dashboard Home"]
+        AdminLogin["page.tsx (admin-login)<br/>Admin Authentication"]
+    end
+
+    subgraph Admin_Components["Admin Components (src/components/admin/)"]
+        direction TB
+        AdminSidebar["Sidebar.tsx<br/>Navigation Menu"]
+        SecurityTelemetry["SecurityTelemetry.tsx<br/>Auth events, login attempts,<br/>brute force tracking"]
+        RawSQLQuery["RawSQLQuery.tsx<br/>Read-only SQL executor"]
+        ServiceHealthPanel["ServiceHealthPanel.tsx<br/>Multi-service health status"]
+        LedgerViewer["LedgerViewer.tsx<br/>Security event ledger chain"]
+        UserManagement["UserManagement.tsx<br/>User list, role changes"]
+        ProductManagement["ProductManagement.tsx<br/>Coffee/machine CRUD"]
+        OrderManagement["OrderManagement.tsx<br/>Order list, status updates"]
+        SubscriptionAdmin["SubscriptionAdmin.tsx<br/>Plan management"]
+        RepairAdmin["RepairAdmin.tsx<br/>Repair request management"]
+    end
+
+    subgraph Admin_API["Admin API Routes"]
+        AdminProxy["/api/admin/[...path]<br/>Proxy to NestJS /admin/*"]
+        AdminTelemetry["/api/admin/telemetry<br/>Security metrics"]
+        AdminSQL["/api/admin/sql<br/>Read-only SQL execution"]
+        AdminLedger["/api/admin/ledger<br/>Security ledger queries"]
+        AdminUsers["/api/admin/users<br/>User management"]
+    end
+
+    subgraph NestJS_Admin["NestJS Admin Module"]
+        AdminController["admin.controller.ts<br/>Admin endpoints"]
+        AdminService["admin.service.ts<br/>Business logic"]
+        SecurityObservability["security-observability/<br/>Metrics, alerts, webhooks"]
+        HealthModule["health/<br/>Multi-service health checks"]
+    end
+
+    subgraph Admin_Data["Data Sources"]
+        AuthEvents["auth_security_events<br/>Login attempts, failures"]
+        LoginAttempts["auth_login_attempts<br/>Brute force tracking"]
+        SecurityLedger["security_event_ledger<br/>SHA3-256 hash chain"]
+        AccountsTable["accounts<br/>User data, roles"]
+        OrdersTable["orders<br/>Order records"]
+        ProductsTable["coffee_products, machine_products"]
+        RepairsTable["repairs"]
+        SubscriptionsTable["subscriptions, user_subscriptions"]
+    end
+
+    subgraph Admin_Security["Admin Security Controls"]
+        AdminAuth["Admin JWT Guard<br/>role='admin' required"]
+        OPAPolicy["OPA Policy<br/>admin:* resource access"]
+        ReadOnlySQL["Read-only DB connection<br/>No INSERT/UPDATE/DELETE"]
+        AuditLogging["SHA3-256 ledger entry<br/>for each admin action"]
+    end
+
+    AdminLayout --> AdminSidebar
+    AdminDashboard --> SecurityTelemetry
+    AdminDashboard --> RawSQLQuery
+    AdminDashboard --> ServiceHealthPanel
+    AdminDashboard --> LedgerViewer
+    AdminDashboard --> UserManagement
+    AdminDashboard --> ProductManagement
+    AdminDashboard --> OrderManagement
+    AdminDashboard --> SubscriptionAdmin
+    AdminDashboard --> RepairAdmin
+
+    AdminSidebar --> AdminDashboard
+    AdminSidebar --> UserManagement
+    AdminSidebar --> ProductManagement
+    AdminSidebar --> OrderManagement
+
+    SecurityTelemetry --> AdminTelemetry
+    RawSQLQuery --> AdminSQL
+    ServiceHealthPanel --> AdminProxy
+    LedgerViewer --> AdminLedger
+    UserManagement --> AdminUsers
+    ProductManagement --> AdminProxy
+    OrderManagement --> AdminProxy
+    SubscriptionAdmin --> AdminProxy
+    RepairAdmin --> AdminProxy
+
+    AdminTelemetry --> AdminController
+    AdminSQL --> AdminController
+    AdminLedger --> AdminController
+    AdminUsers --> AdminController
+    AdminProxy --> AdminController
+
+    AdminController --> AdminService
+    AdminService --> SecurityObservability
+    AdminService --> HealthModule
+
+    AdminService --> AuthEvents
+    AdminService --> LoginAttempts
+    AdminService --> SecurityLedger
+    AdminService --> AccountsTable
+    AdminService --> OrdersTable
+    AdminService --> ProductsTable
+    AdminService --> RepairsTable
+    AdminService --> SubscriptionsTable
+
+    AdminController --> AdminAuth
+    AdminAuth --> OPAPolicy
+    AdminSQL --> ReadOnlySQL
+    AdminService --> AuditLogging
+
+    classDef page fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef component fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef api fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef nestjs fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef data fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    classDef security fill:#e0f2f1,stroke:#004d40,stroke-width:2px
+
+    class AdminLayout,AdminDashboard,AdminLogin page
+    class AdminSidebar,SecurityTelemetry,RawSQLQuery,ServiceHealthPanel,LedgerViewer,UserManagement,ProductManagement,OrderManagement,SubscriptionAdmin,RepairAdmin component
+    class AdminProxy,AdminTelemetry,AdminSQL,AdminLedger,AdminUsers api
+    class AdminController,AdminService,SecurityObservability,HealthModule nestjs
+    class AuthEvents,LoginAttempts,SecurityLedger,AccountsTable,OrdersTable,ProductsTable,RepairsTable,SubscriptionsTable data
+    class AdminAuth,OPAPolicy,ReadOnlySQL,AuditLogging security

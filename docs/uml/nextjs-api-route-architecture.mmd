@@ -1,0 +1,119 @@
+---
+title: Filspresso Next - Next.js API Route Handler Architecture
+---
+
+flowchart TB
+    subgraph Client["Client Browser"]
+        Browser["Browser Requests<br/>Fetch/Axios calls"]
+    end
+
+    subgraph NextJS_API["Next.js API Route Handlers (src/app/api/)"]
+        direction TB
+
+        subgraph Proxy_Routes["Proxy Route Handlers"]
+            direction TB
+            AccountsProxy["/api/accounts/[...path]<br/>proxy → NestJS /accounts/*"]
+            AuthProxy["/api/auth/[...path]<br/>proxy → NestJS /auth/*"]
+            CartProxy["/api/cart/[...path]<br/>proxy → NestJS /cart/*"]
+            OrdersProxy["/api/orders/[...path]<br/>proxy → NestJS /orders/*"]
+            ProductsProxy["/api/products/[...path]<br/>proxy → NestJS /products/*"]
+            FavoritesProxy["/api/favorites/[...path]<br/>proxy → NestJS /favorites/*"]
+            CardsProxy["/api/cards/[...path]<br/>proxy → NestJS /cards/*"]
+            RepairsProxy["/api/repairs/[...path]<br/>proxy → NestJS /repairs/*"]
+            WeatherProxy["/api/weather/[...path]<br/>proxy → NestJS /weather/*"]
+            KafelotProxy["/api/kafelot/[...path]<br/>proxy → NestJS /kafelot/*"]
+            AdminProxy["/api/admin/[...path]<br/>proxy → NestJS /admin/*"]
+            SubscriptionsProxy["/api/subscriptions/[...path]<br/>proxy → NestJS /subscriptions/*"]
+            FXProxy["/api/fx/[...path]<br/>proxy → NestJS /fx/*"]
+            IconsProxy["/api/icons/[...path]<br/>proxy → NestJS /icons/*"]
+            MoleculeProxy["/api/molecule/[...path]<br/>proxy → NestJS /molecule/*"]
+        end
+
+        subgraph Direct_Routes["Direct Route Handlers"]
+            direction TB
+            PythonChat["/api/python-chat/route.ts<br/>→ Python AI /chat"]
+            PythonHealth["/api/python-health/route.ts<br/>→ Python AI /health"]
+            ServicesHealth["/api/services-health/route.ts<br/>→ Aggregate all service health"]
+            ModelInfo["/api/model/route.ts<br/>→ Python AI /model/info"]
+            ChatSessions["/api/chat/route.ts<br/>→ NestJS /chat sessions"]
+            ChatSave["/api/chat/save/route.ts<br/>→ NestJS /chat save/load"]
+            Subscribe["/api/subscribe/route.ts<br/>→ Kotlin /quote + NestJS"]
+        end
+    end
+
+    subgraph Proxy_Logic["Proxy Middleware Logic"]
+        direction TB
+        RewriteConfig["proxy.ts<br/>Next.js rewrites config<br/>Maps /api/* → backend URLs"]
+        AuthForward["Auth header forwarding<br/>Cookie sid → Bearer JWT"]
+        ErrorTransform["Error response transformation<br/>NestJS errors → Next.js format"]
+        TimeoutHandler["Request timeout handling<br/>AbortController for long requests"]
+        CORSHandling["CORS header management<br/>Origin validation"]
+    end
+
+    subgraph Backend_Services["Backend Services"]
+        NestJS["NestJS Backend<br/>Port :4000<br/>Commerce, Auth, Orders, Cart"]
+        PythonAI["Python AI Service<br/>Port :5000<br/>LLM, Embeddings, Chemistry"]
+        KotlinSub["Kotlin Subscriptions<br/>Port :8084<br/>Quote engine"]
+    end
+
+    Browser -->|HTTP Request| NextJS_API
+
+    AccountsProxy --> RewriteConfig
+    AuthProxy --> RewriteConfig
+    CartProxy --> RewriteConfig
+    OrdersProxy --> RewriteConfig
+    ProductsProxy --> RewriteConfig
+    FavoritesProxy --> RewriteConfig
+    CardsProxy --> RewriteConfig
+    RepairsProxy --> RewriteConfig
+    WeatherProxy --> RewriteConfig
+    KafelotProxy --> RewriteConfig
+    AdminProxy --> RewriteConfig
+    SubscriptionsProxy --> RewriteConfig
+    FXProxy --> RewriteConfig
+    IconsProxy --> RewriteConfig
+    MoleculeProxy --> RewriteConfig
+
+    RewriteConfig --> AuthForward
+    AuthForward --> ErrorTransform
+    ErrorTransform --> TimeoutHandler
+    TimeoutHandler --> CORSHandling
+
+    AccountsProxy -->|Forwarded| NestJS
+    AuthProxy -->|Forwarded| NestJS
+    CartProxy -->|Forwarded| NestJS
+    OrdersProxy -->|Forwarded| NestJS
+    ProductsProxy -->|Forwarded| NestJS
+    FavoritesProxy -->|Forwarded| NestJS
+    CardsProxy -->|Forwarded| NestJS
+    RepairsProxy -->|Forwarded| NestJS
+    WeatherProxy -->|Forwarded| NestJS
+    KafelotProxy -->|Forwarded| NestJS
+    AdminProxy -->|Forwarded| NestJS
+    SubscriptionsProxy -->|Forwarded| NestJS
+    FXProxy -->|Forwarded| NestJS
+    IconsProxy -->|Forwarded| NestJS
+    MoleculeProxy -->|Forwarded| NestJS
+
+    PythonChat -->|POST /chat| PythonAI
+    PythonHealth -->|GET /health| PythonAI
+    ModelInfo -->|GET /model/info| PythonAI
+    ServicesHealth -->|GET /health| NestJS
+    ServicesHealth -->|GET /health| PythonAI
+    ServicesHealth -->|GET /health| KotlinSub
+    ChatSessions -->|GET/POST| NestJS
+    ChatSave -->|POST/GET| NestJS
+    Subscribe -->|POST /quote| KotlinSub
+    Subscribe -->|POST /create| NestJS
+
+    classDef client fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef proxy fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef direct fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef middleware fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef backend fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+    class Browser client
+    class AccountsProxy,AuthProxy,CartProxy,OrdersProxy,ProductsProxy,FavoritesProxy,CardsProxy,RepairsProxy,WeatherProxy,KafelotProxy,AdminProxy,SubscriptionsProxy,FXProxy,IconsProxy,MoleculeProxy proxy
+    class PythonChat,PythonHealth,ServicesHealth,ModelInfo,ChatSessions,ChatSave,Subscribe direct
+    class RewriteConfig,AuthForward,ErrorTransform,TimeoutHandler,CORSHandling middleware
+    class NestJS,PythonAI,KotlinSub backend

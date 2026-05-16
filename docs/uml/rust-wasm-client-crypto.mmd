@@ -1,0 +1,88 @@
+---
+title: Filspresso Next - Rust WASM Client-Side Crypto Diagram
+---
+
+flowchart TB
+    subgraph Browser["Browser Environment"]
+        WebApp["Next.js Web App<br/>Client-side code"]
+        WASMModule["Rust WASM Module<br/>rust-wasm/pkg/"]
+        JSBindings["JavaScript Bindings<br/>wasm-bindgen generated"]
+    end
+
+    subgraph WASM_Crypto["WASM Crypto Functions"]
+        SHA3256["SHA3-256 Hash<br/>Compute commitment hashes<br/>client-side"]
+        EdDSAVerify["EdDSA Verify<br/>Verify service assertions<br/>before sending to server"]
+        AESGCMEncrypt["AES-256-GCM Encrypt<br/>Field-level encryption<br/>before transmission"]
+        AESGCMDecrypt["AES-256-GCM Decrypt<br/>Decrypt received data<br/>client-side"]
+        HKDFDerive["HKDF-SHA3-256 Derive<br/>Derive encryption keys<br/>from master secret"]
+        RandomGen["Secure Random Generator<br/>Generate nonces, IVs<br/>salt values"]
+    end
+
+    subgraph Use_Cases["Use Cases"]
+        MFAEncrypt["MFA TOTP Secret Encryption<br/>Encrypt TOTP secret<br/>before sending to server"]
+        CardEncrypt["Card Data Encryption<br/>Encrypt payment card details<br/>before transmission"]
+        CommitmentGen["Commitment Generation<br/>Generate SHA3-256 commitments<br/>for sensitive operations"]
+        LocalStorageEncrypt["LocalStorage Encryption<br/>Encrypt cached data<br/>in browser storage"]
+        FormEncryption["Form Data Encryption<br/>Encrypt sensitive form fields<br/>before submission"]
+    end
+
+    subgraph Data_Flow["Data Flow"]
+        SensitiveData["Sensitive Input Data<br/>Passwords, cards, TOTP secrets"]
+        WASMProcessing["WASM Processing<br/>High-performance crypto<br/>in WebAssembly"]
+        EncryptedOutput["Encrypted Output<br/>v2:gcm:k1:IV:authTag:ciphertext<br/>format"]
+        ServerTransmission["Server Transmission<br/>Send encrypted payload<br/>over HTTPS"]
+    end
+
+    subgraph Integration["Integration Points"]
+        NestJSBackend["NestJS Backend<br/>Receives encrypted data<br/>Validates/decrypts server-side"]
+        RustCrypto["Rust Crypto Service<br/>Server-side crypto operations<br/>Port :8090"]
+        ConsistencyCheck["Consistency Check<br/>Client and server use same<br/>crypto algorithms"]
+    end
+
+    WebApp -->|Load| WASMModule
+    WASMModule -->|Initialize| JSBindings
+    JSBindings -->|Expose functions| WebApp
+
+    WebApp -->|Call| SHA3256
+    WebApp -->|Call| EdDSAVerify
+    WebApp -->|Call| AESGCMEncrypt
+    WebApp -->|Call| AESGCMDecrypt
+    WebApp -->|Call| HKDFDerive
+    WebApp -->|Call| RandomGen
+
+    SHA3256 --> CommitmentGen
+    EdDSAVerify --> MFAEncrypt
+    AESGCMEncrypt --> MFAEncrypt
+    AESGCMEncrypt --> CardEncrypt
+    AESGCMEncrypt --> LocalStorageEncrypt
+    AESGCMEncrypt --> FormEncryption
+    AESGCMDecrypt --> LocalStorageEncrypt
+    HKDFDerive --> AESGCMEncrypt
+    RandomGen --> AESGCMEncrypt
+
+    MFAEncrypt --> SensitiveData
+    CardEncrypt --> SensitiveData
+    CommitmentGen --> SensitiveData
+    LocalStorageEncrypt --> SensitiveData
+    FormEncryption --> SensitiveData
+
+    SensitiveData --> WASMProcessing
+    WASMProcessing --> EncryptedOutput
+    EncryptedOutput --> ServerTransmission
+    ServerTransmission --> NestJSBackend
+
+    NestJSBackend -->|Verify/decrypt| RustCrypto
+    NestJSBackend --> ConsistencyCheck
+    RustCrypto --> ConsistencyCheck
+
+    classDef browser fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef wasm fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef usecase fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef dataflow fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef integration fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+    class WebApp,WASMModule,JSBindings browser
+    class SHA3256,EdDSAVerify,AESGCMEncrypt,AESGCMDecrypt,HKDFDerive,RandomGen wasm
+    class MFAEncrypt,CardEncrypt:CommitmentGen,LocalStorageEncrypt,FormEncryption usecase
+    class SensitiveData,WASMProcessing,EncryptedOutput,ServerTransmission dataflow
+    class NestJSBackend,RustCrypto,ConsistencyCheck integration

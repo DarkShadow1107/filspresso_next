@@ -1,11 +1,41 @@
-flowchart LR
-    U[User Browser] --> N[Next.js App Router\nPort 3000]
-    N --> E[Express API\nPort 4000]
-    N --> P[Python AI Service\nPort 5000]
-    E --> D[(PostgreSQL\nPort 5432)]
-    E --> J[Java Invoice\nPort 8082]
-    E --> K[Kotlin Subscriptions\nPort 8084]
-    E --> G[Go Ops\nPort 8083]
-    G --> R[(Redis\nPort 6379)]
-    P --> D
-    I[IoT Device] --> P
+---
+title: Filspresso Next - C4 System Context Diagram
+---
+
+flowchart TB
+    U[User<br/>Browser / Mobile] --> N[Next.js App Router<br/>Filspresso Frontend<br/>Port :3000]
+    I[IoT Device<br/>ESP32 / Kafelot] --> P
+
+    N --> NEST[NestJS Backend<br/>Commerce & Auth Core<br/>Port :4000]
+    N --> P[Python AI Service<br/>Flask Gateway<br/>Port :5000]
+    N --> RUST[Rust Crypto Service<br/>Commitments & Signing<br/>Port :8090]
+
+    NEST --> DB[(PostgreSQL 16<br/>pgvector + RDKit<br/>Port :5432)]
+    NEST --> J[Java Invoice Service<br/>PDF Generation<br/>Port :8082]
+    NEST --> K[Kotlin Subscription Service<br/>Pricing Engine<br/>Port :8084]
+    NEST --> G[Go Ops Service<br/>Events & Webhooks<br/>Port :8083]
+    NEST --> OPA[OPA Policy Engine<br/>Authorization Control<br/>Port :8181]
+    NEST --> RUST
+
+    G --> R[(Redis 7<br/>AOF Persisted<br/>Port :6379)]
+    P --> DB
+    P --> LLAMA[llama.cpp Model Servers<br/>MiniLM / Qwen3 / Gemma3 / Qwen3-VL]
+
+    subgraph External
+        U
+        I
+    end
+
+    subgraph Filspresso_Platform
+        N
+        NEST
+        P
+        J
+        K
+        G
+        RUST
+        OPA
+        LLAMA
+        DB
+        R
+    end

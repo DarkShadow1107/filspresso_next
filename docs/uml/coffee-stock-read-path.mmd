@@ -1,15 +1,24 @@
+---
+title: Filspresso Next - Coffee Stock Read Path Sequence
+---
+
 sequenceDiagram
     participant B as Browser
-    participant N as Next.js
-    participant E as Express API
+    participant N as Next.js (BFF)
+    participant NEST as NestJS Backend
     participant DB as PostgreSQL
 
-    B->>N: Open /coffee
-    N->>E: GET /api/products/coffee
-    E->>DB: SELECT coffee products + stock
-    DB-->>E: Rows
-    E-->>N: Product payload
-    N-->>B: Render cards and stock
+    B->>N: Open /coffee page
+    Note over N: proxy.ts rewrites /coffee → /?page=coffee
+    N->>N: Load page component dynamically
+    N->>NEST: GET /api/products/coffee
+    NEST->>DB: SELECT coffee_products<br/>product_id, name, stock, price, category, intensity
+    NEST->>DB: SELECT cart_items<br/>WHERE product_type = 'capsule'<br/>(active reservations)
+    DB-->>NEST: Product rows + active cart reservations
+    NEST->>NEST: Compute available_stock = stock - reserved
+    NEST-->>N: Product payload with available_stock
+    N-->>B: Render coffee cards with stock badges
 
-    Note over N,E: Preferred pattern is a single initial read per page load.
-    Note over E,DB: Keep indexes on product_id, product_type, category for stable latency.
+    Note over NEST,DB: Indexes on product_id, product_type, category
+    Note over NEST,DB: Single read per page load — no polling needed
+    Note over B,N: Cart polling (45s interval) runs separately via useCart hook

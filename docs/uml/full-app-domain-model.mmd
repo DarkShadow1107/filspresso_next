@@ -1,89 +1,313 @@
+---
+title: Filspresso Next - Full Domain Model (Class Diagram)
+---
+
 classDiagram
+    direction LR
+
     class Account {
-      +id : uuid
-      +email : string
-      +username : string
-      +password_hash : string
-      +created_at : datetime
+        +id : number
+        +username : string
+        +email : string
+        +password_hash : string
+        +name : string
+        +icon : string
+        +role : admin | user
+        +graph_theme : string
+        +invoice_include_product_view : boolean
+        +email_verified : boolean
+        +last_login : timestamp
+        +created_at : timestamp
+        +updated_at : timestamp
     }
 
     class UserSession {
-      +id : uuid
-      +account_id : uuid
-      +token_hash : string
-      +expires_at : datetime
+        +id : number
+        +account_id : number
+        +session_token : string
+        +expires_at : timestamp
+        +ip_address : string
+        +user_agent : string
+        +created_at : timestamp
+    }
+
+    class UserCard {
+        +id : number
+        +account_id : number
+        +card_number_encrypted : string
+        +card_expiry_encrypted : string
+        +card_holder : string
+        +card_type : string
+        +card_last_four : string
+        +is_default : boolean
+        +created_at : timestamp
+        +updated_at : timestamp
     }
 
     class Order {
-      +id : uuid
-      +account_id : uuid
-      +status : string
-      +order_number : string
-      +created_at : datetime
-      +total : decimal
+        +id : number
+        +account_id : number
+        +order_number : string
+        +status : order_status
+        +subtotal : decimal
+        +shipping_cost : decimal
+        +tax : decimal
+        +total : decimal
+        +shipping_address : jsonb
+        +billing_address : jsonb
+        +payment_method : string
+        +card_id : number
+        +notes : string
+        +weather_condition : string
+        +estimated_delivery : string
+        +expected_delivery_date : string
+        +currency_code : string
+        +exchange_rate : decimal
+        +conversion_fee_percent : decimal
+        +charged_subtotal : decimal
+        +charged_shipping_cost : decimal
+        +charged_tax : decimal
+        +charged_total : decimal
+        +destination_country : string
+        +created_at : timestamp
+        +updated_at : timestamp
     }
 
     class OrderItem {
-      +id : uuid
-      +order_id : uuid
-      +product_id : string
-      +product_type : string
-      +quantity : int
-      +unit_price : decimal
-      +total_price : decimal
+        +id : number
+        +order_id : number
+        +product_type : product_type
+        +product_id : string
+        +product_name : string
+        +product_image : string
+        +capsule_system : original | vertuo
+        +quantity : int
+        +unit_price : decimal
+        +total_price : decimal
+        +created_at : timestamp
     }
 
     class CartItem {
-      +id : uuid
-      +account_id : uuid
-      +product_id : string
-      +product_type : string
-      +quantity : int
-      +updated_at : datetime
+        +id : number
+        +account_id : number
+        +product_type : capsule | machine | accessory
+        +product_id : string
+        +product_name : string
+        +product_image : string
+        +unit_price : decimal
+        +quantity : int
+        +created_at : timestamp
+        +updated_at : timestamp
     }
 
     class CoffeeProduct {
-      +product_id : string
-      +name : string
-      +stock : int
-      +price : decimal
-      +category : string
+        +id : number
+        +product_id : string
+        +product_type : original | vertuo
+        +category : string
+        +name : string
+        +price : decimal
+        +stock : int
+        +description : string
+        +notes : jsonb
+        +servings : jsonb
+        +intensity : int
+        +image_filename : string
+        +image_extension : string
+        +image_style : string
+        +price_class : string
+        +created_at : timestamp
+        +updated_at : timestamp
     }
 
     class MachineProduct {
-      +product_id : string
-      +name : string
-      +stock : int
-      +price : decimal
-      +category : string
-    }
-
-    class Subscription {
-      +id : uuid
-      +account_id : uuid
-      +plan : string
-      +status : string
-      +next_billing_date : date
+        +id : number
+        +product_id : string
+        +product_type : original | vertuo
+        +category : string
+        +name : string
+        +price : decimal
+        +stock : int
+        +description : string
+        +notes : jsonb
+        +image : string
+        +box_class : string
+        +wrapper_class : string
+        +unit_label : string
+        +price_class : string
+        +price_text : string
+        +extra_class : jsonb
+        +created_at : timestamp
+        +updated_at : timestamp
     }
 
     class Favorite {
-      +id : uuid
-      +account_id : uuid
-      +product_id : string
-      +product_type : string
+        +id : number
+        +account_id : number
+        +product_type : capsule | machine
+        +product_category : string
+        +product_id : string
+        +created_at : timestamp
+    }
+
+    class SubscriptionPlan {
+        +id : number
+        +name : string
+        +description : string
+        +price_ron : decimal
+        +features : jsonb
+        +created_at : timestamp
+        +updated_at : timestamp
+    }
+
+    class UserSubscription {
+        +id : number
+        +account_id : number
+        +plan_id : string
+        +subscription_tier : string
+        +status : active | canceled | expired
+        +billing_cycle : monthly | yearly
+        +price_ron : decimal
+        +start_date : date
+        +renewal_date : date
+        +end_date : date
+        +auto_renew : boolean
+        +is_active : boolean
+        +card_id : number
+        +created_at : timestamp
+        +updated_at : timestamp
+    }
+
+    class MemberStatus {
+        +id : number
+        +account_id : number
+        +total_capsules : int
+        +original_capsules : int
+        +vertuo_capsules : int
+        +current_tier : string
+        +highest_tier_achieved : string
+        +current_year_capsules : int
+        +current_year_start : date
+        +created_at : timestamp
+        +updated_at : timestamp
+    }
+
+    class MemberStatusHistory {
+        +id : number
+        +account_id : number
+        +year : int
+        +capsules_ordered : int
+        +original_capsules : int
+        +vertuo_capsules : int
+        +order_count : int
+        +highest_tier : string
+        +created_at : timestamp
+        +updated_at : timestamp
+    }
+
+    class ChatSession {
+        +id : number
+        +account_id : number
+        +session_uuid : string
+        +title : string
+        +model_type : tanka | chemistry
+        +ai_enabled : boolean
+        +is_active : boolean
+        +message_count : int
+        +created_at : timestamp
+        +updated_at : timestamp
+    }
+
+    class ChatMessage {
+        +id : number
+        +session_id : number
+        +role : user | assistant | system
+        +content : text
+        +tokens_used : int
+        +response_time_ms : int
+        +created_at : timestamp
+    }
+
+    class IoTCommand {
+        +id : number
+        +machine_id : string
+        +recipe : jsonb
+        +execute_allowed : boolean
+        +status : string
+        +meta : jsonb
+        +created_at : timestamp
+        +updated_at : timestamp
     }
 
     class CoffeeFact {
-      +id : int
-      +content : text
-      +embedding : vector
+        +id : number
+        +fact : text
+        +embedding : vector(384)
+        +created_at : timestamp
     }
 
-    Account "1" --> "many" UserSession
-    Account "1" --> "many" Order
-    Account "1" --> "many" CartItem
-    Account "1" --> "many" Favorite
-    Account "1" --> "many" Subscription
-    Order "1" --> "many" OrderItem
-    OrderItem --> CoffeeProduct : references
-    OrderItem --> MachineProduct : references
+    class Repair {
+        +id : number
+        +account_id : number
+        +order_id : number
+        +machine_id : string
+        +machine_name : string
+        +repair_type : string
+        +is_warranty : boolean
+        +estimated_cost : decimal
+        +estimated_duration : int
+        +weather_delay : boolean
+        +warranty_delay : boolean
+        +status : repair_status
+        +pickup_date : timestamp
+        +payment_card_id : number
+        +created_at : timestamp
+        +updated_at : timestamp
+    }
+
+    class WeatherCache {
+        +id : number
+        +cache_key : string
+        +data : jsonb
+        +timestamp : timestamp
+    }
+
+    class Molecule {
+        +id : number
+        +chembl_id : string
+        +name : string
+        +smiles : string
+        +synonyms : string[]
+        +created_at : timestamp
+    }
+
+    Account "1" --> "0..*" UserSession : has
+    Account "1" --> "0..*" UserCard : owns
+    Account "1" --> "0..*" Order : places
+    Account "1" --> "0..*" CartItem : reserves
+    Account "1" --> "0..*" Favorite : bookmarks
+    Account "1" --> "0..*" ChatSession : chats with
+    Account "1" --> "0..1" UserSubscription : subscribes
+    Account "1" --> "0..1" MemberStatus : earns
+    Account "1" --> "0..*" MemberStatusHistory : has history
+    Account "1" --> "0..*" Repair : requests
+
+    Order "1" --> "1..*" OrderItem : contains
+    Order "0..*" --> "0..1" UserCard : paid with
+    Order "0..*" --> "0..1" Repair : initiates
+
+    OrderItem "0..*" --> "0..1" CoffeeProduct : references
+    OrderItem "0..*" --> "0..1" MachineProduct : references
+
+    CartItem "0..*" --> "0..1" CoffeeProduct : references
+    CartItem "0..*" --> "0..1" MachineProduct : references
+
+    Favorite "0..*" --> "0..1" CoffeeProduct : bookmarks
+    Favorite "0..*" --> "0..1" MachineProduct : bookmarks
+
+    UserSubscription "0..1" --> "0..1" SubscriptionPlan : based on
+    UserSubscription "0..1" --> "0..1" UserCard : billed to
+
+    ChatSession "1" --> "0..*" ChatMessage : contains
+
+    Account "0..1" --> "0..1" SubscriptionPlan : references

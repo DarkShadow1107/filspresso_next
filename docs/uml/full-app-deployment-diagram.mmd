@@ -1,25 +1,59 @@
-flowchart TD
-    UB[User Browser] --> FE[Next.js Container :3000]
-    FE --> BE[Express Container :4000]
-    FE --> AI[Python AI Container :5000]
+---
+title: Filspresso Next - Deployment Diagram (Docker Compose)
+---
 
-    BE --> DB[(PostgreSQL Container :5432)]
-    BE --> INV[Java Invoice Container :8082]
-    BE --> OPS[Go Ops Container :8083]
-    BE --> SUB[Kotlin Subscriptions Container :8084]
-    OPS --> REDIS[(Redis Container :6379)]
+flowchart TD
+    UB[User Browser] --> FE[Next.js Dev Server\nPort :3000]
+    I[IoT Device\nESP32] --> BE
+
+    FE --> BE[NestJS Backend Container\nfilspresso_backend :4000]
+    FE --> AI[Python AI Container\nfilspresso_ai :5000]
+    FE --> RC[Rust Crypto Container\nfilspresso_rust_crypto :8090]
+
+    BE --> DB[(PostgreSQL Container\nfilspresso_postgres :5432\npgvector + RDKit)]
+    BE --> INV[Java Invoice Container\nfilspresso_invoice_java :8082]
+    BE --> OPS[Go Ops Container\nfilspresso_go_ops :8083]
+    BE --> SUB[Kotlin Subs Container\nfilspresso_kotlin_subscriptions :8084]
+    BE --> OPA[OPA Container\nfilspresso_opa :8181\nopenpolicyagent/opa:0.66.0]
+    BE --> RC
+
+    OPS --> REDIS[(Redis Container\nfilspresso_redis :6379\nredis:7.4-alpine)]
 
     AI --> DB
+    AI --> LL_MINILM[llama.cpp MiniLM\nfilspresso_llama_minilm\ninternal :8080]
+    AI --> LL_QWEN[llama.cpp Qwen3\nfilspresso_llama_qwen\ninternal :8080]
+    AI --> LL_GEMMA[llama.cpp Gemma3\nfilspresso_llama_gemma\ninternal :8080]
+    AI --> LL_VL[llama.cpp Qwen3-VL\nfilspresso_llama_vision_qwen3_vl\ninternal :8080]
 
-    IMG[(public/images volume)] --> BE
+    IMG[Volume: public/images] --> BE
     IMG --> INV
+    IMG --> AI
 
-    HF[(hf_cache)] --> AI
-    CLIP[(clip_cache)] --> AI
-    MOL[(molscribe_model)] --> AI
+    SEC[Volume: secrets/] -.-> BE
+    SEC -.-> INV
+    SEC -.-> OPS
+    SEC -.-> SUB
+    SEC -.-> RC
+    SEC -.-> AI
 
-    classDef app fill:#eef7ff,stroke:#3a7bd5,color:#111;
-    classDef data fill:#fff6e8,stroke:#c17d2d,color:#111;
+    MODELS[Volume: models/model/] --> LL_MINILM
+    MODELS --> LL_QWEN
+    MODELS --> LL_GEMMA
+    MODELS --> LL_VL
 
-    class FE,BE,AI,INV,OPS,SUB app;
-    class DB,REDIS,IMG,HF,CLIP,MOL data;
+    PGDATA[Volume: postgres_data] --> DB
+    REDISDATA[Volume: redis_data] --> REDIS
+
+    INITDB[Volume: nestjs-backend/data\n/docker-entrypoint-initdb.d:ro] --> DB
+
+    POLICIES[Volume: security/opa/policies\n/policies:ro] --> OPA
+
+    classDef app fill:#eef7ff,stroke:#3a7bd5,color:#111
+    classDef data fill:#fff6e8,stroke:#c17d2d,color:#111
+    classDef model fill:#f0fdf4,stroke:#22c55e,color:#111
+    classDef volume fill:#fdf4ff,stroke:#c026d3,color:#111
+
+    class FE,BE,AI,INV,OPS,SUB,RC,OPA app
+    class DB,REDIS data
+    class LL_MINILM,LL_QWEN,LL_GEMMA,LL_VL model
+    class IMG,SEC,MODELS,PGDATA,REDISDATA,INITDB,POLICIES volume

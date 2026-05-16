@@ -1,0 +1,91 @@
+---
+title: Filspresso Next - Frontend State Management Flow
+---
+
+flowchart TB
+    subgraph Context_Layer["React Context Layer"]
+        FavoritesCtx["FavoritesProvider<br/>Context: favorites list<br/>Actions: add, remove, toggle, load"]
+        NotificationsCtx["NotificationsProvider<br/>Context: toast queue<br/>Actions: show, dismiss, auto-clear"]
+    end
+
+    subgraph Hook_Layer["Custom Hook State Layer"]
+        useCartHook["useCart.ts<br/>State: cart items, totals<br/>Actions: add, remove, update qty, clear<br/>Polling: 3s interval sync"]
+        useCoffeeHook["useCoffeeCollections.ts<br/>State: coffee products, collections<br/>Actions: fetch, filter, search"]
+        useMachineHook["useMachineCollections.ts<br/>State: machine products<br/>Actions: fetch, filter"]
+        useProgressiveHook["useProgressiveLoadState.ts<br/>State: loading phases, progress<br/>Actions: start, advance, complete"]
+    end
+
+    subgraph Component_State["Local Component State"]
+        NavbarState["Navbar.tsx<br/>State: mobile menu open, search query"]
+        CartState["Cart.tsx<br/>State: cart panel open, item animations"]
+        PaymentState["PaymentForm.tsx<br/>State: form fields, validation errors, step"]
+        SubState["SubscriptionForm.tsx<br/>State: selected plan, billing cycle"]
+        ChatState["kafelot/ChatInterface<br/>State: messages, typing indicator, image upload"]
+        AccountState["account/sections<br/>State: active tab, profile edits"]
+        AdminState["admin/Dashboard<br/>State: telemetry filters, SQL query"]
+    end
+
+    subgraph API_Integration["API Integration Layer"]
+        CartAPI["GET/POST/PUT/DELETE /api/cart/*<br/>Sync with NestJS cart module"]
+        FavoritesAPI["GET/POST/DELETE /api/favorites/*<br/>Sync with NestJS favorites module"]
+        ProductsAPI["GET /api/products/*<br/>Coffee + Machine catalog"]
+        OrdersAPI["POST /api/orders/*<br/>Checkout, order history"]
+        ChatAPI["POST /api/chat, /api/python-chat<br/>AI message exchange"]
+        AccountAPI["GET/PUT /api/accounts/*<br/>Profile, membership status"]
+        AdminAPI["GET /api/admin/*<br/>Security telemetry, raw SQL"]
+    end
+
+    subgraph Storage_Layer["Client Storage"]
+        LocalStorage["localStorage<br/>- favorites (fallback)<br/>- theme preference<br/>- chat session cache"]
+        SessionStorage["sessionStorage<br/>- cart draft (pre-auth)<br/>- form state preservation"]
+        Cookies["Cookies<br/>- sid (session ID)<br/>- CSRF token"]
+    end
+
+    FavoritesCtx --> FavoritesAPI
+    FavoritesAPI --> LocalStorage
+    useCartHook --> CartAPI
+    CartAPI --> SessionStorage
+    useCoffeeHook --> ProductsAPI
+    useMachineHook --> ProductsAPI
+    ChatState --> ChatAPI
+    AccountState --> AccountAPI
+    AdminState --> AdminAPI
+    PaymentState --> OrdersAPI
+    SubState --> OrdersAPI
+
+    NavbarState --> useCoffeeHook
+    NavbarState --> useMachineHook
+    CartState --> useCartHook
+    PaymentState --> useCartHook
+    ChatState --> NotificationsCtx
+    PaymentState --> NotificationsCtx
+    CartState --> NotificationsCtx
+
+    useProgressiveHook --> useCoffeeHook
+    useProgressiveHook --> useMachineHook
+    useProgressiveHook --> ProductsAPI
+
+    CartAPI -->|POST add| NestJS_Cart[(NestJS Cart Module)]
+    CartAPI -->|PUT update| NestJS_Cart
+    CartAPI -->|DELETE remove| NestJS_Cart
+    FavoritesAPI -->|POST add| NestJS_Fav[(NestJS Favorites)]
+    FavoritesAPI -->|DELETE remove| NestJS_Fav
+    ProductsAPI -->|GET| NestJS_Prod[(NestJS Products)]
+    OrdersAPI -->|POST checkout| NestJS_Orders[(NestJS Orders)]
+    ChatAPI -->|POST message| Python_AI[(Python AI Service)]
+    AccountAPI -->|GET/PUT| NestJS_Accounts[(NestJS Accounts)]
+    AdminAPI -->|GET telemetry| NestJS_Admin[(NestJS Admin)]
+
+    classDef context fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef hook fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef local fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef api fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef storage fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    classDef external fill:#fafafa,stroke:#616161,stroke-width:2px
+
+    class FavoritesCtx,NotificationsCtx context
+    class useCartHook,useCoffeeHook,useMachineHook,useProgressiveHook hook
+    class NavbarState,CartState,PaymentState,SubState,ChatState,AccountState,AdminState local
+    class CartAPI,FavoritesAPI,ProductsAPI,OrdersAPI,ChatAPI,AccountAPI,AdminAPI api
+    class LocalStorage,SessionStorage,Cookies storage
+    class NestJS_Cart,NestJS_Fav,NestJS_Prod,NestJS_Orders,Python_AI,NestJS_Accounts,NestJS_Admin external

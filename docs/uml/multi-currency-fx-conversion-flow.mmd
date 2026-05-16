@@ -1,0 +1,77 @@
+---
+title: Filspresso Next - Multi-Currency/FX Conversion Flow
+---
+
+flowchart TB
+    subgraph User_Interaction["User Interaction"]
+        BrowseProducts["User browses products<br/>EUR base currency"]
+        SelectCurrency["User selects currency<br/>USD, GBP, RON, etc."]
+        ViewConverted["View prices in selected currency"]
+    end
+
+    subgraph FX_Service["FX Conversion Service"]
+        FXRates["FX Rates Cache<br/>EUR → USD, GBP, RON, etc.<br/>Updated daily from ECB API"]
+        FXConverter["FX Converter<br/>amount * exchange_rate<br/>- conversion_fee_percent"]
+        RateValidator["Rate Validator<br/>Check rate freshness<br/>Fallback to cached if stale"]
+    end
+
+    subgraph NestJS_FX["NestJS FX Module"]
+        FXController["fx.controller.ts<br/>GET /fx/rates<br/>GET /fx/convert"]
+        FXService["fx.service.ts<br/>Fetch rates, convert amounts"]
+        RateCache["Rate Cache<br/>In-memory + Redis<br/>TTL: 24 hours"]
+    end
+
+    subgraph Database["Database Layer"]
+        OrdersTable["orders table<br/>- currency_code<br/>- exchange_rate<br/>- conversion_fee_percent<br/>- charged_amount<br/>- charged_currency"]
+        OrderItemsTable["order_items table<br/>- unit_price (EUR base)<br/>- converted_price<br/>- currency_code"]
+        FxRatesTable["fx_rates table<br/>- base_currency (EUR)<br/>- target_currency<br/>- rate<br/>- updated_at"]
+    end
+
+    subgraph Payment_Processing["Payment Processing"]
+        CartTotal["Cart total in EUR<br/>(base currency)"]
+        ConvertAtCheckout["Convert at checkout<br/>Apply current FX rate"]
+        ChargeInSelected["Charge in selected currency<br/>Store both EUR and charged"]
+        ReceiptGeneration["Generate receipt<br/>Show both currencies<br/>Show conversion fee"]
+    end
+
+    BrowseProducts --> SelectCurrency
+    SelectCurrency --> ViewConverted
+    ViewConverted --> FXRates
+
+    FXRates --> RateValidator
+    RateValidator -->|Fresh| FXConverter
+    RateValidator -->|Stale| FetchECB["Fetch from ECB API<br/>European Central Bank"]
+    FetchECB --> FXRates
+    FetchECB --> FxRatesTable
+
+    FXConverter --> FXController
+    FXController --> FXService
+    FXService --> RateCache
+    FXService --> FxRatesTable
+
+    FXService -->|Convert amount| FXConverter
+    FXConverter -->|converted_amount| ViewConverted
+
+    CartTotal --> ConvertAtCheckout
+    ConvertAtCheckout --> FXConverter
+    FXConverter -->|Apply rate + fee| ChargeInSelected
+    ChargeInSelected --> OrdersTable
+    ChargeInSelected --> OrderItemsTable
+    ChargeInSelected --> ReceiptGeneration
+
+    OrdersTable -->|Store| charged_amount
+    OrdersTable -->|Store| charged_currency
+    OrdersTable -->|Store| exchange_rate
+    OrdersTable -->|Store| conversion_fee_percent
+
+    classDef user fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef fx fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef nestjs fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef db fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    classDef payment fill:#fff3e0,stroke:#e65100,stroke-width:2px
+
+    class BrowseProducts,SelectCurrency,ViewConverted user
+    class FXRates,FXConverter,RateValidator fx
+    class FXController,FXService,RateCache nestjs
+    class OrdersTable,OrderItemsTable,FxRatesTable db
+    class CartTotal,ConvertAtCheckout,ChargeInSelected,ReceiptGeneration payment

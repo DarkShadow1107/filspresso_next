@@ -1,0 +1,151 @@
+---
+title: Filspresso Next - CI/CD Pipeline Diagram
+---
+
+flowchart TB
+    subgraph Trigger["Pipeline Triggers"]
+        PushMain["Push to main branch"]
+        PullRequest["Pull Request opened/updated"]
+        TagRelease["Tag created (v*)"]
+    end
+
+    subgraph Stage1_Lint["Stage 1: Lint & Format"]
+        ESLintFrontend["ESLint Frontend<br/>npm run lint<br/>Next.js + React rules"]
+        ESLintBackend["ESLint Backend<br/>npm run lint<br/>NestJS rules"]
+        PrettierCheck["Prettier Check<br/>npm run prettier:check<br/>Format validation"]
+        TypeScriptCheck["TypeScript Check<br/>tsc --noEmit<br/>Type validation"]
+    end
+
+    subgraph Stage2_Security["Stage 2: Security Scans"]
+        NpmAudit["npm audit<br/>Dependency vulnerability scan"]
+        AuditFix["Audit fix check<br/>No critical/high vulnerabilities"]
+        SecretScan["Secret Scan<br/>Detect hardcoded secrets<br/>in codebase"]
+        TitanV074["Titan V0.74 Tests<br/>pwsh run_titan_v0_74_tests.ps1<br/>Security validation suite"]
+    end
+
+    subgraph Stage3_Build["Stage 3: Build"]
+        BuildFrontend["Build Frontend<br/>npm run build<br/>Next.js standalone output"]
+        BuildBackend["Build Backend<br/>NestJS compilation<br/>TypeScript → JavaScript"]
+        BuildJava["Build Java Service<br/>Maven build<br/>Invoice PDF renderer"]
+        BuildKotlin["Build Kotlin Service<br/>Gradle build<br/>Subscription engine"]
+        BuildGo["Build Go Service<br/>go build<br/>Ops event ingestion"]
+        BuildRust["Build Rust Crypto<br/>cargo build --release<br/>Crypto service"]
+        BuildRustWASM["Build Rust WASM<br/>wasm-pack build<br/>Browser crypto helpers"]
+        BuildPython["Build Python AI<br/>pip install -r requirements.txt<br/>Flask + model dependencies"]
+    end
+
+    subgraph Stage4_Test["Stage 4: Tests"]
+        UnitTests["Unit Tests<br/>Jest (Frontend + Backend)<br/>Go tests, Rust tests"]
+        IntegrationTests["Integration Tests<br/>API endpoint tests<br/>Database integration tests"]
+        E2ETests["E2E Tests (if configured)<br/>Playwright/Cypress<br/>User flow validation"]
+    end
+
+    subgraph Stage5_Docker["Stage 5: Docker Build"]
+        DockerBuild["Docker Compose Build<br/>docker compose build<br/>All service images"]
+        HealthCheck["Health Check Validation<br/>docker compose up -d<br/>Verify all services start"]
+        SecurityProfile["Security Profile Build<br/>docker-compose.security.yml<br/>Hardened containers"]
+    end
+
+    subgraph Stage6_Deploy["Stage 6: Deploy (if main/tag)"]
+        PushRegistry["Push to Container Registry<br/>Docker Hub / GHCR<br/>Tagged images"]
+        TerraformApply["Terraform Apply<br/>infrastructure/terraform<br/>S3 transparency backend"]
+        DeployProduction["Deploy to Production<br/>Pull images, restart services<br/>Health check verification"]
+        NotifySlack["Slack Notification<br/>Deploy success/failure<br/>Build summary"]
+    end
+
+    subgraph Artifacts["Artifacts"]
+        BuildArtifacts["Build Artifacts<br/>Next.js .next/standalone<br/>NestJS dist/"]
+        DockerImages["Docker Images<br/>Tagged with commit SHA<br/>and version tag"]
+        TestReports["Test Reports<br/>JUnit XML<br/>Coverage reports"]
+        SecurityReports["Security Reports<br/>npm audit results<br/>Titan V0.74 results"]
+    end
+
+    PushMain --> Stage1_Lint
+    PullRequest --> Stage1_Lint
+    TagRelease --> Stage1_Lint
+
+    Stage1_Lint --> ESLintFrontend
+    Stage1_Lint --> ESLintBackend
+    Stage1_Lint --> PrettierCheck
+    Stage1_Lint --> TypeScriptCheck
+
+    ESLintFrontend --> Stage2_Security
+    ESLintBackend --> Stage2_Security
+    PrettierCheck --> Stage2_Security
+    TypeScriptCheck --> Stage2_Security
+
+    Stage2_Security --> NpmAudit
+    Stage2_Security --> AuditFix
+    Stage2_Security --> SecretScan
+    Stage2_Security --> TitanV074
+
+    NpmAudit --> Stage3_Build
+    AuditFix --> Stage3_Build
+    SecretScan --> Stage3_Build
+    TitanV074 --> Stage3_Build
+
+    Stage3_Build --> BuildFrontend
+    Stage3_Build --> BuildBackend
+    Stage3_Build --> BuildJava
+    Stage3_Build --> BuildKotlin
+    Stage3_Build --> BuildGo
+    Stage3_Build --> BuildRust
+    Stage3_Build --> BuildRustWASM
+    Stage3_Build --> BuildPython
+
+    BuildFrontend --> Stage4_Test
+    BuildBackend --> Stage4_Test
+    BuildJava --> Stage4_Test
+    BuildKotlin --> Stage4_Test
+    BuildGo --> Stage4_Test
+    BuildRust --> Stage4_Test
+    BuildRustWASM --> Stage4_Test
+    BuildPython --> Stage4_Test
+
+    Stage4_Test --> UnitTests
+    Stage4_Test --> IntegrationTests
+    Stage4_Test --> E2ETests
+
+    UnitTests --> Stage5_Docker
+    IntegrationTests --> Stage5_Docker
+    E2ETests --> Stage5_Docker
+
+    Stage5_Docker --> DockerBuild
+    Stage5_Docker --> HealthCheck
+    Stage5_Docker --> SecurityProfile
+
+    DockerBuild --> Stage6_Deploy
+    HealthCheck --> Stage6_Deploy
+    SecurityProfile --> Stage6_Deploy
+
+    Stage6_Deploy -->|main branch| PushRegistry
+    Stage6_Deploy -->|tag release| TerraformApply
+    PushRegistry --> DeployProduction
+    TerraformApply --> DeployProduction
+    DeployProduction --> NotifySlack
+
+    BuildFrontend --> BuildArtifacts
+    BuildBackend --> BuildArtifacts
+    DockerBuild --> DockerImages
+    UnitTests --> TestReports
+    IntegrationTests --> TestReports
+    NpmAudit --> SecurityReports
+    TitanV074 --> SecurityReports
+
+    classDef trigger fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef lint fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef security fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    classDef build fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef test fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef docker fill:#e0f2f1,stroke:#004d40,stroke-width:2px
+    classDef deploy fill:#f1f8e9,stroke:#33691e,stroke-width:2px
+    classDef artifact fill:#fafafa,stroke:#616161,stroke-width:2px
+
+    class PushMain,PullRequest,TagRelease trigger
+    class ESLintFrontend,ESLintBackend,PrettierCheck,TypeScriptCheck lint
+    class NpmAudit,AuditFix,SecretScan,TitanV074 security
+    class BuildFrontend,BuildBackend,BuildJava,BuildKotlin,BuildGo,BuildRust,BuildRustWASM,BuildPython build
+    class UnitTests,IntegrationTests,E2ETests test
+    class DockerBuild,HealthCheck,SecurityProfile docker
+    class PushRegistry,TerraformApply,DeployProduction,NotifySlack deploy
+    class BuildArtifacts,DockerImages,TestReports,SecurityReports artifact

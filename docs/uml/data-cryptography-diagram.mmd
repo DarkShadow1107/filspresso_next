@@ -1,0 +1,131 @@
+---
+title: Filspresso Next - Data Confidentiality & Storage Cryptography
+---
+
+flowchart TB
+    DOCKER_SECRETS[(Docker Secrets /run/secrets/)]
+
+    DOCKER_SECRETS --> ENCRYPTION_KEY["ENCRYPTION_KEY: Root key material for AEAD"]
+    DOCKER_SECRETS --> VAULT_KEK["VAULT_KEK: Base64 Key Encryption Key (kek-local-v1)"]
+    DOCKER_SECRETS --> JWT_PRIV["JWT_SIGNING_PRIVATE_KEY: Ed25519 private key PEM"]
+    DOCKER_SECRETS --> JWT_PUBL["JWT_SIGNING_PUBLIC_KEY: Ed25519 public key PEM"]
+    DOCKER_SECRETS --> JWT_PREV["JWT_SIGNING_PREVIOUS_PUBLIC_KEYS_JSON: Key rotation support"]
+    DOCKER_SECRETS --> ASSERT_PRIV["SERVICE_ASSERTION_PRIVATE_KEY: Ed25519 private key PEM"]
+    DOCKER_SECRETS --> ASSERT_PUBL["SERVICE_ASSERTION_PUBLIC_KEY: Shared with Rust/Java/Kotlin/Go"]
+    DOCKER_SECRETS --> DB_CREDS["BACKEND_DB_USER / AI_DB_USER: Per-service database credentials"]
+    DOCKER_SECRETS --> SRV_API["SERVICE_EVENTS_API_KEY: Shared API key for Go Ops"]
+    DOCKER_SECRETS --> REDIS_PW["Redis Password via --requirepass secret file"]
+
+    ENCRYPTION_KEY --> HKDF["HKDF-SHA3-256 Key Derivation<br/>salt = SHA3 context + salt + keyId<br/>info = context + version + algo + keyId<br/>output = 256-bit AEAD key"]
+
+    HKDF --> K1["AES-256-GCM Active Key (keyId: k1)"]
+    HKDF --> LEGACY["AES-256-GCM Legacy Keys (keyId: legacy1, legacy2, ...)"]
+    HKDF --> LEGACY_ENV["LEGACY_ENCRYPTION_KEY: Passphrase for pre-v2 ciphertexts"]
+
+    K1 --> ENCRYPT_PLAINTEXT["Encryption API: encrypt plaintext"]
+
+    LEGACY --> DECRYPT_LEGACY["Legacy Decryption Path"]
+    LEGACY_ENV --> CRYPTOJS["CryptoJS AES fallback for pre-v2 ciphertext compatibility"]
+
+    VAULT_KEK --> ENVELOPE_ROOT["Envelope Encryption Root<br/>provisions for AWS KMS backing<br/>uses KMS_KEY_ID + KMS_CIPHERTEXT_B64"]
+
+    JWT_PRIV --> EDDSA_SIGN["EdDSA JWT Signing (algorithm: EdDSA, kid: jwt-k1)"]
+    JWT_PUBL --> EDDSA_VERIFY["EdDSA JWT Verification: Public key for token validation"]
+    JWT_PREV --> KEY_ROTATION["Key Rotation: Previous keys for rotation window"]
+
+    ASSERT_PRIV --> ASSERT_SIGN["Service Assertion Signing: EdDSA JWT with scope/jti/op_id (TTL: 30-600s)"]
+    ASSERT_PUBL --> ASSERT_VERIFY["Service Assertion Verification: Shared across all polyglot services"]
+
+    EDDSA_SIGN --> USER_JWT["User Access Tokens (exp from JWT_EXPIRES_IN: 15 min)"]
+    EDDSA_SIGN --> REFRESH_JWT["User Refresh Tokens: Longer-lived session tokens"]
+    ASSERT_SIGN --> SRV_ASSERT["Service Assertion Tokens: Cross-service auth header"]
+
+    ENCRYPT_PLAINTEXT --> MFA_ENCRYPT["MFA TOTP Secrets: user_mfa_secret_encrypted"]
+    ENCRYPT_PLAINTEXT --> CARD_ENCRYPT["Card Data: card_number_encrypted, card_expiry_encrypted"]
+    ENCRYPT_PLAINTEXT --> ADMIN_MFA_ENCRYPT["Admin MFA Secrets: admin_mfa_secret_encrypted"]
+
+    MFA_ENCRYPT --> CIPHERTEXT_FMT["Ciphertext format: v2:gcm:k1:IV:authTag:ciphertext"]
+    CARD_ENCRYPT --> CIPHERTEXT_FMT
+    ADMIN_MFA_ENCRYPT --> CIPHERTEXT_FMT
+
+    USER_JWT --> SESSION_STORE["user_sessions table: session_token + expires_at (idle timeout: 30 days)"]
+    REFRESH_JWT --> SESSION_STORE
+
+    USER_INPUT["User Password"] --> ARGON2["Argon2id Hashing: 19456 KiB (19 MiB) memory, 3 iterations, 1 parallelism, 32-byte hash, version 0x13"]
+    ARGON2 --> PWD_HASH["Output: argon2id hashed password stored in accounts.password_hash"]
+    ARGON2 --> REHASH["needsPasswordRehash detects bcrypt hashes, auto-upgrades on login"]
+
+    LOGIN_INPUT["Login Attempt"] --> BF_KEY["SHA-256(loginKey + ipAddress) stored in auth_login_attempts table"]
+    BF_KEY --> LOCKOUT{10+ failures?}
+    LOCKOUT -->|Yes| EXPONENTIAL["Exponential Lockout: 30 x 2^(failures-10) seconds (max 900s)"]
+    LOCKOUT -->|No| ALLOW_LOGIN["Allow login attempt"]
+
+    subgraph SECRETS_SRC["Secret Sources"]
+        DOCKER_SECRETS
+    end
+
+    subgraph KEY_DERIVATION["Key Derivation"]
+        HKDF
+        K1
+        LEGACY
+        LEGACY_ENV
+    end
+
+    subgraph ENCRYPTION_TARGETS["Field-Level Encryption Targets"]
+        MFA_ENCRYPT
+        CARD_ENCRYPT
+        ADMIN_MFA_ENCRYPT
+        CIPHERTEXT_FMT
+    end
+
+    subgraph TOKEN_MANAGEMENT["Token Management"]
+        JWT_PRIV
+        JWT_PUBL
+        JWT_PREV
+        EDDSA_SIGN
+        EDDSA_VERIFY
+        KEY_ROTATION
+        USER_JWT
+        REFRESH_JWT
+        SESSION_STORE
+    end
+
+    subgraph SERVICE_AUTH["Service-to-Service Auth"]
+        ASSERT_PRIV
+        ASSERT_PUBL
+        ASSERT_SIGN
+        ASSERT_VERIFY
+        SRV_ASSERT
+    end
+
+    subgraph PASSWORD_MANAGEMENT["Password Management"]
+        USER_INPUT
+        ARGON2
+        PWD_HASH
+        REHASH
+    end
+
+    subgraph BRUTE_FORCE["Brute Force Protection"]
+        LOGIN_INPUT
+        BF_KEY
+        LOCKOUT
+        EXPONENTIAL
+        ALLOW_LOGIN
+    end
+
+    classDef secret fill:#fdf4ff,stroke:#c026d3,color:#701a75
+    classDef keyderiv fill:#e0e7ff,stroke:#4f46e5,color:#3730a3
+    classDef encrypt fill:#fef2f2,stroke:#dc2626,color:#991b1b
+    classDef token fill:#eef7ff,stroke:#3a7bd5,color:#111827
+    classDef srvAuth fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+    classDef passwd fill:#ccfbf1,stroke:#0d9488,color:#134e4a
+    classDef brute fill:#fef9c3,stroke:#ca8a04,color:#713f12
+
+    class DOCKER_SECRETS secret
+    class ENCRYPTION_KEY,VAULT_KEK,DB_CREDS,SRV_API,REDIS_PW,JWT_PRIV,JWT_PUBL,JWT_PREV,ASSERT_PRIV,ASSERT_PUBL secret
+    class HKDF,K1,LEGACY,LEGACY_ENV keyderiv
+    class ENCRYPT_PLAINTEXT,MFA_ENCRYPT,CARD_ENCRYPT,ADMIN_MFA_ENCRYPT,CIPHERTEXT_FMT,DECRYPT_LEGACY,CRYPTOJS encrypt
+    class EDDSA_SIGN,EDDSA_VERIFY,KEY_ROTATION,USER_JWT,REFRESH_JWT,SESSION_STORE token
+    class ASSERT_SIGN,ASSERT_VERIFY,SRV_ASSERT srvAuth
+    class USER_INPUT,ARGON2,PWD_HASH,REHASH passwd
+    class LOGIN_INPUT,BF_KEY,LOCKOUT,EXPONENTIAL,ALLOW_LOGIN brute

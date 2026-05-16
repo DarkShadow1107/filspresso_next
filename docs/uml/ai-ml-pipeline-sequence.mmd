@@ -1,0 +1,132 @@
+---
+title: Filspresso Next - AI/ML Pipeline Detailed Sequence Diagram
+---
+
+sequenceDiagram
+    participant Browser as User Browser
+    participant NextJS as Next.js Frontend<br/>(Port :3000)
+    participant NestJS as NestJS Backend<br/>(Port :4000)
+    participant ChatModule as Chat Module<br/>(sessions, messages)
+    participant Kafelot as Kafelot Module<br/>(prompt quota)
+    participant PythonAI as Python AI Service<br/>(Flask, Port :5000)
+    participant Tanka as tanka.py<br/>Model orchestrator
+    participant EmbeddingModel as MiniLM-L6-v2<br/>Embedding model
+    participant LLM as Qwen3-0.6B / Gemma3-1B-it<br/>LLM generators
+    participant VLModel as Qwen3-VL-2B<br/>Vision-language model
+    participant PGVector as PostgreSQL pgvector<br/>(coffee_facts, 384-dim)
+    participant RDKit as PostgreSQL RDKit<br/>(molecules table)
+
+    Note over Browser,RDKit: TEXT CHAT FLOW
+
+    Browser->>NextJS: User sends message<br/>POST /api/chat
+    NextJS->>NestJS: POST /chat/messages<br/>{session_id, content}
+    NestJS->>ChatModule: createMessage(session_id, content)
+    ChatModule->>PGVector: INSERT chat_message<br/>(role='user', content, timestamp)
+
+    NestJS->>Kafelot: checkPromptQuota(account_id)
+    Kafelot->>PGVector: SELECT prompt_count FROM kafelot<br/>WHERE account_id = ? AND period = current
+    alt Quota exceeded
+        Kafelot-->>NestJS: 429 Quota exceeded
+        NestJS-->>NextJS: 429 error
+        NextJS-->>Browser: Show quota limit message
+    else Quota available
+        Kafelot-->>NestJS: 200 {remaining: N}
+        Kafelot->>PGVector: UPDATE prompt_count + 1
+
+        NestJS->>NestJS: Generate embedding for query<br/>(or call Python AI)
+        NestJS->>PythonAI: POST /embed<br/>{text: user_message}
+        PythonAI->>Tanka: natural_language mode
+        Tanka->>EmbeddingModel: encode(user_message)
+        EmbeddingModel-->>Tanka: 384-dim vector
+        Tanka-->>PythonAI: {embedding: [...]}
+        PythonAI-->>NestJS: 200 {embedding}
+
+        NestJS->>PGVector: Vector similarity search<br/>SELECT * FROM coffee_facts<br/>ORDER BY embedding <=> query_embedding<br/>LIMIT 5
+        PGVector-->>NestJS: Top 5 coffee facts<br/>(context chunks)
+
+        NestJS->>PythonAI: POST /chat/generate<br/>{prompt, context, mode}
+        PythonAI->>Tanka: natural_language mode
+        Tanka->>LLM: Generate response<br/>(prompt + retrieved context)
+        LLM-->>Tanka: Generated text response
+        Tanka->>Tanka: Calculate tokens used,<br/>generation time
+        Tanka-->>PythonAI: {response, tokens_used, time_ms}
+        PythonAI-->>NestJS: 200 {response, metadata}
+
+        NestJS->>ChatModule: saveAssistantMessage<br/>(session_id, response, tokens_used)
+        ChatModule->>PGVector: INSERT chat_message<br/>(role='assistant', content,<br/>tokens_used, generation_time)
+
+        NestJS-->>NextJS: 200 {response, metadata}
+        NextJS-->>Browser: Display AI response
+    end
+
+    Note over Browser,RDKit: IMAGE-ASSISTED CHAT FLOW
+
+    Browser->>NextJS: User uploads image + message<br/>POST /api/chat (multipart)
+    NextJS->>NestJS: POST /chat/messages/image<br/>{session_id, content, image}
+    NestJS->>ChatModule: saveUserMessageWithImage
+
+    NestJS->>PythonAI: POST /chat/describe_image<br/>{image_base64}
+    PythonAI->>Tanka: describe_image mode
+    Tanka->>VLModel: Process image<br/>(Qwen3-VL-2B)
+    VLModel-->>Tanka: Image description text
+    Tanka-->>PythonAI: {description}
+    PythonAI-->>NestJS: 200 {image_description}
+
+    NestJS->>NestJS: Combine user message + image description<br/>as enhanced prompt
+
+    Note over NestJS: Continue with text flow above<br/>(embedding → retrieval → generation)
+
+    Note over Browser,RDKit: CHEMISTRY MODE FLOW
+
+    Browser->>NextJS: User asks about molecule<br/>POST /api/molecule
+    NextJS->>NestJS: POST /molecule/process<br/>{input: SMILES or image}
+    NestJS->>PythonAI: POST /molecule/identify<br/>{input}
+
+    alt SMILES input
+        PythonAI->>Tanka: chemistry mode
+        Tanka->>RDKit: Validate SMILES,<br/>generate mol object
+        RDKit-->>Tanka: Mol object, properties
+        Tanka->>Tanka: Calculate molecular<br/>properties (MW, logP, etc.)
+        Tanka-->>PythonAI: {mol_data, properties}
+    else Image input
+        PythonAI->>Tanka: chemistry mode
+        Tanka->>Tanka: MolScribe model<br/>(swin_base_char_aux_200k)
+        Tanka->>Tanka: Predict SMILES from image
+        Tanka->>RDKit: Validate predicted SMILES
+        RDKit-->>Tanka: Mol object
+        Tanka-->>PythonAI: {smiles, mol_data}
+    end
+
+    PythonAI-->>NestJS: 200 {molecule_data}
+    NestJS->>RDKit: INSERT/UPDATE molecule<br/>(smiles, mol, properties)
+    NestJS-->>NextJS: 200 {molecule_data}
+    NextJS-->>Browser: Render MoleculeVisualizer<br/>(py3Dmol 3D view)
+
+    Note over Browser,RDKit: CHAT SESSION MANAGEMENT
+
+    Browser->>NextJS: GET /api/chat/sessions
+    NextJS->>NestJS: GET /chat/sessions?account_id=...
+    NestJS->>ChatModule: listSessions(account_id)
+    ChatModule->>PGVector: SELECT * FROM chat_sessions<br/>WHERE account_id = ?<br/>ORDER BY updated_at DESC
+    PGVector-->>ChatModule: Session list
+    ChatModule-->>NestJS: 200 {sessions}
+    NestJS-->>NextJS: 200
+    NextJS-->>Browser: Display chat history
+
+    Browser->>NextJS: POST /api/chat/save<br/>{session_id, messages}
+    NextJS->>NestJS: POST /chat/save
+    NestJS->>ChatModule: saveSession(session_id, messages)
+    ChatModule->>PGVector: UPSERT chat_session<br/>(messages JSON, token_total)
+    ChatModule-->>NestJS: 200
+    NestJS-->>NextJS: 200
+    NextJS-->>Browser: Save confirmation
+
+    Note over Browser,RDKit: MODEL LOADING BEHAVIOR
+
+    PythonAI->>Tanka: First request triggers load
+    Tanka->>EmbeddingModel: Lazy load MiniLM-L6-v2<br/>(if not loaded)
+    Tanka->>LLM: Lazy load Qwen3/Gemma3<br/>(if not loaded)
+    Tanka->>VLModel: Lazy load Qwen3-VL-2B<br/>(if not loaded)
+    Tanka->>Tanka: MolScribe model loaded<br/>(if chemistry endpoint called)
+
+

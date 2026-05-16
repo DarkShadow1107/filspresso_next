@@ -1,0 +1,172 @@
+---
+title: Filspresso Next - Authentication Flow Sequence Diagram
+---
+
+sequenceDiagram
+    participant Browser as User Browser
+    participant NextJS as Next.js Frontend Port 3000
+    participant NestJS as NestJS Backend Port 4000
+    participant AuthModule as Auth Module JWT and Session
+    participant DB as PostgreSQL accounts and sessions
+    participant OPA as OPA Policy Engine Port 8181
+    participant Redis as Redis Rate limiting cache
+
+    Note over Browser,Redis: LOGIN FLOW
+
+    Browser->>NextJS: POST /api/auth/login {email, password}
+    NextJS->>NestJS: POST /auth/login {email, password}
+    NestJS->>AuthModule: validateCredentials(email, password)
+
+    AuthModule->>DB: SELECT * FROM accounts WHERE email = ?
+    DB-->>AuthModule: User record (hashed_password, mfa_enabled, role)
+
+    alt Account locked (brute force)
+        AuthModule->>DB: Check auth_login_attempts SHA-256 hashed login key
+        DB-->>AuthModule: attempt_count, locked_until
+        AuthModule-->>NestJS: 429 Too Many Requests (exponential backoff: 30*2^(n-10)s, max 900s)
+        NestJS-->>NextJS: 429 error
+        NextJS-->>Browser: Show lockout message
+    else Password incorrect
+        AuthModule->>AuthModule: Argon2id verify (19 MiB, 3 iterations)
+        AuthModule->>DB: INSERT login attempt (failed)
+        AuthModule-->>NestJS: 401 Unauthorized
+        NestJS-->>NextJS: 401 error
+        NextJS-->>Browser: Show invalid credentials
+    else bcrypt legacy hash detected
+        AuthModule->>AuthModule: bcrypt verify (legacy)
+        AuthModule->>AuthModule: Rehash with Argon2id
+        AuthModule->>DB: UPDATE hashed_password (new Argon2id)
+    else Password correct
+        AuthModule->>AuthModule: Argon2id verify ✓
+
+        alt MFA enabled
+            AuthModule->>AuthModule: Generate TOTP challenge
+            AuthModule->>DB: Store MFA session state
+            AuthModule-->>NestJS: 200 {mfa_required: true}
+            NestJS-->>NextJS: 200 {mfa_required: true}
+            NextJS-->>Browser: Show MFA input
+
+            Browser->>NextJS: POST /api/auth/mfa/verify {email, totp_code}
+            NextJS->>NestJS: POST /auth/mfa/verify
+            NestJS->>AuthModule: verifyTOTP(email, totp_code)
+            AuthModule->>DB: Validate TOTP (time-window)
+            alt TOTP invalid
+                AuthModule-->>NestJS: 401 Invalid code
+                NestJS-->>NextJS: 401
+                NextJS-->>Browser: Show invalid MFA code
+            else TOTP valid
+                AuthModule->>AuthModule: Generate EdDSA JWT (access token, 15min TTL)
+                AuthModule->>AuthModule: Generate refresh token (HS256, 7d TTL)
+                AuthModule->>DB: INSERT INTO user_sessions (session_id, account_id, expires_at)
+                AuthModule->>DB: DELETE login attempts
+                AuthModule-->>NestJS: 200 {tokens, user}
+                NestJS-->>NextJS: Set-Cookie: sid=...
+                NextJS-->>Browser: Redirect to /account
+            end
+        else MFA not enabled
+            AuthModule->>AuthModule: Generate EdDSA JWT (access token, 15min TTL)
+            AuthModule->>AuthModule: Generate refresh token (HS256, 7d TTL)
+            AuthModule->>DB: INSERT INTO user_sessions (session_id, account_id, expires_at)
+            AuthModule->>DB: DELETE login attempts
+            AuthModule-->>NestJS: 200 {tokens, user}
+            NestJS-->>NextJS: Set-Cookie: sid=...
+            NextJS-->>Browser: Redirect to /account
+        end
+    end
+
+    Note over Browser,Redis: REGISTRATION FLOW
+
+    Browser->>NextJS: POST /api/auth/register {email, password, name}
+    NextJS->>NestJS: POST /auth/register
+    NestJS->>AuthModule: createAccount(data)
+    AuthModule->>DB: Check email uniqueness
+    alt Email exists
+        AuthModule-->>NestJS: 409 Conflict
+        NestJS-->>NextJS: 409
+        NextJS-->>Browser: Show email already registered
+    else Email available
+        AuthModule->>AuthModule: Argon2id hash password (19 MiB, 3 iterations)
+        AuthModule->>DB: INSERT INTO accounts (email, hashed_password, role='user', theme_preference='light')
+        AuthModule->>AuthModule: Generate JWT + refresh token
+        AuthModule->>DB: INSERT INTO user_sessions
+        AuthModule-->>NestJS: 201 {tokens, user}
+        NestJS-->>NextJS: Set-Cookie: sid=...
+        NextJS-->>Browser: Redirect to /account
+    end
+
+    Note over Browser,Redis: GOOGLE/APPLE OAUTH FLOW
+
+    Browser->>NextJS: GET /auth/google or /auth/apple
+    NextJS->>Browser: Redirect to OAuth provider
+    Browser->>Browser: User authenticates with Google/Apple
+    Browser->>NextJS: OAuth callback with code
+    NextJS->>NestJS: POST /auth/oauth/callback {provider, code}
+    NestJS->>AuthModule: handleOAuthCallback(provider, code)
+    AuthModule->>AuthModule: Exchange code for tokens
+    AuthModule->>AuthModule: Fetch user profile from provider
+    alt Existing account linked
+        AuthModule->>DB: Find account by OAuth ID
+        AuthModule->>DB: UPDATE last_login_at
+    else New OAuth user
+        AuthModule->>DB: INSERT INTO accounts (email, oauth_provider, oauth_id, role='user')
+    end
+    AuthModule->>AuthModule: Generate JWT + refresh token
+    AuthModule->>DB: INSERT INTO user_sessions
+    AuthModule-->>NestJS: 200 {tokens, user}
+    NestJS-->>NextJS: Set-Cookie: sid=...
+    NextJS-->>Browser: Redirect to /account
+
+    Note over Browser,Redis: SESSION VALIDATION (per request)
+
+    Browser->>NextJS: Request protected page
+    NextJS->>NestJS: Request with Cookie: sid=...
+    NestJS->>AuthModule: JWT Guard / Optional JWT Guard
+    AuthModule->>DB: SELECT FROM user_sessions WHERE session_id = ? AND expires_at > now()
+    alt Session valid
+        AuthModule->>OPA: Check policy (user role, resource, action)
+        OPA-->>AuthModule: allow/deny
+        alt OPA allows
+            AuthModule-->>NestJS: 200 {user, permissions}
+            NestJS-->>NextJS: Response with data
+            NextJS-->>Browser: Render page
+        else OPA denies
+            AuthModule-->>NestJS: 403 Forbidden
+            NestJS-->>NextJS: 403
+            NextJS-->>Browser: Show access denied
+        end
+    else Session expired/invalid
+        AuthModule-->>NestJS: 401 Unauthorized
+        NestJS-->>NextJS: 401
+        NextJS-->>Browser: Redirect to /login
+    end
+
+    Note over Browser,Redis: MFA SETUP FLOW
+
+    Browser->>NextJS: POST /api/auth/mfa/setup
+    NextJS->>NestJS: POST /auth/mfa/setup
+    NestJS->>AuthModule: generateMFASecret()
+    AuthModule->>AuthModule: Generate TOTP secret (QRCode library)
+    AuthModule->>DB: Store encrypted TOTP secret (AES-256-GCM field-level encryption)
+    AuthModule-->>NestJS: 200 {secret, qr_code_svg}
+    NestJS-->>NextJS: 200
+    NextJS-->>Browser: Display QR code
+
+    Browser->>NextJS: POST /api/auth/mfa/activate {totp_code}
+    NextJS->>NestJS: POST /auth/mfa/activate
+    NestJS->>AuthModule: activateMFA(totp_code)
+    AuthModule->>DB: Validate TOTP, set mfa_enabled = true
+    AuthModule-->>NestJS: 200 {success: true}
+    NestJS-->>NextJS: 200
+    NextJS-->>Browser: Show MFA enabled confirmation
+
+    Note over Browser,Redis: LOGOUT FLOW
+
+    Browser->>NextJS: POST /api/auth/logout
+    NextJS->>NestJS: POST /auth/logout
+    NestJS->>AuthModule: logout(session_id)
+    AuthModule->>DB: DELETE FROM user_sessions WHERE session_id = ?
+    AuthModule-->>NestJS: 200
+    NestJS-->>NextJS: Clear-Cookie: sid
+    NextJS-->>Browser: Redirect to /
+
+

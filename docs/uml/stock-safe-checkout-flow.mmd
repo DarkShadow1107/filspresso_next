@@ -1,12 +1,26 @@
+---
+title: Filspresso Next - Stock-Safe Checkout Flow
+---
+
 flowchart TD
-    A[Add to cart] --> B[Server validates inventory]
+    A[User adds item to cart] --> B[NestJS validates inventory]
     B --> C[Compute reserved qty by other active carts]
-    C --> D{Enough reservable stock?}
-    D -- No --> E[409 conflict: insufficient stock]
-    D -- Yes --> F[Persist cart quantity]
-    F --> G[Checkout begins]
-    G --> H[Lock rows FOR UPDATE]
-    H --> I{stock >= requested?}
-    I -- No --> J[Rollback + conflict]
-    I -- Yes --> K[Decrement stock + create order]
-    K --> L[Commit transaction]
+    C --> D{Enough reservable stock?<br/>(stock - reserved >= requested)}
+    D -->|No| E[409 Conflict: insufficient stock]
+    D -->|Yes| F[Persist cart_item row]
+    F --> G[User initiates checkout]
+    G --> H[NestJS begins transaction]
+    H --> I[SELECT ... FOR UPDATE<br/>lock product rows]
+    I --> J{stock >= requested quantity?<br/>(guarded decrement check)}
+    J -->|No| K[ROLLBACK + 409 conflict]
+    J -->|Yes| L[Decrement stock column]
+    L --> M[Create order + order_items rows]
+    M --> N[Delete cart_items for this account]
+    N --> O[COMMIT transaction]
+    O --> P[POST to Go Ops: order.created event]
+    P --> Q[Go Ops appends to Redis ops:events]
+
+    style E fill:#fee2e2,stroke:#dc2626,color:#991b1b
+    style K fill:#fee2e2,stroke:#dc2626,color:#991b1b
+    style O fill:#dcfce7,stroke:#22c55e,color:#166534
+    style Q fill:#dcfce7,stroke:#22c55e,color:#166534

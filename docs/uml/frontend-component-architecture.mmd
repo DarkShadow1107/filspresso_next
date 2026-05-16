@@ -1,0 +1,147 @@
+---
+title: Filspresso Next - Frontend Component Architecture
+---
+
+flowchart TB
+    subgraph App_Router["Next.js App Router (src/app/)"]
+        direction TB
+        RootLayout["layout.tsx<br/>Root Layout"]
+        HomePage["page.tsx (home)"]
+        CoffeePage["page.tsx (coffee)"]
+        MachinesPage["page.tsx (machines)"]
+        SubscriptionPage["page.tsx (subscription)"]
+        ShoppingBagPage["page.tsx (shopping-bag)"]
+        FavoritesPage["page.tsx (favorites)"]
+        AccountPage["page.tsx (account)"]
+        PaymentPage["page.tsx (payment)"]
+        AdminPage["page.tsx (admin)"]
+        AdminLoginPage["page.tsx (admin-login)"]
+        ServicesPage["page.tsx (services)"]
+        LegalPages["page.tsx (terms, privacy, refunds)"]
+        KafelotPrivacyPage["page.tsx (kafelot-privacy)"]
+        ManageSubPage["page.tsx (manage-subscription)"]
+    end
+
+    subgraph Components["Core Components (src/components/)"]
+        direction TB
+        LayoutChrome["LayoutChrome.tsx<br/>Application Shell"]
+        Navbar["Navbar.tsx<br/>Navigation Bar"]
+        Cart["Cart.tsx<br/>Shopping Cart UI"]
+        PaymentForm["PaymentForm.tsx<br/>Payment Form"]
+        SubscriptionForm["SubscriptionForm.tsx<br/>Subscription Form"]
+        CoffeeRecommender["CoffeeRecommender.tsx<br/>AI Recommendations"]
+        MoleculeVisualizer["MoleculeVisualizer.tsx<br/>3D py3Dmol Viewer"]
+        WeatherWidget["WeatherWidget.tsx<br/>Weather Display"]
+        ScrollToTop["ScrollToTopButton.tsx"]
+        AccountIconGen["AccountIconGenerator.tsx<br/>Dynamic Avatars"]
+        AddCapsulesPopup["AddCapsulesPopup.tsx"]
+    end
+
+    subgraph Providers["Context Providers"]
+        FavoritesProvider["FavoritesProvider.tsx<br/>Favorites State"]
+        NotificationsProvider["NotificationsProvider.tsx<br/>Toast Notifications"]
+    end
+
+    subgraph PageSections["Page Section Components"]
+        direction TB
+        HomeSections["home/<br/>Hero, Featured, Sections"]
+        CoffeeSections["coffee/<br/>Product Grid, Filters"]
+        MachinesSections["machines/<br/>Machine Catalog"]
+        ShoppingBagSections["shopping-bag/<br/>Cart Items, Summary"]
+        PaymentSections["payment/<br/>Checkout Steps"]
+        SubscriptionSections["subscription/<br/>Plan Cards"]
+        FavoritesSections["favorites/<br/>Saved Products Grid"]
+        AccountSections["account/sections/<br/>Profile, Orders, Machines,<br/>Analytics, MemberStatus"]
+        AdminSections["admin/<br/>Dashboard, Telemetry, SQL"]
+        ServicesSections["services/<br/>Support Landing"]
+        LegalSections["legal/<br/>Terms, Privacy Content"]
+        KafelotSections["kafelot/<br/>Chat Interface"]
+        AnimationSections["coffee-machine-animation/<br/>Interactive Animation"]
+        LoveCoffeeSections["love-coffee/<br/>Marketing Page"]
+        LoadingSections["loading/<br/>Loading States"]
+    end
+
+    subgraph Hooks["Custom React Hooks"]
+        useCart["useCart.ts<br/>Cart State + Polling"]
+        useCoffeeCollections["useCoffeeCollections.ts<br/>Product Fetching"]
+        useMachineCollections["useMachineCollections.ts<br/>Machine Fetching"]
+        useProgressiveLoad["useProgressiveLoadState.ts<br/>Loading Management"]
+    end
+
+    subgraph API_Routes["Next.js API Routes (src/app/api/)"]
+        direction TB
+        PythonChat["/api/python-chat<br/>AI Chat Proxy"]
+        PythonHealth["/api/python-health<br/>AI Health Check"]
+        ServicesHealth["/api/services-health<br/>Multi-Service Health"]
+        ModelInfo["/api/model<br/>Model Info"]
+        ChatAPI["/api/chat<br/>Chat Sessions"]
+        ChatSave["/api/chat/save<br/>Chat Save/Load"]
+        SubscribeAPI["/api/subscribe<br/>Subscription Create"]
+        ProxyRoutes["Proxy Routes<br/>/api/accounts/*<br/>/api/auth/*<br/>/api/cart/*<br/>/api/orders/*<br/>/api/products/*<br/>/api/favorites/*<br/>/api/cards/*<br/>/api/repairs/*<br/>/api/weather/*<br/>/api/kafelot/*<br/>/api/admin/*<br/>/api/subscriptions/*<br/>/api/fx/*<br/>/api/icons/*<br/>/api/molecule/*"]
+    end
+
+    RootLayout --> LayoutChrome
+    LayoutChrome --> Navbar
+    LayoutChrome --> Cart
+    LayoutChrome --> Providers
+
+    HomePage --> HomeSections
+    CoffeePage --> CoffeeSections
+    MachinesPage --> MachinesSections
+    SubscriptionPage --> SubscriptionSections
+    ShoppingBagPage --> ShoppingBagSections
+    FavoritesPage --> FavoritesSections
+    AccountPage --> AccountSections
+    PaymentPage --> PaymentSections
+    AdminPage --> AdminSections
+    ServicesPage --> ServicesSections
+    LegalPages --> LegalSections
+    ManageSubPage --> SubscriptionSections
+    AdminLoginPage --> AdminSections
+    KafelotPrivacyPage --> LegalSections
+
+    CoffeeSections --> CoffeeRecommender
+    CoffeeSections --> AddCapsulesPopup
+    AccountSections --> AccountIconGen
+    AccountSections --> WeatherWidget
+    PaymentSections --> PaymentForm
+    SubscriptionSections --> SubscriptionForm
+    HomeSections --> MoleculeVisualizer
+
+    Providers --> FavoritesProvider
+    Providers --> NotificationsProvider
+
+    CoffeeSections --> useCoffeeCollections
+    MachinesSections --> useMachineCollections
+    ShoppingBagSections --> useCart
+    PaymentSections --> useCart
+    HomeSections --> useProgressiveLoad
+    CoffeeSections --> useProgressiveLoad
+
+    CoffeeSections --> ProxyRoutes
+    ShoppingBagSections --> ProxyRoutes
+    PaymentSections --> ProxyRoutes
+    AccountSections --> ProxyRoutes
+    FavoritesSections --> ProxyRoutes
+    AdminSections --> ProxyRoutes
+    SubscriptionSections --> ProxyRoutes
+
+    KafelotSections --> PythonChat
+    KafelotSections --> ChatAPI
+    KafelotSections --> ChatSave
+    HomeSections --> PythonHealth
+    HomeSections --> ServicesHealth
+    HomeSections --> ModelInfo
+    SubscriptionSections --> SubscribeAPI
+
+    classDef page fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef component fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef provider fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef hook fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef api fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+    class RootLayout,HomePage,CoffeePage,MachinesPage,SubscriptionPage,ShoppingBagPage,FavoritesPage,AccountPage,PaymentPage,AdminPage,AdminLoginPage,ServicesPage,LegalPages,KafelotPrivacyPage,ManageSubPage page
+    class LayoutChrome,Navbar,Cart,PaymentForm,SubscriptionForm,CoffeeRecommender,MoleculeVisualizer,WeatherWidget,ScrollToTop,AccountIconGen,AddCapsulesPopup,HomeSections,CoffeeSections,MachinesSections,ShoppingBagSections,PaymentSections,SubscriptionSections,FavoritesSections,AccountSections,AdminSections,ServicesSections,LegalSections,KafelotSections,AnimationSections,LoveCoffeeSections,LoadingSections component
+    class FavoritesProvider,NotificationsProvider provider
+    class useCart,useCoffeeCollections,useMachineCollections,useProgressiveLoad hook
+    class PythonChat,PythonHealth,ServicesHealth,ModelInfo,ChatAPI,ChatSave,SubscribeAPI,ProxyRoutes api

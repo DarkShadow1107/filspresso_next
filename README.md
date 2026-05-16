@@ -2,13 +2,13 @@
 
 Filspresso Next is a full-stack coffee commerce platform that combines e-commerce, AI assistance, and IoT-ready machine orchestration.
 
-It is built with Next.js (App Router), Express, PostgreSQL, Redis, a Python AI service (Flask + Tanka model stack), and polyglot domain services in Java, Kotlin, and Go.
+It is built with Next.js (App Router), NestJS, PostgreSQL, Redis, a Python AI service (Flask + Tanka model stack), and polyglot domain services in Java, Kotlin, and Go.
 
 ## 0. Architecture Decision Snapshot
 
 This section is a quick ADR-style summary for new contributors.
 
-- Keep Express as the orchestration and commerce core (auth, cart, checkout, account, products).
+- Keep NestJS as the orchestration and commerce core (auth, cart, checkout, account, products).
 - Use Java for invoice PDF rendering where mature JVM document tooling gives stable output quality.
 - Use Kotlin for subscription pricing and reconciliation rules where null-safety and concise rule code reduce maintenance risk.
 - Use Go for operational event ingestion and lightweight service endpoints where startup speed and memory efficiency matter.
@@ -36,7 +36,7 @@ This section tracks the most recent cross-service changes reflected in the curre
 
 ### Commerce/payment and integration adjustments
 
-- Updated order and invoice integration behavior in `express-api/routes/orders.js`.
+- Updated order and invoice integration behavior in `nestjs-backend/src/orders/orders.service.ts`.
 - Updated payment flow behavior in `src/components/payment/PaymentPageContent.tsx`.
 - Updated order history behavior in `src/components/account/sections/OrderHistory.tsx`.
 
@@ -80,7 +80,7 @@ npm run dev
 ### 5) Open the app
 
 - Frontend: http://localhost:3000
-- Express API health: http://localhost:4000/health
+- NestJS API health: http://localhost:4000/health
 - Python AI health: http://localhost:5000/api/health
 - Java Invoice health: http://localhost:8082/api/invoices/health
 - Go Ops health: http://localhost:8083/health
@@ -180,7 +180,11 @@ Expected result: `403` with reason indicating missing Origin/Referer.
 - [1. Product Overview](#1-product-overview)
 - [2. Architecture At A Glance](#2-architecture-at-a-glance)
 - [2.1 Full App UML (Component, Deployment, Domain)](#21-full-app-uml-component-deployment-domain)
-- [2.2 Updated UML Sources And Additional Diagrams](#22-updated-uml-sources-and-additional-diagrams)
+- [2.2 Frontend Architecture UML](#22-frontend-architecture-uml)
+- [2.3 Backend Architecture UML](#23-backend-architecture-uml)
+- [2.4 Security UML](#24-security-uml)
+- [2.5 Data and Infrastructure UML](#25-data-and-infrastructure-uml)
+- [2.6 Operations and Workflows UML](#26-operations-and-workflows-uml)
 - [3. Technology Stack](#3-technology-stack)
 - [3.1 Technology Alternatives And Performance Snapshot](#31-technology-alternatives-and-performance-snapshot)
 - [4. Monorepo Structure](#4-monorepo-structure)
@@ -189,7 +193,7 @@ Expected result: `403` with reason indicating missing Origin/Referer.
 - [7. Local Development Workflows](#7-local-development-workflows)
 - [8. Docker Involvement (Deep Dive)](#8-docker-involvement-deep-dive)
 - [9. Frontend Architecture](#9-frontend-architecture)
-- [10. Backend Architecture (Express)](#10-backend-architecture-express)
+- [10. Backend Architecture (NestJS)](#10-backend-architecture-nestjs)
 - [11. AI Service Architecture (Python)](#11-ai-service-architecture-python)
 - [12. API Surface Reference](#12-api-surface-reference)
 - [13. Database Model And Data Lifecycle](#13-database-model-and-data-lifecycle)
@@ -267,17 +271,83 @@ The following UML set covers the full platform from code modules to runtime cont
 
 ![Coffee Stock Read Path](docs/uml/coffee-stock-read-path.svg)
 
-### 2.2 Updated UML Sources And Additional Diagrams
+### 2.2 Frontend Architecture UML
 
-Additional architecture diagrams are exported as SVG files in `docs/uml/` for direct rendering in README and GitHub.
+#### Frontend component architecture
 
-#### Invoice rendering and signing flow (new)
+![Frontend Component Architecture](docs/uml/frontend-component-architecture.svg)
 
-![Invoice Rendering Sequence](docs/uml/invoice-rendering-sequence.svg)
+#### Frontend state management flow
 
-#### Security trust-boundary map (new)
+![Frontend State Management Flow](docs/uml/frontend-state-management-flow.svg)
+
+#### Next.js API route handler architecture
+
+![Next.js API Route Architecture](docs/uml/nextjs-api-route-architecture.svg)
+
+### 2.3 Backend Architecture UML
+
+#### Authentication flow sequence
+
+![Authentication Flow Sequence](docs/uml/authentication-flow-sequence.svg)
+
+#### Admin dashboard architecture
+
+![Admin Dashboard Architecture](docs/uml/admin-dashboard-architecture.svg)
+
+#### AI/ML pipeline sequence
+
+![AI/ML Pipeline Sequence](docs/uml/ai-ml-pipeline-sequence.svg)
+
+#### IoT command lifecycle
+
+![IoT Command Lifecycle](docs/uml/iot-command-lifecycle-sequence.svg)
+
+### 2.4 Security UML
+
+#### Security trust-boundary map
 
 ![Security Trust Boundary](docs/uml/security-trust-boundary.svg)
+
+#### Zero trust architecture (6 defense-in-depth rings)
+
+![Zero Trust Architecture](docs/uml/zero-trust-architecture.svg)
+
+#### Cross-service cryptographic commitment flow
+
+![Cross-Service Crypto Sequence](docs/uml/cross-service-crypto-sequence.svg)
+
+#### Data cryptography diagram
+
+![Data Cryptography Diagram](docs/uml/data-cryptography-diagram.svg)
+
+#### Rust WASM client-side crypto
+
+![Rust WASM Client Crypto](docs/uml/rust-wasm-client-crypto.svg)
+
+### 2.5 Data and Infrastructure UML
+
+#### Multi-currency/FX conversion flow
+
+![Multi-Currency FX Conversion](docs/uml/multi-currency-fx-conversion-flow.svg)
+
+#### Terraform/infrastructure architecture
+
+![Terraform Infrastructure](docs/uml/terraform-infrastructure-architecture.svg)
+
+### 2.6 Operations and Workflows UML
+
+#### Repair/warranty workflow state
+
+![Repair Warranty Workflow](docs/uml/repair-warranty-workflow-state.svg)
+
+#### Member status/loyalty tier progression
+
+![Loyalty Tier Progression](docs/uml/member-status-loyalty-tier-progression.svg)
+
+#### CI/CD pipeline
+
+![CI/CD Pipeline](docs/uml/cicd-pipeline-diagram.svg)
 
 ---
 
@@ -295,9 +365,13 @@ Additional architecture diagrams are exported as SVG files in `docs/uml/` for di
 ### Backend (Commerce API)
 
 - Node.js 20+ runtime
-- Express 4.18
+- NestJS 10 (TypeScript, modular architecture)
 - PostgreSQL access via pg
-- Security and middleware: helmet, cors, jsonwebtoken, bcrypt, express-rate-limit, multer
+- Security and middleware: helmet, cors, @nestjs/jwt, argon2, @nestjs/throttler, multer
+- Argon2id password hashing with bcrypt migration/rehash support
+- JWT EdDSA asymmetric + HS256 fallback
+- OPA integration for authorization
+- React Email components for email rendering
 
 ### Polyglot service layer
 
@@ -308,7 +382,7 @@ Additional architecture diagrams are exported as SVG files in `docs/uml/` for di
 
 ### Service ownership boundary (important)
 
-- Express owns API gateway/orchestration, auth/account/cart/order orchestration, and transactional stock writes.
+- NestJS owns API gateway/orchestration, auth/account/cart/order orchestration, and transactional stock writes.
 - Java owns invoice PDF rendering only.
 - Kotlin owns subscription quote and reconciliation computations.
 - Go owns operational event ingestion and lightweight ops endpoints backed by Redis.
@@ -345,8 +419,8 @@ The table below captures practical tradeoffs against realistic alternatives cons
 | Concern                    | Chosen stack                           | Alternative considered          | Why chosen in this codebase                                                             | Observed/expected impact                                       |
 | -------------------------- | -------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | Invoice rendering fidelity | Java 17 + OpenPDF/Spring               | Node PDFKit/Puppeteer templates | JVM PDF layout behavior is stable and deterministic for invoice stamping and typography | Fewer visual regressions in generated PDFs across environments |
-| Business-rule safety       | Kotlin service for subscription engine | Express-only rules              | Kotlin null-safety and concise data classes reduce branch-heavy reconciliation bugs     | Lower rule-maintenance risk as plan matrix grows               |
-| Event ingest efficiency    | Go ops service + Redis list            | Express worker endpoints        | Go startup and memory profile is favorable while Redis provides shared durable state    | Better horizontal scaling and restart resilience               |
+| Business-rule safety       | Kotlin service for subscription engine | NestJS-only rules              | Kotlin null-safety and concise data classes reduce branch-heavy reconciliation bugs     | Lower rule-maintenance risk as plan matrix grows               |
+| Event ingest efficiency    | Go ops service + Redis list            | NestJS worker endpoints        | Go startup and memory profile is favorable while Redis provides shared durable state    | Better horizontal scaling and restart resilience               |
 | AI retrieval storage       | PostgreSQL + pgvector                  | separate vector DB              | Keeps transactional + vector data in one consistency boundary                           | Fewer sync jobs and simpler operational topology               |
 
 #### Performance benchmark notes
@@ -367,36 +441,42 @@ The table below captures practical tradeoffs against realistic alternatives cons
 |  |- SCREENSHOTS.md
 |  |- screenshots/
 |  |- uml/
-|- express-api/
+|- nestjs-backend/
 |  |- .env
 |  |- package.json
-|  |- server.js
+|  |- tsconfig.json
+|  |- Dockerfile
+|  |- src/
+|  |  |- main.ts
+|  |  |- app.module.ts
+|  |  |- app.controller.ts
+|  |  |- app.service.ts
+|  |  |- accounts/
+|  |  |- admin/
+|  |  |- auth/
+|  |  |- cards/
+|  |  |- cart/
+|  |  |- chat/
+|  |  |- common/
+|  |  |- config/
+|  |  |- crypto/
+|  |  |- database/
+|  |  |- favorites/
+|  |  |- health/
+|  |  |- integrations/
+|  |  |- kafelot/
+|  |  |- operations/
+|  |  |- orders/
+|  |  |- products/
+|  |  |- repairs/
+|  |  |- security/
+|  |  |- security-observability/
+|  |  |- subscriptions/
+|  |  |- subscriptions-engine/
+|  |  |- weather/
 |  |- data/
 |  |  |- extensions.sql
 |  |  |- schema.sql
-|  |- db/
-|  |  |- connection.js
-|  |- middleware/
-|  |  |- auth.js
-|  |- routes/
-|  |  |- accounts.js
-|  |  |- admin.js
-|  |  |- auth.js
-|  |  |- cards.js
-|  |  |- cart.js
-|  |  |- chat.js
-|  |  |- favorites.js
-|  |  |- kafelot.js
-|  |  |- orders.js
-|  |  |- products.js
-|  |  |- repairs.js
-|  |  |- subscriptions.js
-|  |  |- weather.js
-|  |- scripts/
-|  |  |- check_db_status.js
-|  |  |- debug_account_dates.js
-|  |  |- diagnostic_columns.js
-|  |  |- fix_schema.js
 |  |  |- run_migration.js
 |  |  |- setup_all_tables.js
 |  |  |- setup_favorites_table.js
@@ -515,7 +595,7 @@ The table below captures practical tradeoffs against realistic alternatives cons
 |- docker-compose.yml
 |- Dockerfile.ai
 |- Dockerfile.db
-|- Dockerfile.express
+|- Dockerfile.nestjs
 |- eslint.config.mjs
 |- filspresso_next.code-workspace
 |- FilspressoNext.session.sql
@@ -546,7 +626,7 @@ Notes:
 - Added `kotlin-subscription-service/` for Kotlin quote/reconciliation logic.
 - Added `go-ops-service/` for operational events and lightweight service tasks.
 - Added Redis-backed event persistence for shared, durable ops history.
-- Added new Express route modules for inter-service proxying: `operations.js` and `subscriptions_engine.js`.
+- Added new NestJS route modules for inter-service proxying: `operations.controller.ts` and `subscriptions-engine.controller.ts`.
 - Added `java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java` and signature resource assets for invoice stamp rendering.
 - Added legal route files for `/terms-and-conditions` and `/manage-subscription/privacy-policy` while deprecating legacy legal route paths.
 - Added UML SVG exports under `docs/uml/*.svg` so architecture diagrams render directly in README and GitHub.
@@ -558,7 +638,7 @@ Notes:
 | Service              | Port | Responsibility                                  | Health Endpoint              |
 | -------------------- | ---- | ----------------------------------------------- | ---------------------------- |
 | Next.js              | 3000 | UI rendering, route handlers, proxy logic       | n/a (application page load)  |
-| Express API          | 4000 | Commerce/auth/cart/orders/products/admin        | /health and /health/services |
+| NestJS Backend | 4000 | Commerce/auth/cart/orders/products/admin | /health and /health/services |
 | Python AI            | 5000 | AI chat/semantic search/IoT endpoints           | /api/health                  |
 | Java Invoice         | 8082 | PDF invoice generation service                  | /api/invoices/health         |
 | Go Ops               | 8083 | Event ingestion/webhooks/operational processing | /health                      |
@@ -580,7 +660,7 @@ Inside Docker network:
 
 Outside Docker (host machine):
 
-- frontend usually calls Express via `http://localhost:4000`
+- frontend usually calls NestJS via `http://localhost:4000`
 - Next route handlers proxy to AI via configured `PYTHON_AI_HOST`
 
 ---
@@ -596,11 +676,11 @@ Outside Docker (host machine):
 | NEXT_PUBLIC_AI_URL             | optional              | Alternate client AI URL if used              |
 | SERVICE_METRICS_STRICT_DB_ONLY | false                 | Controls strict mode in service health route |
 
-### Express
+### NestJS Backend
 
 | Variable                          | Typical Value                    | Purpose                               |
 | --------------------------------- | -------------------------------- | ------------------------------------- |
-| PORT                              | 4000                             | Express listening port                |
+| PORT                              | 4000                             | NestJS listening port                 |
 | DB_HOST                           | postgres or localhost            | PostgreSQL host                       |
 | DB_PORT                           | 5432                             | PostgreSQL port                       |
 | DB_NAME                           | filspresso                       | DB name                               |
@@ -651,7 +731,7 @@ Outside Docker (host machine):
 ### Workflow B: Fully local (no Docker for app services)
 
 1. Ensure PostgreSQL is locally available and configured
-2. Start Express from express-api directory: `npm install && npm run dev`
+2. Start NestJS from nestjs-backend directory: `npm install && npm run start:dev`
 3. Create Python virtual environment and run app.py
 4. Start Next dev server from root
 
@@ -677,8 +757,8 @@ Docker is not an optional side note in this project. It is part of how the archi
     - Health check via pg_isready
 
 - backend
-    - Built from Dockerfile.express
-    - Depends on healthy postgres
+    - Built from nestjs-backend/Dockerfile
+    - Depends on healthy postgres, opa, rust_crypto, invoice_java, go_ops, kotlin_subscriptions
     - Exposes port 4000
     - Mounts public images volume for admin media workflows
     - Health check via /health
@@ -745,7 +825,7 @@ Security profile highlights:
 - Docker secrets for DB/API/crypto credentials
 - OPA policy engine for deny-by-default authorization decisions on sensitive ingestion flows
 - optional Ed25519 signed service assertions for internal service-to-service writes
-- non-root runtime images for Express and AI services
+- non-root runtime images for NestJS and AI services
 - `no-new-privileges` and dropped Linux capabilities for application containers
 - explicit seccomp profile wiring plus AppArmor default profile mapping in hardened overlay
 - read-only root filesystems with constrained tmpfs write areas
@@ -806,19 +886,19 @@ The frontend uses a page-slug pattern where root page resolves component based o
 ### Page composition pattern
 
 - shared providers for notifications/cart/favorites
-- hook-driven client data sync with Express endpoints
+- hook-driven client data sync with NestJS endpoints
 - feature components under src/components with domain segmentation
 
 ### Data flow
 
 1. Component invokes hook
-2. Hook calls Express API or Next route handler
+2. Hook calls NestJS API or Next route handler
 3. State updated from authoritative backend response
 4. UI reflects stock, cart totals, favorites, and account state
 
 ---
 
-## 10. Backend Architecture (Express)
+## 10. Backend Architecture (NestJS)
 
 ### Startup responsibilities
 
@@ -833,13 +913,13 @@ The frontend uses a page-slug pattern where root page resolves component based o
 - append tamper-evident ledger entries for service incident ingestion
 - mount feature route modules under /api
 
-### Responsibilities moved out of Express
+### Responsibilities moved out of legacy Express (migrated to NestJS)
 
 - Invoice PDF document rendering moved to Java (`java-invoice-service`).
 - Subscription quote/reconciliation calculations moved to Kotlin (`kotlin-subscription-service`).
 - Operational event ingestion moved to Go (`go-ops-service`) with Redis-backed durability.
 
-Express now orchestrates these domains and enforces auth, validation, and response contracts.
+NestJS now orchestrates these domains and enforces auth, validation, and response contracts.
 
 ### Mounted route groups
 
@@ -921,7 +1001,7 @@ Flask app that exposes semantic Q and A, multimodal chat, and IoT command lifecy
 - GET|POST /api/chat/save
 - POST /api/subscribe
 
-### Express functional domains
+### NestJS functional domains
 
 - Auth and account management
 - Product catalog and stock
@@ -943,7 +1023,7 @@ Flask app that exposes semantic Q and A, multimodal chat, and IoT command lifecy
 
 ## 13. Database Model And Data Lifecycle
 
-Schema source is primarily in express-api/data/schema.sql and supporting migration/bootstrap scripts in express-api/scripts and utils.
+Schema source is primarily in nestjs-backend/data/schema.sql and supporting migration/bootstrap scripts in nestjs-backend/data/.
 
 ### Main data domains
 
@@ -1007,7 +1087,7 @@ This section documents how Filspresso is currently secured, how security is moni
 
 - security headers are enforced through `helmet`
 - strict CORS origin checks are enabled with credential support
-- express identifies no implementation details via disabled `x-powered-by`
+- NestJS identifies no implementation details via disabled `x-powered-by`
 - strict JSON parsing is enabled to reject malformed payloads
 - every response includes correlation-friendly `x-request-id`
 - request timeout guardrails return controlled `503` payloads for hung calls
@@ -1096,7 +1176,7 @@ The project uses active rotation for authentication and data-access secrets.
 
 1. Generate new cryptographically strong random values.
 2. Update mounted secret files in `secrets/` (or your production secret manager path).
-3. Update any environment variables still used by local-only workflows (`.env`, `express-api/.env`).
+3. Update any environment variables still used by local-only workflows (`.env`, `nestjs-backend/.env`).
 4. Apply database password rotation at the PostgreSQL role level.
 5. Recreate backend and dependent services so new environment values are loaded.
 6. Invalidate active sessions where appropriate (for JWT secret rotation, clear old sessions).
@@ -1119,7 +1199,7 @@ Run this checklist for each release:
 5. Review authentication telemetry for unusual failed-login spikes.
 6. Review lockout telemetry and top source IPs for abuse indicators.
 7. Confirm incident retention settings match policy.
-8. Verify tamper-evident ledger chain status with `GET /health/services/ledger/verify` or `npm --prefix express-api run security:verify-ledger`.
+8. Verify tamper-evident ledger chain status with `GET /health/services/ledger/verify`.
 
 ### Incident response guidance (auth attacks)
 
@@ -1164,7 +1244,7 @@ No application can be permanently “fully secure”; security is a continuous p
 
 ### Multi-service health
 
-Express exposes health state for:
+NestJS exposes health state for:
 
 - backend
 - database
@@ -1509,7 +1589,7 @@ Execution platform:
 
 2. Backend Security Checks
 
-- working directory: `express-api`
+- working directory: `nestjs-backend`
 - install dependencies with `npm ci`
 - run `npm audit --audit-level=high`
 
@@ -1555,7 +1635,7 @@ Infrastructure and secret docs:
 
 Service-level docs:
 
-- `express-api/README.md`
+- `nestjs-backend/README.md`
 - `go-ops-service/README.md`
 - `java-invoice-service/README.md`
 - `kotlin-subscription-service/README.md`
@@ -1587,7 +1667,7 @@ The platform architecture follows a layered trust and control model:
 
 4. Domain service plane (polyglot)
 
-- Express orchestration service
+- NestJS orchestration service
 - Java invoice rendering service
 - Kotlin subscription quote/reconciliation service
 - Go operational ingestion service
@@ -1607,7 +1687,7 @@ Frontend and gateway:
 
 Core backend:
 
-- Express API: auth, commerce, operations, security telemetry orchestration
+- NestJS API: auth, commerce, operations, security telemetry orchestration
 
 Polyglot domain services:
 
@@ -1685,7 +1765,7 @@ To keep docs synchronized with implementation:
 High-level folder intent:
 
 - `src/`: Next.js app and frontend components
-- `express-api/`: orchestration backend and security automation
+- `nestjs-backend/`: orchestration backend and security automation
 - `go-ops-service/`: operational event plane
 - `java-invoice-service/`: invoice PDF domain service
 - `kotlin-subscription-service/`: subscription quote/reconciliation domain service
@@ -1722,10 +1802,10 @@ npm run build
 npm audit --audit-level=high
 ```
 
-Backend (`express-api`):
+Backend (`nestjs-backend`):
 
 ```bash
-cd express-api
+cd nestjs-backend
 npm ci
 npm audit --audit-level=high
 ```
@@ -1775,7 +1855,7 @@ The workflow fails when any of the following happen:
 
 ### Recommended CI expansion (next step)
 
-- add unit/integration tests for Express routes
+- add unit/integration tests for NestJS routes
 - add Next.js component/page tests
 - add E2E smoke tests (login, browse, cart, checkout)
 - add DB migration validation job for schema safety
@@ -1788,7 +1868,7 @@ The workflow fails when any of the following happen:
 ### Production topology
 
 - Next.js web service/container
-- Express API service/container
+- NestJS API service/container
 - Python AI service/container
 - PostgreSQL managed DB or HA cluster
 - reverse proxy and TLS termination
@@ -1796,7 +1876,7 @@ The workflow fails when any of the following happen:
 ### Deployment sequence
 
 1. Provision database and extensions
-2. Deploy Express and confirm /health
+2. Deploy NestJS and confirm /health
 3. Deploy Python AI and confirm /api/health
 4. Deploy Next.js and verify frontend integration
 5. Execute smoke flows: login, browse, cart, checkout, AI chat
@@ -1882,7 +1962,7 @@ docker inspect filspresso_backend --format '{{.Config.User}} {{.HostConfig.Reado
 ### Ledger verification reports mismatch
 
 - stop write traffic to the affected chain scope
-- run `npm --prefix express-api run security:verify-ledger -- service-health 100000` for a wider scan
+- run NestJS security ledger verification for a wider scan
 - export `security_event_ledger` rows and incident records for forensic review
 - treat mismatches as potential integrity incidents and execute key-rotation + incident-response playbook
 
@@ -1949,7 +2029,7 @@ docker inspect filspresso_backend --format '{{.Config.User}} {{.HostConfig.Reado
 
 ## 24. Known Gaps And Suggested Next Improvements
 
-- Add OpenAPI specs for Express and Python APIs
+- Add OpenAPI specs for NestJS and Python APIs
 - Add route-level formal contracts (JSON schema)
 - Add CI job that captures screenshots for all pages and updates docs/screenshots automatically
 - Add full observability stack (metrics + traces + alerting)
@@ -1993,11 +2073,11 @@ This section explains how image files are organized, used by the app, and mainta
 
 ## 26. Why These New Languages And Where
 
-Filspresso keeps an Express-first architecture and adds other languages only for narrowly scoped workloads where they are clearly better.
+Filspresso keeps a NestJS-first architecture and adds other languages only for narrowly scoped workloads where they are clearly better.
 
 ### Selection principles
 
-- Keep checkout, account, auth, and cart flows in Express to avoid fragmentation of core commerce logic.
+- Keep checkout, account, auth, and cart flows in NestJS to avoid fragmentation of core commerce logic.
 - Add a new runtime only when it gives a measurable gain in one domain (performance, tooling maturity, or maintainability).
 - Isolate each specialized runtime behind stable HTTP boundaries so it can evolve independently.
 
@@ -2012,7 +2092,7 @@ Filspresso keeps an Express-first architecture and adds other languages only for
 
 ### Why this polyglot split is intentional
 
-- It preserves stability in high-risk flows (payments/orders) by keeping them in the existing proven Express layer.
+- It preserves stability in high-risk flows (payments/orders) by keeping them in the existing proven NestJS layer.
 - It avoids a big-bang rewrite and allows incremental migration by domain.
 - It improves performance where needed without overcomplicating every service.
 - It keeps ownership clear: each service has one primary responsibility.
@@ -2053,7 +2133,7 @@ For Filspresso, PostgreSQL is not only "good enough"; it is the database that be
 - npm run start
 - npm run lint
 
-### Express
+### NestJS
 
 - npm run dev
 - npm start
@@ -2070,14 +2150,15 @@ For Filspresso, PostgreSQL is not only "good enough"; it is the database that be
 ## Appendix B: Important Files
 
 - docker-compose.yml
-- Dockerfile.express
-- express-api/server.js
-- express-api/routes/operations.js
-- express-api/routes/cart.js
-- express-api/routes/orders.js
-- express-api/routes/products.js
-- express-api/routes/subscriptions_engine.js
-- express-api/data/schema.sql
+- nestjs-backend/Dockerfile
+- nestjs-backend/src/main.ts
+- nestjs-backend/src/app.module.ts
+- nestjs-backend/src/auth/auth.controller.ts
+- nestjs-backend/src/cart/cart.controller.ts
+- nestjs-backend/src/orders/orders.controller.ts
+- nestjs-backend/src/products/products.controller.ts
+- nestjs-backend/src/subscriptions-engine/subscriptions-engine.controller.ts
+- nestjs-backend/data/schema.sql
 - go-ops-service/main.go
 - java-invoice-service/src/main/java/com/filspresso/invoice/InvoiceController.java
 - java-invoice-service/src/main/java/com/filspresso/invoice/SignatureStampRenderer.java
@@ -2107,7 +2188,7 @@ This snapshot is source-focused and excludes generated/dependency-heavy director
 - `docker-compose.yml`
 - `Dockerfile.ai`
 - `Dockerfile.db`
-- `Dockerfile.express`
+- `Dockerfile.nestjs`
 - `eslint.config.mjs`
 - `filspresso_next.code-workspace`
 - `FilspressoNext.session.sql`
@@ -2132,40 +2213,38 @@ This snapshot is source-focused and excludes generated/dependency-heavy director
 - `docs/screenshots/` (gallery image folder)
 - `docs/uml/` (UML SVG snapshots)
 
-### express-api/
+### nestjs-backend/
 
-- `express-api/server.js`
-- `express-api/package.json`
-- `express-api/data/extensions.sql`
-- `express-api/data/schema.sql`
-- `express-api/db/connection.js`
-- `express-api/middleware/auth.js`
-- `express-api/routes/accounts.js`
-- `express-api/routes/admin.js`
-- `express-api/routes/auth.js`
-- `express-api/routes/cards.js`
-- `express-api/routes/cart.js`
-- `express-api/routes/chat.js`
-- `express-api/routes/favorites.js`
-- `express-api/routes/kafelot.js`
-- `express-api/routes/orders.js`
-- `express-api/routes/products.js`
-- `express-api/routes/repairs.js`
-- `express-api/routes/subscriptions.js`
-- `express-api/routes/weather.js`
-- `express-api/scripts/check_db_status.js`
-- `express-api/scripts/debug_account_dates.js`
-- `express-api/scripts/diagnostic_columns.js`
-- `express-api/scripts/fix_schema.js`
-- `express-api/scripts/run_migration.js`
-- `express-api/scripts/setup_all_tables.js`
-- `express-api/scripts/setup_favorites_table.js`
-- `express-api/scripts/setup_full_db.js`
-- `express-api/scripts/test_login.js`
-- `express-api/scripts/update_admin_creds.js`
-- `express-api/utils/dockerManager.js`
-- `express-api/utils/encryption.js`
-- `express-api/utils/ensureAppSchema.js`
+- `nestjs-backend/src/main.ts`
+- `nestjs-backend/src/app.module.ts`
+- `nestjs-backend/src/app.controller.ts`
+- `nestjs-backend/src/app.service.ts`
+- `nestjs-backend/src/auth/auth.controller.ts`
+- `nestjs-backend/src/auth/auth.service.ts`
+- `nestjs-backend/src/auth/auth.module.ts`
+- `nestjs-backend/src/accounts/accounts.controller.ts`
+- `nestjs-backend/src/admin/admin.controller.ts`
+- `nestjs-backend/src/cards/cards.controller.ts`
+- `nestjs-backend/src/cart/cart.controller.ts`
+- `nestjs-backend/src/chat/chat.controller.ts`
+- `nestjs-backend/src/favorites/favorites.controller.ts`
+- `nestjs-backend/src/health/health.controller.ts`
+- `nestjs-backend/src/kafelot/kafelot.controller.ts`
+- `nestjs-backend/src/operations/operations.controller.ts`
+- `nestjs-backend/src/orders/orders.controller.ts`
+- `nestjs-backend/src/products/products.controller.ts`
+- `nestjs-backend/src/repairs/repairs.controller.ts`
+- `nestjs-backend/src/security-observability/security-observability.controller.ts`
+- `nestjs-backend/src/subscriptions/subscriptions.controller.ts`
+- `nestjs-backend/src/subscriptions-engine/subscriptions-engine.controller.ts`
+- `nestjs-backend/src/weather/weather.controller.ts`
+- `nestjs-backend/src/crypto/crypto.controller.ts`
+- `nestjs-backend/src/config/configuration.ts`
+- `nestjs-backend/src/config/env.validation.ts`
+- `nestjs-backend/src/database/database.module.ts`
+- `nestjs-backend/src/database/ensureAppSchema.ts`
+- `nestjs-backend/data/schema.sql`
+- `nestjs-backend/data/extensions.sql`
 
 ### models/
 
@@ -2263,7 +2342,7 @@ Primary documentation entrypoints:
 - docs atlas with screenshot and UML galleries: `docs/README.md`
 - security controls and rollout boundaries: `security/README.md`
 - service-level runbooks:
-    - `express-api/README.md`
+- `nestjs-backend/README.md`
     - `go-ops-service/README.md`
     - `java-invoice-service/README.md`
     - `kotlin-subscription-service/README.md`
@@ -2280,7 +2359,7 @@ Primary documentation entrypoints:
 | Service               | Stack        | Compose Name                       | Primary Port | Purpose                                        |
 | --------------------- | ------------ | ---------------------------------- | ------------ | ---------------------------------------------- |
 | Web frontend          | Next.js      | `frontend` (root app runtime path) | 3000 (dev)   | UI and edge routing                            |
-| API backend           | Node/Express | `backend`                          | 4000         | Commerce orchestration + security control APIs |
+| API backend           | Node/NestJS | `backend`                          | 4000         | Commerce orchestration + security control APIs |
 | AI service            | Python       | `ai`                               | 5000         | AI and model-assisted workflows                |
 | Ops ingest            | Go           | `go_ops`                           | 8083         | Event ingestion and bounded ops history        |
 | Invoice service       | Java         | `invoice_java`                     | 8082         | PDF invoice rendering                          |
@@ -2292,7 +2371,7 @@ Primary documentation entrypoints:
 
 ### 28.3 Core API Surface Snapshot
 
-Backend (`express-api`) high-value endpoints:
+Backend (`nestjs-backend`) high-value endpoints:
 
 - `/health`
 - `/health/services`
@@ -2441,7 +2520,7 @@ terraform apply -var-file=environment.tfvars
 
 2. Contain:
 
-- execute containment playbook via Express security scripts.
+- execute containment playbook via NestJS security scripts.
 
 3. Verify integrity:
 
@@ -2492,7 +2571,7 @@ Security objectives mapped to implementation:
 | Objective       | Current Implementation                                                                           | How To Verify                                                                                                                                                     |
 | --------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Confidentiality | secret loading via env and `*_FILE`; hardened compose profile; internal-network segmentation     | run `docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml config` and verify secret file paths and network scoping |
-| Integrity       | hash-chained security ledger + verification endpoint + CLI verifier                              | run `npm --prefix express-api run security:verify-ledger` and `/health/services/ledger/verify`                                                                    |
+| Integrity       | hash-chained security ledger + verification endpoint + CLI verifier                              | run NestJS ledger verification and `/health/services/ledger/verify`                                                                    |
 | Availability    | multi-service health endpoints + bounded request middleware + resilient compose dependency model | check `/health`, `/health/services`, and `docker compose ps`                                                                                                      |
 | Verifiability   | policy scripts, deploy signature policy assets, repeatable tests                                 | run `node scripts/verifyDeploySignaturePolicy.mjs` and `scripts/run_titan_v0_74_tests.ps1`                                                                        |
 | Operability     | README-first runbooks and service-level contracts                                                | review this file and all service `README.md` files                                                                                                                |
