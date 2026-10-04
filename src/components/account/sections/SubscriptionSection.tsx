@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { formatDate, getCardTypeImage, SubscriptionData } from "./types";
-import { ClockIcon, CreditCard as CreditCardIcon, CheckedIcon as CheckIcon, XIcon } from "@/icons";
+import { ClockIcon, CheckedIcon as CheckIcon, XIcon } from "@/icons";
 
 type SubscriptionSectionProps = {
 	subscription: string;

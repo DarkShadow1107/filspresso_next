@@ -10,10 +10,13 @@ exports.buildWelcomeHtml = buildWelcomeHtml;
 exports.buildSecurityLoginHtml = buildSecurityLoginHtml;
 const RESEND_API_URL = "https://api.resend.com/emails";
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
-const MAIL_FROM = String(process.env.MAIL_FROM || "Filspresso <noreply@filspresso.com>").trim();
+const MAIL_FROM = String(process.env.MAIL_FROM || process.env.RESEND_FROM_EMAIL || "Filspresso <noreply@filspresso.com>").trim();
+const MAIL_REPLY_TO = String(process.env.MAIL_REPLY_TO || process.env.RESEND_REPLY_TO || "").trim();
 const FRONTEND_ORIGIN = String(process.env.FRONTEND_ORIGIN ||
     process.env.NEXT_PUBLIC_FRONTEND_URL ||
-    String(process.env.CORS_ORIGIN || "http://localhost:3000").split(",")[0].trim() ||
+    String(process.env.CORS_ORIGIN || "http://localhost:3000")
+        .split(",")[0]
+        .trim() ||
     "http://localhost:3000").replace(/\/$/, "");
 function getResendApiKey() {
     const runtimeKey = String(process.env.RESEND_API_KEY || "").trim();
@@ -36,7 +39,7 @@ async function sendTransactionalEmail(payload) {
             subject: payload.subject,
             text: payload.text,
             html: payload.html,
-            reply_to: payload.replyTo,
+            reply_to: payload.replyTo || MAIL_REPLY_TO || undefined,
         }),
     });
     if (!response.ok) {

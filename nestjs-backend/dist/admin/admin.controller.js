@@ -50,6 +50,8 @@ const common_1 = require("@nestjs/common");
 const platform_express_1 = require("@nestjs/platform-express");
 const admin_service_1 = require("./admin.service");
 const path = __importStar(require("path"));
+const throttler_1 = require("@nestjs/throttler");
+const rate_limit_policy_1 = require("../config/rate-limit.policy");
 const { diskStorage } = require("multer");
 let AdminController = class AdminController {
     adminService;
@@ -193,6 +195,7 @@ let AdminController = class AdminController {
 };
 exports.AdminController = AdminController;
 __decorate([
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/admin/login").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/admin/login").ttlMs } }),
     (0, common_1.Post)("login"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
@@ -201,6 +204,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AdminController.prototype, "login", null);
 __decorate([
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/admin/mfa").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/admin/mfa").ttlMs } }),
     (0, common_1.Post)("mfa/verify"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),

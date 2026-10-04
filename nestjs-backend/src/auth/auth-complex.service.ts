@@ -1,11 +1,13 @@
 import { Injectable, Logger, HttpException, BadRequestException, NotFoundException, ConflictException, UnauthorizedException, ServiceUnavailableException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
+import { SessionStoreService } from "../common/guards/session-store.service";
 import * as crypto from "crypto";
 import type { Request, Response } from "express";
 import * as passwords from "../common/utils/passwords";
 import * as encryption from "../common/utils/encryption";
 import * as mailer from "../common/utils/resendMailer";
 import * as authTokens from "../common/utils/auth-tokens";
+import { setSessionCookie } from "../common/utils/session-cookie";
 
 const QRCode: any = require("qrcode");
 
@@ -31,7 +33,10 @@ const USER_MFA_SETUP_TTL_SECONDS = Math.max(60, Number.parseInt(process.env.USER
 @Injectable()
 export class AuthComplexService {
   private readonly logger = new Logger(AuthComplexService.name);
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+		private readonly db: DatabaseService,
+		private readonly sessions: SessionStoreService,
+	) {}
 
   private normalizeCredentialField(value: any, maxLength: number) {
     if (typeof value !== "string") return "";
@@ -300,10 +305,9 @@ export class AuthComplexService {
     return `user_${crypto.randomBytes(5).toString("hex")}`;
   }
 
-  private buildOAuthSuccessRedirect(returnTo: string, account: any, token: string) {
+  private buildOAuthSuccessRedirect(returnTo: string, account: any) {
     const url = new URL(returnTo, FRONTEND_ORIGIN);
-    const payload = Buffer.from(JSON.stringify({ account: this.buildAuthAccountPayload(account), token }), "utf8").toString("base64url");
-    url.searchParams.set("oauth", payload);
+    url.searchParams.set("oauth", "ok");
     return url.toString();
   }
 
@@ -376,7 +380,13 @@ export class AuthComplexService {
 
       const token = authTokens.generateToken(user);
       const expiresAt = authTokens.buildSessionExpiryDate();
-      await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)", [user.id, token, expiresAt, req.ip, req.get("user-agent")]);
+      await this.sessions.createAndCache(client, {
+        token,
+        accountId: user.id,
+        expiresAt,
+        ipAddress: req.ip ?? null,
+        userAgent: req.get("user-agent") ?? null,
+      });
 
       let mfaSetup = null;
       if (enable2fa) {
@@ -459,7 +469,13 @@ export class AuthComplexService {
       await client.query("UPDATE accounts SET last_login = NOW() WHERE id = $1", [user.id]);
       const token = authTokens.generateToken(user);
       const expiresAt = authTokens.buildSessionExpiryDate();
-      await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)", [user.id, token, expiresAt, req.ip, req.get("user-agent")]);
+      await this.sessions.createAndCache(client, {
+        token,
+        accountId: user.id,
+        expiresAt,
+        ipAddress: req.ip ?? null,
+        userAgent: req.get("user-agent") ?? null,
+      });
       await this.logAuthSecurityEvent(client, "login_success", { loginKey, accountId: user.id, ipAddress, userAgent, details: { mfaUsed: false, includeQrCode } });
       
       mailer.sendTransactionalEmail({
@@ -510,7 +526,13 @@ export class AuthComplexService {
       await client.query("UPDATE accounts SET last_login = NOW() WHERE id = $1", [user.id]);
       const token = authTokens.generateToken(user);
       const expiresAt = authTokens.buildSessionExpiryDate();
-      await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)", [user.id, token, expiresAt, req.ip, req.get("user-agent")]);
+      await this.sessions.createAndCache(client, {
+        token,
+        accountId: user.id,
+        expiresAt,
+        ipAddress: req.ip ?? null,
+        userAgent: req.get("user-agent") ?? null,
+      });
       await this.logAuthSecurityEvent(client, "login_success", { accountId: user.id, ipAddress, userAgent, details: { mfaUsed: true } });
 
       mailer.sendTransactionalEmail({
@@ -529,16 +551,17 @@ export class AuthComplexService {
     const decoded = authTokens.verifyToken(activeToken);
     if (!decoded || !Number.isInteger(decoded.id)) throw new UnauthorizedException({ error: "Invalid or expired token" });
 
+    const activeTokenHash = authTokens.hashSessionToken(activeToken);
     const pool = this.db.getPool();
     const client = await pool.connect();
     try {
-      const sessionRes = await client.query(`SELECT a.id, a.username, a.email, a.name, a.icon, a.subscription, a.role, a.created_at FROM accounts a JOIN user_sessions s ON s.account_id = a.id WHERE s.session_token = $1 AND s.expires_at > NOW() LIMIT 1`, [activeToken]);
+      const sessionRes = await client.query(`SELECT a.id, a.username, a.email, a.name, a.icon, a.subscription, a.role, a.created_at FROM accounts a JOIN user_sessions s ON s.account_id = a.id WHERE s.session_token_hash = $1 AND s.expires_at > NOW() LIMIT 1`, [activeTokenHash]);
       const user = sessionRes.rows[0];
       if (!user) throw new UnauthorizedException({ error: "Invalid or expired session" });
 
       const nextToken = authTokens.generateToken(user);
       const nextSessionExpiry = authTokens.buildSessionExpiryDate();
-      const updateSession = await client.query(`UPDATE user_sessions SET session_token = $1, expires_at = $2, ip_address = $3, user_agent = $4 WHERE account_id = $5 AND session_token = $6 AND expires_at > NOW()`, [nextToken, nextSessionExpiry, this.getClientIp(req), String(req.get("user-agent") || "").slice(0, 512), user.id, activeToken]);
+      const updateSession = await client.query(`UPDATE user_sessions SET session_token_hash = $1, expires_at = $2, ip_address = $3, user_agent = $4 WHERE account_id = $5 AND session_token_hash = $6 AND expires_at > NOW()`, [authTokens.hashSessionToken(nextToken), nextSessionExpiry, this.getClientIp(req), String(req.get("user-agent") || "").slice(0, 512), user.id, activeTokenHash]);
 
       if (!updateSession.rowCount) throw new ConflictException({ error: "Session refresh conflict; retry login" });
       await this.logAuthSecurityEvent(client, "token_refreshed", { accountId: user.id, ipAddress: this.getClientIp(req), userAgent: String(req.get("user-agent") || "").slice(0, 512) });
@@ -701,7 +724,13 @@ export class AuthComplexService {
       await client.query("UPDATE accounts SET last_login = NOW(), updated_at = NOW() WHERE id = $1", [account.id]);
       const token = authTokens.generateToken(account);
       const expiresAt = authTokens.buildSessionExpiryDate();
-      await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)", [account.id, token, expiresAt, req.ip, req.get("user-agent")]);
+      await this.sessions.createAndCache(client, {
+        token,
+        accountId: account.id,
+        expiresAt,
+        ipAddress: req.ip ?? null,
+        userAgent: req.get("user-agent") ?? null,
+      });
       await this.logAuthSecurityEvent(client, "oauth_login_success", { accountId: account.id, ipAddress: this.getClientIp(req), userAgent: String(req.get("user-agent") || "").slice(0, 512), details: { provider, mode: verifiedState.mode } });
 
       mailer.sendTransactionalEmail({
@@ -714,7 +743,11 @@ export class AuthComplexService {
         }).catch(e => this.logger.warn(e));
       }
 
-      return res.redirect(302, this.buildOAuthSuccessRedirect(returnTo, account, token));
+      // The session is handed over as an httpOnly cookie on this same response,
+      // so no credential needs to travel back through the redirect URL (where it
+      // would end up in browser history and access logs).
+      setSessionCookie(res, token, req);
+      return res.redirect(302, this.buildOAuthSuccessRedirect(returnTo, account));
     } catch (error) {
       return res.redirect(302, this.buildOAuthFailureRedirect(returnTo, "oauth_login_failed"));
     } finally { client.release(); }

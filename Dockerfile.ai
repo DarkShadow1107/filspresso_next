@@ -7,10 +7,22 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install minimal system dependency for healthcheck tooling.
+# Install minimal system dependencies.
+# tini + wget: process supervision and the container healthcheck.
+# The *-dev-free cairo/X stack is required by RDKit's MolDraw2D, which backs
+# /api/molecule/render2d and /api/molecule/svg. Without it those two endpoints
+# fail at request time with "libXrender.so.1: cannot open shared object file" --
+# the pip wheel does not bundle the native graphics libraries, and the failure
+# only appears when a 2D render is actually attempted, so it is invisible to the
+# /api/health probe and to the Python import check. fonts-dejavu-core gives
+# fontconfig at least one usable face so atom labels are not blank.
 RUN apt-get update && apt-get install -y \
     tini \
     wget \
+    libcairo2 \
+    libglib2.0-0 \
+    libfontconfig1 \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system appgroup && useradd --system --gid appgroup --create-home appuser
@@ -20,21 +32,30 @@ COPY requirements.ai.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.ai.txt
 
-# Copy AI source files
+# Copy AI source files. Listed explicitly rather than copying models/ wholesale,
+# because models/ also holds multi-gigabyte GGUF weights and tokeniser data that
+# the runtime mounts instead. Any new module under models/ must be added here or
+# the container fails at import with ModuleNotFoundError.
 COPY app.py .
 COPY iot_db.py .
 COPY models/__init__.py ./models/__init__.py
 COPY models/tanka.py ./models/tanka.py
+COPY models/gate.py ./models/gate.py
+COPY models/residency.py ./models/residency.py
 
 RUN mkdir -p /app/public/images/icons /tmp \
     && chown -R appuser:appgroup /app /tmp
 
 USER appuser
 
-# Expose Flask port
+# Expose the AI gateway port
 EXPOSE 5000
 
 ENTRYPOINT ["tini", "--"]
 
-# Run with waitress (production)
-CMD ["python", "-m", "waitress", "--host=0.0.0.0", "--port=5000", "app:app"]
+# Run with uvicorn (production).
+# Single worker on purpose: --workers would multiply RDKit memory and give each
+# worker its own warmup state and slot semaphores, which is wrong for a 4 GB box.
+# Do not add --proxy-headers behind a trusted proxy without setting
+# --forwarded-allow-ips, or client IPs become spoofable.
+CMD ["python", "-m", "uvicorn", "app:app", "--host=0.0.0.0", "--port=5000", "--no-server-header"]

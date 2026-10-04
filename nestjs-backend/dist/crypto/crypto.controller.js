@@ -55,6 +55,8 @@ const replayGuard = __importStar(require("../common/utils/replayGuard"));
 const database_service_1 = require("../database/database.service");
 const common_2 = require("@nestjs/common");
 const core_1 = require("@nestjs/core");
+const throttler_1 = require("@nestjs/throttler");
+const rate_limit_policy_1 = require("../config/rate-limit.policy");
 const REPLAY_GUARD_STRICT_REQUIRED = String(process.env.OPERATION_REPLAY_REQUIRE_ID || "false").trim().toLowerCase() === "true";
 let ReplayGuardInterceptor = class ReplayGuardInterceptor {
     db;
@@ -293,6 +295,7 @@ __decorate([
 ], CryptoController.prototype, "getZkProof", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/crypto/mpc").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/crypto/mpc").ttlMs } }),
     (0, common_1.Post)("mpc/sessions"),
     UseReplayGuard("mpc-session-create", 3600),
     __param(0, (0, common_1.Req)()),
@@ -303,6 +306,7 @@ __decorate([
 ], CryptoController.prototype, "createMpcSession", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/crypto/mpc").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/crypto/mpc").ttlMs } }),
     (0, common_1.Post)("mpc/sessions/:id/sign"),
     UseReplayGuard("mpc-session-sign", 3600),
     __param(0, (0, common_1.Req)()),
@@ -313,6 +317,7 @@ __decorate([
 ], CryptoController.prototype, "signMpcSession", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/crypto/mpc").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/crypto/mpc").ttlMs } }),
     (0, common_1.Post)("mpc/sessions/:id/finalize"),
     UseReplayGuard("mpc-session-finalize", 3600),
     __param(0, (0, common_1.Req)()),

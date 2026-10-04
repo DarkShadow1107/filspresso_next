@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import ScrollToTopButton from "@/components/ScrollToTopButton";
+import { primeAuthState, subscribeAuthState } from "@/lib/authState";
+import { refreshCurrentAccount } from "@/lib/clientAuth";
 
 export default function LayoutChrome({ children }: PropsWithChildren) {
 	const pathname = usePathname();
@@ -13,6 +15,32 @@ export default function LayoutChrome({ children }: PropsWithChildren) {
 	useEffect(() => {
 		const frame = window.requestAnimationFrame(() => setMounted(true));
 		return () => window.cancelAnimationFrame(frame);
+	}, []);
+
+	// The session lives in an httpOnly cookie, so sign-in state is resolved from
+	// the server once here and re-primed whenever the session changes.
+	useEffect(() => {
+		void primeAuthState();
+
+		const handleSessionUpdate = () => {
+			void primeAuthState(true);
+		};
+
+		window.addEventListener("session-update", handleSessionUpdate);
+		const unsubscribe = subscribeAuthState(() => setMounted((value) => value));
+
+		// Access tokens are short-lived; keep the session alive transparently.
+		const refreshTimer = window.setInterval(() => {
+			if (document.visibilityState === "visible") {
+				void refreshCurrentAccount();
+			}
+		}, 5 * 60 * 1000);
+
+		return () => {
+			window.removeEventListener("session-update", handleSessionUpdate);
+			window.clearInterval(refreshTimer);
+			unsubscribe();
+		};
 	}, []);
 
 	const hideNavbar =

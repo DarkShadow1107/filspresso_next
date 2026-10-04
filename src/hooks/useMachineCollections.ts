@@ -146,9 +146,6 @@ export function useMachineCollections(): UseMachineCollectionsResult {
 
 	useEffect(() => {
 		let cancelled = false;
-		if (!sharedMachineDataSnapshot) {
-			setLoading(true);
-		}
 		async function fetchFromApi() {
 			try {
 				const data = await fetchSharedMachineData();

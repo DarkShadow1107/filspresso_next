@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { PAGE_SLUGS } from "@/lib/pages";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const TRUSTED_TYPES_ENFORCE =
@@ -6,17 +7,10 @@ const TRUSTED_TYPES_ENFORCE =
 		.trim()
 		.toLowerCase() === "true";
 
-const supportedSlugs = new Set([
-	"home",
-	"account",
-	"coffee",
-	"coffee-machine-animation",
-	"love-coffee",
-	"machines",
-	"payment",
-	"shopping-bag",
-	"subscription",
-]);
+// Derived from the canonical registry so a newly added page is reachable by its
+// pretty URL without editing a second list (this one previously missed
+// `favorites`, which shipped broken pretty URLs).
+const supportedSlugs = new Set<string>(PAGE_SLUGS);
 
 function shouldBypass(pathname: string) {
 	return (

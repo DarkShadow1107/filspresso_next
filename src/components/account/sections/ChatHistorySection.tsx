@@ -3,8 +3,8 @@
 import { ChatHistory } from "./types";
 import {
 	MessageCircleIcon,
-	ClockIcon,
-	TrashIcon,
+	
+	
 	CoffeeIcon,
 	BulbSvg,
 	GithubCopilotIcon,

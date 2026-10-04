@@ -16,16 +16,15 @@ exports.AuthController = void 0;
 const common_1 = require("@nestjs/common");
 const auth_service_1 = require("./auth.service");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
+const session_cookie_1 = require("../common/utils/session-cookie");
 /**
  * AuthController — owns /api/auth/* routes.
  *
- * Most complex auth routes (register, login, OAuth, MFA setup/verify,
- * email verification) remain proxied through the legacy Express router
- * while being migrated incrementally. This controller owns the subset
- * of read-only / session management endpoints that are safe to cut over
- * immediately.
+ * The legacy Express delegation for auth is gone: `src/legacy/` was deleted in
+ * 615a690, so there is no passthrough router left to delegate to. Every
+ * /api/auth route below is implemented natively in NestJS.
  *
- * Legacy passthrough (still in legacy-routes.ts):
+ * Complex auth surface (implemented here, no legacy passthrough):
  *   POST /api/auth/register
  *   POST /api/auth/login
  *   GET  /api/auth/oauth/:provider/start
@@ -81,12 +80,12 @@ let AuthController = class AuthController {
         return { user };
     }
     // ------------------------------------------------------------------ Sessions
-    async logout(req) {
-        const authHeader = String(req.headers.authorization || "");
-        if (authHeader.startsWith("Bearer ")) {
-            const token = authHeader.slice(7).trim();
+    async logout(req, res) {
+        const token = (0, session_cookie_1.readSessionToken)(req);
+        if (token) {
             await this.authService.invalidateSession(token);
         }
+        (0, session_cookie_1.clearSessionCookie)(res, req);
         return { message: "Logged out successfully" };
     }
     async getSessions(req) {
@@ -172,8 +171,9 @@ __decorate([
     (0, common_1.Post)("logout"),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),
     __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "logout", null);
 __decorate([

@@ -97,6 +97,19 @@ let KafelotService = class KafelotService {
             return "free";
         }
     }
+    async readAnonymousUsage(client, fingerprint, usageScope = exports.USAGE_SCOPES.GENERAL) {
+        const { rows } = await client.query(`SELECT * FROM kafelot_anonymous_users WHERE fingerprint = $1`, [fingerprint]);
+        if (rows[0])
+            return rows[0];
+        // Read-only counterpart to `getOrCreateAnonymous`: report the derived
+        // allowance for a fingerprint that has never been seen, without inserting.
+        return {
+            fingerprint,
+            prompts_used: 0,
+            prompts_limit: scopeLimits(usageScope)["anonymous"] ?? GENERAL_PROMPT_LIMITS["anonymous"],
+            reset_date: nextMonthReset(),
+        };
+    }
     async getOrCreateAnonymous(client, fingerprint, ip, userAgent, systemInfo, usageScope = exports.USAGE_SCOPES.GENERAL) {
         const resetDate = nextMonthReset();
         const anonLimit = scopeLimits(usageScope)["anonymous"] ?? GENERAL_PROMPT_LIMITS["anonymous"];
@@ -105,12 +118,29 @@ let KafelotService = class KafelotService {
        ON CONFLICT (fingerprint) DO UPDATE
          SET ip_address = EXCLUDED.ip_address, user_agent = EXCLUDED.user_agent, system_info = EXCLUDED.system_info,
              prompts_limit = EXCLUDED.prompts_limit,
-             prompts_used = CASE WHEN kafelot_anonymous_users.prompts_limit <> EXCLUDED.prompts_limit THEN 0 ELSE kafelot_anonymous_users.prompts_used END,
              updated_at = CURRENT_TIMESTAMP`, [fingerprint, ip, userAgent, systemInfo, resetDate, anonLimit]);
         await client.query(`UPDATE kafelot_anonymous_users SET prompts_used = 0, reset_date = $1::DATE, updated_at = CURRENT_TIMESTAMP
        WHERE fingerprint = $2 AND reset_date <= CURRENT_DATE`, [resetDate, fingerprint]);
         const { rows } = await client.query(`SELECT * FROM kafelot_anonymous_users WHERE fingerprint = $1`, [fingerprint]);
         return rows[0];
+    }
+    async readUserUsage(client, accountId, tier, usageScope = exports.USAGE_SCOPES.GENERAL) {
+        const monthYear = currentMonthYear();
+        const normalizedScope = normalizeUsageScope(usageScope);
+        const { rows } = await client.query(`SELECT * FROM kafelot_prompt_usage WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3`, [accountId, monthYear, normalizedScope]);
+        if (rows[0])
+            return rows[0];
+        // No row yet: report the derived allowance without creating one. Callers that
+        // only read must not mutate the table.
+        return {
+            account_id: accountId,
+            month_year: monthYear,
+            usage_scope: normalizedScope,
+            prompts_used: 0,
+            prompts_limit: tierToLimit(tier, normalizedScope),
+            subscription_tier: tier,
+            reset_date: nextMonthReset(),
+        };
     }
     async getOrCreateUserUsage(client, accountId, tier, usageScope = exports.USAGE_SCOPES.GENERAL) {
         const monthYear = currentMonthYear();
@@ -121,7 +151,6 @@ let KafelotService = class KafelotService {
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (account_id, month_year, usage_scope) DO UPDATE
          SET subscription_tier = EXCLUDED.subscription_tier, prompts_limit = EXCLUDED.prompts_limit,
-             prompts_used = CASE WHEN kafelot_prompt_usage.prompts_limit <> EXCLUDED.prompts_limit THEN 0 ELSE kafelot_prompt_usage.prompts_used END,
              updated_at = CURRENT_TIMESTAMP`, [accountId, monthYear, normalizedScope, limit, tier, resetDate]);
         const { rows } = await client.query(`SELECT * FROM kafelot_prompt_usage WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3`, [accountId, monthYear, normalizedScope]);
         return rows[0];
@@ -169,7 +198,18 @@ let KafelotService = class KafelotService {
         }
         catch (err) {
             await client.query("ROLLBACK").catch(() => undefined);
-            return { status: 200, data: { allowed: true, prompts_remaining: -1, prompts_limit: -1 } };
+            // Fail CLOSED. This used to return `{ allowed: true, prompts_remaining: -1 }`,
+            // which the Next wrapper could not distinguish from a real allowance and
+            // therefore served every request unmetered whenever the database hiccuped --
+            // the exact opposite of what its own docstring promised. A non-2xx here is
+            // what `promptLimits.ts` turns into a 503 PROMPT_LIMIT_UNAVAILABLE.
+            return {
+                status: 503,
+                data: {
+                    error: "PROMPT_LIMIT_UNAVAILABLE",
+                    message: "Could not verify your prompt allowance.",
+                },
+            };
         }
         finally {
             client.release();
@@ -181,7 +221,11 @@ let KafelotService = class KafelotService {
         try {
             if (params.accountId) {
                 const tier = await this.fetchUserTier(client, params.accountId);
-                const row = await this.getOrCreateUserUsage(client, params.accountId, tier, params.usageScope);
+                // Read-only. This used to call `getOrCreateUserUsage`, which meant a plain
+                // status poll INSERTed a row and -- via the `prompts_used = CASE ...` clause
+                // since removed -- could silently zero a user's usage whenever the derived
+                // limit changed. Reporting state must never mutate it.
+                const row = await this.readUserUsage(client, params.accountId, tier, params.usageScope);
                 return { status: 200, data: { prompts_remaining: Math.max(0, row.prompts_limit - row.prompts_used), prompts_used: row.prompts_used, prompts_limit: row.prompts_limit, reset_date: row.reset_date, tier, scope: params.usageScope } };
             }
             else {
@@ -189,7 +233,7 @@ let KafelotService = class KafelotService {
                     const anonLimit = scopeLimits(params.usageScope)["anonymous"] ?? GENERAL_PROMPT_LIMITS["anonymous"];
                     return { status: 200, data: { prompts_remaining: anonLimit, prompts_used: 0, prompts_limit: anonLimit, tier: "anonymous", scope: params.usageScope } };
                 }
-                const row = await this.getOrCreateAnonymous(client, params.fingerprint, params.ip, params.userAgent, {}, params.usageScope);
+                const row = await this.readAnonymousUsage(client, params.fingerprint, params.usageScope);
                 return { status: 200, data: { prompts_remaining: Math.max(0, row.prompts_limit - row.prompts_used), prompts_used: row.prompts_used, prompts_limit: row.prompts_limit, reset_date: row.reset_date, tier: "anonymous", scope: params.usageScope } };
             }
         }

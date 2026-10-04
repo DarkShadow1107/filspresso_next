@@ -45,12 +45,16 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthService = void 0;
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
+const session_store_service_1 = require("../common/guards/session-store.service");
 const authTokens = __importStar(require("../common/utils/auth-tokens"));
+const auth_tokens_1 = require("../common/utils/auth-tokens");
 const passwords = __importStar(require("../common/utils/passwords"));
 let AuthService = class AuthService {
     db;
-    constructor(db) {
+    sessions;
+    constructor(db, sessions) {
         this.db = db;
+        this.sessions = sessions;
     }
     /**
      * Validate a Bearer token and return user claims.
@@ -86,10 +90,14 @@ let AuthService = class AuthService {
      * Invalidate a session token (logout).
      */
     async invalidateSession(token) {
+        // Drop the cache entry first. Revocation is a security guarantee, so the
+        // Redis DEL must not be contingent on the database delete succeeding --
+        // doing it in this order also means the DB delete widens nothing.
+        await this.sessions.invalidate(token);
         const pool = this.db.getPool();
         const client = await pool.connect();
         try {
-            await client.query("DELETE FROM user_sessions WHERE session_token = $1", [token]);
+            await client.query("DELETE FROM user_sessions WHERE session_token_hash = $1", [(0, auth_tokens_1.hashSessionToken)(token)]);
         }
         catch {
             // Best-effort logout — do not fail the response on DB error
@@ -122,10 +130,13 @@ let AuthService = class AuthService {
         const pool = this.db.getPool();
         const client = await pool.connect();
         try {
-            const result = await client.query("DELETE FROM user_sessions WHERE id = $1 AND account_id = $2 RETURNING id", [sessionId, accountId]);
+            const result = await client.query("DELETE FROM user_sessions WHERE id = $1 AND account_id = $2 RETURNING id, session_token_hash", [sessionId, accountId]);
             if (!result.rowCount) {
                 throw new common_1.NotFoundException({ error: "Session not found" });
             }
+            // The row is gone, so anything still cached for it must go too -- otherwise
+            // this revoke would only take effect once the cache entry expired.
+            await this.sessions.invalidateHash(String(result.rows[0].session_token_hash));
         }
         finally {
             client.release();
@@ -274,5 +285,6 @@ let AuthService = class AuthService {
 exports.AuthService = AuthService;
 exports.AuthService = AuthService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [database_service_1.DatabaseService])
+    __metadata("design:paramtypes", [database_service_1.DatabaseService,
+        session_store_service_1.SessionStoreService])
 ], AuthService);

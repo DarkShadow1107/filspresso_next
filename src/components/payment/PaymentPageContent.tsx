@@ -12,6 +12,7 @@ import { buildPageHref } from "@/lib/pages";
 import CreditCard from "@/icons/credit-card";
 import LockIcon from "@/icons/lock-icon";
 import { InlineLoadingSpinner } from "@/components/loading/ProgressiveLoading";
+import { isSignedIn } from "@/lib/authState";
 import {
 	CURRENCY_CONFIG,
 	FALLBACK_FX_RATES,
@@ -214,10 +215,10 @@ export default React.memo(function PaymentPageContent() {
 
 	useEffect(() => {
 		// Fetch saved cards from Express API
-		const token = readAccountSession()?.token || "";
-		if (token) {
+		const signedIn = isSignedIn();
+		if (signedIn) {
 			fetch(`${API_BASE}/api/cards`, {
-				headers: { Authorization: `Bearer ${token}` },
+				credentials: "same-origin" as const,
 			})
 				.then((res) => res.json())
 				.then((data) => {
@@ -507,6 +508,11 @@ export default React.memo(function PaymentPageContent() {
 
 	const selectedDestination =
 		SUPPORTED_DESTINATIONS.find((destination) => destination.code === selectedDestinationCode) ?? SUPPORTED_DESTINATIONS[0];
+	const baseHasFreeShipping = ["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) || currentSum >= 200;
+	const baseShippingCost = baseHasFreeShipping ? 0 : 24.99;
+	const selectedRate = selectedCurrency === "RON" ? 1 : Number(fxRates[selectedCurrency] || 0);
+	const canConvertCurrency = selectedCurrency === "RON" || selectedRate > 0;
+
 	const convertFromRon = useCallback(
 		(amountRon: number) => {
 			if (selectedCurrency === "RON" || !canConvertCurrency) {
@@ -524,11 +530,6 @@ export default React.memo(function PaymentPageContent() {
 
 		setSelectedCurrency(selectedDestination.defaultCurrency as SupportedCurrencyCode);
 	}, [selectedDestination, isCurrencyManuallySelected]);
-
-	const baseHasFreeShipping = ["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) || currentSum >= 200;
-	const baseShippingCost = baseHasFreeShipping ? 0 : 24.99;
-	const selectedRate = selectedCurrency === "RON" ? 1 : Number(fxRates[selectedCurrency] || 0);
-	const canConvertCurrency = selectedCurrency === "RON" || selectedRate > 0;
 
 	const convertedSubtotal = roundCurrency(convertFromRon(currentSum));
 	const convertedShippingCost = roundCurrency(convertFromRon(baseShippingCost));
@@ -596,8 +597,8 @@ export default React.memo(function PaymentPageContent() {
 			const paymentTotal = chargedTotal;
 
 			const accountSession = readAccountSession();
-			const token = accountSession?.token || "";
-			const isLoggedIn = Boolean(token);
+			const signedIn = isSignedIn();
+			const isLoggedIn = signedIn;
 
 			if (isLoggedIn) {
 				// Validation for saved card
@@ -635,13 +636,12 @@ export default React.memo(function PaymentPageContent() {
 					window.sessionStorage.removeItem("allow_payment_ts");
 				} catch {}
 
-				if (shouldSaveCard && !selectedSavedCard && token) {
+				if (shouldSaveCard && !selectedSavedCard && signedIn) {
 					try {
 						await fetch(`${API_BASE}/api/cards`, {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								Authorization: `Bearer ${token}`,
 							},
 							body: JSON.stringify({
 								cardNumber: cardDigits,
@@ -672,7 +672,6 @@ export default React.memo(function PaymentPageContent() {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								Authorization: `Bearer ${token}`,
 							},
 							body: JSON.stringify({
 								tier: subscriptionTier,
@@ -708,7 +707,6 @@ export default React.memo(function PaymentPageContent() {
 									method: "POST",
 									headers: {
 										"Content-Type": "application/json",
-										Authorization: `Bearer ${token}`,
 									},
 									body: JSON.stringify({
 										items: [
@@ -768,12 +766,11 @@ export default React.memo(function PaymentPageContent() {
 
 					// Save order to backend
 					try {
-						if (token && items.length > 0) {
+						if (signedIn && items.length > 0) {
 							await fetch(`${API_BASE}/api/orders`, {
 								method: "POST",
 								headers: {
 									"Content-Type": "application/json",
-									Authorization: `Bearer ${token}`,
 								},
 								body: JSON.stringify({
 									items: items.map((item) => ({
@@ -844,8 +841,6 @@ export default React.memo(function PaymentPageContent() {
 	}, [
 		ccNum,
 		cvv,
-		currentSum,
-		memberDiscount,
 		items,
 		expiry,
 		shouldSaveCard,

@@ -18,6 +18,8 @@ const policy_decorator_1 = require("../common/decorators/policy.decorator");
 const policy_guard_1 = require("../common/guards/policy.guard");
 const security_observability_service_1 = require("./security-observability.service");
 const service_events_auth_guard_1 = require("./service-events-auth.guard");
+const throttler_1 = require("@nestjs/throttler");
+const rate_limit_policy_1 = require("../config/rate-limit.policy");
 function parseBoundedInt(raw, fallback, min, max) {
     const parsed = Number.parseInt(String(raw ?? ""), 10);
     if (!Number.isFinite(parsed))
@@ -106,6 +108,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], SecurityObservabilityController.prototype, "dispatchSecurityAlerts", null);
 __decorate([
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("GET /health/services/ledger/verify").limit, ttl: (0, rate_limit_policy_1.ruleFor)("GET /health/services/ledger/verify").ttlMs } }),
     (0, common_1.Get)("services/ledger/verify"),
     (0, common_1.UseGuards)(service_events_auth_guard_1.ServiceEventsAuthGuard),
     __param(0, (0, common_1.Req)()),

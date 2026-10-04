@@ -1,14 +1,17 @@
 # Filspresso AI gateway runtime dependencies (Dockerfile.ai)
 # This image no longer ships local CLIP/MolScribe/transformers runtimes.
 # GGUF inference is served by dedicated llama.cpp model containers.
+#
+# The gateway is FastAPI on uvicorn (Phase B). flask/flask-cors/waitress were
+# removed then, and `requests` was removed in Phase C when models/tanka.py moved
+# to a single pooled httpx.AsyncClient.
 
-Flask==3.0.0
-Flask-CORS==4.0.0
-waitress==2.1.2
+fastapi==0.140.13
+uvicorn[standard]==0.34.0
+httpx==0.28.1
 
 psycopg2-binary
 python-dotenv==1.0.0
-requests==2.31.0
 
 # Molecule rendering endpoints still require RDKit + py3Dmol.
 rdkit>=2023.9.1

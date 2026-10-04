@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { Request } from "express";
-import { verifyToken } from "../utils/auth-tokens";
+import { ActiveSessionService } from "./active-session.service";
 
 interface AuthenticatedRequest extends Request {
 	user?: { id?: number | string; email?: string; username?: string; [key: string]: unknown };
@@ -8,24 +8,17 @@ interface AuthenticatedRequest extends Request {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-	constructor() {}
+	constructor(private readonly activeSessions: ActiveSessionService) {}
 
-	canActivate(context: ExecutionContext): boolean {
+	async canActivate(context: ExecutionContext): Promise<boolean> {
 		const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-		const authHeader = String(request.headers.authorization || "");
+		const session = await this.activeSessions.resolve(request);
 
-		if (!authHeader.startsWith("Bearer ")) {
+		if (!session) {
 			throw new UnauthorizedException({ error: "Access token required" });
 		}
 
-		const token = authHeader.slice(7).trim();
-		const decoded = verifyToken(token);
-
-		if (!decoded) {
-			throw new UnauthorizedException({ error: "Invalid or expired token" });
-		}
-
-		request.user = decoded as AuthenticatedRequest["user"];
+		request.user = session.claims as AuthenticatedRequest["user"];
 		return true;
 	}
 }

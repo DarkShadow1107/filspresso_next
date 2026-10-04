@@ -1,0 +1,8 @@
+# Dev-only dependencies for the AI gateway contract tests (Phase A).
+#
+# Deliberately separate from requirements.ai.txt: the runtime image must never
+# carry pytest. Install with:
+#   pip install -r requirements.ai-dev.txt
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.28.1

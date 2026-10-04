@@ -1,7 +1,7 @@
 import React from "react";
-import { CpuIcon, BrandGeminiIcon, BrandQwenIcon, BrandAnthropicIcon, CameraIcon, SparklesIcon } from "@/icons";
+import { BrandLiquidIcon, CameraIcon, CpuIcon, SparklesIcon } from "@/icons";
 
-type ModelUsageKey = "minilm" | "qwen3" | "gemma3" | "qwen3Vision" | "other";
+type ModelUsageKey = "lfm2" | "lfm2Thinking" | "lfm2Vision" | "lfm2Audio" | "other";
 
 type KafelotUsageProps = {
 	stats: {
@@ -15,19 +15,19 @@ type KafelotUsageProps = {
 };
 
 const MODEL_ORDER: Array<{ key: ModelUsageKey; toneClass: string }> = [
-	{ key: "minilm", toneClass: "minilm" },
-	{ key: "qwen3", toneClass: "qwen" },
-	{ key: "gemma3", toneClass: "gemma" },
-	{ key: "qwen3Vision", toneClass: "vision" },
+	{ key: "lfm2", toneClass: "lfm" },
+	{ key: "lfm2Thinking", toneClass: "lfm" },
+	{ key: "lfm2Vision", toneClass: "vision" },
+	{ key: "lfm2Audio", toneClass: "vision" },
 	{ key: "other", toneClass: "other" },
 ];
 
 function modelIcon(modelKey: ModelUsageKey) {
-	if (modelKey === "qwen3") return <BrandQwenIcon size={14} />;
-	if (modelKey === "gemma3") return <BrandAnthropicIcon size={14} />;
-	if (modelKey === "qwen3Vision") return <CameraIcon size={14} />;
-	if (modelKey === "other") return <SparklesIcon size={14} />;
-	return <BrandGeminiIcon size={14} />;
+	if (modelKey === "lfm2") return <BrandLiquidIcon size={14} />;
+	if (modelKey === "lfm2Thinking") return <BrandLiquidIcon size={14} />;
+	if (modelKey === "lfm2Vision") return <CameraIcon size={14} />;
+	if (modelKey === "lfm2Audio") return <SparklesIcon size={14} />;
+	return <SparklesIcon size={14} />;
 }
 
 export default function KafelotUsage({ stats }: KafelotUsageProps) {

@@ -16,6 +16,8 @@ exports.RepairsController = void 0;
 const common_1 = require("@nestjs/common");
 const repairs_service_1 = require("./repairs.service");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
+const throttler_1 = require("@nestjs/throttler");
+const rate_limit_policy_1 = require("../config/rate-limit.policy");
 let RepairsController = class RepairsController {
     repairsService;
     constructor(repairsService) {
@@ -39,6 +41,7 @@ __decorate([
 ], RepairsController.prototype, "getRepairs", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/repairs").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/repairs").ttlMs } }),
     (0, common_1.Post)(),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),
     __param(0, (0, common_1.Req)()),

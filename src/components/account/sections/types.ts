@@ -7,13 +7,13 @@ import {
 	ShieldCheck as ShieldCheckIcon,
 	RosetteDiscountIcon,
 	RosetteDiscountCheckIcon,
-	RocketIcon,
-	ChartBarIcon,
-	FileDescriptionIcon,
-	GearIcon,
-	ClockIcon,
-	PartyPopperIcon,
-	HistoryCircleIcon,
+	
+	
+	
+	
+	
+	
+	
 } from "@/icons";
 
 import {
@@ -27,7 +27,6 @@ import {
 	DBChatMessage,
 	Timestamp,
 } from "@/types/database";
-import { readAccountSession } from "@/lib/accountSession";
 
 export type AccountData = Pick<DBAccount, "username" | "email" | "icon"> & {
 	full_name: string | null;
@@ -333,7 +332,7 @@ export const getIconUrl = (icon: string | null) => {
 			if (url.includes(" ") || url.includes("[") || url.includes("]")) {
 				return encodeURI(url);
 			}
-		} catch (e) {
+		} catch {
 			return url;
 		}
 	}
@@ -362,23 +361,9 @@ export const formatDate = (dateString: string | number | Date) => {
 			month: "long",
 			day: "numeric",
 		});
-	} catch (e) {
+	} catch {
 		return "Date unavailable";
 	}
-};
-
-export const getAuthToken = (): string | null => {
-	if (typeof window === "undefined") return null;
-	try {
-		const session = readAccountSession();
-		if (session) {
-			const { token } = session;
-			return token || null;
-		}
-	} catch {
-		return null;
-	}
-	return null;
 };
 
 export const gradientTextStyle = {

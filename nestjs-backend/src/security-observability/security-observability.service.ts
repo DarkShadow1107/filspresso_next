@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import type { Pool, PoolClient } from "pg";
 import { resolveExpressApiPath } from "../common/utils/legacy-paths";
 import * as securityLedger from "../common/utils/securityLedger";
@@ -71,7 +72,11 @@ export class SecurityObservabilityService {
 		24 * 60,
 	);
 
-	private readonly securityLedgerArchiveEnabled = parseBoolean(process.env.SECURITY_LEDGER_ARCHIVE_ENABLED, true);
+	// Opt-in: the archive script this job shells out to does not exist in the
+	// repo, so defaulting to enabled meant a guaranteed failure every hour. Set
+	// SECURITY_LEDGER_ARCHIVE_ENABLED=true only once the script is restored.
+	private readonly securityLedgerArchiveEnabled = parseBoolean(process.env.SECURITY_LEDGER_ARCHIVE_ENABLED, false);
+	private securityArchiveScriptMissingLogged = false;
 	private readonly securityLedgerArchiveIntervalMs = parseBoundedInt(
 		process.env.SECURITY_LEDGER_ARCHIVE_INTERVAL_MS,
 		60 * 60 * 1000,
@@ -145,9 +150,26 @@ export class SecurityObservabilityService {
 			return;
 		}
 
+		// The archive script no longer exists. `resolveExpressApiPath` maps to
+		// src/legacy-bridge, which was removed, and there is no
+		// archive_security_ledger.js anywhere in the repo, so this job could only
+		// ever fail. Check before spawning so the failure is one clear log line
+		// instead of an hourly `spawn /usr/local/bin/node ENOENT`.
+		const scriptPath = resolveExpressApiPath("scripts", "archive_security_ledger.js");
+		if (!fs.existsSync(scriptPath)) {
+			if (!this.securityArchiveScriptMissingLogged) {
+				this.securityArchiveScriptMissingLogged = true;
+				this.logger.warn(
+					`Security ledger archive skipped: script not found at ${scriptPath}. ` +
+						"Restore the script or set SECURITY_LEDGER_ARCHIVE_ENABLED=false to silence this.",
+				);
+			}
+			return;
+		}
+
 		this.securityArchiveJobRunning = true;
 		const args = [
-			resolveExpressApiPath("scripts", "archive_security_ledger.js"),
+			scriptPath,
 			`--older-than-hours=${this.securityLedgerArchiveOlderThanHours}`,
 			`--limit=${this.securityLedgerArchiveLimit}`,
 		];

@@ -37,6 +37,8 @@ const weather_module_1 = require("./weather/weather.module");
 const repairs_module_1 = require("./repairs/repairs.module");
 const subscriptions_engine_module_1 = require("./subscriptions-engine/subscriptions-engine.module");
 const kafelot_module_1 = require("./kafelot/kafelot.module");
+const auth_guard_module_1 = require("./common/guards/auth-guard.module");
+const rate_limit_module_1 = require("./common/guards/rate-limit.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -49,6 +51,7 @@ exports.AppModule = AppModule = __decorate([
                 validationSchema: env_validation_1.envValidationSchema,
                 validationOptions: { abortEarly: false },
             }),
+            rate_limit_module_1.RateLimitModule,
             security_module_1.SecurityModule,
             database_module_1.DatabaseModule,
             integrations_module_1.IntegrationsModule,
@@ -70,6 +73,7 @@ exports.AppModule = AppModule = __decorate([
             repairs_module_1.RepairsModule,
             subscriptions_engine_module_1.SubscriptionsEngineModule,
             kafelot_module_1.KafelotModule,
+            auth_guard_module_1.AuthGuardModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

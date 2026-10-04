@@ -92,7 +92,7 @@ const sections = [
 		content: (
 			<>
 				<p>
-					Kafelot is an AI-powered coffee assistant that uses subscription-selected GGUF models (MiniLM, Qwen, Gemma,
+					Kafelot is an AI-powered coffee assistant that uses subscription-selected GGUF models (MiniLM, LFM, Gemma,
 					and vision models where available) to respond to your questions. By using Kafelot you agree to the following:
 				</p>
 				<ul>

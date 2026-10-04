@@ -1,11 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Order, SavedCard, Repair, gradientTextStyle, getCardTypeImage } from "./types";
 import { RepairsHistory } from "./RepairsHistory";
 import { OrderHistory } from "./OrderHistory";
-import { TrashIcon, CreditCard, ArrowBackUpIcon, ArrowNarrowRightIcon, ArrowNarrowLeftIcon } from "@/icons";
+import { TrashIcon, CreditCard, ArrowNarrowRightIcon, ArrowNarrowLeftIcon } from "@/icons";
 
 type PaymentsSectionProps = {
 	savedCards: SavedCard[];

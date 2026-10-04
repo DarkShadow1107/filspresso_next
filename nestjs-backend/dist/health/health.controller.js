@@ -15,6 +15,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.HealthController = void 0;
 const common_1 = require("@nestjs/common");
 const health_service_1 = require("./health.service");
+const throttler_1 = require("@nestjs/throttler");
+const rate_limit_policy_1 = require("../config/rate-limit.policy");
 let HealthController = class HealthController {
     healthService;
     constructor(healthService) {
@@ -36,6 +38,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], HealthController.prototype, "getHealth", null);
 __decorate([
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("GET /health/services").limit, ttl: (0, rate_limit_policy_1.ruleFor)("GET /health/services").ttlMs } }),
     (0, common_1.Get)("health/services"),
     __param(0, (0, common_1.Req)()),
     __metadata("design:type", Function),

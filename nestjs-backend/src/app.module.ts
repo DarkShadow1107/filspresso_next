@@ -25,6 +25,8 @@ import { WeatherModule } from "./weather/weather.module";
 import { RepairsModule } from "./repairs/repairs.module";
 import { SubscriptionsEngineModule } from "./subscriptions-engine/subscriptions-engine.module";
 import { KafelotModule } from "./kafelot/kafelot.module";
+import { AuthGuardModule } from "./common/guards/auth-guard.module";
+import { RateLimitModule } from "./common/guards/rate-limit.module";
 
 @Module({
 	imports: [
@@ -34,6 +36,7 @@ import { KafelotModule } from "./kafelot/kafelot.module";
 			validationSchema: envValidationSchema,
 			validationOptions: { abortEarly: false },
 		}),
+		RateLimitModule,
 		SecurityModule,
 		DatabaseModule,
 		IntegrationsModule,
@@ -55,6 +58,7 @@ import { KafelotModule } from "./kafelot/kafelot.module";
 		RepairsModule,
 		SubscriptionsEngineModule,
 		KafelotModule,
+		AuthGuardModule,
 	],
 	controllers: [AppController],
 	providers: [AppService],

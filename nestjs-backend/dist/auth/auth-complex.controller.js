@@ -16,6 +16,16 @@ exports.AuthComplexController = void 0;
 const common_1 = require("@nestjs/common");
 const auth_complex_service_1 = require("./auth-complex.service");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
+const session_cookie_1 = require("../common/utils/session-cookie");
+const throttler_1 = require("@nestjs/throttler");
+const rate_limit_policy_1 = require("../config/rate-limit.policy");
+// The session token is delivered exclusively as an httpOnly cookie. Returning it
+// in the response body as well would let any XSS read it back out of memory,
+// which defeats the point of the cookie.
+function withoutToken(result) {
+    const { token, ...rest } = result;
+    return rest;
+}
 let AuthComplexController = class AuthComplexController {
     authComplexService;
     constructor(authComplexService) {
@@ -23,27 +33,42 @@ let AuthComplexController = class AuthComplexController {
     }
     async register(req, res) {
         const result = await this.authComplexService.register(req);
-        return res.status(common_1.HttpStatus.CREATED).json(result);
+        if (result.token) {
+            (0, session_cookie_1.setSessionCookie)(res, result.token, req);
+        }
+        return res.status(common_1.HttpStatus.CREATED).json(withoutToken(result));
     }
     async login(req, res) {
         const result = await this.authComplexService.login(req, res);
         if (!res.headersSent) {
             if (result.status === "mfa_required") {
-                return res.status(common_1.HttpStatus.ACCEPTED).json(result);
+                return res.status(common_1.HttpStatus.ACCEPTED).json(withoutToken(result));
             }
-            return res.status(common_1.HttpStatus.OK).json(result);
+            if (result.token) {
+                (0, session_cookie_1.setSessionCookie)(res, result.token, req);
+            }
+            return res.status(common_1.HttpStatus.OK).json(withoutToken(result));
         }
     }
     async loginMfaVerify(req, res) {
         const result = await this.authComplexService.loginMfaVerify(req, res);
         if (!res.headersSent) {
-            return res.status(common_1.HttpStatus.OK).json(result);
+            if (result.token) {
+                (0, session_cookie_1.setSessionCookie)(res, result.token, req);
+            }
+            return res.status(common_1.HttpStatus.OK).json(withoutToken(result));
         }
     }
     async refresh(req, res) {
         const result = await this.authComplexService.refresh(req, res);
         if (!res.headersSent) {
-            return res.status(common_1.HttpStatus.OK).json(result);
+            if (result.token) {
+                (0, session_cookie_1.setSessionCookie)(res, result.token, req);
+            }
+            return res.status(common_1.HttpStatus.OK).json({
+                ...withoutToken(result),
+                expiresIn: result.expiresIn,
+            });
         }
     }
     async verifyEmail(req, res) {
@@ -70,6 +95,7 @@ let AuthComplexController = class AuthComplexController {
 };
 exports.AuthComplexController = AuthComplexController;
 __decorate([
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/register").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/register").ttlMs } }),
     (0, common_1.Post)("register"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
@@ -78,6 +104,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AuthComplexController.prototype, "register", null);
 __decorate([
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/login").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/login").ttlMs } }),
     (0, common_1.Post)("login"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
@@ -86,6 +113,7 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AuthComplexController.prototype, "login", null);
 __decorate([
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/mfa").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/mfa").ttlMs } }),
     (0, common_1.Post)("login/mfa-verify"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
@@ -136,6 +164,7 @@ __decorate([
 ], AuthComplexController.prototype, "oauthCallback", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/mfa").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/mfa").ttlMs } }),
     (0, common_1.Post)("mfa/setup"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
@@ -145,6 +174,7 @@ __decorate([
 ], AuthComplexController.prototype, "mfaSetup", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, throttler_1.Throttle)({ default: { limit: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/mfa").limit, ttl: (0, rate_limit_policy_1.ruleFor)("POST /api/auth/mfa").ttlMs } }),
     (0, common_1.Post)("mfa/enable"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),

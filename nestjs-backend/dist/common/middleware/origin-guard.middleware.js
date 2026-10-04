@@ -54,6 +54,9 @@ function isCrossSiteFetch(req) {
     return fetchSite === "cross-site";
 }
 function originGuardMiddleware(req, res, next) {
+    if (process.env.ORIGIN_GUARD_DEBUG === "true") {
+        console.warn("[origin-guard] method=%s cookie=%s auth=%s origin=%s referer=%s secFetchSite=%s configuredOrigins=%s csrfRequireOrigin=%s", req.method, JSON.stringify(String(req.headers.cookie || "").slice(0, 24)), JSON.stringify(String(req.headers.authorization || "").slice(0, 16)), JSON.stringify(req.headers.origin), JSON.stringify(req.headers.referer), JSON.stringify(req.headers["sec-fetch-site"]), JSON.stringify(configuredOrigins), csrfRequireOriginForCookie);
+    }
     if (!shouldCheckCsrf(req)) {
         next();
         return;

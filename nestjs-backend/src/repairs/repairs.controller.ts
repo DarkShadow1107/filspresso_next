@@ -2,6 +2,8 @@ import { Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } from "@ne
 import type { Request } from "express";
 import { RepairsService } from "./repairs.service";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { Throttle } from "@nestjs/throttler";
+import { ruleFor } from "../config/rate-limit.policy";
 
 interface AuthenticatedRequest extends Request { user?: Record<string, unknown>; }
 
@@ -16,6 +18,7 @@ export class RepairsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: ruleFor("POST /api/repairs").limit, ttl: ruleFor("POST /api/repairs").ttlMs } })
   @Post()
   @HttpCode(HttpStatus.OK)
   submitRepair(@Req() req: AuthenticatedRequest) {

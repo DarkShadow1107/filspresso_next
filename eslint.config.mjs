@@ -1,8 +1,5 @@
 import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypeScript from "eslint-config-next/typescript";
-import reactPlugin from "eslint-plugin-react";
-import reactHooksPlugin from "eslint-plugin-react-hooks";
-import tsEslintPlugin from "@typescript-eslint/eslint-plugin";
 
 const globalIgnores = [
 	"node_modules/**",
@@ -23,18 +20,24 @@ const globalIgnores = [
 	"infrastructure/**",
 	"security/**",
 	"logs/**",
+	"playground/**",
+	".npm/**",
+	".venv/**",
+	".vscode/**",
+	"**/dist/**",
+	"**/site-packages/**",
+	"**/__pycache__/**",
+	"**/*.pyc",
 ];
 
+// `eslint-config-next` already registers react, react-hooks, @typescript-eslint,
+// import and @next/next. Re-declaring them here makes the flat config throw
+// `Cannot redefine plugin`, so this block only layers extra rules on top.
 const eslintConfig = [
 	{ ignores: globalIgnores },
 	...nextCoreWebVitals,
 	...nextTypeScript,
 	{
-		plugins: {
-			react: reactPlugin,
-			"react-hooks": reactHooksPlugin,
-			"@typescript-eslint": tsEslintPlugin,
-		},
 		rules: {
 			"@typescript-eslint/no-explicit-any": "error",
 			"@typescript-eslint/no-require-imports": "warn",
@@ -43,6 +46,24 @@ const eslintConfig = [
 			"react-hooks/purity": "warn",
 			"react-hooks/preserve-manual-memoization": "warn",
 			"react/no-unescaped-entities": "error",
+		},
+	},
+	// These components render user-supplied images that `next/image` cannot
+	// optimize or even accept: `data:` URLs, `blob:` object URLs, TOTP QR codes,
+	// and avatars that need a manual `onError` src swap. `next/image` would
+	// reject the blob/data sources or break the error fallback, so the rule is
+	// disabled for them only rather than per-line with fragile comments.
+	{
+		files: [
+			"src/components/AccountIconGenerator.tsx",
+			"src/components/Cart.tsx",
+			"src/components/account/AccountManagement.tsx",
+			"src/components/account/sections/ProfileSection.tsx",
+			"src/components/admin/AdminLoginClient.tsx",
+			"src/components/CoffeeRecommender.tsx",
+		],
+		rules: {
+			"@next/next/no-img-element": "off",
 		},
 	},
 ];

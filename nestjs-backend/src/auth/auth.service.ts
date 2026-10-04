@@ -5,12 +5,17 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
+import { SessionStoreService } from "../common/guards/session-store.service";
 import * as authTokens from "../common/utils/auth-tokens";
+import { hashSessionToken } from "../common/utils/auth-tokens";
 import * as passwords from "../common/utils/passwords";
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+		private readonly db: DatabaseService,
+		private readonly sessions: SessionStoreService,
+	) {}
 
   /**
    * Validate a Bearer token and return user claims.
@@ -50,12 +55,16 @@ export class AuthService {
    * Invalidate a session token (logout).
    */
   async invalidateSession(token: string): Promise<void> {
+    // Drop the cache entry first. Revocation is a security guarantee, so the
+    // Redis DEL must not be contingent on the database delete succeeding --
+    // doing it in this order also means the DB delete widens nothing.
+    await this.sessions.invalidate(token);
     const pool = this.db.getPool();
     const client = await pool.connect();
     try {
       await client.query(
-        "DELETE FROM user_sessions WHERE session_token = $1",
-        [token],
+        "DELETE FROM user_sessions WHERE session_token_hash = $1",
+        [hashSessionToken(token)],
       );
     } catch {
       // Best-effort logout — do not fail the response on DB error
@@ -92,12 +101,15 @@ export class AuthService {
     const client = await pool.connect();
     try {
       const result = await client.query(
-        "DELETE FROM user_sessions WHERE id = $1 AND account_id = $2 RETURNING id",
+        "DELETE FROM user_sessions WHERE id = $1 AND account_id = $2 RETURNING id, session_token_hash",
         [sessionId, accountId],
       );
       if (!result.rowCount) {
         throw new NotFoundException({ error: "Session not found" });
       }
+      // The row is gone, so anything still cached for it must go too -- otherwise
+      // this revoke would only take effect once the cache entry expired.
+      await this.sessions.invalidateHash(String(result.rows[0].session_token_hash));
     } finally {
       client.release();
     }

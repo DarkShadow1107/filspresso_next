@@ -4,13 +4,15 @@ export type AccountSession = {
 	email?: string | null;
 	icon?: string | null;
 	role?: string | null;
-	token?: string | null;
 	subscription?: string | null;
 };
 
-const ACCOUNT_SESSION_KEY = "account_session";
+const ACCOUNT_PROFILE_KEY = "account_profile";
 
-function parseSession(value: string | null): AccountSession | null {
+// The session token lives in an httpOnly cookie that JavaScript cannot read, so
+// this store only keeps the non-sensitive profile used to render the UI. Auth
+// state is always resolved from the server via /api/auth/me.
+function parseProfile(value: string | null): AccountSession | null {
 	if (!value) return null;
 	try {
 		const parsed = JSON.parse(value) as AccountSession;
@@ -22,38 +24,43 @@ function parseSession(value: string | null): AccountSession | null {
 
 export function readAccountSession(): AccountSession | null {
 	if (typeof window === "undefined") return null;
-	const localRaw = localStorage.getItem(ACCOUNT_SESSION_KEY);
-	const sessionRaw = sessionStorage.getItem(ACCOUNT_SESSION_KEY);
-
-	const localData = parseSession(localRaw);
-	const sessionData = parseSession(sessionRaw);
-	const resolved = localData || sessionData;
-	if (!resolved) return null;
-
-	const normalized = JSON.stringify(resolved);
-	if (localRaw !== normalized) {
-		localStorage.setItem(ACCOUNT_SESSION_KEY, normalized);
-	}
-	if (sessionRaw !== normalized) {
-		sessionStorage.setItem(ACCOUNT_SESSION_KEY, normalized);
-	}
-
-	return resolved;
+	return parseProfile(window.localStorage.getItem(ACCOUNT_PROFILE_KEY));
 }
 
 export function writeAccountSession(data: AccountSession): void {
 	if (typeof window === "undefined") return;
-	const normalized = JSON.stringify(data);
-	localStorage.setItem(ACCOUNT_SESSION_KEY, normalized);
-	sessionStorage.setItem(ACCOUNT_SESSION_KEY, normalized);
+	const { token: _token, ...profile } = data as AccountSession & { token?: string | null };
+	void _token;
+	window.localStorage.setItem(ACCOUNT_PROFILE_KEY, JSON.stringify(profile));
 	window.dispatchEvent(new Event("session-update"));
 }
 
 export function clearAccountSession(): void {
 	if (typeof window === "undefined") return;
-	localStorage.removeItem(ACCOUNT_SESSION_KEY);
-	sessionStorage.removeItem(ACCOUNT_SESSION_KEY);
+	window.localStorage.removeItem(ACCOUNT_PROFILE_KEY);
 	window.dispatchEvent(new Event("session-update"));
+}
+
+const ANONYMOUS_PROFILE_KEY = "account_anonymous";
+
+export function isAccountAnonymous(): boolean {
+	if (typeof window === "undefined") return true;
+	return window.localStorage.getItem(ANONYMOUS_PROFILE_KEY) !== "1";
+}
+
+/**
+ * Marks a visitor as deliberately signed out so the UI stops treating them as
+ * "maybe logged in" after an explicit logout.
+ */
+export function markAccountAnonymous(): void {
+	if (typeof window === "undefined") return;
+	window.localStorage.setItem(ANONYMOUS_PROFILE_KEY, "1");
+	window.dispatchEvent(new Event("session-update"));
+}
+
+export function clearAccountAnonymous(): void {
+	if (typeof window === "undefined") return;
+	window.localStorage.removeItem(ANONYMOUS_PROFILE_KEY);
 }
 
 export function createDefaultAvatarDataUrl(seedValue: string): string {

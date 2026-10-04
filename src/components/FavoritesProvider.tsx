@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useNotifications } from "./NotificationsProvider";
-import { readAccountSession } from "@/lib/accountSession";
+import { fetchCurrentAccount } from "@/lib/clientAuth";
 
 const API_BASE = (typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "") + "/api";
 
@@ -22,18 +22,15 @@ interface FavoritesContextType {
 
 const FavoritesContext = createContext<FavoritesContextType | undefined>(undefined);
 
-function getAuthToken(): string | null {
-	if (typeof window === "undefined") return null;
-	return readAccountSession()?.token || null;
-}
-
 export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 	const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+	// The session lives in an httpOnly cookie, so sign-in state is resolved from
+	// the server rather than read out of browser storage.
+	const [signedIn, setSignedIn] = useState(false);
 	const { notify } = useNotifications();
 
 	const fetchFavorites = useCallback(async () => {
-		const token = getAuthToken();
-		if (!token) {
+		if (!signedIn) {
 			// Guest: Load from localStorage
 			const local = localStorage.getItem("filspresso_favorites");
 			if (local) {
@@ -47,21 +44,18 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 		}
 
 		try {
-			const res = await fetch(`${API_BASE}/favorites`, {
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await fetch(`${API_BASE}/favorites`, { credentials: "same-origin" });
 			if (res.ok) {
 				const data = await res.json();
 				setFavorites(data.favorites || []);
 			}
-		} catch (error) {
+		} catch {
 			console.warn("Favorites API unavailable. Using local favorites cache.");
 		}
-	}, []);
+	}, [signedIn]);
 
 	const syncFavorites = useCallback(async () => {
-		const token = getAuthToken();
-		if (!token) return;
+		if (!signedIn) return;
 
 		const local = localStorage.getItem("filspresso_favorites");
 		if (!local) {
@@ -74,10 +68,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 			if (localFavs.length > 0) {
 				const res = await fetch(`${API_BASE}/favorites/sync`, {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${token}`,
-					},
+					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ favorites: localFavs }),
 					keepalive: true,
 				});
@@ -92,14 +83,19 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 			console.error("Sync favorites error", error);
 			await fetchFavorites();
 		}
-	}, [fetchFavorites, notify]);
+	}, [fetchFavorites, notify, signedIn]);
 
 	useEffect(() => {
+		let cancelled = false;
+
+		void fetchCurrentAccount().then((account) => {
+			if (!cancelled) setSignedIn(Boolean(account));
+		});
+
 		const timeoutId = window.setTimeout(() => {
 			void fetchFavorites();
-			const token = getAuthToken();
 			const local = localStorage.getItem("filspresso_favorites");
-			if (token && local) {
+			if (local) {
 				void syncFavorites();
 			}
 		}, 0);
@@ -110,6 +106,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
 		window.addEventListener("session-update", handleSessionUpdate);
 		return () => {
+			cancelled = true;
 			window.clearTimeout(timeoutId);
 			window.removeEventListener("session-update", handleSessionUpdate);
 		};
@@ -124,7 +121,6 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
 	const toggleFavorite = useCallback(
 		async (type: "capsule" | "machine", id: string, category: string) => {
-			const token = getAuthToken();
 			const alreadyFavorite = isFavorite(type, id);
 
 			let newFavs: FavoriteItem[];
@@ -137,7 +133,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 			// Optimistic UI update
 			setFavorites(newFavs);
 
-			if (!token) {
+			if (!signedIn) {
 				// Guest: Update localStorage
 				localStorage.setItem("filspresso_favorites", JSON.stringify(newFavs));
 				notify(alreadyFavorite ? "Removed from favorites" : "Added to favorites", 3000, "info");
@@ -147,16 +143,12 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 					if (alreadyFavorite) {
 						await fetch(`${API_BASE}/favorites/${type}/${id}`, {
 							method: "DELETE",
-							headers: { Authorization: `Bearer ${token}` },
 							keepalive: true,
 						});
 					} else {
 						await fetch(`${API_BASE}/favorites`, {
 							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								Authorization: `Bearer ${token}`,
-							},
+							headers: { "Content-Type": "application/json" },
 							body: JSON.stringify({ product_type: type, product_id: id, product_category: category }),
 							keepalive: true,
 						});
@@ -170,7 +162,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 				}
 			}
 		},
-		[favorites, isFavorite, notify, fetchFavorites],
+		[favorites, isFavorite, notify, fetchFavorites, signedIn],
 	);
 
 	return (

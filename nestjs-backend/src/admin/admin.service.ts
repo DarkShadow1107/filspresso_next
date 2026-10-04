@@ -1,10 +1,12 @@
 import { Injectable, HttpException, BadRequestException, NotFoundException, ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
+import { SessionStoreService } from "../common/guards/session-store.service";
 import * as crypto from "crypto";
 import * as path from "path";
 import type { Request, Response } from "express";
 import * as passwords from "../common/utils/passwords";
 import * as encryption from "../common/utils/encryption";
+import { hashSessionToken } from "../common/utils/auth-tokens";
 
 const QRCode: any = require("qrcode");
 
@@ -38,7 +40,10 @@ const CATEGORY_FOLDER_MAP: any = {
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+		private readonly db: DatabaseService,
+		private readonly sessions: SessionStoreService,
+	) {}
 
   private normalizeAdminIdentifier(value: any) { return String(value || "").trim().toLowerCase(); }
   private isRestrictedAdminTable(table: string) { return RESTRICTED_ADMIN_TABLES.has(this.normalizeAdminIdentifier(table)); }
@@ -250,7 +255,13 @@ export class AdminService {
   private async createAdminSession(client: any, user: any, req: Request) {
     const token = this.generateAdminToken();
     const expiresAt = new Date(Date.now() + ADMIN_SESSION_TIMEOUT_MS);
-    await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)", [user.id, token, expiresAt, this.getRequestIp(req) || null, String(req.headers["user-agent"] || "").slice(0, 500) || null]);
+    await this.sessions.createAndCache(client, {
+      token,
+      accountId: user.id,
+      expiresAt,
+      ipAddress: this.getRequestIp(req) || null,
+      userAgent: String(req.headers["user-agent"] || "").slice(0, 500) || null,
+    });
     return { token, expiresIn: Math.floor(ADMIN_SESSION_TIMEOUT_MS / 1000) };
   }
 
@@ -290,14 +301,14 @@ export class AdminService {
     const pool = this.db.getPool();
     const client = await pool.connect();
     try {
-      const sessionResult = await client.query(`SELECT s.account_id, a.username FROM user_sessions s JOIN accounts a ON a.id = s.account_id WHERE s.session_token = $1 AND s.expires_at > NOW() AND a.role = 'admin' LIMIT 1`, [token]);
+      const sessionResult = await client.query(`SELECT s.account_id, a.username FROM user_sessions s JOIN accounts a ON a.id = s.account_id WHERE s.session_token_hash = $1 AND s.expires_at > NOW() AND a.role = 'admin' LIMIT 1`, [hashSessionToken(token)]);
       const session = sessionResult.rows[0];
       if (!session) {
         res.status(401).json({ error: "Invalid or expired admin session" });
         return;
       }
       const expiresAt = new Date(Date.now() + ADMIN_SESSION_TIMEOUT_MS);
-      await client.query("UPDATE user_sessions SET expires_at = $1 WHERE session_token = $2", [expiresAt, token]);
+      await client.query("UPDATE user_sessions SET expires_at = $1 WHERE session_token_hash = $2", [expiresAt, hashSessionToken(token)]);
       req.adminSession = { username: session.username, userId: session.account_id, expiresAt: expiresAt.getTime() };
       const sensitiveViewToken = this.getCookieValue(req, ADMIN_SENSITIVE_VIEW_COOKIE_NAME);
       const sensitiveViewPayload = this.verifySensitiveViewToken(sensitiveViewToken);
@@ -419,7 +430,7 @@ export class AdminService {
     const token = authHeader.substring(7);
     const pool = this.db.getPool();
     const client = await pool.connect();
-    try { await client.query("DELETE FROM user_sessions WHERE session_token = $1", [token]); } finally { client.release(); }
+    try { await client.query("DELETE FROM user_sessions WHERE session_token_hash = $1", [hashSessionToken(token)]); } finally { client.release(); }
     return { status: "success", message: "Admin logged out" };
   }
 

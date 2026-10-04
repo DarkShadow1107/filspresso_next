@@ -276,6 +276,17 @@ async function ensureAppSchema(pool) {
         await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS oauth_subject VARCHAR(191)`);
         await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS oauth_linked_at TIMESTAMP`);
         await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS google_sub VARCHAR(191)`);
+        // `accounts.subscription` is written by subscriptions.service.ts and read as the
+        // tier fallback by kafelot.service.ts (`fetchUserTier`), auth.service.ts and
+        // auth-complex.service.ts. It exists on long-lived databases because it was added
+        // by hand, but it was never in schema.sql nor created here -- so a database built
+        // from the documented sources has no such column, every write throws, and the
+        // tier fallback silently degrades to "free". That last effect matters: an Ultimate
+        // account with no `user_subscriptions` row would resolve as free and lock itself
+        // out of tier-gated features. Backfilling from `subscription_id` keeps existing
+        // rows working.
+        await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription VARCHAR(50)`);
+        await client.query(`UPDATE accounts SET subscription = 'Free' WHERE subscription IS NULL OR subscription = ''`);
         await client.query(`ALTER TABLE security_event_ledger_archive ADD COLUMN IF NOT EXISTS encrypted_payload TEXT`);
         await client.query(`ALTER TABLE security_event_ledger_archive ADD COLUMN IF NOT EXISTS envelope_key_id VARCHAR(64)`);
         await client.query(`ALTER TABLE security_event_ledger_archive ADD COLUMN IF NOT EXISTS envelope_version VARCHAR(16)`);
@@ -310,6 +321,66 @@ async function ensureAppSchema(pool) {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+        // Session tokens are stored hashed (never in plaintext) so a database leak
+        // cannot be replayed as a live credential. The hash also keeps the column
+        // within a fixed width, which the raw EdDSA JWT exceeds.
+        await client.query(`ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS session_token_hash CHAR(64)`);
+        await client.query(`ALTER TABLE user_sessions ALTER COLUMN session_token DROP NOT NULL`);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_sessions_token_hash ON user_sessions(session_token_hash)`);
+        await client.query(`DELETE FROM user_sessions WHERE session_token_hash IS NULL`);
+        // The molecules table is declared in data/schema.sql, but that file only runs
+        // on first init of an empty Postgres volume. This is the owner-side backstop
+        // that keeps it repairable afterwards, and it must run BEFORE the ai-role
+        // grant below -- GRANT on a missing relation throws and would abort the rest
+        // of the bootstrap. The AI service cannot do this itself: it connects as the
+        // least-privilege AI_DB_USER role, and PostgreSQL rejects ALTER TABLE from a
+        // non-owner even when ADD COLUMN IF NOT EXISTS makes it a semantic no-op.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS molecules (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255),
+        smiles TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        chembl_id VARCHAR(64),
+        synonyms JSONB DEFAULT '[]'::jsonb
+      )
+    `);
+        await client.query(`ALTER TABLE molecules ADD COLUMN IF NOT EXISTS name VARCHAR(255)`);
+        await client.query(`ALTER TABLE molecules ADD COLUMN IF NOT EXISTS smiles TEXT`);
+        await client.query(`ALTER TABLE molecules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+        await client.query(`ALTER TABLE molecules ADD COLUMN IF NOT EXISTS chembl_id VARCHAR(64)`);
+        await client.query(`ALTER TABLE molecules ADD COLUMN IF NOT EXISTS synonyms JSONB DEFAULT '[]'::jsonb`);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_molecules_chembl_id_unique ON molecules(chembl_id)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_molecules_name ON molecules(name)`);
+        // `molecule mol` plus its GIST index come from the rdkit extension. Both are
+        // optional so a deployment without that extension still boots; the column is
+        // only reachable for similarity search when the extension is present.
+        await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'mol') THEN
+          EXECUTE 'ALTER TABLE molecules ADD COLUMN IF NOT EXISTS molecule mol';
+          EXECUTE 'CREATE INDEX IF NOT EXISTS idx_molecules_mol ON molecules USING gist(molecule)';
+        END IF;
+      END $$;
+    `);
+        // The AI service connects as its own least-privilege role (AI_DB_USER). The
+        // role is created by the database image but ships with no grants, so without
+        // this every fact-retrieval and molecule query fails with "permission denied".
+        // Guarded so deployments that reuse the owner account are unaffected.
+        const aiServiceRole = String(process.env.AI_DB_USER || "").trim();
+        if (aiServiceRole && aiServiceRole !== "filspresso_user") {
+            const roleExists = await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1 LIMIT 1", [aiServiceRole]);
+            if (roleExists.rows[0]) {
+                await client.query(`GRANT USAGE ON SCHEMA public TO "${aiServiceRole}"`);
+                // SELECT only: the AI service is deliberately not an owner of any table,
+                // so it can never migrate schema. See the molecules block above.
+                await client.query(`GRANT SELECT ON coffee_facts, molecules TO "${aiServiceRole}"`);
+                // CREATE on the schema is not table ownership; it only lets the role add
+                // objects to `public`. Kept because the schema lives in `public`.
+                await client.query(`GRANT CREATE ON SCHEMA public TO "${aiServiceRole}"`);
+            }
+        }
         await client.query(`CREATE INDEX IF NOT EXISTS idx_auth_login_attempts_lock_until ON auth_login_attempts(lock_until)`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_auth_login_attempts_last_failed ON auth_login_attempts(last_failed_at)`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_auth_security_events_created_at ON auth_security_events(created_at DESC)`);

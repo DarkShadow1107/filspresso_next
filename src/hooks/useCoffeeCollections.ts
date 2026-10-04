@@ -257,9 +257,6 @@ export function useCoffeeCollections(): UseCoffeeCollectionsResult {
 
 	useEffect(() => {
 		let cancelled = false;
-		if (!sharedCoffeeDataSnapshot) {
-			setLoading(true);
-		}
 		async function fetchFromApi() {
 			try {
 				const data = await fetchSharedCoffeeData();

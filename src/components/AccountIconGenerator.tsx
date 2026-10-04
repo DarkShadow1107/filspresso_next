@@ -228,7 +228,7 @@ ${textEl}
 export default function AccountIconGenerator({ username = "user", onChange }: Props) {
 	const [svgStr, setSvgStr] = useState("");
 	const [uploadedImageDataUrl, setUploadedImageDataUrl] = useState<string | null>(null);
-	const [seed, setSeed] = useState(username + Math.random());
+	const [seed, setSeed] = useState(() => username + Math.random());
 
 	const generateNewIcon = useCallback(() => {
 		const newSeed = username + Math.random();

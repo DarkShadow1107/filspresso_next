@@ -11,24 +11,25 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OptionalJwtAuthGuard = void 0;
 const common_1 = require("@nestjs/common");
-const auth_tokens_1 = require("../utils/auth-tokens");
+const active_session_service_1 = require("./active-session.service");
 let OptionalJwtAuthGuard = class OptionalJwtAuthGuard {
-    constructor() { }
-    canActivate(context) {
+    activeSessions;
+    constructor(activeSessions) {
+        this.activeSessions = activeSessions;
+    }
+    async canActivate(context) {
         const request = context.switchToHttp().getRequest();
-        const authHeader = String(request.headers.authorization || "");
-        if (authHeader.startsWith("Bearer ")) {
-            const token = authHeader.slice(7).trim();
-            const decoded = (0, auth_tokens_1.verifyToken)(token);
-            if (decoded) {
-                request.user = decoded;
-            }
+        // A revoked or expired session is treated exactly like no session at all,
+        // so protected routes fall back to their anonymous behaviour.
+        const session = await this.activeSessions.resolve(request);
+        if (session) {
+            request.user = session.claims;
         }
-        return true; // Always allow, just populate user if token is valid
+        return true; // Always allow, just populate user if the session is live
     }
 };
 exports.OptionalJwtAuthGuard = OptionalJwtAuthGuard;
 exports.OptionalJwtAuthGuard = OptionalJwtAuthGuard = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [])
+    __metadata("design:paramtypes", [active_session_service_1.ActiveSessionService])
 ], OptionalJwtAuthGuard);

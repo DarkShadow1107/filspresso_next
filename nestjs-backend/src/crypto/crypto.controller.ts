@@ -14,6 +14,8 @@ import * as replayGuard from "../common/utils/replayGuard";
 import { DatabaseService } from "../database/database.service";
 import { SetMetadata } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
+import { Throttle } from "@nestjs/throttler";
+import { ruleFor } from "../config/rate-limit.policy";
 
 const REPLAY_GUARD_STRICT_REQUIRED = String(process.env.OPERATION_REPLAY_REQUIRE_ID || "false").trim().toLowerCase() === "true";
 
@@ -163,7 +165,8 @@ export class CryptoController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post("mpc/sessions")
+  @Throttle({ default: { limit: ruleFor("POST /api/crypto/mpc").limit, ttl: ruleFor("POST /api/crypto/mpc").ttlMs } })
+	@Post("mpc/sessions")
   @UseReplayGuard("mpc-session-create", 3600)
   async createMpcSession(@Req() req: AuthenticatedRequest, @Res() res: Response) {
     requireAdmin(req);
@@ -172,7 +175,8 @@ export class CryptoController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post("mpc/sessions/:id/sign")
+  @Throttle({ default: { limit: ruleFor("POST /api/crypto/mpc").limit, ttl: ruleFor("POST /api/crypto/mpc").ttlMs } })
+	@Post("mpc/sessions/:id/sign")
   @UseReplayGuard("mpc-session-sign", 3600)
   async signMpcSession(@Req() req: AuthenticatedRequest, @Param("id", ParseIntPipe) id: number) {
     requireAdmin(req);
@@ -180,7 +184,8 @@ export class CryptoController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post("mpc/sessions/:id/finalize")
+  @Throttle({ default: { limit: ruleFor("POST /api/crypto/mpc").limit, ttl: ruleFor("POST /api/crypto/mpc").ttlMs } })
+	@Post("mpc/sessions/:id/finalize")
   @UseReplayGuard("mpc-session-finalize", 3600)
   async finalizeMpcSession(@Req() req: AuthenticatedRequest, @Param("id", ParseIntPipe) id: number) {
     requireAdmin(req);

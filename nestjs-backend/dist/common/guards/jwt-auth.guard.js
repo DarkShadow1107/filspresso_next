@@ -11,26 +11,24 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.JwtAuthGuard = void 0;
 const common_1 = require("@nestjs/common");
-const auth_tokens_1 = require("../utils/auth-tokens");
+const active_session_service_1 = require("./active-session.service");
 let JwtAuthGuard = class JwtAuthGuard {
-    constructor() { }
-    canActivate(context) {
+    activeSessions;
+    constructor(activeSessions) {
+        this.activeSessions = activeSessions;
+    }
+    async canActivate(context) {
         const request = context.switchToHttp().getRequest();
-        const authHeader = String(request.headers.authorization || "");
-        if (!authHeader.startsWith("Bearer ")) {
+        const session = await this.activeSessions.resolve(request);
+        if (!session) {
             throw new common_1.UnauthorizedException({ error: "Access token required" });
         }
-        const token = authHeader.slice(7).trim();
-        const decoded = (0, auth_tokens_1.verifyToken)(token);
-        if (!decoded) {
-            throw new common_1.UnauthorizedException({ error: "Invalid or expired token" });
-        }
-        request.user = decoded;
+        request.user = session.claims;
         return true;
     }
 };
 exports.JwtAuthGuard = JwtAuthGuard;
 exports.JwtAuthGuard = JwtAuthGuard = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [])
+    __metadata("design:paramtypes", [active_session_service_1.ActiveSessionService])
 ], JwtAuthGuard);

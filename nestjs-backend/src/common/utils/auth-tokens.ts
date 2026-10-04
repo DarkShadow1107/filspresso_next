@@ -125,6 +125,16 @@ export function buildSessionExpiryDate() {
 	return expiresAt;
 }
 
+/**
+ * Session tokens are persisted as SHA-256 digests rather than the raw JWT, so a
+ * database disclosure cannot be replayed as a live credential. The digest is a
+ * fixed 64 hex characters, which also keeps the column width bounded now that
+ * EdDSA tokens exceed VARCHAR(255).
+ */
+export function hashSessionToken(token: string): string {
+	return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+
 type JwtUserLike = {
 	id: number | string;
 	email?: string | null;
@@ -152,11 +162,130 @@ function isJwtClaims(value: unknown): value is JwtClaims {
 	return Boolean(value && typeof value === "object" && "id" in value);
 }
 
+// ------------------------------------------------------------------
+// Ed25519 (EdDSA) support
+//
+// `jsonwebtoken@9` does not implement EdDSA: its SUPPORTED_ALGS list omits
+// it, so sign() throws `"algorithm" must be a valid string enum value`
+// before any key material is touched. Ed25519 is a first-class primitive in
+// Node's crypto module, so the JWS envelope is assembled here instead of
+// adding a dependency to a security-critical path.
+// ------------------------------------------------------------------
+
+const EDDSA_ALG = "EdDSA";
+const EDDSA_JWT_TYP = "JWT";
+
+function encodeJwtSegment(value: unknown): string {
+	const json = typeof value === "string" ? value : JSON.stringify(value);
+	return Buffer.from(json, "utf8").toString("base64url");
+}
+
+function decodeJwtSegment(segment: string): unknown {
+	return JSON.parse(Buffer.from(segment, "base64url").toString("utf8"));
+}
+
+function createEd25519PrivateKey(): crypto.KeyObject {
+	return crypto.createPrivateKey(normalizePem(JWT_SIGNING_PRIVATE_KEY));
+}
+
+function createEd25519PublicKey(publicKeyPem: string): crypto.KeyObject {
+	return crypto.createPublicKey(normalizePem(publicKeyPem));
+}
+
+function signEd25519Jwt(payload: object, expiresIn: string | number, nowSeconds: number): string {
+	const header = { alg: EDDSA_ALG, typ: EDDSA_JWT_TYP, kid: JWT_SIGNING_KEY_ID };
+	const claims = {
+		...payload,
+		iat: nowSeconds,
+		exp: nowSeconds + parseTtlToSeconds(expiresIn),
+		iss: JWT_ISSUER,
+		aud: JWT_AUDIENCE,
+	};
+
+	const signingInput = `${encodeJwtSegment(header)}.${encodeJwtSegment(claims)}`;
+	// Ed25519 requires a null digest; any other algorithm is rejected by Node.
+	const signature = crypto.sign(null, Buffer.from(signingInput, "utf8"), createEd25519PrivateKey());
+
+	return `${signingInput}.${signature.toString("base64url")}`;
+}
+
+function verifyEd25519Jwt(token: string, nowSeconds: number): JwtClaims | null {
+	const parts = String(token || "").split(".");
+	if (parts.length !== 3) return null;
+
+	const [encodedHeader, encodedPayload, encodedSignature] = parts;
+	if (!encodedHeader || !encodedPayload || !encodedSignature) return null;
+
+	let header: { alg?: string; kid?: string };
+	try {
+		header = decodeJwtSegment(encodedHeader) as { alg?: string; kid?: string };
+	} catch {
+		return null;
+	}
+
+	// Never dispatch on an untrusted `alg`: a token that claims HS256 must not
+	// be verified with the shared secret, and `none` must never be honoured.
+	if (!header || header.alg !== EDDSA_ALG) return null;
+
+	const kid = String(header.kid || "").trim();
+	const verificationKey = kid
+		? JWT_EDDSA_PUBLIC_KEYS.get(kid)
+		: JWT_EDDSA_PUBLIC_KEYS.size === 1
+			? Array.from(JWT_EDDSA_PUBLIC_KEYS.values())[0]
+			: "";
+	if (!verificationKey) return null;
+
+	try {
+		const signature = Buffer.from(encodedSignature, "base64url");
+		if (signature.length !== 64) return null;
+
+		const valid = crypto.verify(
+			null,
+			Buffer.from(`${encodedHeader}.${encodedPayload}`, "utf8"),
+			createEd25519PublicKey(verificationKey),
+			signature,
+		);
+		if (!valid) return null;
+	} catch {
+		return null;
+	}
+
+	let claims: JwtClaims;
+	try {
+		claims = decodeJwtSegment(encodedPayload) as JwtClaims;
+	} catch {
+		return null;
+	}
+	if (!claims || typeof claims !== "object" || !isJwtClaims(claims)) return null;
+
+	const expiresAt = Number(claims.exp);
+	if (Number.isFinite(expiresAt) && expiresAt <= nowSeconds) return null;
+
+	const notBefore = Number(claims.nbf);
+	if (Number.isFinite(notBefore) && notBefore > nowSeconds) return null;
+
+	if (claims.iss !== JWT_ISSUER) return null;
+
+	const audience = claims.aud;
+	const audienceMatches = Array.isArray(audience) ? audience.includes(JWT_AUDIENCE) : audience === JWT_AUDIENCE;
+	if (!audienceMatches) return null;
+
+	return claims;
+}
+
+function currentEpochSeconds(): number {
+	return Math.floor(Date.now() / 1000);
+}
+
 export function generateToken(user: JwtUserLike, options: JwtIssueOptions = {}) {
 	const payload = {
 		id: user.id,
 		email: user.email,
 		username: user.username,
+		// Both Ed25519 and HMAC are deterministic, so two tokens minted for the
+		// same account within the same second would be byte-identical. A random
+		// `jti` keeps every issued token unique and gives us a replay handle.
+		jti: crypto.randomBytes(16).toString("hex"),
 	};
 
 	const expiresIn = options.expiresIn || JWT_EXPIRES_IN;
@@ -168,16 +297,7 @@ export function generateToken(user: JwtUserLike, options: JwtIssueOptions = {}) 
 			keyId: JWT_SIGNING_KEY_ID,
 		});
 
-		return signJwt(payload, normalizePem(JWT_SIGNING_PRIVATE_KEY), {
-			algorithm: "EdDSA",
-			expiresIn,
-			issuer: JWT_ISSUER,
-			audience: JWT_AUDIENCE,
-			header: {
-				typ: "JWT",
-				kid: JWT_SIGNING_KEY_ID,
-			},
-		});
+		return signEd25519Jwt(payload, expiresIn, currentEpochSeconds());
 	}
 
 	assertKeyUsage({
@@ -200,24 +320,8 @@ export function verifyToken(token: string): JwtClaims | null {
 		const decoded = jwt.decode(token, { complete: true }) as { header?: { alg?: string; kid?: string } } | null;
 		const algorithm = String(decoded?.header?.alg || "HS256").trim();
 
-		if (algorithm === "EdDSA") {
-			const kid = String(decoded?.header?.kid || "").trim();
-			const verificationKey = kid
-				? JWT_EDDSA_PUBLIC_KEYS.get(kid)
-				: JWT_EDDSA_PUBLIC_KEYS.size === 1
-					? Array.from(JWT_EDDSA_PUBLIC_KEYS.values())[0]
-					: "";
-
-			if (!verificationKey) {
-				return null;
-			}
-
-			const verified = verifyJwt(token, verificationKey, {
-				algorithms: ["EdDSA"],
-				issuer: JWT_ISSUER,
-				audience: JWT_AUDIENCE,
-			});
-			return isJwtClaims(verified) ? verified : null;
+		if (algorithm === EDDSA_ALG) {
+			return verifyEd25519Jwt(token, currentEpochSeconds());
 		}
 
 		if (algorithm !== "HS256") {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-const PY_HOST = process.env.PYTHON_AI_HOST || "http://localhost:5000";
+import { resolveAiHost } from "@/lib/server/aiHost";
+
 const MOLECULE_PROXY_TIMEOUT_MS = Math.max(3_000, Number.parseInt(process.env.MOLECULE_API_TIMEOUT_MS || "15000", 10) || 15_000);
 
 type RouteContext = {
@@ -12,6 +13,13 @@ async function forwardMoleculeRequest(request: Request, context: RouteContext, m
 	if (!Array.isArray(path) || path.length === 0) {
 		return NextResponse.json({ error: "Molecule route not found" }, { status: 404 });
 	}
+
+	// Must go through resolveAiHost(): PYTHON_AI_HOST is the compose-internal
+	// http://ai:5000 (see .env), which does not resolve when the Next server runs
+	// on the host during development. Reading the env var directly made every
+	// molecule search/render return 502 MOLECULE_API_UNAVAILABLE there, while the
+	// gateway itself answered 200.
+	const PY_HOST = await resolveAiHost();
 
 	const upstreamUrl = new URL(`${PY_HOST}/api/molecule/${path.join("/")}`);
 	const incomingUrl = new URL(request.url);

@@ -1074,6 +1074,44 @@ body.recommender-open {
 .smarter-ai-badge[data-status="offline"] .badge-status {
 	color: #f87171;
 }
+
+/* Per-model pre-warm state, shown next to the AI availability badge while the
+   Kafelot popup is open. */
+.kafelot-prewarm-badge {
+	padding: 4px 9px;
+}
+.kafelot-prewarm-badge[data-status="warming"] {
+	border-color: rgba(246, 190, 92, 0.5);
+	background: rgba(58, 45, 20, 0.6);
+	box-shadow:
+		inset 0 0 0 1px rgba(246, 190, 92, 0.22),
+		0 12px 24px rgba(0, 0, 0, 0.35);
+}
+.kafelot-prewarm-badge[data-status="warming"] .badge-status {
+	color: #f6be5c;
+}
+.kafelot-prewarm-badge[data-status="warming"] .badge-status::before {
+	animation: kafelot-prewarm-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes kafelot-prewarm-pulse {
+	0%,
+	100% {
+		opacity: 0.35;
+		transform: scale(0.8);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1.15);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.kafelot-prewarm-badge[data-status="warming"] .badge-status::before {
+		animation: none;
+		opacity: 0.9;
+	}
+}
 .recommender-body {
 	padding: 16px;
 	overflow-y: auto;
@@ -1628,7 +1666,7 @@ body.recommender-open {
 	font-weight: 700;
 }
 
-.chat-model-used.model-qwen {
+.chat-model-used.model-lfm {
 	color: rgba(223, 244, 255, 0.95);
 	border-color: rgba(129, 199, 255, 0.35);
 	background: rgba(76, 161, 255, 0.12);
@@ -2209,7 +2247,7 @@ body.recommender-open {
 	background: rgba(255, 194, 108, 0.12);
 }
 
-.model-access-chip.qwen {
+.model-access-chip.lfm {
 	color: #d7ebff;
 	border-color: rgba(137, 196, 255, 0.45);
 	background: rgba(89, 163, 255, 0.16);
@@ -3665,7 +3703,7 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 	background: linear-gradient(90deg, #4caf50, #8bc34a);
 }
 
-.usage-fill.qwen {
+.usage-fill.lfm {
 	background: linear-gradient(90deg, #f59e0b, #fbbf24);
 }
 
@@ -4175,4 +4213,543 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 	.category-subtitle {
 		font-size: 1.2rem;
 	}
+}
+
+
+/* ---------------------------------------------------------------------------
+   Model Playground (/playground)
+
+   Deliberately reuses the Kafelot window palette (near-black surfaces, warm
+   apricot text) rather than the sentinel playground's indigo theme.
+   --------------------------------------------------------------------------- */
+
+.playground-page {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	width: 100%;
+	max-width: 980px;
+	margin: 0 auto;
+	padding: 24px 20px 32px;
+	color: rgb(248, 220, 204);
+}
+
+.playground-loading {
+	padding: 48px 0;
+	text-align: center;
+	opacity: 0.75;
+}
+
+.playground-header {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	align-items: flex-start;
+	justify-content: space-between;
+}
+
+.playground-header h1 {
+	margin: 0;
+	font-size: 1.6rem;
+	letter-spacing: 0.01em;
+}
+
+.playground-subtitle {
+	margin: 6px 0 0;
+	font-size: 0.9rem;
+	opacity: 0.72;
+}
+
+.playground-header-actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.playground-ready {
+	font-size: 0.78rem;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	opacity: 0.85;
+}
+.playground-ready[data-status="warming"] {
+	color: #f6be5c;
+}
+.playground-ready[data-status="ready"] {
+	color: #38be94;
+}
+.playground-ready[data-status="unavailable"],
+.playground-ready[data-status="unreachable"] {
+	color: #f87171;
+}
+.playground-ready[data-status="forbidden"] {
+	color: #f87171;
+}
+
+/* Model swap progress. Only one chat model is resident at a time, so changing
+   model always triggers a swap; this shows that determinately rather than with an
+   indefinite spinner. */
+.model-load-bar {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+	margin: 0.5rem 0;
+}
+.model-load-track {
+	height: 4px;
+	width: 100%;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.12);
+	overflow: hidden;
+}
+.model-load-fill {
+	height: 100%;
+	border-radius: 999px;
+	background: linear-gradient(90deg, #f6be5c, #38be94);
+	transition: width 0.9s ease-out;
+}
+.model-load-label {
+	font-size: 0.74rem;
+	opacity: 0.85;
+	display: flex;
+	gap: 0.4rem;
+	align-items: baseline;
+	flex-wrap: wrap;
+}
+.model-load-pct {
+	font-variant-numeric: tabular-nums;
+	opacity: 0.7;
+}
+.model-load-bar.error .model-load-label {
+	color: #ff8f7a;
+}
+.model-load-bar.compact {
+	margin: 0.15rem 0;
+}
+.model-load-bar.compact .model-load-track {
+	height: 3px;
+}
+.model-load-bar.compact .model-load-label {
+	font-size: 0.68rem;
+}
+
+.playground-ghost-button,
+.playground-stop,
+.playground-send {
+	border: 1px solid rgba(248, 220, 204, 0.28);
+	border-radius: 999px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 0.85rem;
+	padding: 8px 16px;
+	cursor: pointer;
+	transition:
+		background 0.15s ease,
+		border-color 0.15s ease;
+}
+.playground-ghost-button:hover:not(:disabled),
+.playground-stop:hover:not(:disabled) {
+	background: rgba(248, 220, 204, 0.1);
+}
+.playground-ghost-button:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.playground-send {
+	background: rgb(248, 220, 204);
+	color: #17110f;
+	border-color: transparent;
+	font-weight: 700;
+}
+.playground-send:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+/* ---- Gate / upgrade ---- */
+
+.playgate-card {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	align-items: flex-start;
+	max-width: 560px;
+	margin: 48px auto;
+	padding: 28px;
+	background: rgba(18, 16, 18, 0.98);
+	border: 1px solid rgba(248, 220, 204, 0.12);
+	border-radius: 14px;
+	box-shadow: 0 30px 60px rgba(0, 0, 0, 0.55);
+}
+.playgate-card h1 {
+	margin: 0;
+	font-size: 1.4rem;
+}
+.playgate-card p {
+	margin: 0;
+	line-height: 1.6;
+	opacity: 0.82;
+}
+.playground-cta {
+	display: inline-block;
+	padding: 10px 20px;
+	border-radius: 999px;
+	background: rgb(248, 220, 204);
+	color: #17110f;
+	font-weight: 700;
+	text-decoration: none;
+}
+.playground-upgrade-error {
+	color: #f87171;
+	font-size: 0.85rem;
+}
+
+/* ---- Controls ---- */
+
+.playground-controls {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 14px;
+	padding: 16px;
+	background: rgba(18, 16, 18, 0.98);
+	border: 1px solid rgba(248, 220, 204, 0.12);
+	border-radius: 12px;
+}
+
+.playground-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 0.8rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	opacity: 0.9;
+}
+.playground-field-wide {
+	grid-column: 1 / -1;
+	text-transform: none;
+	letter-spacing: normal;
+}
+.playground-field em {
+	font-style: normal;
+	font-weight: 700;
+	opacity: 1;
+	color: #f6be5c;
+}
+
+.playground-field select,
+.playground-field textarea {
+	width: 100%;
+	padding: 9px 11px;
+	border-radius: 8px;
+	border: 1px solid rgba(248, 220, 204, 0.2);
+	background: rgba(0, 0, 0, 0.35);
+	color: inherit;
+	font: inherit;
+	font-size: 0.88rem;
+	resize: vertical;
+}
+.playground-field select:focus-visible,
+.playground-field textarea:focus-visible,
+.playground-composer textarea:focus-visible {
+	outline: 2px solid rgba(246, 190, 92, 0.7);
+	outline-offset: 1px;
+}
+.playground-field input[type="range"] {
+	width: 100%;
+	accent-color: #f6be5c;
+}
+
+.playground-toggle {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	font-size: 0.85rem;
+	opacity: 0.9;
+}
+.playground-toggle input {
+	accent-color: #f6be5c;
+	width: 16px;
+	height: 16px;
+}
+
+/* ---- Transcript ---- */
+
+.playground-transcript {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	min-height: 340px;
+	max-height: 58vh;
+	overflow-y: auto;
+	padding: 18px;
+	background: rgba(10, 9, 10, 0.9);
+	border: 1px solid rgba(248, 220, 204, 0.12);
+	border-radius: 12px;
+}
+
+.playground-empty {
+	margin: auto;
+	opacity: 0.6;
+	text-align: center;
+}
+
+.playground-bubble {
+	max-width: 86%;
+	padding: 11px 14px;
+	border-radius: 12px;
+	background: rgba(248, 220, 204, 0.08);
+	border: 1px solid rgba(248, 220, 204, 0.12);
+}
+.playground-bubble-user {
+	align-self: flex-end;
+	background: rgba(248, 220, 204, 0.16);
+}
+.playground-bubble header {
+	margin-bottom: 6px;
+	font-size: 0.7rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.07em;
+	opacity: 0.6;
+}
+.playground-bubble pre {
+	margin: 0;
+	font: inherit;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	line-height: 1.55;
+}
+.playground-bubble pre:empty {
+	min-height: 1.2em;
+}
+
+.playground-caret {
+	display: inline-block;
+	width: 7px;
+	height: 1.05em;
+	margin-left: 2px;
+	vertical-align: text-bottom;
+	background: currentColor;
+	animation: playground-caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes playground-caret-blink {
+	to {
+		visibility: hidden;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.playground-caret {
+		animation: none;
+	}
+}
+
+/* ---- Composer ---- */
+
+.playground-composer {
+	display: flex;
+	gap: 10px;
+	align-items: flex-end;
+	padding: 12px;
+	background: rgba(18, 16, 18, 0.98);
+	border: 1px solid rgba(248, 220, 204, 0.12);
+	border-radius: 12px;
+}
+.playground-composer textarea {
+	flex: 1;
+	padding: 10px 12px;
+	border-radius: 8px;
+	border: 1px solid rgba(248, 220, 204, 0.2);
+	background: rgba(0, 0, 0, 0.35);
+	color: inherit;
+	font: inherit;
+	resize: vertical;
+}
+
+.playground-footer {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	justify-content: center;
+	font-size: 0.76rem;
+	opacity: 0.55;
+}
+
+@media (max-width: 640px) {
+	.playground-bubble {
+		max-width: 100%;
+	}
+	.playground-page {
+		padding: 16px 12px 24px;
+	}
+}
+
+/* Model lineup panel. Sits under the Playground on both the locked gate and the
+   console, and reuses the same near-black/apricot palette as the rest of the
+   page. `data-included` drives the locked/unlocked treatment so there is only one
+   source of truth for "can this plan run it". */
+.pgm-lineup {
+	padding: 16px;
+	border: 1px solid rgba(250, 204, 144, 0.14);
+	border-radius: 14px;
+	background: rgba(18, 12, 10, 0.55);
+}
+
+.pgm-lineup-title {
+	margin: 0 0 10px;
+	font-size: 0.95rem;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.pgm-lineup-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pgm-lineup-row {
+	display: grid;
+	grid-template-columns: 22px 1fr auto;
+	gap: 10px;
+	align-items: center;
+	padding: 8px 6px;
+	border-radius: 9px;
+}
+
+.pgm-lineup-row[data-included="false"] {
+	opacity: 0.5;
+}
+
+.pgm-lineup-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.pgm-lineup-main {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.pgm-lineup-name {
+	font-size: 0.86rem;
+	font-weight: 600;
+}
+
+.pgm-lineup-desc {
+	font-size: 0.74rem;
+	line-height: 1.35;
+	opacity: 0.62;
+}
+
+.pgm-lineup-meta {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	white-space: nowrap;
+}
+
+.pgm-lineup-modality {
+	padding: 2px 7px;
+	font-size: 0.66rem;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	border: 1px solid rgba(250, 204, 144, 0.2);
+	border-radius: 999px;
+	opacity: 0.7;
+}
+
+.pgm-lineup-state {
+	display: inline-flex;
+	gap: 4px;
+	align-items: center;
+	font-size: 0.74rem;
+	font-weight: 600;
+}
+
+.pgm-lineup-state-in {
+	color: rgb(250, 204, 144);
+}
+
+.pgm-lineup-state-out {
+	opacity: 0.75;
+}
+
+.pgm-lineup-foot {
+	margin: 12px 0 0;
+	font-size: 0.74rem;
+	line-height: 1.45;
+	opacity: 0.55;
+}
+
+@media (max-width: 640px) {
+	.pgm-lineup-row {
+		grid-template-columns: 22px 1fr;
+	}
+
+	.pgm-lineup-meta {
+		grid-column: 2;
+		margin-top: 4px;
+	}
+}
+/* The Playground entry is an <a> rather than a <button> (it navigates), so it
+   mirrors .recommender-tabs button instead of inheriting button defaults. */
+.recommender-tabs .recommender-tab-link {
+	display: flex;
+	gap: 10px;
+	justify-content: flex-start;
+	text-align: left;
+	text-decoration: none;
+	color: inherit;
+	padding: 13px 14px;
+	border: 1px solid rgba(255, 219, 168, 0.28);
+	background:
+		radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.35), transparent 45%),
+		linear-gradient(135deg, #ffdba8, #f2a67b 60%, #e59168);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+	border-radius: 12px;
+	align-items: flex-start;
+}
+.recommender-tabs .recommender-tab-link svg {
+	opacity: 0.9;
+	margin-top: 1px;
+}
+.recommender-tabs .recommender-tab-link:hover {
+	box-shadow:
+		0 10px 20px rgba(242, 166, 123, 0.28),
+		inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+/* Thinking trace from LFM 2.5's reasoning_content channel. */
+.playground-reasoning {
+	margin-bottom: 8px;
+	font-size: 0.82rem;
+	opacity: 0.78;
+}
+.playground-reasoning summary {
+	cursor: pointer;
+	font-size: 0.7rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.07em;
+	opacity: 0.7;
+}
+.playground-reasoning pre {
+	margin: 6px 0 0;
+	padding-left: 9px;
+	border-left: 2px solid rgba(246, 190, 92, 0.45);
+	font-style: italic;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }

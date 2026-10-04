@@ -204,6 +204,7 @@ import BrandCursorIcon from "./brand-cursor-icon";
 import BrandNotionIcon from "./brand-notion-icon";
 import BrandGeminiIcon from "./brand-gemini-icon";
 import BrandQwenIcon from "./brand-qwen-icon";
+import BrandLiquidIcon from "./brand-liquid-icon";
 import BrandGrokIcon from "./brand-grok-icon";
 import BrandOllamaIcon from "./brand-ollama-icon";
 import BrandAnthropicIcon from "./brand-anthropic-icon";
@@ -1265,6 +1266,11 @@ const ICON_LIST: IconType[] = [
 		keywords: ["qwen", "qwen-icon", "ai", "chatbot", "conversation"],
 	},
 	{
+		name: "brand-liquid-icon",
+		icon: BrandLiquidIcon,
+		keywords: ["liquid", "liquid-ai", "liquid-icon", "lfm", "lfm2", "ai", "on-device"],
+	},
+	{
 		name: "brand-grok-icon",
 		icon: BrandGrokIcon,
 		keywords: ["grok", "grok-icon", "ai", "chatbot", "conversation"],
@@ -1552,6 +1558,7 @@ export {
 	BrandNotionIcon,
 	BrandGeminiIcon,
 	BrandQwenIcon,
+	BrandLiquidIcon,
 	BrandGrokIcon,
 	BrandOllamaIcon,
 	BrandAnthropicIcon,

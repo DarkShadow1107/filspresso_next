@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import Image from "next/image";
-import { UserMachine, SavedCard, RepairType, REPAIR_COSTS, getCardTypeImage, calculateRepairCost } from "./types";
+import { UserMachine, SavedCard, RepairType, getCardTypeImage, calculateRepairCost } from "./types";
 import {
 	ShieldCheck as ShieldCheckIcon,
 	CreditCard as CreditCardIcon,

@@ -10,7 +10,7 @@ const sections = [
 			<>
 				<p>
 					Kafelot is an AI-powered coffee assistant built into the Filspresso platform. It uses a lightweight language
-					model stack (MiniLM, Qwen, Gemma, and eligible vision GGUF models) to answer questions about coffee, suggest
+					model stack (MiniLM, LFM, Gemma, and eligible vision GGUF models) to answer questions about coffee, suggest
 					Nespresso capsules based on your taste preferences, and, for Ultimate subscribers, explore molecular
 					structures of coffee-related compounds.
 				</p>

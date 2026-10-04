@@ -1,0 +1,197 @@
+{
+  "base_url": "http://127.0.0.1:5000",
+  "probes": {
+    "cancel": {
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/cancel/golden-probe",
+      "shape": {
+        "request_id": "str",
+        "status": "str"
+      },
+      "status": 200
+    },
+    "chat_chemistry": {
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/chat",
+      "shape": {
+        "assistant_response": "str",
+        "mode": "str",
+        "model": "str",
+        "model_used": "str",
+        "products": [],
+        "request_id": "str",
+        "status": "str",
+        "text_model": "str",
+        "thinking_mode": "str"
+      },
+      "status": 200
+    },
+    "chat_invalid_mode": {
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/chat",
+      "shape": {
+        "error": "str"
+      },
+      "status": 400
+    },
+    "chat_missing_message": {
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/chat",
+      "shape": {
+        "error": "str"
+      },
+      "status": 400
+    },
+    "chat_ok": {
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/chat",
+      "shape": {
+        "assistant_response": "str",
+        "mode": "str",
+        "model": "str",
+        "model_used": "str",
+        "products": [],
+        "request_id": "str",
+        "status": "str",
+        "text_model": "str",
+        "thinking_mode": "str"
+      },
+      "status": 200
+    },
+    "health": {
+      "kind": "json",
+      "method": "GET",
+      "path": "/api/health",
+      "shape": {
+        "chemistry_text_model": {
+          "backend": "str",
+          "error": "str:empty",
+          "loaded": "bool",
+          "runtime_note": "str",
+          "status": "str"
+        },
+        "coffee_text_model": {
+          "backend": "str",
+          "base_url": "str",
+          "default_text_model": "str",
+          "default_vision_model": "str",
+          "error": "str:empty",
+          "last_mode": "str",
+          "last_vision_model": "str:empty",
+          "loaded": "bool",
+          "soft_switch_tokens": [
+            "str"
+          ],
+          "status": "str",
+          "text_model_endpoints": {
+            "Gemma3-1B-it-Q4_0.gguf": "str",
+            "LFM2.5-2.6B-Q4_0.gguf": "str",
+            "MiniLM-L6-v2.gguf": "str"
+          },
+          "thinking_default": "bool",
+          "vision_model_endpoints": {
+            "LFM2-VL-450M-Q4_0.gguf": "str"
+          }
+        },
+        "database": "str",
+        "image_model": {
+          "backend": "str",
+          "default_model": "str",
+          "loaded": "bool"
+        },
+        "model": "str",
+        "modes": {
+          "chemistry": {
+            "backend": "str",
+            "display": "str",
+            "loaded": "bool"
+          },
+          "natural_language": {
+            "backend": "str",
+            "display": "str",
+            "loaded": "bool"
+          }
+        },
+        "semantic_retrieval_model": {
+          "backend": "str",
+          "error": "str",
+          "loaded": "bool",
+          "status": "str"
+        },
+        "status": "str"
+      },
+      "status": 200
+    },
+    "icons_save_missing_fields": {
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/icons/save",
+      "shape": {
+        "error": "str"
+      },
+      "status": 400
+    },
+    "molecule_search_missing_q": {
+      "kind": "json",
+      "method": "GET",
+      "path": "/api/molecule/search",
+      "shape": {
+        "error": "str"
+      },
+      "status": 400
+    },
+    "stream_missing_message": {
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/chat/stream",
+      "shape": {
+        "error": "str"
+      },
+      "status": 400
+    },
+    "stream_ok": {
+      "kind": "sse",
+      "method": "POST",
+      "path": "/api/chat/stream",
+      "sse": {
+        "event_count": 11,
+        "event_keys": [
+          "delta",
+          "done",
+          "model"
+        ],
+        "separator": "\\n\\n"
+      },
+      "status": 200
+    },
+    "warmup_get": {
+      "kind": "json",
+      "method": "GET",
+      "path": "/api/warmup",
+      "shape": {
+        "models": {}
+      },
+      "status": 200
+    },
+    "warmup_post_unknown": {
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/warmup",
+      "shape": {
+        "allowed": [
+          "str"
+        ],
+        "error": "str",
+        "model": "str",
+        "status": "str",
+        "vision": "bool"
+      },
+      "status": 400
+    }
+  }
+}

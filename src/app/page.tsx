@@ -24,6 +24,7 @@ const pageTitles: Record<PageSlug, string> = {
 	account: "Filspresso - Account",
 	payment: "Filspresso - Card Payment",
 	"coffee-machine-animation": "Filspresso - Coffee Machine Animation",
+	playground: "Filspresso - Playground",
 };
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
@@ -54,6 +55,7 @@ const pageLoaders: Record<PageSlug, () => Promise<{ default: ComponentType }>> =
 	"shopping-bag": () => import("@/app/api/pages/shopping-bag/page"),
 	subscription: () => import("@/app/api/pages/subscription/page"),
 	favorites: () => import("@/app/api/pages/favorites/page"),
+	playground: () => import("@/app/api/pages/playground/page"),
 };
 
 export default async function Page({ searchParams }: PageProps) {

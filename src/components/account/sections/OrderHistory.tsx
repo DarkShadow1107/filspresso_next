@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { API_BASE, Order, formatDate, getAuthToken, gradientTextStyle, getCardTypeImage } from "./types";
+import { API_BASE, Order, formatDate, gradientTextStyle, getCardTypeImage } from "./types";
 import { useNotifications } from "@/components/NotificationsProvider";
+import { isSignedIn } from "@/lib/authState";
 import {
 	ArrowNarrowLeftIcon,
 	ArrowNarrowRightIcon,
@@ -157,8 +158,8 @@ export function OrderHistory({
 	};
 
 	const handleInvoiceDownload = async (orderId: number, orderNumber: string) => {
-		const token = getAuthToken();
-		if (!token) {
+		const signedIn = isSignedIn();
+		if (!signedIn) {
 			notify("Please sign in to download your invoice.", 5000, "error", "account");
 			return;
 		}
@@ -168,7 +169,6 @@ export function OrderHistory({
 			const response = await fetch(`${API_BASE}/api/orders/${orderId}/invoice`, {
 				method: "GET",
 				headers: {
-					Authorization: `Bearer ${token}`,
 				},
 			});
 
@@ -317,12 +317,11 @@ export function OrderHistory({
 				>
 					{orders.map((order) => {
 						// Ensure numeric values
-						const total = Number(order.total) || 0;
-						const currencyCode = String(order.currency_code || "RON").toUpperCase();
+												const currencyCode = String(order.currency_code || "RON").toUpperCase();
 						const exchangeRate = Number(order.exchange_rate) > 0 ? Number(order.exchange_rate) : 1;
 						// Get shipping from database
-						const shippingCost = Number(order.shipping_cost) || 0;
-						const tax = Number(order.tax) || 0;
+						
+						
 						const discountAmount = Number(order.discount_amount) || 0;
 						const rawSubtotal = Number(order.subtotal) || 0;
 						const subtotalA = roundAmount(rawSubtotal);

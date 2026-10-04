@@ -46,11 +46,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthComplexService = void 0;
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
+const session_store_service_1 = require("../common/guards/session-store.service");
 const crypto = __importStar(require("crypto"));
 const passwords = __importStar(require("../common/utils/passwords"));
 const encryption = __importStar(require("../common/utils/encryption"));
 const mailer = __importStar(require("../common/utils/resendMailer"));
 const authTokens = __importStar(require("../common/utils/auth-tokens"));
+const session_cookie_1 = require("../common/utils/session-cookie");
 const QRCode = require("qrcode");
 const IS_NON_PROD = process.env.NODE_ENV !== "production";
 const RELAX_AUTH_LIMITS_IN_DEV = IS_NON_PROD && process.env.ENABLE_STRICT_AUTH_LIMITS !== "true" && process.env.DISABLE_RATE_LIMIT !== "false";
@@ -72,9 +74,11 @@ const USER_MFA_VERIFY_TTL_SECONDS = Math.max(60, Number.parseInt(process.env.USE
 const USER_MFA_SETUP_TTL_SECONDS = Math.max(60, Number.parseInt(process.env.USER_MFA_SETUP_TTL_SECONDS || "600", 10));
 let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
     db;
+    sessions;
     logger = new common_1.Logger(AuthComplexService_1.name);
-    constructor(db) {
+    constructor(db, sessions) {
         this.db = db;
+        this.sessions = sessions;
     }
     normalizeCredentialField(value, maxLength) {
         if (typeof value !== "string")
@@ -338,10 +342,9 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
         }
         return `user_${crypto.randomBytes(5).toString("hex")}`;
     }
-    buildOAuthSuccessRedirect(returnTo, account, token) {
+    buildOAuthSuccessRedirect(returnTo, account) {
         const url = new URL(returnTo, FRONTEND_ORIGIN);
-        const payload = Buffer.from(JSON.stringify({ account: this.buildAuthAccountPayload(account), token }), "utf8").toString("base64url");
-        url.searchParams.set("oauth", payload);
+        url.searchParams.set("oauth", "ok");
         return url.toString();
     }
     buildOAuthFailureRedirect(returnTo, errorCode) {
@@ -399,7 +402,13 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
             const user = userRes.rows[0];
             const token = authTokens.generateToken(user);
             const expiresAt = authTokens.buildSessionExpiryDate();
-            await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)", [user.id, token, expiresAt, req.ip, req.get("user-agent")]);
+            await this.sessions.createAndCache(client, {
+                token,
+                accountId: user.id,
+                expiresAt,
+                ipAddress: req.ip ?? null,
+                userAgent: req.get("user-agent") ?? null,
+            });
             let mfaSetup = null;
             if (enable2fa) {
                 const setupSecret = this.generateMfaBase32Secret(32);
@@ -476,7 +485,13 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
             await client.query("UPDATE accounts SET last_login = NOW() WHERE id = $1", [user.id]);
             const token = authTokens.generateToken(user);
             const expiresAt = authTokens.buildSessionExpiryDate();
-            await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)", [user.id, token, expiresAt, req.ip, req.get("user-agent")]);
+            await this.sessions.createAndCache(client, {
+                token,
+                accountId: user.id,
+                expiresAt,
+                ipAddress: req.ip ?? null,
+                userAgent: req.get("user-agent") ?? null,
+            });
             await this.logAuthSecurityEvent(client, "login_success", { loginKey, accountId: user.id, ipAddress, userAgent, details: { mfaUsed: false, includeQrCode } });
             mailer.sendTransactionalEmail({
                 to: user.email, subject: "Filspresso security alert: new login", text: `New login detected.`, html: mailer.buildSecurityLoginHtml({ displayName: user.name || user.username, ipAddress, userAgent, occurredAt: new Date().toISOString() }),
@@ -522,7 +537,13 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
             await client.query("UPDATE accounts SET last_login = NOW() WHERE id = $1", [user.id]);
             const token = authTokens.generateToken(user);
             const expiresAt = authTokens.buildSessionExpiryDate();
-            await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)", [user.id, token, expiresAt, req.ip, req.get("user-agent")]);
+            await this.sessions.createAndCache(client, {
+                token,
+                accountId: user.id,
+                expiresAt,
+                ipAddress: req.ip ?? null,
+                userAgent: req.get("user-agent") ?? null,
+            });
             await this.logAuthSecurityEvent(client, "login_success", { accountId: user.id, ipAddress, userAgent, details: { mfaUsed: true } });
             mailer.sendTransactionalEmail({
                 to: user.email, subject: "Filspresso security alert: new login", text: `New login detected.`, html: mailer.buildSecurityLoginHtml({ displayName: user.name || user.username, ipAddress, userAgent, occurredAt: new Date().toISOString() }),
@@ -541,16 +562,17 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
         const decoded = authTokens.verifyToken(activeToken);
         if (!decoded || !Number.isInteger(decoded.id))
             throw new common_1.UnauthorizedException({ error: "Invalid or expired token" });
+        const activeTokenHash = authTokens.hashSessionToken(activeToken);
         const pool = this.db.getPool();
         const client = await pool.connect();
         try {
-            const sessionRes = await client.query(`SELECT a.id, a.username, a.email, a.name, a.icon, a.subscription, a.role, a.created_at FROM accounts a JOIN user_sessions s ON s.account_id = a.id WHERE s.session_token = $1 AND s.expires_at > NOW() LIMIT 1`, [activeToken]);
+            const sessionRes = await client.query(`SELECT a.id, a.username, a.email, a.name, a.icon, a.subscription, a.role, a.created_at FROM accounts a JOIN user_sessions s ON s.account_id = a.id WHERE s.session_token_hash = $1 AND s.expires_at > NOW() LIMIT 1`, [activeTokenHash]);
             const user = sessionRes.rows[0];
             if (!user)
                 throw new common_1.UnauthorizedException({ error: "Invalid or expired session" });
             const nextToken = authTokens.generateToken(user);
             const nextSessionExpiry = authTokens.buildSessionExpiryDate();
-            const updateSession = await client.query(`UPDATE user_sessions SET session_token = $1, expires_at = $2, ip_address = $3, user_agent = $4 WHERE account_id = $5 AND session_token = $6 AND expires_at > NOW()`, [nextToken, nextSessionExpiry, this.getClientIp(req), String(req.get("user-agent") || "").slice(0, 512), user.id, activeToken]);
+            const updateSession = await client.query(`UPDATE user_sessions SET session_token_hash = $1, expires_at = $2, ip_address = $3, user_agent = $4 WHERE account_id = $5 AND session_token_hash = $6 AND expires_at > NOW()`, [authTokens.hashSessionToken(nextToken), nextSessionExpiry, this.getClientIp(req), String(req.get("user-agent") || "").slice(0, 512), user.id, activeTokenHash]);
             if (!updateSession.rowCount)
                 throw new common_1.ConflictException({ error: "Session refresh conflict; retry login" });
             await this.logAuthSecurityEvent(client, "token_refreshed", { accountId: user.id, ipAddress: this.getClientIp(req), userAgent: String(req.get("user-agent") || "").slice(0, 512) });
@@ -717,7 +739,13 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
             await client.query("UPDATE accounts SET last_login = NOW(), updated_at = NOW() WHERE id = $1", [account.id]);
             const token = authTokens.generateToken(account);
             const expiresAt = authTokens.buildSessionExpiryDate();
-            await client.query("INSERT INTO user_sessions (account_id, session_token, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)", [account.id, token, expiresAt, req.ip, req.get("user-agent")]);
+            await this.sessions.createAndCache(client, {
+                token,
+                accountId: account.id,
+                expiresAt,
+                ipAddress: req.ip ?? null,
+                userAgent: req.get("user-agent") ?? null,
+            });
             await this.logAuthSecurityEvent(client, "oauth_login_success", { accountId: account.id, ipAddress: this.getClientIp(req), userAgent: String(req.get("user-agent") || "").slice(0, 512), details: { provider, mode: verifiedState.mode } });
             mailer.sendTransactionalEmail({
                 to: account.email, subject: "Filspresso security alert: new login", text: `New login detected.`, html: mailer.buildSecurityLoginHtml({ displayName: account.name || account.username, ipAddress: this.getClientIp(req), userAgent: String(req.get("user-agent") || "").slice(0, 512), occurredAt: new Date().toISOString() }),
@@ -727,7 +755,11 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
                     to: account.email, subject: "Welcome to Filspresso", text: `Welcome to Filspresso, ${account.name || "there"}.`, html: mailer.buildWelcomeHtml({ displayName: account.name || account.username, accountUrl: `${FRONTEND_ORIGIN.replace(/\/$/, "")}/?page=account` }),
                 }).catch(e => this.logger.warn(e));
             }
-            return res.redirect(302, this.buildOAuthSuccessRedirect(returnTo, account, token));
+            // The session is handed over as an httpOnly cookie on this same response,
+            // so no credential needs to travel back through the redirect URL (where it
+            // would end up in browser history and access logs).
+            (0, session_cookie_1.setSessionCookie)(res, token, req);
+            return res.redirect(302, this.buildOAuthSuccessRedirect(returnTo, account));
         }
         catch (error) {
             return res.redirect(302, this.buildOAuthFailureRedirect(returnTo, "oauth_login_failed"));
@@ -740,5 +772,6 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
 exports.AuthComplexService = AuthComplexService;
 exports.AuthComplexService = AuthComplexService = AuthComplexService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [database_service_1.DatabaseService])
+    __metadata("design:paramtypes", [database_service_1.DatabaseService,
+        session_store_service_1.SessionStoreService])
 ], AuthComplexService);

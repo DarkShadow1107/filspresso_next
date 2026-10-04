@@ -1,10 +1,8 @@
 # Filspresso workspace Python requirements (local scripts + optional tooling)
 # NOTE: Dockerfile.ai installs requirements.ai.txt for the runtime gateway image.
-
-# Web framework
-Flask==3.1.3
-Flask-CORS==6.0.0
-waitress==3.0.1
+# The gateway is FastAPI/uvicorn/httpx (see requirements.ai.txt); flask,
+# flask-cors, waitress and requests were dropped here once nothing in the
+# workspace imported them any more. CI runs `pip-audit -r requirements.txt`.
 
 # Tanka runtime (llama.cpp gateway + lexical retrieval)
 Pillow>=10.0.0
@@ -17,7 +15,6 @@ SQLAlchemy==2.0.19
 numpy>=1.25,<2.0
 pandas>=2.0.0
 python-dotenv==1.0.0
-requests==2.33.0
 
 # Chemistry data sources
 chembl-webresource-client>=0.10.9

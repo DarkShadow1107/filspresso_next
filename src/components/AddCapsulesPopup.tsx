@@ -3,6 +3,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { XIcon } from "@/icons";
+import { useHydrated } from "@/hooks/useHydrated";
 
 const CAPSULE_OPTIONS = Array.from({ length: 11 }, (_, idx) => idx * 10);
 
@@ -15,25 +16,33 @@ export type AddCapsulesPopupProps = {
 };
 
 export default function AddCapsulesPopup({ open, productName, defaultValue = 10, onClose, onConfirm }: AddCapsulesPopupProps) {
-	const [mounted, setMounted] = React.useState(false);
+	const mounted = useHydrated();
 	const [shouldRender, setShouldRender] = React.useState(open);
 	const [capsules, setCapsules] = React.useState(defaultValue);
 	const [animateOpen, setAnimateOpen] = React.useState(false);
 	const dialogRef = React.useRef<HTMLDivElement | null>(null);
 	const titleId = React.useId();
 
-	React.useEffect(() => {
-		setMounted(true);
-	}, []);
+	// Reset the input when the caller changes the default or reopens the dialog.
+	// Adjusting during render is the supported way to react to a changed input
+	// without a commit-phase setState.
+	const [lastDefault, setLastDefault] = React.useState(defaultValue);
+	const [lastOpen, setLastOpen] = React.useState(open);
+	if (defaultValue !== lastDefault || open !== lastOpen) {
+		setLastDefault(defaultValue);
+		setLastOpen(open);
+		if (open) {
+			setCapsules(defaultValue);
+		}
+	}
 
-	React.useEffect(() => {
-		setCapsules(defaultValue);
-	}, [defaultValue, open]);
-
+	// The open/close transition intentionally schedules state changes from a
+	// frame and a timer so the CSS transition has a start and end state.
 	React.useEffect(() => {
 		let timeout: number | undefined;
 		let frame: number | undefined;
 		if (open) {
+			// eslint-disable-next-line react-hooks/set-state-in-effect
 			setShouldRender(true);
 			frame = window.requestAnimationFrame(() => {
 				setAnimateOpen(true);

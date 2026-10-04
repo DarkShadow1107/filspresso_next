@@ -20,6 +20,9 @@ export type CoffeeProduct = {
 	priceClass?: string;
 	notes?: string[];
 	extraClass?: string[];
+	// Present in the API/database; absent from the generated snapshot, where the
+	// collection grouping is carried by the image path instead.
+	category?: string;
 };
 
 export type CoffeeGroup = {

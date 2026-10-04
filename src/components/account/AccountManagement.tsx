@@ -1,15 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
 import { useNotifications } from "@/components/NotificationsProvider";
-import AccountIconGenerator from "@/components/AccountIconGenerator";
-import { clearAccountSession, createDefaultAvatarDataUrl, readAccountSession, writeAccountSession } from "@/lib/accountSession";
-import Image from "next/image";
+
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
 import type { CoffeeProduct } from "@/data/coffee";
+import { isSignedIn } from "@/lib/authState";
+import { logoutCurrentAccount } from "@/lib/clientAuth";
+import { useHydrated } from "@/hooks/useHydrated";
+import { createDefaultAvatarDataUrl, readAccountSession, writeAccountSession } from "@/lib/accountSession";
 
 // Import section components
 import {
@@ -48,15 +49,14 @@ import {
 	Repair,
 	API_BASE,
 	REPAIR_COSTS,
-	TIER_BENEFITS,
-	TIER_COLORS,
-	TIER_THRESHOLDS,
+	
+	
+	
 	getIconUrl,
-	getAuthToken,
-	getCardTypeImage,
-	calculateRepairCost,
-	gradientTextStyle,
-	formatDate,
+	
+	
+	
+	
 } from "./sections/types";
 
 // Helper function to get product image from data
@@ -81,8 +81,11 @@ function getProductImage(productId: string, coffeeProducts: CoffeeProduct[]): st
 
 export default function AccountManagement() {
 	const { collections } = useCoffeeCollections();
-	const coffeeProducts = collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [];
-	const router = useRouter();
+	const coffeeProducts = useMemo(
+		() => collections?.flatMap((c) => c.groups.flatMap((g) => g.products)) ?? [],
+		[collections],
+	);
+	
 	const { notify } = useNotifications();
 	const [account, setAccount] = useState<AccountData | null>(null);
 	const [accountId, setAccountId] = useState<number | null>(null);
@@ -125,7 +128,7 @@ export default function AccountManagement() {
 	// Member Status State
 	const [capsuleStats, setCapsuleStats] = useState<CapsuleStats | null>(null);
 	const [consumptionHistory, setConsumptionHistory] = useState<ConsumptionHistory | null>(null);
-	const [graphMounted, setGraphMounted] = useState(false);
+
 	const [graphTheme, setGraphTheme] = useState<"classic" | "neon" | "minimal" | "gradient" | "monochrome">("classic");
 	const [invoiceIncludeProductView, setInvoiceIncludeProductView] = useState(true);
 	const [hoveredGraphPoint, setHoveredGraphPoint] = useState<{
@@ -137,10 +140,6 @@ export default function AccountManagement() {
 		color: string;
 	} | null>(null);
 
-	useEffect(() => {
-		const timer = setTimeout(() => setGraphMounted(true), 100);
-		return () => clearTimeout(timer);
-	}, []);
 	const [isLoadingCapsuleStats, setIsLoadingCapsuleStats] = useState(false);
 
 	// Machines State
@@ -159,7 +158,7 @@ export default function AccountManagement() {
 	const [useWarrantyForRepair, setUseWarrantyForRepair] = useState<boolean>(true); // true = use warranty (free), false = pay
 
 	// Portal mount state
-	const [mounted, setMounted] = useState(false);
+	const mounted = useHydrated();
 	const getCoffeeProductImage = useCallback(
 		(productId: string) => getProductImage(productId, coffeeProducts),
 		[coffeeProducts],
@@ -195,29 +194,41 @@ export default function AccountManagement() {
 		currencyUsage: [],
 	});
 
+	// Seed from the cached profile, then let the server response below win.
+	// Done during render so the first paint already shows the account.
+	const [hydratedProfile, setHydratedProfile] = useState(false);
+	if (!hydratedProfile && typeof window !== "undefined") {
+		setHydratedProfile(true);
+		const accountData = readAccountSession() as (AccountData & { token?: string }) | null;
+		if (accountData) {
+			setAccount({
+				full_name: accountData.full_name,
+				username: accountData.username,
+				email: accountData.email,
+				icon: accountData.icon,
+				created_at: accountData.created_at,
+				mfa: accountData.mfa,
+			});
+			setEditFullName(accountData.full_name || "");
+			setEditEmail(accountData.email);
+		}
+	}
+
 	// Load account from sessionStorage on mount
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 		try {
 			const accountData = readAccountSession() as (AccountData & { token?: string }) | null;
+			void accountData;
 			if (accountData) {
-				setAccount({
-					full_name: accountData.full_name,
-					username: accountData.username,
-					email: accountData.email,
-					icon: accountData.icon,
-					created_at: accountData.created_at,
-					mfa: accountData.mfa,
-				});
-				setEditFullName(accountData.full_name || "");
-				setEditEmail(accountData.email);
+				// already seeded during render
 			}
 
 			// Fetch subscription from API
-			const token = getAuthToken();
-			if (token) {
+			const signedIn = isSignedIn();
+			if (signedIn) {
 				fetch(`${API_BASE}/api/auth/me`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				})
 					.then((res) => res.json())
 					.then((data) => {
@@ -239,7 +250,7 @@ export default function AccountManagement() {
 							setAccountId(data.user.id);
 							// Fetch graph theme preference
 							fetch(`${API_BASE}/api/accounts/preferences/${data.user.id}`, {
-								headers: { Authorization: `Bearer ${token}` },
+								credentials: "same-origin" as const,
 							})
 								.then((res) => res.json())
 								.then((prefData) => {
@@ -262,10 +273,12 @@ export default function AccountManagement() {
 
 	// Load data when tab changes
 	useEffect(() => {
-		const token = getAuthToken();
-		if (!token) return;
+		const signedIn = isSignedIn();
+		if (!signedIn) return;
 
 		if (activeTab === "history") {
+			// Spinner for the in-flight history read, not a props-derived adjustment.
+			// eslint-disable-next-line react-hooks/set-state-in-effect
 			setIsLoadingHistory(true);
 			// Load from server API (same as CoffeeRecommender)
 			fetch("/api/chat/save")
@@ -286,7 +299,7 @@ export default function AccountManagement() {
 		if (activeTab === "payments") {
 			// Load saved cards from Express API
 			fetch(`${API_BASE}/api/cards`, {
-				headers: { Authorization: `Bearer ${token}` },
+				credentials: "same-origin" as const,
 			})
 				.then((res) => res.json())
 				.then((data) => {
@@ -299,7 +312,7 @@ export default function AccountManagement() {
 
 			// Load orders from Express API (fetch all with high limit)
 			fetch(`${API_BASE}/api/orders?limit=1000`, {
-				headers: { Authorization: `Bearer ${token}` },
+				credentials: "same-origin" as const,
 			})
 				.then((res) => res.json())
 				.then((data) => {
@@ -312,7 +325,7 @@ export default function AccountManagement() {
 
 			// Load repairs history from Express API
 			fetch(`${API_BASE}/api/repairs`, {
-				headers: { Authorization: `Bearer ${token}` },
+				credentials: "same-origin" as const,
 			})
 				.then((res) => res.json())
 				.then((data) => {
@@ -327,7 +340,7 @@ export default function AccountManagement() {
 		if (activeTab === "subscriptions") {
 			// Load subscription details from API
 			fetch(`${API_BASE}/api/subscriptions`, {
-				headers: { Authorization: `Bearer ${token}` },
+				credentials: "same-origin" as const,
 			})
 				.then((res) => res.json())
 				.then((data) => {
@@ -343,7 +356,7 @@ export default function AccountManagement() {
 			setIsLoadingMachines(true);
 			// Load machines from orders (filter by product_type = 'machine')
 			fetch(`${API_BASE}/api/orders/machines`, {
-				headers: { Authorization: `Bearer ${token}` },
+				credentials: "same-origin" as const,
 			})
 				.then((res) => res.json())
 				.then((data) => {
@@ -355,7 +368,7 @@ export default function AccountManagement() {
 					console.error("Failed to load machines", err);
 					// Fallback: extract machines from orders
 					fetch(`${API_BASE}/api/orders`, {
-						headers: { Authorization: `Bearer ${token}` },
+						credentials: "same-origin" as const,
 					})
 						.then((res) => res.json())
 						.then((ordersData) => {
@@ -424,7 +437,7 @@ export default function AccountManagement() {
 		if (activeTab === "profile") {
 			// Load total spending from orders API
 			fetch(`${API_BASE}/api/orders/spending`, {
-				headers: { Authorization: `Bearer ${token}` },
+				credentials: "same-origin" as const,
 			})
 				.then((res) => res.json())
 				.then((data) => {
@@ -446,7 +459,7 @@ export default function AccountManagement() {
 					console.error("Failed to load spending", err);
 					// Fallback: calculate from orders
 					fetch(`${API_BASE}/api/orders`, {
-						headers: { Authorization: `Bearer ${token}` },
+						credentials: "same-origin" as const,
 					})
 						.then((res) => res.json())
 						.then((ordersData) => {
@@ -477,10 +490,10 @@ export default function AccountManagement() {
 			setIsLoadingCapsuleStats(true);
 			Promise.all([
 				fetch(`${API_BASE}/api/orders/capsule-stats`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				}).then((res) => res.json()),
 				fetch(`${API_BASE}/api/orders/consumption-history`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				}).then((res) => res.json()),
 			])
 				.then(([statsData, historyData]) => {
@@ -501,11 +514,6 @@ export default function AccountManagement() {
 	}, [activeTab]);
 
 	// Set mounted state for portal rendering
-	useEffect(() => {
-		setMounted(true);
-		return () => setMounted(false);
-	}, []);
-
 	// Lock body scroll when modals are open
 	useEffect(() => {
 		const hasModalOpen = repairPopup.open || maintenancePopup.open;
@@ -533,12 +541,12 @@ export default function AccountManagement() {
 			} else {
 				const order = orders.find((o) => o.id === orderId);
 				if (order && !order.items) {
-					const token = getAuthToken();
-					if (token) {
+					const signedIn = isSignedIn();
+					if (signedIn) {
 						setLoadingOrderItems((prev) => new Set(prev).add(orderId));
 						try {
 							const res = await fetch(`${API_BASE}/api/orders/${orderId}`, {
-								headers: { Authorization: `Bearer ${token}` },
+								credentials: "same-origin" as const,
 							});
 							const data = await res.json();
 							if (data.order?.items) {
@@ -563,7 +571,6 @@ export default function AccountManagement() {
 
 	const handleSignOut = useCallback(async () => {
 		if (typeof window === "undefined") return;
-		const token = getAuthToken();
 
 		try {
 			await window.signOut?.();
@@ -571,18 +578,8 @@ export default function AccountManagement() {
 			console.error("Google app sign out failed:", error);
 		}
 
-		if (token) {
-			try {
-				await fetch(`${API_BASE}/api/auth/logout`, {
-					method: "POST",
-					headers: { Authorization: `Bearer ${token}` },
-				});
-			} catch (error) {
-				console.error("Logout API failed:", error);
-			}
-		}
-
-		clearAccountSession();
+		// Ends the session server-side (deleting the row) as well as locally.
+		await logoutCurrentAccount();
 		notify("You have been signed out.", 6000, "success", "account");
 		window.location.reload(); // Reload to reset state in parent
 	}, [notify]);
@@ -595,8 +592,8 @@ export default function AccountManagement() {
 				return;
 			}
 
-			const token = getAuthToken();
-			if (!token) {
+			const signedIn = isSignedIn();
+			if (!signedIn) {
 				notify("Please sign in to save invoice preferences.", 5000, "error", "account");
 				return;
 			}
@@ -606,7 +603,6 @@ export default function AccountManagement() {
 					method: "PUT",
 					headers: {
 						"Content-Type": "application/json",
-						Authorization: `Bearer ${token}`,
 					},
 					body: JSON.stringify({ invoice_include_product_view: includeView }),
 				});
@@ -647,12 +643,10 @@ export default function AccountManagement() {
 				return;
 			}
 
-			const { token } = session;
 			const res = await fetch(`${API_BASE}/api/accounts/update`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
 					full_name: fullName,
@@ -668,14 +662,14 @@ export default function AccountManagement() {
 					email,
 					icon: editIconDataUrl || account.icon,
 				};
-				writeAccountSession({ ...session, ...updatedAccount, token: token || null });
+				writeAccountSession({ ...session, ...updatedAccount });
 				setAccount(updatedAccount);
 				setIsEditing(false);
 				notify("Profile updated successfully!", 6000, "success", "account");
 			} else {
 				notify("Failed to update profile.", 6000, "error", "account");
 			}
-		} catch (e) {
+		} catch {
 			notify("Failed to update profile.", 6000, "error", "account");
 		}
 	}, [account, editFullName, editEmail, editIconDataUrl, notify]);
@@ -699,8 +693,8 @@ export default function AccountManagement() {
 	}, [newPassword, confirmPassword, notify]);
 
 	const handleStartMfaSetup = useCallback(async () => {
-		const token = getAuthToken();
-		if (!token) {
+		const signedIn = isSignedIn();
+		if (!signedIn) {
 			notify("Please log in again.", 6000, "error", "account");
 			return;
 		}
@@ -710,7 +704,6 @@ export default function AccountManagement() {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({ includeQrCode: true }),
 			});
@@ -745,8 +738,8 @@ export default function AccountManagement() {
 			return;
 		}
 
-		const token = getAuthToken();
-		if (!token) {
+		const signedIn = isSignedIn();
+		if (!signedIn) {
 			notify("Please log in again.", 6000, "error", "account");
 			return;
 		}
@@ -756,7 +749,6 @@ export default function AccountManagement() {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({ challengeToken: mfaSetup.challengeToken, code: mfaCode }),
 			});
@@ -780,15 +772,15 @@ export default function AccountManagement() {
 	const handleDeleteCard = useCallback(
 		async (id: number) => {
 			if (!confirm("Are you sure you want to remove this card?")) return;
-			const token = getAuthToken();
-			if (!token) {
+			const signedIn = isSignedIn();
+			if (!signedIn) {
 				notify("Please log in again.", 6000, "error", "account");
 				return;
 			}
 			try {
 				const res = await fetch(`${API_BASE}/api/cards/${id}`, {
 					method: "DELETE",
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				});
 				if (res.ok) {
 					setSavedCards((prev) => prev.filter((c) => c.id !== id));
@@ -796,24 +788,12 @@ export default function AccountManagement() {
 				} else {
 					notify("Failed to remove card.", 3000, "error", "account");
 				}
-			} catch (e) {
+			} catch {
 				notify("Error removing card.", 3000, "error", "account");
 			}
 		},
 		[notify],
 	);
-
-	const getStatusColor = (status: string) => {
-		const colors: Record<string, string> = {
-			pending: "#f59e0b",
-			confirmed: "#3b82f6",
-			processing: "#8b5cf6",
-			shipped: "#06b6d4",
-			delivered: "#10b981",
-			cancelled: "#ef4444",
-		};
-		return colors[status] || "#6b7280";
-	};
 
 	// Calculate repair cost based on machine price and repair type
 	const calculateRepairCost = (machinePrice: number, repairType: RepairType, isWarranty: boolean): number => {
@@ -833,8 +813,8 @@ export default function AccountManagement() {
 		const cost = calculateRepairCost(Number(machine.unit_price), selectedRepairType, isWarranty);
 
 		try {
-			const token = getAuthToken();
-			if (!token) {
+			const signedIn = isSignedIn();
+			if (!signedIn) {
 				notify("Please log in again.", 6000, "error", "account");
 				return;
 			}
@@ -844,7 +824,6 @@ export default function AccountManagement() {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
 					machine_id: machine.product_id,

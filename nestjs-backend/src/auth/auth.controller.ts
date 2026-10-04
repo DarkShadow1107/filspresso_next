@@ -9,12 +9,14 @@ import {
   Post,
   Put,
   Req,
+  Res,
   ServiceUnavailableException,
   UseGuards,
 } from "@nestjs/common";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { AuthService } from "./auth.service";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { clearSessionCookie, readSessionToken } from "../common/utils/session-cookie";
 
 interface AuthenticatedRequest extends Request {
   user?: Record<string, unknown>;
@@ -23,13 +25,11 @@ interface AuthenticatedRequest extends Request {
 /**
  * AuthController — owns /api/auth/* routes.
  *
- * Most complex auth routes (register, login, OAuth, MFA setup/verify,
- * email verification) remain proxied through the legacy Express router
- * while being migrated incrementally. This controller owns the subset
- * of read-only / session management endpoints that are safe to cut over
- * immediately.
+ * The legacy Express delegation for auth is gone: `src/legacy/` was deleted in
+ * 615a690, so there is no passthrough router left to delegate to. Every
+ * /api/auth route below is implemented natively in NestJS.
  *
- * Legacy passthrough (still in legacy-routes.ts):
+ * Complex auth surface (implemented here, no legacy passthrough):
  *   POST /api/auth/register
  *   POST /api/auth/login
  *   GET  /api/auth/oauth/:provider/start
@@ -97,12 +97,12 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Post("logout")
   @HttpCode(HttpStatus.OK)
-  async logout(@Req() req: AuthenticatedRequest): Promise<{ message: string }> {
-    const authHeader = String(req.headers.authorization || "");
-    if (authHeader.startsWith("Bearer ")) {
-      const token = authHeader.slice(7).trim();
+  async logout(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) res: Response): Promise<{ message: string }> {
+    const token = readSessionToken(req);
+    if (token) {
       await this.authService.invalidateSession(token);
     }
+    clearSessionCookie(res, req);
     return { message: "Logged out successfully" };
   }
 

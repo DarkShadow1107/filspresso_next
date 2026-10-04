@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     name VARCHAR(100),
     icon VARCHAR(255) DEFAULT '/images/default-avatar.png',
     subscription_id INTEGER,
+    subscription VARCHAR(50), -- denormalised tier name; read as the fallback by kafelot.service.ts fetchUserTier
     role VARCHAR(20) DEFAULT 'user', -- admin, user
     graph_theme VARCHAR(20) DEFAULT 'classic',
     email_verified BOOLEAN DEFAULT FALSE,
@@ -154,16 +155,17 @@ CREATE INDEX idx_iot_commands_status_created ON iot_commands(status, created_at)
 CREATE TABLE IF NOT EXISTS user_sessions (
     id SERIAL PRIMARY KEY,
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    session_token VARCHAR(255) NOT NULL UNIQUE,
+    -- Session tokens are stored hashed, never as the raw JWT.
+    session_token_hash CHAR(64) NOT NULL UNIQUE,
     expires_at TIMESTAMP NOT NULL,
     ip_address VARCHAR(45),
     user_agent TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_user_sessions_token ON user_sessions(session_token);
-CREATE INDEX idx_user_sessions_account ON user_sessions(account_id);
-CREATE INDEX idx_user_sessions_expires ON user_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash ON user_sessions(session_token_hash);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_account ON user_sessions(account_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);
 
 -- =============================================================================
 -- CART TABLE

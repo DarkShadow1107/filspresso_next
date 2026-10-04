@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { buildPageHref } from "@/lib/pages";
-import { readAccountSession } from "@/lib/accountSession";
+import { isSignedIn } from "@/lib/authState";
 
 type Subscription = {
 	id?: number;
@@ -98,8 +98,8 @@ export default function ManageSubscriptionContent() {
 
 	useEffect(() => {
 		const fetchData = async () => {
-			const token = readAccountSession()?.token || "";
-			if (!token) {
+			const signedIn = isSignedIn();
+			if (!signedIn) {
 				router.push(buildPageHref("account"));
 				return;
 			}
@@ -107,7 +107,7 @@ export default function ManageSubscriptionContent() {
 			try {
 				// Fetch subscription
 				const subRes = await fetch(`${API_BASE}/api/subscriptions`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				});
 				if (subRes.ok) {
 					const data = await subRes.json();
@@ -120,7 +120,7 @@ export default function ManageSubscriptionContent() {
 
 				// Fetch saved cards
 				const cardsRes = await fetch(`${API_BASE}/api/cards`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				});
 				if (cardsRes.ok) {
 					const data = await cardsRes.json();
@@ -138,15 +138,14 @@ export default function ManageSubscriptionContent() {
 	}, [router, notify]);
 
 	const handleCancelSubscription = async () => {
-		const token = readAccountSession()?.token || "";
-		if (!token) return;
+		const signedIn = isSignedIn();
+		if (!signedIn) return;
 
 		try {
 			const res = await fetch(`${API_BASE}/api/subscriptions/cancel`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
 				},
 			});
 
@@ -160,7 +159,7 @@ export default function ManageSubscriptionContent() {
 				setShowCancelModal(false);
 				// Refresh subscription data
 				const subRes = await fetch(`${API_BASE}/api/subscriptions`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				});
 				if (subRes.ok) {
 					const data = await subRes.json();
@@ -182,8 +181,8 @@ export default function ManageSubscriptionContent() {
 			return;
 		}
 
-		const token = readAccountSession()?.token || "";
-		if (!token) return;
+		const signedIn = isSignedIn();
+		if (!signedIn) return;
 
 		setUpdatingCard(true);
 		try {
@@ -191,7 +190,6 @@ export default function ManageSubscriptionContent() {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({ cardId: selectedCardId }),
 			});
@@ -201,7 +199,7 @@ export default function ManageSubscriptionContent() {
 				setShowChangeCardModal(false);
 				// Refresh subscription data
 				const subRes = await fetch(`${API_BASE}/api/subscriptions`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				});
 				if (subRes.ok) {
 					const data = await subRes.json();
@@ -220,15 +218,14 @@ export default function ManageSubscriptionContent() {
 	};
 
 	const handleToggleAutoRenew = async () => {
-		const token = readAccountSession()?.token || "";
-		if (!token) return;
+		const signedIn = isSignedIn();
+		if (!signedIn) return;
 
 		try {
 			const res = await fetch(`${API_BASE}/api/subscriptions/toggle-auto-renew`, {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
 				},
 			});
 
@@ -266,8 +263,8 @@ export default function ManageSubscriptionContent() {
 			return;
 		}
 
-		const token = readAccountSession()?.token || "";
-		if (!token) return;
+		const signedIn = isSignedIn();
+		if (!signedIn) return;
 
 		const targetCycle = subscription.billing_cycle === "annual" ? "monthly" : "annual";
 		setUpdatingBillingCycle(true);
@@ -277,7 +274,6 @@ export default function ManageSubscriptionContent() {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
 					tier: subscription.tier,
@@ -291,7 +287,7 @@ export default function ManageSubscriptionContent() {
 				notify(data.message || `Billing cycle change scheduled to ${targetCycle}.`, 5000, "success", "subscription");
 
 				const subRes = await fetch(`${API_BASE}/api/subscriptions`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				});
 				if (subRes.ok) {
 					const refreshed = await subRes.json();

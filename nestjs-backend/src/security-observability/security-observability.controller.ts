@@ -5,6 +5,8 @@ import { PolicyGuard } from "../common/guards/policy.guard";
 import type { RequestWithId } from "../common/middleware/request-id.middleware";
 import { SecurityObservabilityService } from "./security-observability.service";
 import { ServiceEventsAuthGuard } from "./service-events-auth.guard";
+import { Throttle } from "@nestjs/throttler";
+import { ruleFor } from "../config/rate-limit.policy";
 
 function parseBoundedInt(raw: unknown, fallback: number, min: number, max: number): number {
 	const parsed = Number.parseInt(String(raw ?? ""), 10);
@@ -64,6 +66,7 @@ export class SecurityObservabilityController {
 		return this.securityObservabilityService.dispatchSecurityAlert(body, req.requestId);
 	}
 
+	@Throttle({ default: { limit: ruleFor("GET /health/services/ledger/verify").limit, ttl: ruleFor("GET /health/services/ledger/verify").ttlMs } })
 	@Get("services/ledger/verify")
 	@UseGuards(ServiceEventsAuthGuard)
 	async verifyServiceLedger(

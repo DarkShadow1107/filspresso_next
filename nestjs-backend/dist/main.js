@@ -49,7 +49,6 @@ const database_service_1 = require("./database/database.service");
 const constants_1 = require("./config/constants");
 const http_exception_filter_1 = require("./common/filters/http-exception.filter");
 const request_id_middleware_1 = require("./common/middleware/request-id.middleware");
-const global_rate_limit_middleware_1 = require("./common/middleware/global-rate-limit.middleware");
 const origin_guard_middleware_1 = require("./common/middleware/origin-guard.middleware");
 const request_timeout_middleware_1 = require("./common/middleware/request-timeout.middleware");
 const cors_origin_1 = require("./common/utils/cors-origin");
@@ -74,6 +73,14 @@ async function bootstrap() {
     const expressInstance = app.getHttpAdapter().getInstance();
     applyTrustProxy(expressInstance, configService.get("trustProxy"));
     expressInstance.disable("x-powered-by");
+    // The app is created with bufferLogs: true, but nothing ever called
+    // useLogger(), so the log level was hardcoded to Nest's default. LOG_LEVEL
+    // now actually controls it: set `verbose` when Phase 0 request-timing
+    // instrumentation needs to be observed.
+    const logLevel = (0, constants_1.resolveLogLevel)(process.env.LOG_LEVEL);
+    // useLogger() takes a LogLevel[] (the set of enabled levels), not a single level.
+    app.useLogger([logLevel]);
+    logger.log(`Logger level: ${logLevel}`);
     app.use((0, helmet_1.default)({
         contentSecurityPolicy: {
             useDefaults: false,
@@ -106,12 +113,6 @@ async function bootstrap() {
         },
         credentials: true,
     });
-    if ((0, global_rate_limit_middleware_1.shouldEnableGlobalRateLimit)()) {
-        app.use("/api/", (0, global_rate_limit_middleware_1.createGlobalRateLimiter)());
-    }
-    else {
-        logger.warn("Global API rate limiting disabled (non-production mode or explicit disable). Route-specific limiters remain active.");
-    }
     app.use((0, express_1.json)({ limit: "10mb", strict: true }));
     app.use((0, express_1.urlencoded)({ extended: true }));
     app.use((0, compression_1.default)({ level: 6, threshold: 1024 }));
@@ -131,6 +132,47 @@ async function bootstrap() {
         await dockerManager.startContainer();
         dockerManager.setupShutdownHandlers();
     }
+    // Phase 2 (PLAN_NESTJS_SCALING.md section 4). enableShutdownHooks() makes
+    // onModuleDestroy run on SIGTERM, which is what clears the security
+    // observability intervals -- without it they are never cleared and the
+    // process is killed with timers still armed.
+    //
+    // This must be registered unconditionally. It used to live inside the
+    // non-Docker branch, so in Docker (i.e. in every real deployment) the
+    // graceful path never ran at all.
+    app.enableShutdownHooks();
+    // Bound the drain so `docker stop` does not escalate to SIGKILL partway
+    // through a checkout or an in-flight order.
+    const shutdownTimeoutMs = Math.max(1_000, Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS || "25000", 10) || 25_000);
+    let shuttingDown = false;
+    const gracefulShutdown = async (signal) => {
+        if (shuttingDown)
+            return;
+        shuttingDown = true;
+        logger.log(`Received ${signal}; draining for up to ${shutdownTimeoutMs}ms`);
+        const hardExit = setTimeout(() => {
+            logger.warn("Graceful shutdown timed out; forcing exit");
+            process.exit(1);
+        }, shutdownTimeoutMs);
+        // Do not let the timer itself keep the event loop alive.
+        hardExit.unref();
+        try {
+            // Closes the listener first so no new connections are accepted, then
+            // lets in-flight requests finish.
+            await app.close();
+            const db = app.get(database_service_1.DatabaseService, { strict: false });
+            await db.endPool();
+            logger.log("Graceful shutdown complete");
+            process.exit(0);
+        }
+        catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            logger.error(`Graceful shutdown failed: ${detail}`);
+            process.exit(1);
+        }
+    };
+    process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+    process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
     const strictServiceDbCredentials = String(process.env.STRICT_SERVICE_DB_CREDENTIALS || "false")
         .trim()
         .toLowerCase() === "true";

@@ -50,11 +50,34 @@ function readSecretFromFile(secretName, filePath) {
         throw new Error(`Failed to load ${secretName} from ${secretName}_FILE (${filePath}): ${error.message}`);
     }
 }
+// Values such as PEM bodies are multi-line and can never be a filesystem path,
+// so they are always treated as inline. Anything else that resolves to a real
+// regular file is treated as a path reference, which lets deployments point a
+// secret at a mounted file using the plain variable name.
+function looksLikeInlineSecret(value) {
+    return value.includes("-----BEGIN") || /[\r\n]/.test(value);
+}
+function resolveDirectValue(secretName, directValue) {
+    if (looksLikeInlineSecret(directValue)) {
+        return directValue;
+    }
+    try {
+        if (directValue.length <= 4096 && fs.statSync(directValue).isFile()) {
+            const fileValue = readSecretFromFile(secretName, directValue);
+            process.env[secretName] = fileValue;
+            return fileValue;
+        }
+    }
+    catch {
+        // Not a readable path - fall through and use the value verbatim.
+    }
+    return directValue;
+}
 function getEnvOrFile(secretName, options = {}) {
     const { required = false, defaultValue = "" } = options;
     const directValue = String(process.env[secretName] || "").trim();
     if (directValue) {
-        return directValue;
+        return resolveDirectValue(secretName, directValue);
     }
     const filePath = String(process.env[`${secretName}_FILE`] || "").trim();
     if (filePath) {

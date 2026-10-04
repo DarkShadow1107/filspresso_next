@@ -29,6 +29,18 @@ services:
         command: ["/bin/sh", "-lc", 'exec redis-server --appendonly yes --requirepass "$(cat /run/secrets/redis_password)"']
         secrets:
             - redis_password
+        # The base healthcheck is a bare `redis-cli ping`, which returns NOAUTH once
+        # requirepass is on. Without this override redis would never report healthy
+        # and every `depends_on: redis: service_healthy` would hang.
+        # REDISCLI_AUTH is set from the secret inside the shell so the password is
+        # never a literal in the compose file or in the process arguments.
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli ping | grep -q PONG
+            interval: 10s
+            timeout: 5s
+            retries: 5
 
     opa:
         ports: []
@@ -98,6 +110,9 @@ services:
             BACKEND_DB_USER: ${BACKEND_DB_USER:-filspresso_backend_svc}
             BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-}
             BACKEND_DB_PASSWORD_FILE: /run/secrets/backend_db_password
+            # Session cache credential (Phase 3). Redis now holds session state, so
+            # the backend authenticates with the same secret redis was started with.
+            REDIS_PASSWORD_FILE: /run/secrets/redis_password
             STRICT_SERVICE_DB_CREDENTIALS: ${STRICT_SERVICE_DB_CREDENTIALS:-true}
             APP_SCHEMA_BOOTSTRAP_ENABLED: ${APP_SCHEMA_BOOTSTRAP_ENABLED:-false}
             JWT_SECRET: ${JWT_SECRET:-}
@@ -159,7 +174,7 @@ services:
             OPA_TIMEOUT_MS: ${OPA_TIMEOUT_MS:-1500}
             SECURITY_OBSERVABILITY_WINDOW_MINUTES: ${SECURITY_OBSERVABILITY_WINDOW_MINUTES:-60}
             SECURITY_OBSERVABILITY_MPC_STALE_MINUTES: ${SECURITY_OBSERVABILITY_MPC_STALE_MINUTES:-30}
-            SECURITY_LEDGER_ARCHIVE_ENABLED: ${SECURITY_LEDGER_ARCHIVE_ENABLED:-true}
+            SECURITY_LEDGER_ARCHIVE_ENABLED: ${SECURITY_LEDGER_ARCHIVE_ENABLED:-false}
             SECURITY_LEDGER_ARCHIVE_INTERVAL_MS: ${SECURITY_LEDGER_ARCHIVE_INTERVAL_MS:-3600000}
             SECURITY_ARCHIVE_OLDER_THAN_HOURS: ${SECURITY_ARCHIVE_OLDER_THAN_HOURS:-24}
             SECURITY_ARCHIVE_LIMIT: ${SECURITY_ARCHIVE_LIMIT:-500}
@@ -183,6 +198,7 @@ services:
             - service_assertion_public_key
             - backend_db_password
             - vault_kek
+            - redis_password
 
     invoice_java:
         ports: []
@@ -312,47 +328,26 @@ services:
             - /tmp:rw,nosuid,nodev,noexec,size=128m
         pids_limit: 256
 
-    llama_qwen:
+    # Hardened overlay for each llama.cpp service. service_net is `internal: true`,
+    # so these are reachable by the gateway but publish nothing to the host and
+    # cannot reach the internet. Identical hardening for every model so the nine
+    # services cannot drift apart.
+
+    # Hardened overlay for the router. service_net is `internal: true`, so it is
+    # reachable by the gateway but publishes nothing and cannot reach the internet.
+    llama_lfm:
         ports: []
         networks:
             service_net:
                 aliases:
-                    - llama-qwen
+                    - llama-lfm
                     - llama-cpp
         security_opt:
             - no-new-privileges:true
             - seccomp=./security/docker/seccomp-default.json
         read_only: true
         tmpfs:
-            - /tmp:rw,nosuid,nodev,noexec,size=128m
-        pids_limit: 256
-
-    llama_gemma:
-        ports: []
-        networks:
-            service_net:
-                aliases:
-                    - llama-gemma
-        security_opt:
-            - no-new-privileges:true
-            - seccomp=./security/docker/seccomp-default.json
-        read_only: true
-        tmpfs:
-            - /tmp:rw,nosuid,nodev,noexec,size=128m
-        pids_limit: 256
-
-    llama_vision_qwen3_vl:
-        ports: []
-        networks:
-            service_net:
-                aliases:
-                    - llama-vision-qwen3-vl
-        security_opt:
-            - no-new-privileges:true
-            - seccomp=./security/docker/seccomp-default.json
-        read_only: true
-        tmpfs:
-            - /tmp:rw,nosuid,nodev,noexec,size=128m
+            - /tmp:rw,nosuid,nodev,noexec,size=256m
         pids_limit: 256
 
 networks:

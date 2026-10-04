@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { isSignedIn, subscribeAuthState } from "@/lib/authState";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
-import { readAccountSession } from "@/lib/accountSession";
 
 const API_BASE = (typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "") + "/api";
 
@@ -27,15 +27,9 @@ function computeSum(items: CartItem[]): number {
 	return items.reduce((acc, item) => acc + item.price * item.qty, 0);
 }
 
-// Helper to get auth token
-function getAuthToken(): string | null {
-	if (typeof window === "undefined") return null;
-	return readAccountSession()?.token || null;
-}
-
 // Helper to check if user is logged in
 function isLoggedIn(): boolean {
-	return getAuthToken() !== null;
+	return isSignedIn();
 }
 
 export default function useCart(options?: { passive?: boolean }) {
@@ -48,14 +42,23 @@ export default function useCart(options?: { passive?: boolean }) {
 	const { notify } = useNotifications();
 	const router = useRouter();
 
+	// Reactive session state, so signing out clears the bag immediately.
+	const signedIn = useSyncExternalStore(subscribeAuthState, isSignedIn, () => false);
+	const [wasSignedIn, setWasSignedIn] = useState(signedIn);
+	if (wasSignedIn && !signedIn) {
+		setWasSignedIn(false);
+		setItems([]);
+		setCurrentSum(0);
+		setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
+	} else if (!wasSignedIn && signedIn) {
+		setWasSignedIn(true);
+	}
+
 	// Fetch cart from API
 	const fetchCart = useCallback(async () => {
-		const token = getAuthToken();
-		if (!token) {
-			// Not logged in, reset cart state
-			setItems([]);
-			setCurrentSum(0);
-			setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
+		// The unauthenticated reset is handled by the render-time transition
+		// below, so this only has to cover the signed-in path.
+		if (!isSignedIn()) {
 			return;
 		}
 
@@ -63,7 +66,6 @@ export default function useCart(options?: { passive?: boolean }) {
 			setLoading(true);
 			const res = await fetch(`${API_BASE}/cart`, {
 				headers: {
-					Authorization: `Bearer ${token}`,
 				},
 				keepalive: true,
 			});
@@ -115,8 +117,12 @@ export default function useCart(options?: { passive?: boolean }) {
 	// Initial fetch and listen for login/logout events
 	useEffect(() => {
 		if (passive) return;
+		// fetchCart sets its own loading flag before awaiting the request, which is
+		// the standard "load on mount" shape. That is not the cascading-render
+		// problem this rule targets (it is a plain async read, not a state
+		// adjustment derived from props), so the call is allowed through.
+		// eslint-disable-next-line react-hooks/set-state-in-effect
 		fetchCart();
-
 		// Listen for storage events (login/logout)
 		const handleStorageChange = () => {
 			fetchCart();
@@ -140,8 +146,8 @@ export default function useCart(options?: { passive?: boolean }) {
 
 	const reset = useCallback(
 		async (options?: { silent?: boolean }) => {
-			const token = getAuthToken();
-			if (!token) {
+			const signedIn = isSignedIn();
+			if (!signedIn) {
 				setItems([]);
 				setCurrentSum(0);
 				setMemberDiscount({ tier: "None", percent: 0, amount: 0 });
@@ -155,7 +161,6 @@ export default function useCart(options?: { passive?: boolean }) {
 				await fetch(`${API_BASE}/cart`, {
 					method: "DELETE",
 					headers: {
-						Authorization: `Bearer ${token}`,
 					},
 					keepalive: true,
 				});
@@ -252,8 +257,8 @@ export default function useCart(options?: { passive?: boolean }) {
 			image?: string;
 			productType?: "capsule" | "machine" | "accessory";
 		}) => {
-			const token = getAuthToken();
-			if (!token) {
+			const signedIn = isSignedIn();
+			if (!signedIn) {
 				notify("Please log in to add items to your bag.", 5000, "info", "bag", {
 					actions: [
 						{
@@ -281,7 +286,6 @@ export default function useCart(options?: { passive?: boolean }) {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
-						Authorization: `Bearer ${token}`,
 					},
 					body: JSON.stringify({
 						productType,
@@ -316,14 +320,14 @@ export default function useCart(options?: { passive?: boolean }) {
 
 	const removeItem = useCallback(
 		async (id: string) => {
-			const token = getAuthToken();
-			if (!token) return;
+			const signedIn = isSignedIn();
+			if (!signedIn) return;
 
 			try {
 				// We need the database ID, but we store productId
 				// First, get the cart to find the database ID
 				const cartRes = await fetch(`${API_BASE}/cart`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 					keepalive: true,
 				});
 
@@ -334,7 +338,7 @@ export default function useCart(options?: { passive?: boolean }) {
 					if (dbItem) {
 						await fetch(`${API_BASE}/cart/${dbItem.id}`, {
 							method: "DELETE",
-							headers: { Authorization: `Bearer ${token}` },
+							credentials: "same-origin" as const,
 							keepalive: true,
 						});
 					}
@@ -356,13 +360,13 @@ export default function useCart(options?: { passive?: boolean }) {
 		async (id: string, newQty: number) => {
 			if (newQty < 1) return;
 
-			const token = getAuthToken();
-			if (!token) return;
+			const signedIn = isSignedIn();
+			if (!signedIn) return;
 
 			try {
 				// Get the cart to find the database ID
 				const cartRes = await fetch(`${API_BASE}/cart`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 					keepalive: true,
 				});
 
@@ -375,7 +379,6 @@ export default function useCart(options?: { passive?: boolean }) {
 							method: "PUT",
 							headers: {
 								"Content-Type": "application/json",
-								Authorization: `Bearer ${token}`,
 							},
 							body: JSON.stringify({ quantity: newQty }),
 							keepalive: true,

@@ -5,12 +5,12 @@ import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
-import { readAccountSession } from "@/lib/accountSession";
 import { readSnapshot, writeSnapshot } from "@/lib/clientSnapshotCache";
 import type { CoffeeProduct } from "@/data/coffee";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { machineCollections } from "@/data/machines";
 import type { WeatherData } from "@/lib/weather";
+import { isSignedIn } from "@/lib/authState";
 import {
 	ShoppingCartIcon,
 	TrashIcon,
@@ -144,8 +144,7 @@ export default function Cart() {
 		const hydrateTimer = window.setTimeout(() => setIsHydrated(true), 0);
 
 		const syncLoginState = () => {
-			const session = readAccountSession();
-			setIsLoggedIn(Boolean(session?.token));
+			setIsLoggedIn(isSignedIn());
 		};
 		syncLoginState();
 		window.addEventListener("session-update", syncLoginState);
@@ -287,7 +286,7 @@ export default function Cart() {
 		placeOrder();
 	};
 
-	const displayedTotal = formatRon(currentSum);
+	
 	const totalItems = items.reduce((sum, item) => sum + item.qty, 0);
 	// Free shipping for Master tier and above, or orders over 200 RON
 	const hasFreeShipping = ["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) || currentSum >= 200;
@@ -445,7 +444,7 @@ export default function Cart() {
 										(pricePerItem > 300 && !isPack));
 
 								// Sleeves are individual coffee capsule sleeves (10 capsules)
-								const isSleeve = !isMachine && !isPack;
+								
 
 								// Set appropriate unit label
 								let unitLabel = "sleeve (10 capsules)";

@@ -5,9 +5,11 @@ import Head from "next/head";
 import Script from "next/script";
 import AccountIconGenerator from "@/components/AccountIconGenerator";
 import { createDefaultAvatarDataUrl, writeAccountSession } from "@/lib/accountSession";
+import { fetchCurrentAccount, persistAccountProfile } from "@/lib/clientAuth";
+import { primeAuthState } from "@/lib/authState";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
-import { UserPlusIcon, UserCheckIcon, LockIcon, AtSignIcon, EyeIcon, EyeOffIcon, BrandGoogleIcon } from "@/icons";
+import { UserPlusIcon, LockIcon, AtSignIcon, EyeIcon, EyeOffIcon, BrandGoogleIcon } from "@/icons";
 
 const ALLOWED_EMAIL_SUFFIXES = ["@gmail.com", "@outlook.com", "@yahoo.com"];
 
@@ -105,7 +107,6 @@ export default React.memo(function AccountPageContent() {
 				icon?: string | null;
 				role?: string;
 			},
-			token: string | null,
 		) => {
 			const fullName = account.full_name || account.username;
 			const fallbackIcon = createDefaultAvatarDataUrl(account.username || fullName || account.email || "User");
@@ -115,8 +116,9 @@ export default React.memo(function AccountPageContent() {
 				email: account.email,
 				icon: account.icon || fallbackIcon,
 				role: account.role,
-				token,
 			});
+			// Re-read the session from the server now that the cookie is set.
+			void primeAuthState(true);
 		},
 		[],
 	);
@@ -125,30 +127,30 @@ export default React.memo(function AccountPageContent() {
 		if (typeof window === "undefined") return;
 
 		const currentUrl = new URL(window.location.href);
-		const oauthPayload = currentUrl.searchParams.get("oauth");
+		const oauthResult = currentUrl.searchParams.get("oauth");
 		const oauthError = currentUrl.searchParams.get("oauth_error");
-		if (!oauthPayload && !oauthError) {
+		if (!oauthResult && !oauthError) {
 			return;
 		}
 
-		if (oauthPayload) {
-			try {
-				const normalized = oauthPayload.replace(/-/g, "+").replace(/_/g, "/");
-				const padded = normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
-				const decoded = JSON.parse(atob(padded));
-				if (decoded?.account && typeof decoded.account === "object") {
-					persistAccountSession(decoded.account, decoded.token || null);
-					notify(
-						`Welcome ${formatNamePlaceholder(decoded.account.full_name || decoded.account.username)}!`,
-						5500,
-						"success",
-						"account",
-					);
-				}
-			} catch (error) {
-				console.error("Failed to parse OAuth callback payload:", error);
-				notify("Social login callback could not be verified.", 6000, "error", "account");
-			}
+		// The OAuth callback sets an httpOnly cookie server-side, so the only thing
+		// to do here is confirm the session landed and refresh the cached profile.
+		if (oauthResult) {
+			void fetchCurrentAccount()
+				.then((account) => {
+					if (account) {
+						persistAccountProfile(account);
+						notify(
+							`Welcome ${formatNamePlaceholder(account.full_name || account.username)}!`,
+							5500,
+							"success",
+							"account",
+						);
+					} else {
+						notify("Social login could not be completed.", 6000, "error", "account");
+					}
+				})
+				.catch(() => notify("Social login callback could not be verified.", 6000, "error", "account"));
 		}
 
 		if (oauthError) {
@@ -158,7 +160,7 @@ export default React.memo(function AccountPageContent() {
 		currentUrl.searchParams.delete("oauth");
 		currentUrl.searchParams.delete("oauth_error");
 		router.replace(`${currentUrl.pathname}${currentUrl.search}`);
-	}, [notify, persistAccountSession, router]);
+	}, [notify, router]);
 
 	const handleSignUp = useCallback(
 		async (event: FormEvent<HTMLFormElement>) => {
@@ -246,6 +248,7 @@ export default React.memo(function AccountPageContent() {
 					const response = await fetch(`${API_BASE}/api/auth/register`, {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
+						credentials: "same-origin",
 						body: JSON.stringify(payload),
 					});
 					const data = await response.json();
@@ -258,8 +261,7 @@ export default React.memo(function AccountPageContent() {
 							icon: savedIconPath || data.icon_path || null,
 						};
 						const iconUrl = savedIconPath || data.icon_path || null;
-						const token = data.token || null;
-						persistAccountSession({ ...account, icon: account.icon || iconUrl }, token);
+						persistAccountSession({ ...account, icon: account.icon || iconUrl });
 
 						notify(
 							`Welcome ${nickname}, your account was registered with the following address ${email}`,
@@ -303,6 +305,7 @@ export default React.memo(function AccountPageContent() {
 			const response = await fetch(`${API_BASE}/api/auth/login`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
+				credentials: "same-origin",
 				body: JSON.stringify({ username, password }),
 			});
 			const data = await response.json();
@@ -318,8 +321,7 @@ export default React.memo(function AccountPageContent() {
 
 			if (data?.status === "success" && data?.account) {
 				const account = data.account;
-				const token = data.token || null;
-				persistAccountSession(account, token);
+				persistAccountSession(account);
 				notify(`Welcome back ${account.full_name || account.username}!`, 6000, "success", "account");
 				setLoginPassword("");
 				setLoginEmail("");
@@ -347,12 +349,13 @@ export default React.memo(function AccountPageContent() {
 			const response = await fetch(`${API_BASE}/api/auth/login/mfa-verify`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
+				credentials: "same-origin",
 				body: JSON.stringify({ challengeToken: loginChallengeToken, code: loginMfaCode }),
 			});
 			const data = await response.json();
 
 			if (data?.status === "success" && data?.account) {
-				persistAccountSession(data.account, data.token || null);
+				persistAccountSession(data.account);
 				notify(`Welcome back ${data.account.full_name || data.account.username}!`, 6000, "success", "account");
 				setLoginMfaRequired(false);
 				setLoginChallengeToken("");

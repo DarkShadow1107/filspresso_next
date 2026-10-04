@@ -41,11 +41,15 @@ var __importStar = (this && this.__importStar) || (function () {
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 var SecurityObservabilityService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SecurityObservabilityService = void 0;
 const common_1 = require("@nestjs/common");
 const node_child_process_1 = require("node:child_process");
+const node_fs_1 = __importDefault(require("node:fs"));
 const legacy_paths_1 = require("../common/utils/legacy-paths");
 const securityLedger = __importStar(require("../common/utils/securityLedger"));
 const database_service_1 = require("../database/database.service");
@@ -78,7 +82,11 @@ let SecurityObservabilityService = SecurityObservabilityService_1 = class Securi
     retentionJobIntervalMs = parseBoundedInt(process.env.SERVICE_INCIDENT_RETENTION_JOB_MS, 6 * 60 * 60 * 1000, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
     securityObservabilityDefaultWindowMinutes = parseBoundedInt(process.env.SECURITY_OBSERVABILITY_WINDOW_MINUTES, 60, 5, 24 * 60);
     securityObservabilityDefaultMpcStaleMinutes = parseBoundedInt(process.env.SECURITY_OBSERVABILITY_MPC_STALE_MINUTES, 30, 5, 24 * 60);
-    securityLedgerArchiveEnabled = parseBoolean(process.env.SECURITY_LEDGER_ARCHIVE_ENABLED, true);
+    // Opt-in: the archive script this job shells out to does not exist in the
+    // repo, so defaulting to enabled meant a guaranteed failure every hour. Set
+    // SECURITY_LEDGER_ARCHIVE_ENABLED=true only once the script is restored.
+    securityLedgerArchiveEnabled = parseBoolean(process.env.SECURITY_LEDGER_ARCHIVE_ENABLED, false);
+    securityArchiveScriptMissingLogged = false;
     securityLedgerArchiveIntervalMs = parseBoundedInt(process.env.SECURITY_LEDGER_ARCHIVE_INTERVAL_MS, 60 * 60 * 1000, 15 * 60 * 1000, 24 * 60 * 60 * 1000);
     securityLedgerArchiveOlderThanHours = parseBoundedInt(process.env.SECURITY_ARCHIVE_OLDER_THAN_HOURS, 24, 1, 24 * 365);
     securityLedgerArchiveLimit = parseBoundedInt(process.env.SECURITY_ARCHIVE_LIMIT, 500, 1, 5000);
@@ -124,9 +132,23 @@ let SecurityObservabilityService = SecurityObservabilityService_1 = class Securi
         if (!this.securityLedgerArchiveEnabled || this.securityArchiveJobRunning) {
             return;
         }
+        // The archive script no longer exists. `resolveExpressApiPath` maps to
+        // src/legacy-bridge, which was removed, and there is no
+        // archive_security_ledger.js anywhere in the repo, so this job could only
+        // ever fail. Check before spawning so the failure is one clear log line
+        // instead of an hourly `spawn /usr/local/bin/node ENOENT`.
+        const scriptPath = (0, legacy_paths_1.resolveExpressApiPath)("scripts", "archive_security_ledger.js");
+        if (!node_fs_1.default.existsSync(scriptPath)) {
+            if (!this.securityArchiveScriptMissingLogged) {
+                this.securityArchiveScriptMissingLogged = true;
+                this.logger.warn(`Security ledger archive skipped: script not found at ${scriptPath}. ` +
+                    "Restore the script or set SECURITY_LEDGER_ARCHIVE_ENABLED=false to silence this.");
+            }
+            return;
+        }
         this.securityArchiveJobRunning = true;
         const args = [
-            (0, legacy_paths_1.resolveExpressApiPath)("scripts", "archive_security_ledger.js"),
+            scriptPath,
             `--older-than-hours=${this.securityLedgerArchiveOlderThanHours}`,
             `--limit=${this.securityLedgerArchiveLimit}`,
         ];

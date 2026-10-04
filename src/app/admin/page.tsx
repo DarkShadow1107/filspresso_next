@@ -180,13 +180,6 @@ export default function AdminPage() {
 		[adminToken, handleLogout],
 	);
 
-	// Fetch tables when authenticated
-	useEffect(() => {
-		if (isAuthenticated && adminToken) {
-			fetchTables();
-		}
-	}, [isAuthenticated, adminToken]);
-
 	useEffect(() => {
 		if (!isAuthenticated || !adminToken) {
 			clearInactivityTimer();
@@ -214,14 +207,6 @@ export default function AdminPage() {
 			clearInactivityTimer();
 		};
 	}, [isAuthenticated, adminToken, clearInactivityTimer, handleLogout]);
-
-	// Fetch table data when table is selected
-	useEffect(() => {
-		if (selectedTable && adminToken) {
-			fetchTableInfo(selectedTable);
-			fetchTableData(selectedTable);
-		}
-	}, [selectedTable, adminToken, pagination.page, sortBy, sortOrder]);
 
 	const handleLogin = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -258,7 +243,7 @@ export default function AdminPage() {
 		}
 	};
 
-	const fetchTables = async () => {
+	const fetchTables = useCallback(async () => {
 		try {
 			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/tables`);
 			if (!res) return;
@@ -270,7 +255,7 @@ export default function AdminPage() {
 		} catch {
 			console.error("Failed to fetch tables");
 		}
-	};
+	}, [authenticatedAdminFetch]);
 
 	const handleUnlockSensitiveMode = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -325,19 +310,22 @@ export default function AdminPage() {
 		}
 	};
 
-	const fetchTableInfo = async (table: string) => {
-		try {
-			const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/table-info/${table}`);
-			if (!res) return;
-			const data = await res.json();
-			if (data.columns) {
-				setColumns(data.columns);
-				setPrimaryKey(data.primaryKey || "id");
+	const fetchTableInfo = useCallback(
+		async (table: string) => {
+			try {
+				const res = await authenticatedAdminFetch(`${ADMIN_API_BASE}/table-info/${table}`);
+				if (!res) return;
+				const data = await res.json();
+				if (data.columns) {
+					setColumns(data.columns);
+					setPrimaryKey(data.primaryKey || "id");
+				}
+			} catch {
+				console.error("Failed to fetch table info");
 			}
-		} catch {
-			console.error("Failed to fetch table info");
-		}
-	};
+		},
+		[authenticatedAdminFetch],
+	);
 
 	const fetchTableData = useCallback(
 		async (table: string) => {
@@ -367,6 +355,23 @@ export default function AdminPage() {
 		[authenticatedAdminFetch, pagination.page, pagination.limit, sortBy, sortOrder, searchQuery],
 	);
 
+	// Fetch tables when authenticated
+	useEffect(() => {
+		if (isAuthenticated && adminToken) {
+			// Table list read on sign-in; async load, not a props-derived adjustment.
+			// eslint-disable-next-line react-hooks/set-state-in-effect
+			fetchTables();
+		}
+	}, [isAuthenticated, adminToken, fetchTables]);
+
+	// Fetch table data when table is selected
+	useEffect(() => {
+		if (selectedTable && adminToken) {
+			fetchTableInfo(selectedTable);
+			fetchTableData(selectedTable);
+		}
+	}, [selectedTable, adminToken, pagination.page, sortBy, sortOrder, fetchTableInfo, fetchTableData]);
+
 	useEffect(() => {
 		if (!isAuthenticated || !adminToken) {
 			return;
@@ -393,7 +398,7 @@ export default function AdminPage() {
 			window.removeEventListener("focus", refreshAdminData);
 			document.removeEventListener("visibilitychange", handleVisibilityChange);
 		};
-	}, [isAuthenticated, adminToken, selectedTable, fetchTableData]);
+	}, [isAuthenticated, adminToken, selectedTable, fetchTableData, fetchTableInfo, fetchTables]);
 
 	const handleSort = (column: string) => {
 		if (sortBy === column) {
@@ -671,7 +676,7 @@ export default function AdminPage() {
 			handleFieldChange("image_extension", data.extension, isNew);
 			setActionSuccess(`Image uploaded to ${data.relativePath}`);
 			return true;
-		} catch (error) {
+		} catch {
 			setActionError("Failed to upload image");
 			return false;
 		} finally {

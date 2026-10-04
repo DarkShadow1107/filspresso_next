@@ -10,6 +10,11 @@ async function backendPath(params: Promise<{ path?: string[] }>) {
 	return `/api/auth/${path.map(encodeURIComponent).join("/")}`;
 }
 
+/**
+ * When the backend is unreachable we must not claim the visitor is signed in.
+ * The legacy shape is preserved so existing consumers keep working, but
+ * `fetchCurrentAccount` treats `source: "static-fallback"` as signed out.
+ */
 function meFallback() {
 	return NextResponse.json(
 		{

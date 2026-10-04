@@ -53,22 +53,58 @@ export function buildBackendUrl(pathname: string, search = "") {
 	return `${base}${path}${search}`;
 }
 
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "filspresso_session";
+
+// Headers the backend needs in order to authenticate the caller and to run its
+// CSRF origin guard. `origin`/`referer`/`sec-fetch-site` must be relayed or the
+// guard rejects every cookie-authenticated state change as origin-less.
+const FORWARDED_REQUEST_HEADERS = [
+	"authorization",
+	"content-type",
+	"x-forwarded-for",
+	"x-forwarded-proto",
+	"x-forwarded-host",
+	"x-kafelot-fingerprint",
+	"x-kafelot-scope",
+	"x-request-id",
+	"origin",
+	"referer",
+	"sec-fetch-site",
+	"sec-fetch-mode",
+	"user-agent",
+];
+
+/**
+ * Forwards only the session cookie.
+ *
+ * The browser also holds the admin cookie, but that one is never meant to reach
+ * the API: the Next admin route reads it server-side and re-issues it as a
+ * Bearer header. Relaying every cookie would leak that credential upstream.
+ */
+export function buildForwardedCookieHeader(cookieHeader: string | null): string {
+	if (!cookieHeader) return "";
+
+	const forwarded: string[] = [];
+	for (const part of cookieHeader.split(";")) {
+		const separator = part.indexOf("=");
+		if (separator <= 0) continue;
+		if (part.slice(0, separator).trim() !== SESSION_COOKIE_NAME) continue;
+		forwarded.push(part.trim());
+	}
+
+	return forwarded.join("; ");
+}
+
 export function copyRequestHeaders(request: NextRequest) {
 	const headers = new Headers();
-	const allowed = [
-		"authorization",
-		"cookie",
-		"content-type",
-		"x-forwarded-for",
-		"x-kafelot-fingerprint",
-		"x-kafelot-scope",
-		"x-request-id",
-	];
 
-	for (const name of allowed) {
+	for (const name of FORWARDED_REQUEST_HEADERS) {
 		const value = request.headers.get(name);
 		if (value) headers.set(name, value);
 	}
+
+	const cookie = buildForwardedCookieHeader(request.headers.get("cookie"));
+	if (cookie) headers.set("cookie", cookie);
 
 	return headers;
 }

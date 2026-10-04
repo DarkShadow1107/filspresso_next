@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useEffect, useRef } from "react";
+import { forwardRef, useImperativeHandle, useEffect, useRef, useCallback } from "react";
 import type { AnimatedIconHandle, AnimatedIconProps } from "./types";
 import { motion, useAnimate } from "motion/react";
 
@@ -10,9 +10,9 @@ const HeartIcon = forwardRef<AnimatedIconHandle, HeartIconProps>(
 	({ size = 24, color = "currentColor", strokeWidth = 2, className = "", filled = false }, ref) => {
 		const [scope, animate] = useAnimate();
 
-		const start = async () => {
+		const start = useCallback(async () => {
 			await animate(".heart", { scale: [1, 1.25, 1, 1.35, 1] }, { duration: 0.4, ease: "easeOut" });
-		};
+		}, [animate]);
 
 		const beat = async () => {
 			await animate(".heart", { scale: [1, 1.15, 1] }, { duration: 0.6, repeat: Infinity, ease: "easeInOut" });

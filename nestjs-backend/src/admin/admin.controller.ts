@@ -3,6 +3,8 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AdminService } from "./admin.service";
 import * as path from "path";
+import { Throttle } from "@nestjs/throttler";
+import { ruleFor } from "../config/rate-limit.policy";
 
 const { diskStorage } = require("multer") as {
   diskStorage: (options: Record<string, unknown>) => unknown;
@@ -18,6 +20,7 @@ interface AuthenticatedRequest extends Request {
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  @Throttle({ default: { limit: ruleFor("POST /api/admin/login").limit, ttl: ruleFor("POST /api/admin/login").ttlMs } })
   @Post("login")
   async login(@Req() req: Request, @Res() res: Response) {
     const result = await this.adminService.login(req, res);
@@ -29,6 +32,7 @@ export class AdminController {
     }
   }
 
+  @Throttle({ default: { limit: ruleFor("POST /api/admin/mfa").limit, ttl: ruleFor("POST /api/admin/mfa").ttlMs } })
   @Post("mfa/verify")
   async mfaVerify(@Req() req: Request, @Res() res: Response) {
     const result = await this.adminService.mfaVerify(req, res);

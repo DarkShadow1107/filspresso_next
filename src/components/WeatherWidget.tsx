@@ -4,14 +4,14 @@ import React, { useEffect, useState } from "react";
 import type { WeatherData, WeatherRecommendation } from "@/lib/weather";
 import { getWeatherIcon, getWeatherDescription } from "@/lib/weather";
 import {
-	MoonIcon,
-	BrightnessDownIcon,
+	
+	
 	TriangleAlertIcon,
 	TruckElectricIcon,
 	CoffeeIcon,
-	BrandAwsIcon,
-	SparklesIcon,
-	FlameIcon,
+	
+	
+	
 	SunIcon,
 	CloudIcon,
 	RainIcon,
@@ -91,10 +91,19 @@ const WeatherWidget = React.memo(function WeatherWidget({
 	const [loading, setLoading] = useState(!initialWeather);
 	const [error, setError] = useState<string | null>(null);
 
-	useEffect(() => {
+	// A server-provided value takes precedence over anything fetched on the
+	// client. Adjusting during render avoids a commit-phase setState.
+	const [lastInitial, setLastInitial] = useState(initialWeather);
+	if (initialWeather !== lastInitial) {
+		setLastInitial(initialWeather);
 		if (initialWeather) {
 			setWeather(initialWeather);
 			setLoading(false);
+		}
+	}
+
+	useEffect(() => {
+		if (initialWeather) {
 			return;
 		}
 

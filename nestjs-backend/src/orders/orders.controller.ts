@@ -5,6 +5,8 @@ import {
 import type { Request, Response } from "express";
 import { OrdersService } from "./orders.service";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { Throttle } from "@nestjs/throttler";
+import { ruleFor } from "../config/rate-limit.policy";
 
 interface AuthenticatedRequest extends Request { user?: Record<string, unknown>; }
 
@@ -50,6 +52,7 @@ export class OrdersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: ruleFor("POST /api/orders").limit, ttl: ruleFor("POST /api/orders").ttlMs } })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   createOrder(@Req() req: AuthenticatedRequest) {

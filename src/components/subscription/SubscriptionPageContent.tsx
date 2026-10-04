@@ -1,24 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
-import { readAccountSession } from "@/lib/accountSession";
+import { isSignedIn, subscribeAuthState } from "@/lib/authState";
 
 const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 
 import {
 	ClockIcon,
-	TrashIcon,
-	LockIcon,
+	
+	
 	HistoryCircleIcon,
 	RosetteDiscountIcon,
 	ArrowNarrowUpIcon,
 	ArrowNarrowDownIcon,
 	SparklesIcon,
-	FlameIcon,
+	
 	CpuIcon,
 	ChartBarIcon,
 	SimpleCheckedIcon,
@@ -26,9 +26,14 @@ import {
 	BrandGeminiIcon,
 	BrandOllamaIcon,
 	BrandGrokIcon,
-	BrandQwenIcon,
+	BrandLiquidIcon,
 	PenIcon,
 } from "@/icons";
+
+import {
+	modelAccessLinesForTier,
+	normalizeModelTier,
+} from "@/lib/modelAccess";
 
 type CurrentSubscription = {
 	tier: string;
@@ -65,14 +70,10 @@ const plans = [
 			"1x Suport capsules Mia Lume",
 			"🤖 Kafelot - 1000 prompts/month",
 			"🧠 MiniLM V2 access",
-			"🧠 Qwen 3 access",
-			"🧠 Qwen 3 Thinking access",
-			"🧠 Gemma 3 access",
-			"📷 Qwen 3 Vision access",
 			"📷 Auto-convert image formats to JPG + auto-upscale (min 128px)",
 			"📷 Coffee Helper - up to 3 images per prompt",
 			"💾 200-conversation memory",
-			"🧬 Molecule Helper - 200 prompts/month (Qwen 3 Vision)",
+			"🧬 Molecule Helper - 200 prompts/month (LFM 2.5 VL)",
 			"✏️ Edit prompt feature",
 		],
 	},
@@ -91,9 +92,6 @@ const plans = [
 			"1x Suport des bonbons",
 			"🤖 Kafelot - 300 prompts/month",
 			"🧠 MiniLM V2 access",
-			"🧠 Qwen 3 access",
-			"🧠 Qwen 3 Thinking access",
-			"📷 Qwen 3 Vision access",
 			"📷 Auto-convert image formats to JPG + auto-upscale (min 128px)",
 			"📷 Coffee Helper - up to 3 images per prompt",
 			"💾 100-conversation memory",
@@ -115,8 +113,6 @@ const plans = [
 			"1x Suport des bonbons",
 			"🤖 Kafelot - 150 prompts/month",
 			"🧠 MiniLM V2 access",
-			"🧠 Qwen 3 access",
-			"📷 Qwen 3 Vision access",
 			"📷 Auto-convert image formats to JPG + auto-upscale (min 128px)",
 			"💾 50-conversation memory",
 		],
@@ -135,9 +131,6 @@ const plans = [
 			"Espressor Essenza Mini Piano Noir C30",
 			"🤖 Kafelot - 100 prompts/month",
 			"🧠 MiniLM V2 access",
-			"🧠 Qwen 3 access",
-			"📷 Qwen 3 Vision access",
-			"📷 PNG/JPG upload only (min 128px)",
 			"💾 20-conversation memory",
 		],
 	},
@@ -155,9 +148,6 @@ const plans = [
 			"Espressor Essenza Mini Piano Noir C30",
 			"🤖 Kafelot - 50 prompts/month",
 			"🧠 MiniLM V2 access",
-			"🧠 Qwen 3 access",
-			"📷 Qwen 3 Vision access",
-			"📷 PNG/JPG upload only (min 128px)",
 			"💾 5-conversation memory",
 		],
 	},
@@ -179,6 +169,28 @@ const plans = [
 	},
 ] as const;
 
+/**
+ * Compose the benefit list a plan card renders.
+ *
+ * Hardware, capsules, memory and the Kafelot allowance stay hand-written because
+ * they are commercial terms. Model access is **derived** from the entitlement
+ * matrix and inserted after the MiniLM line, so the page can only ever advertise
+ * what `/api/chat` and the Playground will actually allow.
+ */
+function benefitsForPlan(
+	planId: string,
+	baseBenefits: readonly string[],
+): string[] {
+	const modelLines = modelAccessLinesForTier(normalizeModelTier(planId));
+	const insertAt = baseBenefits.findIndex((b) => b.includes("MiniLM"));
+	if (insertAt === -1) return [...baseBenefits, ...modelLines];
+	return [
+		...baseBenefits.slice(0, insertAt + 1),
+		...modelLines,
+		...baseBenefits.slice(insertAt + 1),
+	];
+}
+
 function formatRon(value: number) {
 	return `${value.toFixed(2).replace(".", ",")} RON`;
 }
@@ -188,10 +200,6 @@ export default function SubscriptionPageContent() {
 	const cardsInnerRef = useRef<HTMLDivElement | null>(null);
 	const overlayRef = useRef<HTMLDivElement | null>(null);
 	const router = useRouter();
-	const [isLoggedIn, setIsLoggedIn] = useState(() => {
-		if (typeof window === "undefined") return false;
-		return Boolean(readAccountSession()?.token);
-	});
 	const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
 	const [currentSubscription, setCurrentSubscription] = useState<CurrentSubscription | null>(null);
 	const [scheduledSubscription, setScheduledSubscription] = useState<ScheduledSubscription | null>(null);
@@ -201,16 +209,19 @@ export default function SubscriptionPageContent() {
 
 	const { notify } = useNotifications();
 
+	// Sign-in state is server-resolved, so subscribe to the cached auth state
+	// rather than reading a credential out of storage.
+	const isLoggedIn = useSyncExternalStore(subscribeAuthState, isSignedIn, () => false);
+
 	useEffect(() => {
 		if (typeof window === "undefined") return;
-		const accountSession = readAccountSession();
-		const token = accountSession?.token || "";
 
-		// Fetch current subscription if logged in
-		if (token) {
+		// The httpOnly session cookie rides along on every request, so ask the
+		// server unconditionally instead of gating on the cached client flag.
+		{
 			try {
 				fetch(`${API_BASE}/api/subscriptions`, {
-					headers: { Authorization: `Bearer ${token}` },
+					credentials: "same-origin" as const,
 				})
 					.then((res) => res.json())
 					.then((data) => {
@@ -304,8 +315,8 @@ export default function SubscriptionPageContent() {
 	const confirmPlanChange = async () => {
 		if (!pendingPlan) return;
 
-		const token = readAccountSession()?.token || "";
-		if (!token) {
+		const signedIn = isSignedIn();
+		if (!signedIn) {
 			notify("Please log in to change your plan", 5000, "error", "subscription");
 			return;
 		}
@@ -317,7 +328,6 @@ export default function SubscriptionPageContent() {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify({
 					tier: pendingPlan.id,
@@ -363,7 +373,7 @@ export default function SubscriptionPageContent() {
 	};
 
 	const handleAdd = useCallback(
-		(planId: string, planTitle: string, monthlyPrice: number, yearlyPrice: number, isPlanChange = false) => {
+		(planId: string, planTitle: string, monthlyPrice: number, yearlyPrice: number) => {
 			const price = billingPeriod === "yearly" ? yearlyPrice : monthlyPrice;
 			const period = billingPeriod === "yearly" ? "yearly" : "monthly";
 
@@ -730,19 +740,22 @@ export default function SubscriptionPageContent() {
 									)}
 									<ul className="card_bullets" style={{ padding: 0, listStyle: "none" }}>
 										{(plan.id === "free"
-											? [
-													"Kafelot - 5 prompts/month (anonymous)",
-													"Kafelot - 15 prompts/month (with account)",
-													"MiniLM V2 access",
-													"Default for all accounts",
-												]
-											: (plan.benefits as readonly string[])
-										).map((benefit) => {
+												? benefitsForPlan(plan.id, [
+														"Kafelot - 5 prompts/month (anonymous)",
+														"Kafelot - 15 prompts/month (with account)",
+														"MiniLM V2 access",
+														"Default for all accounts",
+													])
+												: benefitsForPlan(
+														plan.id,
+														plan.benefits as readonly string[],
+													)
+											).map((benefit) => {
 											const getIcon = () => {
 												const iconSize = 20;
 												const iconColor = "#ae8966";
-												if (benefit.toLowerCase().includes("qwen"))
-													return <BrandQwenIcon size={iconSize} color={iconColor} />;
+if (benefit.toLowerCase().includes("lfm") || benefit.toLowerCase().includes("qwen"))
+												return <BrandLiquidIcon size={iconSize} color={iconColor} />;
 												if (benefit.toLowerCase().includes("minilm"))
 													return <CpuIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("🎼"))
@@ -758,7 +771,7 @@ export default function SubscriptionPageContent() {
 												// Vision model access → Ollama icon
 												if (benefit.includes("📷"))
 													return <BrandOllamaIcon size={iconSize} color={iconColor} />;
-												// Molecule Helper (Qwen3-VL) → Grok icon
+												// Molecule Helper (LFM 2 VL) → Grok icon
 												if (benefit.includes("🧬"))
 													return <BrandGrokIcon size={iconSize} color={iconColor} />;
 												if (benefit.includes("📊"))

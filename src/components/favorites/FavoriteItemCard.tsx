@@ -26,7 +26,7 @@ export default function FavoriteItemCard({ product, type, category, stockInfo, s
 	const { notify } = useNotifications();
 	const { isFavorite, toggleFavorite } = useFavorites();
 	const [popupOpen, setPopupOpen] = useState(false);
-	const cartButtonRef = useRef<HTMLButtonElement>(null);
+	
 	const [scrollDir, setScrollDir] = useState<"up" | "down">("down");
 	const lastScrollY = useRef(0);
 
