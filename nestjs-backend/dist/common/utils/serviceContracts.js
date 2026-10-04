@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CONTRACT_VALIDATORS = void 0;
+exports.validateOrderCreateV1 = validateOrderCreateV1;
 exports.assertServiceContract = assertServiceContract;
 const MAX_STRING = 4096;
 function assertObject(value, context) {
@@ -123,7 +123,26 @@ function validateInvoiceRenderRequestV1(payload) {
         assertNumber(item.totalPrice, `invoice request.items[${index}].totalPrice`);
     }
 }
-exports.CONTRACT_VALIDATORS = {
+function validateOrderCreateV1(payload) {
+    assertObject(payload, "order create payload");
+    assertNumber(payload.accountId, "order create payload.accountId");
+    assertString(payload.orderNumber, "order create payload.orderNumber", 64);
+    assertNumber(payload.subtotal, "order create payload.subtotal");
+    assertNumber(payload.total, "order create payload.total");
+    // Phase 6.2: these are now database-derived, so a negative or absurd total is a bug
+    // rather than something the caller is allowed to send. Catching it here means it
+    // cannot reach the orders table.
+    if (payload.subtotal < 0) {
+        throw new Error("order create payload.subtotal must not be negative");
+    }
+    if (payload.total < 0) {
+        throw new Error("order create payload.total must not be negative");
+    }
+    if (payload.total > 1_000_000) {
+        throw new Error("order create payload.total exceeds the maximum order value");
+    }
+}
+const CONTRACT_VALIDATORS = {
     go_ops_event_ingest_v1: validateGoOpsEventIngestV1,
     kotlin_quote_request_v1: validateKotlinQuoteRequestV1,
     kotlin_quote_response_v1: validateKotlinQuoteResponseV1,
@@ -132,9 +151,13 @@ exports.CONTRACT_VALIDATORS = {
     rust_verify_request_v1: validateRustVerifyRequestV1,
     rust_verify_response_v1: validateRustVerifyResponseV1,
     invoice_render_request_v1: validateInvoiceRenderRequestV1,
+    // Was missing. createOrder has always called this, and an unregistered name makes
+    // assertServiceContract throw, so every POST /api/orders returned 500. Checkout was
+    // dead before Phase 6 touched it.
+    order_create_v1: validateOrderCreateV1,
 };
 function assertServiceContract(contractName, payload) {
-    const validator = exports.CONTRACT_VALIDATORS[contractName];
+    const validator = CONTRACT_VALIDATORS[contractName];
     if (!validator) {
         throw new Error(`Unknown service contract: ${contractName}`);
     }

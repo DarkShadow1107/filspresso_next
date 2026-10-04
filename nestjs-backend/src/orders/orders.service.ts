@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -17,6 +18,83 @@ const TIER_THRESHOLDS = [
   { tier: "Ambassador", min: 7000 }, { tier: "Virtuoso", min: 4000 },
   { tier: "Master", min: 2000 }, { tier: "Expert", min: 750 }, { tier: "Connoisseur", min: 1 },
 ];
+/**
+ * The only currency the catalogue prices are in.
+ *
+ * Historic orders carry RON, CHF, PLN, CZK, DKK and TRY against the same unconverted
+ * numbers, so those totals were never actually converted. Rather than keep labelling a
+ * RON amount as a foreign currency, checkout refuses it until there is an FX table.
+ */
+const CATALOGUE_CURRENCY = "RON";
+
+/**
+ * Flat shipping rate, in RON.
+ *
+ * There is no server-side shipping table anywhere, and shipping used to come straight
+ * from the request body -- so a client could post any rate it liked, including zero.
+ * This must be set to the real carrier cost; it is configuration, not a fact about the
+ * system, which is why it is read from the environment rather than hardcoded.
+ */
+const SHIPPING_FLAT_RON = (() => {
+  const raw = Number.parseFloat(String(process.env.SHIPPING_FLAT_RON ?? "24.99"));
+  return Number.isFinite(raw) && raw >= 0 ? roundMoney(raw) : 24.99;
+})();
+
+/** Money is rounded to minor units at every step, never accumulated as a float. */
+function roundMoney(value: number): number {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Coerce a shipping/billing address into something the jsonb column accepts.
+ *
+ * Both columns are jsonb, but the value used to be passed straight through from the
+ * request as a string. A client that omitted the address therefore inserted `""`,
+ * which is not valid JSON, and the whole insert failed with "invalid input syntax for
+ * type json". A client that sent an object happened to work, which is why this went
+ * unnoticed.
+ *
+ * Accepts an object, or a string that parses to one. Anything else becomes NULL rather
+ * than an error, because a missing address is the client's problem to fix on the next
+ * attempt and should not be able to fail the entire order.
+ */
+function normalizeAddress(value: unknown): Record<string, unknown> | null {
+  if (value === undefined || value === null || value === "") return null;
+  const MAX_ADDRESS_BYTES = 8 * 1024;
+  let candidate: unknown = value;
+  if (typeof candidate === "string") {
+    if (candidate.length > MAX_ADDRESS_BYTES) return null;
+    const trimmed = candidate.trim();
+    if (!trimmed) return null;
+    try {
+      candidate = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  }
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  if (JSON.stringify(candidate).length > MAX_ADDRESS_BYTES) return null;
+  return candidate as Record<string, unknown>;
+}
+
+/**
+ * Best-effort product type, from the request.
+ *
+ * Only a label on the order line, and never used for pricing or stock -- those come
+ * from whichever catalogue table the product was found in. The catalogue's own
+ * `product_type` column holds values like "original", which is a different vocabulary
+ * from the "capsule"/"machine" this column has always stored, so guessing from the id
+ * is less wrong than trusting a client string.
+ */
+function productTypeFor(productId: string, items: Array<Record<string, unknown>>): string {
+  const match = items.find(
+    (i) => String(i["productId"] ?? i["product_id"] ?? "").trim() === productId,
+  );
+  const declared = String(match?.["productType"] ?? match?.["product_type"] ?? "").trim().toLowerCase();
+  if (declared) return declared;
+  return productId.startsWith("pack-") || productId.startsWith("forfait-") ? "machine" : "capsule";
+}
+
 const FREE_SHIPPING_TIERS = ["Master", "Virtuoso", "Ambassador"];
 
 function serializeBigInt(obj: unknown): unknown {
@@ -207,6 +285,42 @@ export class OrdersService {
     if (!Array.isArray(items) || items.length === 0) {
       throw new BadRequestException({ error: "items array is required" });
     }
+    // Phase 6.2: the request is now only a *wish list*. Product identity and quantity
+    // are the only things taken from it; price, stock, name and shipping all come from
+    // the database. Previously every one of those was read off the body, which made the
+    // checkout total whatever the client said it was.
+    const requested: Array<{ productId: string; quantity: number }> = [];
+    for (const item of items) {
+      const productId = String(item["productId"] ?? item["product_id"] ?? "").trim();
+      if (!productId || productId.length > 128) {
+        throw new BadRequestException({ error: "each item needs a productId" });
+      }
+      const quantity = Number(item["quantity"] ?? 1);
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+        throw new BadRequestException({
+          error: "quantity must be a whole number between 1 and 99",
+          productId,
+        });
+      }
+      requested.push({ productId, quantity });
+    }
+
+    // The catalogue holds a single unconverted price per product, so an order can only
+    // be totalled honestly in that currency. Orders in the table already carry RON, CHF,
+    // PLN, CZK, DKK and TRY against identical numbers, which means those totals were
+    // never converted. Refusing non-RON is deliberate: silently labelling a RON number
+    // "CHF" is the worse failure. Restoring multi-currency needs an FX table, which is
+    // a separate decision.
+    const requestedCurrency = String(body["currencyCode"] || body["currency_code"] || "RON")
+      .trim()
+      .toUpperCase();
+    if (requestedCurrency !== CATALOGUE_CURRENCY) {
+      throw new BadRequestException({
+        error: `unsupported currency ${requestedCurrency}`,
+        supported: [CATALOGUE_CURRENCY],
+      });
+    }
+
     const pool = this.db.getPool();
     const client = await pool.connect();
     try {
@@ -220,18 +334,116 @@ export class OrdersService {
       const discountPct = TIER_DISCOUNTS[tier] ?? 0;
       const freeShipping = FREE_SHIPPING_TIERS.includes(tier);
 
-      // Calculate subtotal from items
-      let subtotal = 0;
-      for (const item of items) {
-        const price = Number(item["unitPrice"] || item["unit_price"] || 0);
-        const qty = Number(item["quantity"] || 1);
-        subtotal += price * qty;
-      }
-      const discountAmount = Math.round(subtotal * (discountPct / 100) * 100) / 100;
-      const shippingCost = freeShipping ? 0 : Number(body["shippingCost"] || body["shipping_cost"] || 0);
-      const total = Math.max(0, subtotal - discountAmount + shippingCost);
+      // ---- Phase 6.2: authoritative prices, with the stock rows locked ----
+      //
+      // FOR UPDATE serialises concurrent checkouts for the same product, so two
+      // customers cannot both pass the stock check and drive it negative. Two queries
+      // rather than one UNION ALL because Postgres forbids FOR UPDATE on a UNION.
+      const productIds = requested.map((r) => r.productId);
+      const catalogue = new Map<string, { name: string; price: number; stock: number; image: string | null }>();
 
-      const orderNumber = `ORD-${Date.now()}`;
+      const coffeeRows = await client.query(
+        `SELECT product_id, name, price, stock FROM coffee_products
+          WHERE product_id = ANY($1::text[]) FOR UPDATE`,
+        [productIds],
+      );
+      for (const row of coffeeRows.rows as Array<Record<string, unknown>>) {
+        catalogue.set(String(row.product_id), {
+          name: String(row.name ?? ""),
+          price: Number(row.price),
+          stock: Number(row.stock ?? 0),
+          image: null,
+        });
+      }
+
+      const machineRows = await client.query(
+        `SELECT product_id, name, price, stock, image FROM machine_products
+          WHERE product_id = ANY($1::text[]) FOR UPDATE`,
+        [productIds],
+      );
+      for (const row of machineRows.rows as Array<Record<string, unknown>>) {
+        catalogue.set(String(row.product_id), {
+          name: String(row.name ?? ""),
+          price: Number(row.price),
+          stock: Number(row.stock ?? 0),
+          image: row.image ? String(row.image) : null,
+        });
+      }
+
+      // Images are only persisted when the catalogue itself holds a usable path, which
+      // today means machine_products. Capsule paths cannot be rebuilt from
+      // coffee_products: the public path needs a sub-collection segment ("Vertuo/Barista
+      // Creation") that the catalogue does not store, and popular_products_cache -- the
+      // only other source -- is off limits to the application role *and* covers 12 of 100
+      // products, so it is not a catalogue.
+      //
+      // Null is the correct answer rather than the client's string: Cart.tsx already
+      // resolves a missing image from product_id via getProductImageForId. Persisting a
+      // caller-supplied path instead would mean an order record could name an arbitrary
+      // path on the site. The real fix is an image_path column on coffee_products.
+
+      // ---- Price from the catalogue ----
+      let subtotal = 0;
+      const priced: Array<{
+        productId: string; name: string; image: string | null; quantity: number;
+        unitPrice: number; totalPrice: number; productType: string;
+      }> = [];
+
+      for (const { productId, quantity } of requested) {
+        const row = catalogue.get(productId);
+        if (!row) {
+          // Unknown product. Previously this created an order row with a client-supplied
+          // price for something that may not exist at all.
+          throw new ConflictException({
+            error: "PRODUCT_NOT_FOUND",
+            productId,
+            message: "One of the items is no longer available.",
+          });
+        }
+        if (!Number.isFinite(row.price) || row.price < 0) {
+          throw new ConflictException({
+            error: "PRODUCT_UNPRICED",
+            productId,
+            message: "One of the items has no valid price.",
+          });
+        }
+        if (row.stock < quantity) {
+          throw new ConflictException({
+            error: "INSUFFICIENT_STOCK",
+            productId,
+            available: row.stock,
+            message: row.stock === 0
+              ? "One of the items is out of stock."
+              : `Only ${row.stock} left of one of the items.`,
+          });
+        }
+        const totalPrice = roundMoney(row.price * quantity);
+        subtotal = roundMoney(subtotal + totalPrice);
+        priced.push({
+          productId,
+          name: row.name,
+          image: row.image,
+          quantity,
+          unitPrice: row.price,
+          totalPrice,
+          productType: productTypeFor(productId, items),
+        });
+      }
+
+      const discountAmount = roundMoney((subtotal * discountPct) / 100);
+      // Shipping was previously whatever the client posted. There is no server-side
+      // shipping table, so this is now an explicit configured rate -- see
+      // SHIPPING_FLAT_RON, which must match the real carrier cost.
+      const shippingCost = freeShipping ? 0 : SHIPPING_FLAT_RON;
+      const total = roundMoney(Math.max(0, subtotal - discountAmount + shippingCost));
+
+      // Phase 6.1: sequence-backed, so two checkouts in the same millisecond cannot
+      // collide. The UNIQUE constraint on orders.order_number remains the backstop.
+      const seqResult = await client.query(
+        "SELECT nextval('orders_order_number_seq')::bigint AS seq",
+      );
+      const seq = String(seqResult.rows[0]?.seq ?? "0").padStart(8, "0");
+      const orderNumber = `ORD-${seq}`;
       serviceContracts.assertServiceContract("order_create_v1", { accountId, orderNumber, subtotal, total });
 
       const orderResult = await client.query(
@@ -241,27 +453,61 @@ export class OrdersService {
         [
           accountId, orderNumber, subtotal, discountAmount, shippingCost, 0, total,
           body["paymentMethod"] || body["payment_method"] || "",
-          body["shippingAddress"] || body["shipping_address"] || "",
-          body["billingAddress"] || body["billing_address"] || "",
-          body["currencyCode"] || body["currency_code"] || "RON",
+          JSON.stringify(normalizeAddress(body["shippingAddress"] ?? body["shipping_address"])),
+          JSON.stringify(normalizeAddress(body["billingAddress"] ?? body["billing_address"])),
+          CATALOGUE_CURRENCY,
         ],
       );
       const order = orderResult.rows[0] as Record<string, unknown>;
 
-      for (const item of items) {
-        await client.query(
-          `INSERT INTO order_items (order_id, product_id, product_name, product_image, product_type, quantity, unit_price, total_price)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            order["id"], item["productId"] || item["product_id"],
-            item["productName"] || item["product_name"] || "",
-            item["productImage"] || item["product_image"] || null,
-            item["productType"] || item["product_type"] || "capsule",
-            Number(item["quantity"] || 1), Number(item["unitPrice"] || item["unit_price"] || 0),
-            Number(item["totalPrice"] || item["total_price"] || 0),
-          ],
+      // ---- Phase 6.3: one statement for all items, not one per item ----
+      //
+      // N awaited inserts was N round-trips on the same connection inside an open
+      // transaction. unnest() does it in one.
+      await client.query(
+        `INSERT INTO order_items
+           (order_id, product_id, product_name, product_image, product_type, quantity, unit_price, total_price)
+         SELECT $1, p.product_id, p.name, p.image, p.product_type, p.quantity, p.unit_price, p.total_price
+           FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::int[], $7::numeric[], $8::numeric[])
+                AS p(product_id, name, image, product_type, quantity, unit_price, total_price)`,
+        [
+          order["id"],
+          priced.map((p) => p.productId),
+          priced.map((p) => p.name),
+          priced.map((p) => p.image),
+          priced.map((p) => p.productType),
+          priced.map((p) => p.quantity),
+          priced.map((p) => p.unitPrice),
+          priced.map((p) => p.totalPrice),
+        ],
+      );
+
+      // ---- Decrement stock, now that the order exists ----
+      //
+      // Guarded on `stock >= quantity` as well as relying on the FOR UPDATE lock: the
+      // predicate means the row count is a real assertion rather than a formality.
+      for (const p of priced) {
+        const updated = await client.query(
+          `UPDATE coffee_products SET stock = stock - $1, updated_at = NOW()
+            WHERE product_id = $2 AND stock >= $1`,
+          [p.quantity, p.productId],
         );
+        if (Number(updated.rowCount) === 0) {
+          const fallback = await client.query(
+            `UPDATE machine_products SET stock = stock - $1, updated_at = NOW()
+              WHERE product_id = $2 AND stock >= $1`,
+            [p.quantity, p.productId],
+          );
+          if (Number(fallback.rowCount) === 0) {
+            throw new ConflictException({
+              error: "INSUFFICIENT_STOCK",
+              productId: p.productId,
+              message: "One of the items sold out while the order was being placed.",
+            });
+          }
+        }
       }
+
       await client.query("COMMIT");
       return { status: "success", order: serializeBigInt(order), orderNumber };
     } catch (e) { await client.query("ROLLBACK").catch(() => undefined); throw e; } finally { client.release(); }

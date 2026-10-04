@@ -546,6 +546,20 @@ during a rotation, and a `kid`-keyed cache would then keep verifying with the ol
 throw and must not poison the cache, distinct keys must not collide, and a token signed
 by an untrusted key must still be rejected.
 
+**Measured: 5.3 buys nothing measurable.** 300 authenticated `GET /api/auth/me` over one
+keep-alive connection, three runs each, with and without the cache:
+
+| | p50 | mean |
+|---|---|---|
+| without cache | 3.74–4.47 ms | 3.95–5.05 ms |
+| with cache | 3.53–4.15 ms | 3.74–4.40 ms |
+
+The spread within each variant is as large as the difference between them, so this is
+noise, not a win. Parsing an Ed25519 PEM is microseconds, and an authenticated request is
+dominated by HTTP, Redis and Postgres. The cache is kept because it is strictly less work
+and costs nothing, but it should not be cited as a performance improvement — the original
+framing of 5.3 as removing per-request overhead overstated it.
+
 Verified live: login succeeds, a wrong password is still rejected, `/api/auth/me`
 round-trips, 30 consecutive authenticated requests all return 200, and logout still
 revokes immediately.

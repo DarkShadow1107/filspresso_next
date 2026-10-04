@@ -133,7 +133,27 @@ function validateInvoiceRenderRequestV1(payload: any) {
   }
 }
 
-export const CONTRACT_VALIDATORS: Record<string, (payload: any) => void> = {
+export function validateOrderCreateV1(payload: any) {
+  assertObject(payload, "order create payload");
+  assertNumber(payload.accountId, "order create payload.accountId");
+  assertString(payload.orderNumber, "order create payload.orderNumber", 64);
+  assertNumber(payload.subtotal, "order create payload.subtotal");
+  assertNumber(payload.total, "order create payload.total");
+  // Phase 6.2: these are now database-derived, so a negative or absurd total is a bug
+  // rather than something the caller is allowed to send. Catching it here means it
+  // cannot reach the orders table.
+  if (payload.subtotal < 0) {
+    throw new Error("order create payload.subtotal must not be negative");
+  }
+  if (payload.total < 0) {
+    throw new Error("order create payload.total must not be negative");
+  }
+  if (payload.total > 1_000_000) {
+    throw new Error("order create payload.total exceeds the maximum order value");
+  }
+}
+
+const CONTRACT_VALIDATORS: Record<string, (payload: any) => void> = {
   go_ops_event_ingest_v1: validateGoOpsEventIngestV1,
   kotlin_quote_request_v1: validateKotlinQuoteRequestV1,
   kotlin_quote_response_v1: validateKotlinQuoteResponseV1,
@@ -142,6 +162,10 @@ export const CONTRACT_VALIDATORS: Record<string, (payload: any) => void> = {
   rust_verify_request_v1: validateRustVerifyRequestV1,
   rust_verify_response_v1: validateRustVerifyResponseV1,
   invoice_render_request_v1: validateInvoiceRenderRequestV1,
+  // Was missing. createOrder has always called this, and an unregistered name makes
+  // assertServiceContract throw, so every POST /api/orders returned 500. Checkout was
+  // dead before Phase 6 touched it.
+  order_create_v1: validateOrderCreateV1,
 };
 
 export function assertServiceContract(contractName: string, payload: any) {
