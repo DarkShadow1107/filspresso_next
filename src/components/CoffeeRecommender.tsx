@@ -50,14 +50,15 @@ import {
 	allowedVisionModelsForTier,
 	tierCanUseThinkingModel,
 	TEXT_MODEL_230M,
-	TEXT_MODEL_1_2B_INSTRUCT,
 	TEXT_MODEL_1_2B_THINKING,
 	TEXT_MODEL_8B,
 	VISION_MODEL_450M,
-	type ModelKey,
 	type TextModelKey,
 	type VisionModelKey,
 } from "@/lib/modelAccess";
+import { useModelLoadStatus } from "@/hooks/useModelLoadStatus";
+import { tierCanEditPrompt } from "@/lib/entitlements";
+import ModelLoadingBar from "./playground/ModelLoadingBar";
 
 // Parse **bold** and *italic* markdown in chat messages
 function formatMarkdown(text: string): React.ReactNode[] {
@@ -654,6 +655,13 @@ export default React.memo(function CoffeeRecommender() {
 	});
 	const [chatMode, setChatMode] = useState<"coffee" | "general">("coffee");
 	const [selectedModel, setSelectedModel] = useState<TextModelKey>(TEXT_MODEL_230M);
+	// Only one chat model is resident at a time, so switching model means a swap.
+	// Track it so the composer can show determinate progress for every model, not
+	// just the Playground.
+	const modelLoad = useModelLoadStatus(selectedModel);
+	// Stable binding for the send path's dependency list; `modelLoad` itself is a new
+	// object on every render.
+	const { waitUntilLoaded } = modelLoad;
 	const [selectedVisionModel, setSelectedVisionModel] = useState<VisionModelKey>(VISION_MODEL_450M);
 	const [chemistryMode, setChemistryMode] = useState(false);
 	const [thinkingEnabledByHelper, setThinkingEnabledByHelper] = useState<Record<HelperMode, boolean>>({
@@ -1083,7 +1091,6 @@ export default React.memo(function CoffeeRecommender() {
 
 	useEffect(() => {
 		if (typeof window === "undefined") return;
-		const accountSession = readAccountSession();
 		const scope: PromptScope = chemistryMode ? "molecule_helper" : "general";
 		fetchPromptStatus(scope, true);
 		const hasMoleculeHelperAccess = allowedVisionModelsForTier(userSubscription).length > 0;
@@ -1816,6 +1823,19 @@ export default React.memo(function CoffeeRecommender() {
 				});
 			}
 
+			// Only one chat model is resident at a time, so a swap may be pending. Wait it
+			// out here rather than letting the gateway answer 429 after
+			// AI_QUEUE_WAIT_SECONDS; the progress bar beside the model chips is what the
+			// user is watching, so gating the request on it is the point of option (b).
+			if (!(await waitUntilLoaded())) {
+				const loadFailedMsg: Message = {
+					role: "assistant",
+					content: `${selectedTextModelLabel} could not be loaded in time. Please try again in a moment.`,
+				};
+				setChatMessages((m) => [...m, loadFailedMsg]);
+				return;
+			}
+
 			const response = await fetch(endpoint, {
 				method: "POST",
 				headers: fetchHeaders,
@@ -2103,6 +2123,7 @@ export default React.memo(function CoffeeRecommender() {
 		fetchMoleculeData,
 		isTyping,
 		notify,
+		waitUntilLoaded,
 	]);
 
 	const handleVisionFileSelection = useCallback(
@@ -2637,6 +2658,7 @@ export default React.memo(function CoffeeRecommender() {
 													<LockIcon size={12} /> Vision locked on Free tier
 												</span>
 											)}
+											<ModelLoadingBar modelKey={selectedModel} state={modelLoad} compact />
 										</div>
 										<p
 											style={{
@@ -2942,7 +2964,7 @@ export default React.memo(function CoffeeRecommender() {
 											<>
 												<div className="chat-bubble-row">
 													{msg.role === "user" &&
-														(userSubscription === "max" || userSubscription === "ultimate") && (
+														tierCanEditPrompt(userSubscription) && (
 															<button
 																className="chat-msg-edit-btn"
 																onClick={() => {
