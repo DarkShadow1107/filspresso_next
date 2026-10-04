@@ -160,6 +160,39 @@ function isUniqueViolation(error, constraint) {
     return name === constraint;
 }
 /**
+ * Absolute origin the invoice renderer uses to resolve site-relative image paths.
+ *
+ * The renderer is a separate service and cannot fetch `/images/...`. Falls back to empty
+ * rather than guessing a host: a wrong absolute URL would render a broken image, whereas
+ * an empty one lets the renderer omit the image and still produce a valid invoice.
+ */
+function resolveAssetBaseUrl() {
+    const raw = String(process.env.INVOICE_ASSET_BASE_URL ?? process.env.FRONTEND_ORIGIN ?? "").trim();
+    if (!raw)
+        return "";
+    return raw.replace(/\/+$/, "");
+}
+/**
+ * Normalise a catalogue image path for storage on an order line.
+ *
+ * Everything is stored site-rooted and same-origin. An absolute URL would make an order
+ * record -- and any invoice rendered from it -- point at whatever host a catalogue row
+ * happened to name, so anything with a scheme or a leading `//` is dropped rather than
+ * sanitised into something that looks trusted.
+ */
+function normalizeImagePath(value) {
+    if (typeof value !== "string")
+        return null;
+    let path = value.trim().replace(/\\/g, "/");
+    if (!path || path.length > 512)
+        return null;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith("//"))
+        return null;
+    if (!path.startsWith("/"))
+        path = `/${path}`;
+    return path.includes("..") ? null : path;
+}
+/**
  * Normalise an `Idempotency-Key` header into something safe to store and compare.
  *
  * Returns null for an absent key, and for a present-but-unusable one -- the caller
@@ -502,14 +535,14 @@ let OrdersService = OrdersService_1 = class OrdersService {
             // rather than one UNION ALL because Postgres forbids FOR UPDATE on a UNION.
             const productIds = requested.map((r) => r.productId);
             const catalogue = new Map();
-            const coffeeRows = await client.query(`SELECT product_id, name, price, stock FROM coffee_products
+            const coffeeRows = await client.query(`SELECT product_id, name, price, stock, image_path FROM coffee_products
           WHERE product_id = ANY($1::text[]) FOR UPDATE`, [productIds]);
             for (const row of coffeeRows.rows) {
                 catalogue.set(String(row.product_id), {
                     name: String(row.name ?? ""),
                     price: Number(row.price),
                     stock: Number(row.stock ?? 0),
-                    image: null,
+                    image: normalizeImagePath(row.image_path),
                 });
             }
             const machineRows = await client.query(`SELECT product_id, name, price, stock, image FROM machine_products
@@ -519,7 +552,7 @@ let OrdersService = OrdersService_1 = class OrdersService {
                     name: String(row.name ?? ""),
                     price: Number(row.price),
                     stock: Number(row.stock ?? 0),
-                    image: row.image ? String(row.image) : null,
+                    image: normalizeImagePath(row.image),
                 });
             }
             // Images are only persisted when the catalogue itself holds a usable path, which
@@ -733,6 +766,50 @@ let OrdersService = OrdersService_1 = class OrdersService {
             if (this.invoiceRequireServiceAssertion && !serviceAssertion) {
                 throw new common_1.ServiceUnavailableException({ error: "Invoice service assertion required but unavailable" });
             }
+            // The line items were never sent. `validateInvoiceRenderRequestV1` requires
+            // `items`, so the renderer has been producing an invoice with no products on it,
+            // and the contract was never called so nothing noticed. The image is the
+            // catalogue path relative to `assetBaseUrl`, because a renderer cannot fetch a
+            // site-relative path.
+            const itemsResult = await client.query(`SELECT product_name, product_image, quantity, unit_price, total_price
+           FROM order_items WHERE order_id = $1 ORDER BY id`, [orderId]);
+            const assetBaseUrl = resolveAssetBaseUrl();
+            const invoiceItems = itemsResult.rows.map((row) => ({
+                name: String(row.product_name ?? ""),
+                quantity: Number(row.quantity ?? 0),
+                unitPrice: Number(row.unit_price ?? 0),
+                totalPrice: Number(row.total_price ?? 0),
+                ...(normalizeImagePath(row.product_image)
+                    ? {
+                        image: normalizeImagePath(row.product_image),
+                        imageUrl: `${assetBaseUrl}${normalizeImagePath(row.product_image)}`,
+                    }
+                    : {}),
+            }));
+            // What the customer was charged, in their currency. An invoice that shows the RON
+            // figures for a CHF order is a receipt for a different transaction.
+            const invoicePayload = {
+                invoiceNumber: `INV-${order["order_number"]}`,
+                orderNumber: order["order_number"],
+                generatedAt: new Date().toISOString(),
+                items: invoiceItems,
+                currencyCode: String(order["currency_code"] ?? "RON"),
+                subtotal: Number(order["subtotal"] ?? 0),
+                discountAmount: Number(order["discount_amount"] ?? 0),
+                shippingCost: Number(order["shipping_cost"] ?? 0),
+                tax: Number(order["tax"] ?? 0),
+                total: Number(order["total"] ?? 0),
+                exchangeRate: Number(order["exchange_rate"] ?? 1),
+                conversionFeePercent: Number(order["conversion_fee_percent"] ?? 0),
+                chargedSubtotal: Number(order["charged_subtotal"] ?? 0),
+                chargedShippingCost: Number(order["charged_shipping_cost"] ?? 0),
+                chargedTax: Number(order["charged_tax"] ?? 0),
+                chargedTotal: Number(order["charged_total"] ?? 0),
+                assetBaseUrl,
+            };
+            // Asserted, so a future change that drops `items` again fails here rather than
+            // shipping a blank invoice to a customer.
+            serviceContracts.assertServiceContract("invoice_render_request_v1", invoicePayload);
             const headers = {
                 "Content-Type": "application/json", Accept: "application/pdf",
                 "x-service-name": "filspresso-backend",
@@ -745,7 +822,7 @@ let OrdersService = OrdersService_1 = class OrdersService {
                 const response = await fetch(`${this.invoiceServiceUrl}/api/invoices/render`, {
                     method: "POST",
                     headers,
-                    body: JSON.stringify({ invoiceNumber: `INV-${order["order_number"]}`, orderNumber: order["order_number"], generatedAt: new Date().toISOString() }),
+                    body: JSON.stringify(invoicePayload),
                     signal: controller.signal,
                 });
                 if (!response.ok)

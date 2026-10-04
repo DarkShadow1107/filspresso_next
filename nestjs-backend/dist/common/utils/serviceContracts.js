@@ -121,6 +121,26 @@ function validateInvoiceRenderRequestV1(payload) {
         assertNumber(item.quantity, `invoice request.items[${index}].quantity`);
         assertNumber(item.unitPrice, `invoice request.items[${index}].unitPrice`);
         assertNumber(item.totalPrice, `invoice request.items[${index}].totalPrice`);
+        // Images are optional (a machine line may have none), but when present they must be
+        // same-origin and relative. An absolute URL here would make the renderer fetch an
+        // arbitrary host on our behalf.
+        if (item.image !== undefined) {
+            assertString(item.image, `invoice request.items[${index}].image`, 512);
+            if (/^[a-z][a-z0-9+.-]*:/i.test(item.image) || item.image.startsWith("//")) {
+                throw new Error(`invoice request.items[${index}].image must be a site-relative path`);
+            }
+            if (item.image.includes("..")) {
+                throw new Error(`invoice request.items[${index}].image must not traverse`);
+            }
+        }
+    }
+    // An invoice that quotes the RON figures for a foreign-currency order is a receipt for
+    // a different transaction, so the charged figures are part of the contract now.
+    assertString(payload.currencyCode, "invoice request.currencyCode", 3);
+    assertNumber(payload.chargedTotal, "invoice request.chargedTotal");
+    assertNumber(payload.total, "invoice request.total");
+    if (payload.chargedTotal < 0 || payload.total < 0) {
+        throw new Error("invoice request amounts must not be negative");
     }
 }
 function validateOrderCreateV1(payload) {
