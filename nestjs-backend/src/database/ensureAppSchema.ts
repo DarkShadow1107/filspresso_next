@@ -314,6 +314,78 @@ export async function ensureAppSchema(pool: Pool) {
     await client.query(`DROP INDEX IF EXISTS idx_accounts_apple_sub`);
     await client.query(`ALTER TABLE accounts DROP COLUMN IF EXISTS apple_sub`);
 
+    // ---------------------------------------------------------------------
+    // Chat sessions and messages.
+    //
+    // These are declared in `data/schema.sql`, which only runs when Postgres
+    // initialises an *empty* data directory. A volume created before these tables
+    // existed therefore never gets them, and `chat.service.ts` queries columns
+    // (`is_active`, `message_count`) that would be missing. Mirroring the
+    // definition here makes the tables and every column they are read for
+    // self-healing on boot, the same way the rest of this file works.
+    //
+    // `category` and `metadata` are additions for the move away from the global
+    // `src/data/chat_history.json` blob:
+    //   - `category` preserves the coffee/chemistry/general split the Kafelot
+    //     stats panel counts. `model_type` alone cannot express it (it only has
+    //     tanka_semantic / tanka_chemistry).
+    //   - `metadata` carries the per-message extras the UI renders but SQL has no
+    //     column for: attached products, image data, the model that answered, and
+    //     the molecule view. Encoding them into `content` would corrupt the text.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        session_uuid VARCHAR(36) NOT NULL UNIQUE,
+        title VARCHAR(255) DEFAULT 'New Chat',
+        model_type VARCHAR(20) NOT NULL DEFAULT 'tanka_semantic',
+        category VARCHAR(20) NOT NULL DEFAULT 'general',
+        ai_enabled BOOLEAN DEFAULT TRUE,
+        is_active BOOLEAN DEFAULT TRUE,
+        message_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        role VARCHAR(20) NOT NULL,
+        content TEXT NOT NULL,
+        metadata JSONB,
+        tokens_used INTEGER DEFAULT 0,
+        response_time_ms INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Columns added after the tables shipped. Ordered nullable-first, backfilled,
+    // then tightened -- the sequence used for the usage_scope migration above.
+    await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS is_active BOOLEAN`);
+    await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS message_count INTEGER`);
+    await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS category VARCHAR(20)`);
+    await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP`);
+    await client.query(`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS metadata JSONB`);
+
+    await client.query(`UPDATE chat_sessions SET is_active = TRUE WHERE is_active IS NULL`);
+    await client.query(`UPDATE chat_sessions SET message_count = 0 WHERE message_count IS NULL`);
+    await client.query(`UPDATE chat_sessions SET category = 'general' WHERE category IS NULL OR category = ''`);
+    await client.query(`UPDATE chat_sessions SET updated_at = COALESCE(updated_at, created_at, NOW()) WHERE updated_at IS NULL`);
+
+    await client.query(`ALTER TABLE chat_sessions ALTER COLUMN is_active SET DEFAULT TRUE`);
+    await client.query(`ALTER TABLE chat_sessions ALTER COLUMN is_active SET NOT NULL`);
+    await client.query(`ALTER TABLE chat_sessions ALTER COLUMN message_count SET DEFAULT 0`);
+    await client.query(`ALTER TABLE chat_sessions ALTER COLUMN message_count SET NOT NULL`);
+    await client.query(`ALTER TABLE chat_sessions ALTER COLUMN category SET DEFAULT 'general'`);
+    await client.query(`ALTER TABLE chat_sessions ALTER COLUMN category SET NOT NULL`);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_account ON chat_sessions(account_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_uuid ON chat_sessions(session_uuid)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_account_active ON chat_sessions(account_id, is_active)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at)`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS admin_mfa_challenges (
         id BIGSERIAL PRIMARY KEY,
