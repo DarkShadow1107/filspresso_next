@@ -56,7 +56,8 @@ let SecurityObservabilityController = class SecurityObservabilityController {
     }
     async verifyServiceLedger(req, chainScopeQuery, maxRowsQuery, res) {
         const chainScope = String(chainScopeQuery || "service-health").trim() || "service-health";
-        const maxRows = parseBoundedInt(maxRowsQuery, 10000, 1, 100000);
+        // Phase 8.4: was (10000, 1, 100000) -- see securityLedger.ts.
+        const maxRows = parseBoundedInt(maxRowsQuery, 5000, 1, 5000);
         const result = await this.securityObservabilityService.verifySecurityLedger(chainScope, maxRows, req.requestId);
         res.status(result.statusCode).json(result.payload);
     }

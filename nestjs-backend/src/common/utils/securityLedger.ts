@@ -133,7 +133,12 @@ export async function appendSecurityLedgerEvent(client: any, event: any) {
 
 export async function verifySecurityLedgerChain(client: any, options: any = {}) {
   const chainScope = normalizeText(options.chainScope, 64, "global");
-  const maxRows = Math.min(Math.max(Number.parseInt(options.maxRows || "10000", 10) || 10000, 1), 100000);
+  // Phase 8.4: the ceiling was 100 000 rows. Verification then walks the result and
+  // runs a SHA3-256 per row, synchronously, while holding a pooled connection -- so a
+  // single request could occupy the event loop and a connection for seconds. 5 000 is
+  // still far more than a verification window should need, and the caller now
+  // reports truncation rather than silently returning a partial answer.
+  const maxRows = Math.min(Math.max(Number.parseInt(options.maxRows || "5000", 10) || 5000, 1), 5000);
 
   const result = await client.query(
     `SELECT id, chain_scope, event_type, service_name, actor_type, actor_id, correlation_id, prev_hash, event_hash,

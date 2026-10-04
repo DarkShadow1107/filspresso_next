@@ -23,6 +23,78 @@ function normalizeKeyId(value: string) {
   return keyId || "k1";
 }
 
+/**
+ * Derived key cache.
+ *
+ * Phase 8.3. `hkdfSync` is a synchronous key derivation, so it occupies the event loop
+ * for its duration on every call. Moving it to the async form would change this
+ * function's signature and ripple through every caller; memoising is cheaper and lower
+ * risk, because the derivation is a pure function of (rawKey, keyId).
+ *
+ * Bounded because the inputs are caller-supplied, so an unbounded map would be a
+ * memory leak with a remote trigger. Eviction is oldest-first, which is approximate
+ * but adequate for a working set this small.
+ *
+ * The cache key is a hash over the key material, the salt and the info, so the secret
+ * itself is never retained in a long-lived structure.
+ */
+const DERIVED_KEY_CACHE_LIMIT = 256;
+const derivedKeyCache = new Map<string, Buffer>();
+
+function deriveAeadKey(rawKey: string, keyId: string): Buffer {
+  const ikm = decodeRootKeyMaterial(rawKey);
+  if (ikm.length < 16) {
+    throw new Error("ENCRYPTION_KEY must provide at least 128 bits of entropy");
+  }
+
+  const salt = crypto.createHash("sha3-256").update(`${ENCRYPTION_CONTEXT}|salt|${keyId}`).digest();
+  const info = Buffer.from(`${ENCRYPTION_CONTEXT}|${ENCRYPTION_VERSION}|${ENCRYPTION_ALGORITHM}|${keyId}`, "utf8");
+
+  // The key material MUST be part of the fingerprint. salt and info are derived from
+  // ENCRYPTION_CONTEXT and keyId only, so two different keys under the same key id
+  // produce identical salt and info -- keying on those alone hands one key's derived
+  // secret to the other, which fails open into using the wrong encryption key.
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(Buffer.concat([ikm, salt, info]))
+    .digest("hex");
+  const cached = derivedKeyCache.get(fingerprint);
+  if (cached) return cached;
+
+  let derived: Buffer;
+  try {
+    derived = Buffer.from(crypto.hkdfSync("sha3-256", ikm, salt, info, 32));
+  } catch {
+    // sha3-256 is unavailable on some OpenSSL builds. The fallback must stay
+    // deterministic because the result is persisted, which is also why memoising is
+    // safe here: the same inputs must always give the same key.
+    derived = Buffer.from(crypto.hkdfSync("sha256", ikm, salt, info, 32));
+  }
+
+  if (derivedKeyCache.size >= DERIVED_KEY_CACHE_LIMIT) {
+    const oldest = derivedKeyCache.keys().next().value;
+    if (oldest !== undefined) derivedKeyCache.delete(oldest);
+  }
+  derivedKeyCache.set(fingerprint, derived);
+  return derived;
+}
+
+/**
+ * Test hook: derive a key without touching module state.
+ *
+ * Exposed so a test can assert the cache is transparent -- that a cached derivation
+ * equals a cold one -- which is the property that matters, since a mismatch would make
+ * every already-encrypted row undecryptable.
+ */
+export function deriveAeadKeyForTest(rawKey: string, keyId: string): Buffer {
+  return deriveAeadKey(rawKey, keyId);
+}
+
+/** Drop every cached derived key. Test-only; key rotation changes the inputs, not this. */
+export function clearDerivedKeyCache(): void {
+  derivedKeyCache.clear();
+}
+
 function decodeRootKeyMaterial(rawKey: string) {
   const candidate = String(rawKey || "").trim();
   if (!candidate) {
@@ -53,21 +125,6 @@ function decodeRootKeyMaterial(rawKey: string) {
   return Buffer.from(candidate, "utf8");
 }
 
-function deriveAeadKey(rawKey: string, keyId: string) {
-  const ikm = decodeRootKeyMaterial(rawKey);
-  if (ikm.length < 16) {
-    throw new Error("ENCRYPTION_KEY must provide at least 128 bits of entropy");
-  }
-
-  const salt = crypto.createHash("sha3-256").update(`${ENCRYPTION_CONTEXT}|salt|${keyId}`).digest();
-  const info = Buffer.from(`${ENCRYPTION_CONTEXT}|${ENCRYPTION_VERSION}|${ENCRYPTION_ALGORITHM}|${keyId}`, "utf8");
-
-  try {
-    return Buffer.from(crypto.hkdfSync("sha3-256", ikm, salt, info, 32));
-  } catch {
-    return Buffer.from(crypto.hkdfSync("sha256", ikm, salt, info, 32));
-  }
-}
 
 function toBase64Url(value: Buffer) {
   return Buffer.from(value).toString("base64url");

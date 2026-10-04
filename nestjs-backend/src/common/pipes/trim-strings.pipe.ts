@@ -1,25 +1,68 @@
 import { Injectable, PipeTransform } from "@nestjs/common";
 
-function trimDeep(value: unknown): unknown {
+/**
+ * Recursively trim every string in a payload.
+ *
+ * Phase 8.2. The previous version rebuilt every object and array with
+ * `Object.fromEntries`/`map`, which meant a request body was allocated a second and
+ * third time over: once by `JSON.parse`, once by `Object.entries`, once by
+ * `fromEntries`. On the routes that use this pipe it was the second-largest CPU cost
+ * after parsing itself.
+ *
+ * Two changes:
+ *
+ *  - Objects and arrays are walked in place. Nothing is reallocated, so a body with
+ *    nothing to trim costs no garbage at all.
+ *  - A subtree that contains no strings needing a trim is left completely alone.
+ *    `changed` propagates upward so an untouched branch of a large body is not
+ *    rewritten key by key.
+ *
+ * A depth cap stops a deeply nested or cyclic payload from recursing without bound.
+ * Nest's own `ValidationPipe` is not a defence here: this pipe runs on routes that do
+ * not use it, and a body can be arbitrarily nested.
+ */
+const MAX_TRIM_DEPTH = 64;
+
+/** Returns the trimmed value, and whether anything actually changed. */
+function trimDeep(value: unknown, depth = 0): { value: unknown; changed: boolean } {
 	if (typeof value === "string") {
-		return value.trim();
+		const trimmed = value.trim();
+		return trimmed === value ? { value, changed: false } : { value: trimmed, changed: true };
 	}
 
+	if (depth >= MAX_TRIM_DEPTH) return { value, changed: false };
+
 	if (Array.isArray(value)) {
-		return value.map((entry) => trimDeep(entry));
+		let changed = false;
+		for (let i = 0; i < value.length; i += 1) {
+			const result = trimDeep(value[i], depth + 1);
+			if (result.changed) {
+				value[i] = result.value;
+				changed = true;
+			}
+		}
+		return { value, changed };
 	}
 
 	if (value && typeof value === "object") {
-		const entries = Object.entries(value as Record<string, unknown>).map(([key, innerValue]) => [key, trimDeep(innerValue)]);
-		return Object.fromEntries(entries);
+		const record = value as Record<string, unknown>;
+		let changed = false;
+		for (const key of Object.keys(record)) {
+			const result = trimDeep(record[key], depth + 1);
+			if (result.changed) {
+				record[key] = result.value;
+				changed = true;
+			}
+		}
+		return { value: record, changed };
 	}
 
-	return value;
+	return { value, changed: false };
 }
 
 @Injectable()
 export class TrimStringsPipe implements PipeTransform {
 	transform(value: unknown): unknown {
-		return trimDeep(value);
+		return trimDeep(value).value;
 	}
 }

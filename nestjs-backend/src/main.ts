@@ -95,8 +95,40 @@ async function bootstrap(): Promise<void> {
 
 	
 
-	app.use(json({ limit: "10mb", strict: true }));
-	app.use(urlencoded({ extended: true }));
+	//
+	// Phase 8.1: was 10 MB for every route. Nothing in this service legitimately needs
+	// that -- there is no multipart upload (that bypasses this parser entirely) and no
+	// route posts an inline image blob -- so a 10 MB ceiling only meant a single
+	// oversized request could allocate 10 MB before being rejected. One MB is generous
+	// for the JSON this API actually exchanges.
+	//
+	// The one exception is the bulk event ingest, which takes an array and therefore
+	// scales with the batch size; it gets its own limit below.
+	// Registered first so it wins for that path; the global parsers below are no-ops
+	// once a body has already been parsed.
+	/**
+ * Global JSON body ceiling.
+ *
+ * Configurable because the right value depends on the largest legitimate payload, and
+ * guessing wrong in either direction is bad: too low rejects a valid request, too high
+ * lets one request allocate the memory.
+ */
+const MAX_JSON_BODY_BYTES = (() => {
+	const parsed = Number.parseInt(String(process.env.MAX_JSON_BODY_BYTES ?? ""), 10);
+	return Number.isFinite(parsed) && parsed >= 1024 ? Math.min(parsed, 50 * 1024 * 1024) : 1024 * 1024;
+})();
+
+/** Ceiling for the bulk event ingest, which scales with the batch size. */
+const BULK_JSON_BODY_BYTES = (() => {
+	const parsed = Number.parseInt(String(process.env.BULK_JSON_BODY_BYTES ?? ""), 10);
+	return Number.isFinite(parsed) && parsed >= 1024 ? Math.min(parsed, 50 * 1024 * 1024) : 4 * 1024 * 1024;
+})();
+
+// Registered first so it wins for that path; the global parser below is then a no-op
+// for it, because a body can only be parsed once.
+app.use("/api/health/services/events/bulk", json({ limit: `${BULK_JSON_BODY_BYTES}b`, strict: true }));
+app.use(json({ limit: `${MAX_JSON_BODY_BYTES}b`, strict: true }));
+	app.use(urlencoded({ extended: true, limit: `${MAX_JSON_BODY_BYTES}b` }));
 	app.use(compression({ level: 6, threshold: 1024 }));
 	app.use(originGuardMiddleware);
 

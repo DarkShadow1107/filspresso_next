@@ -1,4 +1,4 @@
-import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import type { Pool, PoolClient } from "pg";
@@ -43,6 +43,20 @@ function parseBoundedInt(value: string | undefined, fallback: number, min: numbe
 function readTrimmedString(value: unknown): string {
 	return typeof value === "string" ? value.trim() : "";
 }
+
+/**
+ * Cap on a single bulk event ingest.
+ *
+ * Phase 8.5. Each event costs a batched incident insert plus a ledger append, and a
+ * ledger append is a hash chained onto the previous one, so the work is inherently
+ * serial and grows linearly with the batch. Without a ceiling a single request could
+ * hold a pooled connection for minutes. Configurable because the right value depends
+ * on how the caller batches; the body limit already bounds the array indirectly.
+ */
+const MAX_BULK_SERVICE_EVENTS = (() => {
+	const parsed = Number.parseInt(String(process.env.MAX_BULK_SERVICE_EVENTS ?? ""), 10);
+	return Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, 5000) : 500;
+})();
 
 @Injectable()
 export class SecurityObservabilityService {
@@ -527,12 +541,25 @@ export class SecurityObservabilityService {
 			return { inserted: 0, requestId };
 		}
 
+		// Phase 8.5: the array was unbounded and every event cost several serial queries
+		// inside one transaction, so a large batch held a pooled connection for a long
+		// time and the request could run for minutes. Capped rather than silently
+		// truncated without telling the caller, and the caller is told how many arrived.
+		if (events.length > MAX_BULK_SERVICE_EVENTS) {
+			throw new BadRequestException({
+				error: "too many events in one batch",
+				received: events.length,
+				maximum: MAX_BULK_SERVICE_EVENTS,
+			});
+		}
+
 		let client: PoolClient | undefined;
 		try {
 			client = await this.pool.connect();
 			await client.query("BEGIN");
 
 			let inserted = 0;
+			const pending: Array<{ serviceKey: string; serviceName: string; status: string; reason: string | null; occurredAt: string; source: string }> = [];
 			for (const event of events) {
 				const serviceKey = readTrimmedString(event.service_key);
 				const serviceName = readTrimmedString(event.service_name);
@@ -553,11 +580,9 @@ export class SecurityObservabilityService {
 					continue;
 				}
 
-				await client.query(
-					`INSERT INTO service_health_incidents (service_key, service_name, status, reason, occurred_at, source)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-					[serviceKey, serviceName, status, reason, occurredAt.toISOString(), source],
-				);
+				// Collected and written as one statement below, rather than one INSERT
+				// per event inside the transaction.
+				pending.push({ serviceKey, serviceName, status, reason, occurredAt: occurredAt.toISOString(), source });
 
 				await this.appendSecurityLedgerEvent(client, {
 					chainScope: "service-health",
@@ -578,6 +603,26 @@ export class SecurityObservabilityService {
 				});
 
 				inserted += 1;
+			}
+
+			// One statement for the whole batch. The ledger appends above stay serial
+			// because each one hashes the previous event's hash, so they are a chain by
+			// construction and cannot be reordered or parallelised.
+			if (pending.length > 0) {
+				await client.query(
+					`INSERT INTO service_health_incidents (service_key, service_name, status, reason, occurred_at, source)
+					 SELECT p.service_key, p.service_name, p.status, p.reason, p.occurred_at, p.source
+					 FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::timestamptz[], $6::text[])
+						AS p(service_key, service_name, status, reason, occurred_at, source)`,
+					[
+						pending.map((r) => r.serviceKey),
+						pending.map((r) => r.serviceName),
+						pending.map((r) => r.status),
+						pending.map((r) => r.reason),
+						pending.map((r) => r.occurredAt),
+						pending.map((r) => r.source),
+					],
+				);
 			}
 
 			await client.query("COMMIT");

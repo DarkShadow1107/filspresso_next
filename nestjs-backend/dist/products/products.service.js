@@ -50,7 +50,8 @@ const path = __importStar(require("node:path"));
 const database_service_1 = require("../database/database.service");
 const VALID_IMAGE_EXTENSIONS = new Set(["png", "avif", "webp", "jpg", "jpeg"]);
 const PUBLIC_IMAGES_PATH = path.join(__dirname, "../../../../public/images");
-let ProductsService = ProductsService_1 = class ProductsService {
+let ProductsService = class ProductsService {
+    static { ProductsService_1 = this; }
     db;
     logger = new common_1.Logger(ProductsService_1.name);
     constructor(db) {
@@ -71,15 +72,69 @@ let ProductsService = ProductsService_1 = class ProductsService {
             return "Original";
         return fallback;
     }
+    /**
+     * `basename.ext` -> extension, for every file under the public images tree.
+     *
+     * Phase 8.6. `resolveImageExtension` used to call `fs.existsSync` up to six times per
+     * product row, so listing 100 capsules performed several hundred synchronous stat
+     * calls on the event loop. The set of filenames does not change while the process is
+     * running, so it is read once.
+     *
+     * Built lazily rather than in the constructor because the images directory may be a
+     * bind mount that is not populated yet at boot; a missing directory yields an empty
+     * set, and `resolveImageExtension` falls back to the preferred extension exactly as
+     * before.
+     */
+    static imageBasenames = null;
+    loadImageBasenames() {
+        if (ProductsService_1.imageBasenames)
+            return ProductsService_1.imageBasenames;
+        const found = new Set();
+        try {
+            for (const dir of fs.readdirSync(PUBLIC_IMAGES_PATH, { withFileTypes: true })) {
+                const walk = (current, depth) => {
+                    if (depth > 6)
+                        return;
+                    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+                        const full = path.join(current, entry.name);
+                        if (entry.isDirectory()) {
+                            walk(full, depth + 1);
+                        }
+                        else if (entry.isFile()) {
+                            const ext = path.extname(entry.name).replace(/^\./, "").toLowerCase();
+                            if (!ext || !VALID_IMAGE_EXTENSIONS.has(ext))
+                                continue;
+                            found.add(`${path.basename(entry.name, path.extname(entry.name))}.${ext}`);
+                        }
+                    }
+                };
+                const root = path.join(PUBLIC_IMAGES_PATH, dir.name);
+                if (dir.isDirectory())
+                    walk(root, 1);
+                else if (dir.isFile()) {
+                    const ext = path.extname(dir.name).replace(/^\./, "").toLowerCase();
+                    if (ext && VALID_IMAGE_EXTENSIONS.has(ext))
+                        found.add(dir.name);
+                }
+            }
+        }
+        catch {
+            // No images directory, or it is unreadable. An empty set makes every lookup fall
+            // through to the preferred extension, which is the pre-existing behaviour when a
+            // file is not found.
+        }
+        ProductsService_1.imageBasenames = found;
+        return found;
+    }
     resolveImageExtension(subPath, filename, preferredExt) {
         const preferred = (preferredExt || "").toLowerCase();
+        const available = this.loadImageBasenames();
         if (preferred && VALID_IMAGE_EXTENSIONS.has(preferred)) {
-            const fullPath = path.join(PUBLIC_IMAGES_PATH, subPath, `${filename}.${preferred}`);
-            if (fs.existsSync(fullPath))
+            if (available.has(`${filename}.${preferred}`))
                 return preferred;
         }
         for (const ext of ["avif", "webp", "png", "jpg", "jpeg"]) {
-            if (fs.existsSync(path.join(PUBLIC_IMAGES_PATH, subPath, `${filename}.${ext}`)))
+            if (available.has(`${filename}.${ext}`))
                 return ext;
         }
         return preferred && VALID_IMAGE_EXTENSIONS.has(preferred) ? preferred : "avif";
