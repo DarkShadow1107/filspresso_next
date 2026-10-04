@@ -1,4 +1,4 @@
-"""Browser E2E for the rebuilt SentinelForge workspace UI.
+"""Browser E2E for the rebuilt Spectre workspace UI.
 
 Run: python scripts/ui_e2e.py  (stack must be live on https://127.0.0.1:8080)
 """
@@ -45,7 +45,7 @@ def main() -> None:
 
         # Documents panel upload (txt) + memory search.
         page.click("button[aria-label='Files']")
-        payload = b"SentinelForge UI smoke memory paragraph with plenty of unique words."
+        payload = b"Spectre UI smoke memory paragraph with plenty of unique words."
         page.set_input_files("input[type=file]", {"name": "ui-note.txt", "mimeType": "text/plain", "buffer": payload})
         page.click("button:has-text('Ingest into memory')")
         page.wait_for_selector(".notice", timeout=60000)

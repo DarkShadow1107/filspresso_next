@@ -44,7 +44,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     op.execute(
         """
-        CREATE OR REPLACE FUNCTION public.sentinelforge_current_user_id()
+        CREATE OR REPLACE FUNCTION public.spectre_current_user_id()
         RETURNS uuid
         LANGUAGE sql
         VOLATILE
@@ -52,7 +52,7 @@ def upgrade() -> None:
             SELECT NULLIF(current_setting('app.user_id', true), '')::uuid
         $$;
 
-        CREATE OR REPLACE FUNCTION public.sentinelforge_current_organization_id()
+        CREATE OR REPLACE FUNCTION public.spectre_current_organization_id()
         RETURNS uuid
         LANGUAGE sql
         VOLATILE
@@ -73,8 +73,8 @@ def upgrade() -> None:
                 f"""
                 CREATE POLICY {table}_organization_scope ON {table}
                 FOR ALL
-                USING (organization_id = public.sentinelforge_current_organization_id())
-                WITH CHECK (organization_id = public.sentinelforge_current_organization_id());
+                USING (organization_id = public.spectre_current_organization_id())
+                WITH CHECK (organization_id = public.spectre_current_organization_id());
                 """,
             )
 
@@ -86,12 +86,12 @@ def upgrade() -> None:
             CREATE POLICY organizations_membership_read ON organizations
             FOR SELECT
             USING (
-                organizations.id = public.sentinelforge_current_organization_id()
+                organizations.id = public.spectre_current_organization_id()
                 OR EXISTS (
                         SELECT 1
                         FROM memberships
                         WHERE memberships.organization_id = organizations.id
-                            AND memberships.user_id = public.sentinelforge_current_user_id()
+                            AND memberships.user_id = public.spectre_current_user_id()
                 )
             );
             """,
@@ -102,7 +102,7 @@ def upgrade() -> None:
             """
             CREATE POLICY organizations_create ON organizations
             FOR INSERT
-            WITH CHECK (public.sentinelforge_current_user_id() IS NOT NULL);
+            WITH CHECK (public.spectre_current_user_id() IS NOT NULL);
             """,
         )
 
@@ -114,8 +114,8 @@ def upgrade() -> None:
             CREATE POLICY memberships_tenant_read ON memberships
             FOR SELECT
             USING (
-                user_id = public.sentinelforge_current_user_id()
-                OR organization_id = public.sentinelforge_current_organization_id()
+                user_id = public.spectre_current_user_id()
+                OR organization_id = public.spectre_current_organization_id()
             );
             """,
         )
@@ -125,8 +125,8 @@ def upgrade() -> None:
             """
             CREATE POLICY memberships_tenant_write ON memberships
             FOR ALL
-            USING (organization_id = public.sentinelforge_current_organization_id())
-            WITH CHECK (organization_id = public.sentinelforge_current_organization_id());
+            USING (organization_id = public.spectre_current_organization_id())
+            WITH CHECK (organization_id = public.spectre_current_organization_id());
             """,
         )
 
@@ -137,15 +137,15 @@ def upgrade() -> None:
             """
             CREATE POLICY research_runs_organization_scope ON research_runs
             FOR ALL
-            USING (organization_id = public.sentinelforge_current_organization_id())
+            USING (organization_id = public.spectre_current_organization_id())
             WITH CHECK (
-                organization_id = public.sentinelforge_current_organization_id()
+                organization_id = public.spectre_current_organization_id()
                 AND EXISTS (
                     SELECT 1
                     FROM research_cases
                     WHERE research_cases.id = research_runs.case_id
                         AND research_cases.organization_id =
-                            public.sentinelforge_current_organization_id()
+                            public.spectre_current_organization_id()
                 )
             );
             """,
@@ -164,7 +164,7 @@ def upgrade() -> None:
                     FROM research_runs
                     WHERE research_runs.id = agent_tasks.run_id
                         AND research_runs.organization_id =
-                            public.sentinelforge_current_organization_id()
+                            public.spectre_current_organization_id()
                 )
             )
             WITH CHECK (
@@ -173,7 +173,7 @@ def upgrade() -> None:
                     FROM research_runs
                     WHERE research_runs.id = agent_tasks.run_id
                         AND research_runs.organization_id =
-                            public.sentinelforge_current_organization_id()
+                            public.spectre_current_organization_id()
                 )
             );
             """,
@@ -191,7 +191,7 @@ def upgrade() -> None:
                     SELECT 1
                     FROM sources
                     WHERE sources.id = source_versions.source_id
-                        AND sources.organization_id = public.sentinelforge_current_organization_id()
+                        AND sources.organization_id = public.spectre_current_organization_id()
                 )
             )
             WITH CHECK (
@@ -199,7 +199,7 @@ def upgrade() -> None:
                     SELECT 1
                     FROM sources
                     WHERE sources.id = source_versions.source_id
-                        AND sources.organization_id = public.sentinelforge_current_organization_id()
+                        AND sources.organization_id = public.spectre_current_organization_id()
                 )
             );
             """,
@@ -212,15 +212,15 @@ def upgrade() -> None:
             """
             CREATE POLICY document_chunks_organization_scope ON document_chunks
             FOR ALL
-            USING (organization_id = public.sentinelforge_current_organization_id())
+            USING (organization_id = public.spectre_current_organization_id())
             WITH CHECK (
-                organization_id = public.sentinelforge_current_organization_id()
+                organization_id = public.spectre_current_organization_id()
                 AND EXISTS (
                     SELECT 1
                     FROM source_versions
                     JOIN sources ON sources.id = source_versions.source_id
                     WHERE source_versions.id = document_chunks.source_version_id
-                        AND sources.organization_id = public.sentinelforge_current_organization_id()
+                        AND sources.organization_id = public.spectre_current_organization_id()
                 )
             );
             """,
@@ -233,9 +233,9 @@ def upgrade() -> None:
             """
             CREATE POLICY artifacts_organization_scope ON artifacts
             FOR ALL
-            USING (organization_id = public.sentinelforge_current_organization_id())
+            USING (organization_id = public.spectre_current_organization_id())
             WITH CHECK (
-                organization_id = public.sentinelforge_current_organization_id()
+                organization_id = public.spectre_current_organization_id()
                 AND (
                     case_id IS NULL
                     OR EXISTS (
@@ -243,7 +243,7 @@ def upgrade() -> None:
                         FROM research_cases
                         WHERE research_cases.id = artifacts.case_id
                             AND research_cases.organization_id =
-                                public.sentinelforge_current_organization_id()
+                                public.spectre_current_organization_id()
                     )
                 )
             );
@@ -257,7 +257,7 @@ def upgrade() -> None:
             """
             CREATE POLICY audit_events_organization_read ON audit_events
             FOR SELECT
-            USING (organization_id = public.sentinelforge_current_organization_id());
+            USING (organization_id = public.spectre_current_organization_id());
             """,
         )
         _create_policy_if_not_exists(
@@ -266,7 +266,7 @@ def upgrade() -> None:
             """
             CREATE POLICY audit_events_organization_insert ON audit_events
             FOR INSERT
-            WITH CHECK (organization_id = public.sentinelforge_current_organization_id());
+            WITH CHECK (organization_id = public.spectre_current_organization_id());
             """,
         )
 
@@ -324,5 +324,5 @@ def downgrade() -> None:
         if _has_table(bind, table):
             op.execute(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
     op.execute("DROP INDEX IF EXISTS ix_memberships_user_organization")
-    op.execute("DROP FUNCTION IF EXISTS public.sentinelforge_current_organization_id()")
-    op.execute("DROP FUNCTION IF EXISTS public.sentinelforge_current_user_id()")
+    op.execute("DROP FUNCTION IF EXISTS public.spectre_current_organization_id()")
+    op.execute("DROP FUNCTION IF EXISTS public.spectre_current_user_id()")

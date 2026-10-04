@@ -89,7 +89,7 @@ def build_sarif_report(
             "ruleId": rule_id,
             "level": level,
             "message": {"text": str(record["description"])[:4_000]},
-            "fingerprints": {"codesentry/v1": str(record["fingerprint"])},
+            "fingerprints": {"spectre/v1": str(record["fingerprint"])},
             "properties": {
                 "severity": record["severity"],
                 "status": record["status"],
@@ -245,7 +245,7 @@ async def create_scan_reports(
         data = builder(scan, repository, findings)
         report_id = uuid.uuid4()
         key = (
-            f"codesentry/{scan.organization_id}/scans/{scan.id}/reports/"
+            f"spectre/{scan.organization_id}/scans/{scan.id}/reports/"
             f"{report_format}-{report_id}.{extension}"
         )
         await MinioArtifactStore().put(key, data, content_type)

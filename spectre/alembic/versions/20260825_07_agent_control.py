@@ -227,8 +227,8 @@ def upgrade() -> None:
                 DROP POLICY IF EXISTS {table}_organization_scope ON {table};
                 CREATE POLICY {table}_organization_scope ON {table}
                 FOR ALL
-                USING ({column} = public.sentinelforge_current_organization_id())
-                WITH CHECK ({column} = public.sentinelforge_current_organization_id());
+                USING ({column} = public.spectre_current_organization_id())
+                WITH CHECK ({column} = public.spectre_current_organization_id());
                 """
             )
 

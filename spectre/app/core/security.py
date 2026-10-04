@@ -32,8 +32,8 @@ def _token_claims(
         "sid": str(session_id),
         "jti": str(uuid4()),
         "type": token_type,
-        "iss": "codesentry",
-        "aud": "codesentry-browser",
+        "iss": "spectre",
+        "aud": "spectre-browser",
         "iat": int(issued_at.timestamp()),
         "nbf": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
@@ -74,8 +74,8 @@ def decode_token(token: str, expected_type: str) -> tuple[UUID, UUID]:
         token,
         settings.app_secret,
         algorithms=[settings.jwt_algorithm],
-        issuer="codesentry",
-        audience="codesentry-browser",
+        issuer="spectre",
+        audience="spectre-browser",
         options={"require": ["exp", "iat", "nbf", "jti", "sub", "sid"]},
     )
     if payload.get("type") != expected_type:

@@ -88,8 +88,8 @@ def upgrade() -> None:
                 DROP POLICY IF EXISTS {table}_owner_scope ON {table};
                 CREATE POLICY {table}_owner_scope ON {table}
                 FOR ALL
-                USING (user_id = public.sentinelforge_current_user_id())
-                WITH CHECK (user_id = public.sentinelforge_current_user_id());
+                USING (user_id = public.spectre_current_user_id())
+                WITH CHECK (user_id = public.spectre_current_user_id());
                 """
             )
 
@@ -100,7 +100,7 @@ def upgrade() -> None:
         FOR INSERT
         WITH CHECK (
             organization_id IS NULL
-            AND actor_id = public.sentinelforge_current_user_id()
+            AND actor_id = public.spectre_current_user_id()
             AND action LIKE 'user_memory.%'
         );
         """

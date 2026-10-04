@@ -97,7 +97,7 @@ OS_BLOCKED_ATTRS = {
 }
 
 REPOSITORY_ROOT = Path(os.environ.get("REPOSITORY_ROOT", "/srv/repositories"))
-CHECKOUT_ROOT = Path(os.environ.get("CODESENTRY_CHECKOUT_ROOT", "/srv/app/workspaces"))
+CHECKOUT_ROOT = Path(os.environ.get("SPECTRE_CHECKOUT_ROOT", "/srv/app/workspaces"))
 REPOSITORY_ID_PATTERN = r"^repo-[0-9a-f]{64}$"
 _REPOSITORY_ID_RE = re.compile(REPOSITORY_ID_PATTERN)
 FORBIDDEN_NAMES = {

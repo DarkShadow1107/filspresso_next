@@ -21,7 +21,7 @@ def upgrade() -> None:
         FOR INSERT
         WITH CHECK (
             organization_id IS NULL
-            OR organization_id = public.sentinelforge_current_organization_id()
+            OR organization_id = public.spectre_current_organization_id()
         );
 
         DROP POLICY IF EXISTS audit_events_organization_read ON audit_events;
@@ -29,7 +29,7 @@ def upgrade() -> None:
         FOR SELECT
         USING (
             organization_id IS NULL
-            OR organization_id = public.sentinelforge_current_organization_id()
+            OR organization_id = public.spectre_current_organization_id()
         );
         """
     )
@@ -41,11 +41,11 @@ def downgrade() -> None:
         DROP POLICY IF EXISTS audit_events_organization_insert ON audit_events;
         CREATE POLICY audit_events_organization_insert ON audit_events
         FOR INSERT
-        WITH CHECK (organization_id = public.sentinelforge_current_organization_id());
+        WITH CHECK (organization_id = public.spectre_current_organization_id());
 
         DROP POLICY IF EXISTS audit_events_organization_read ON audit_events;
         CREATE POLICY audit_events_organization_read ON audit_events
         FOR SELECT
-        USING (organization_id = public.sentinelforge_current_organization_id());
+        USING (organization_id = public.spectre_current_organization_id());
         """
     )

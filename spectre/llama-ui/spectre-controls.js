@@ -158,7 +158,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
     } catch (_) {}
-    window.dispatchEvent(new CustomEvent("sentinelforge-settings-change", {
+    window.dispatchEvent(new CustomEvent("spectre-settings-change", {
       detail: {
         context_size: settings.context_size,
         reasoning_level: settings.reasoning_level,
@@ -3341,7 +3341,7 @@
 
   // Request Policy: Intercept completions for tools, compaction, continuous memory evolution
   function installRequestPolicy() {
-    if (window.fetch.sentinelForgeWrapped) return;
+    if (window.fetch.spectreWrapped) return;
     const originalFetch = window.fetch.bind(window);
 
     const wrappedFetch = async (input, init = {}) => {
@@ -3613,14 +3613,14 @@
       }
     };
 
-    wrappedFetch.sentinelForgeWrapped = true;
+    wrappedFetch.spectreWrapped = true;
     window.fetch = wrappedFetch;
   }
 
   function initialize() {
     injectStyles();
     void disablePwaCaching();
-    window.addEventListener("sentinelforge-settings-change", syncExternalSettings);
+    window.addEventListener("spectre-settings-change", syncExternalSettings);
     installRequestPolicy();
     installShellMirror();
     ensureSandboxShell();

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.spectre import router as codesentry_router
+from app.api.spectre import router as spectre_router
 from app.api.router import router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -16,8 +16,8 @@ from app.db import SessionLocal, close_database, initialize_database
 settings = get_settings()
 
 DEFAULT_USER_EMAIL = "local@spectre.dev"
-DEFAULT_USER_ID = _uuid.uuid5(_uuid.NAMESPACE_URL, "codesentry:local-user")
-DEFAULT_ORG_ID = _uuid.uuid5(_uuid.NAMESPACE_URL, "codesentry:local-workspace")
+DEFAULT_USER_ID = _uuid.uuid5(_uuid.NAMESPACE_URL, "spectre:local-user")
+DEFAULT_ORG_ID = _uuid.uuid5(_uuid.NAMESPACE_URL, "spectre:local-workspace")
 
 
 async def _ensure_default_identity() -> None:
@@ -58,7 +58,7 @@ async def _ensure_default_identity() -> None:
                 {
                     "id": DEFAULT_ORG_ID,
                     "name": "Spectre Workspace",
-                    "slug": "codesentry-workspace",
+                    "slug": "spectre-workspace",
                 },
             )
 
@@ -108,7 +108,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 app.include_router(router, prefix="/api/v1")
-app.include_router(codesentry_router, prefix="/api/v1")
+app.include_router(spectre_router, prefix="/api/v1")
 
 
 @app.middleware("http")
@@ -126,4 +126,4 @@ async def apply_security_headers(request: Request, call_next: object) -> object:
 @app.get("/health")
 @app.get("/api/v1/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "codesentry-api", "environment": settings.environment}
+    return {"status": "ok", "service": "spectre-api", "environment": settings.environment}

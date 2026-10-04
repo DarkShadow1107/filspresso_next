@@ -164,7 +164,7 @@ async def _put_blob(key: str, data: bytes, content_type: str) -> bool:
     try:
         await MinioArtifactStore().put(key, data, content_type)
     except Exception as exc:  # pragma: no cover - depends on local MinIO availability.
-        logger.warning("codesentry_storage_unavailable", key=key, error=str(exc)[:300])
+        logger.warning("spectre_storage_unavailable", key=key, error=str(exc)[:300])
         return False
     return True
 
@@ -182,7 +182,7 @@ async def emit_scan_event(
 ) -> SpectreScanEvent:
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
-        {"lock_key": f"codesentry-scan-events:{scan.id}"},
+        {"lock_key": f"spectre-scan-events:{scan.id}"},
     )
     current = await db.scalar(
         select(func.max(SpectreScanEvent.sequence)).where(
@@ -249,7 +249,7 @@ async def capture_snapshot(
     db.add(snapshot)
     await db.flush()
 
-    snapshot_key = f"codesentry/{scan.organization_id}/snapshots/{snapshot.id}/manifest.json"
+    snapshot_key = f"spectre/{scan.organization_id}/snapshots/{snapshot.id}/manifest.json"
     snapshot_storage = await _put_blob(
         snapshot_key,
         json.dumps(manifest, sort_keys=True).encode("utf-8"),
@@ -272,7 +272,7 @@ async def capture_snapshot(
             raise RepositorySafetyError(f"Repository file changed or exceeds limits: {relative}")
         line_count = 0 if b"\x00" in raw else len(raw.splitlines())
         content_key = (
-            f"codesentry/{scan.organization_id}/snapshots/{snapshot.id}/files/{uuid4().hex}"
+            f"spectre/{scan.organization_id}/snapshots/{snapshot.id}/files/{uuid4().hex}"
         )
         content_storage = await _put_blob(content_key, raw, "application/octet-stream")
         row = RepositoryFile(
@@ -611,7 +611,7 @@ def collect_scanner_results(
     timeout = TIER_LIMITS.get(tier, TIER_LIMITS["T1"])["scanner_timeout"]
     fallback = static_security_findings(root, max_findings=500)
     normalized: list[dict[str, Any]] = [
-        _normalise_finding(item, "codesentry-regex") for item in fallback
+        _normalise_finding(item, "spectre-regex") for item in fallback
     ]
     if not run_static_scanners:
         return normalized, []
@@ -912,7 +912,7 @@ async def triage_finding(
     return poc
 
 
-async def _execute_codesentry_pipeline(
+async def _execute_spectre_pipeline(
     db: AsyncSession, scan_id: UUID, organization_id: UUID
 ) -> None:
     await set_organization_context(db, organization_id)
@@ -1017,7 +1017,7 @@ async def _execute_codesentry_pipeline(
         for result in scanner_results:
             scanner_incomplete |= result.status != "completed"
             evidence_key = (
-                f"codesentry/{organization_id}/scans/{scan.id}/scanners/{result.name}.json"
+                f"spectre/{organization_id}/scans/{scan.id}/scanners/{result.name}.json"
             )
             scanner_payload = {
                 "name": result.name,
@@ -1046,7 +1046,7 @@ async def _execute_codesentry_pipeline(
             "static_scanners_enabled": scanner_enabled,
             "finding_count": len(persisted),
             "fallback_findings": sum(
-                1 for item in findings if item["source"] == "codesentry-regex"
+                1 for item in findings if item["source"] == "spectre-regex"
             ),
         }
         await db.commit()
@@ -1215,7 +1215,7 @@ async def _execute_codesentry_pipeline(
                 message="Scan cancelled before execution completed.",
             )
     except Exception as exc:
-        logger.exception("codesentry_scan_failed", scan_id=str(scan_id))
+        logger.exception("spectre_scan_failed", scan_id=str(scan_id))
         await db.rollback()
         await set_organization_context(db, organization_id)
         current = await db.get(SpectreScanRun, scan_id)
@@ -1238,17 +1238,17 @@ async def _execute_codesentry_pipeline(
             shutil.rmtree(checkout, ignore_errors=True)
 
 
-async def execute_codesentry_scan(db: AsyncSession, scan_id: UUID, organization_id: UUID) -> None:
+async def execute_spectre_scan(db: AsyncSession, scan_id: UUID, organization_id: UUID) -> None:
     from app.services.spectre_graph import run_spectre_graph
 
     await run_spectre_graph(
         scan_id=scan_id,
         organization_id=organization_id,
-        pipeline=lambda: _execute_codesentry_pipeline(db, scan_id, organization_id),
+        pipeline=lambda: _execute_spectre_pipeline(db, scan_id, organization_id),
     )
 
 
-async def execute_codesentry_poc(db: AsyncSession, poc_id: UUID, organization_id: UUID) -> None:
+async def execute_spectre_poc(db: AsyncSession, poc_id: UUID, organization_id: UUID) -> None:
     await set_organization_context(db, organization_id)
     poc = await db.get(SpectrePoc, poc_id)
     if poc is None or poc.organization_id != organization_id:
@@ -1287,8 +1287,8 @@ async def execute_codesentry_poc(db: AsyncSession, poc_id: UUID, organization_id
             result = response.json()
         stdout = redact_text(str(result.get("stdout", "")), limit=65_536)
         stderr = redact_text(str(result.get("stderr", "")), limit=8_000)
-        stdout_key = f"codesentry/{organization_id}/scans/{scan.id}/pocs/{poc.id}/stdout.txt"
-        stderr_key = f"codesentry/{organization_id}/scans/{scan.id}/pocs/{poc.id}/stderr.txt"
+        stdout_key = f"spectre/{organization_id}/scans/{scan.id}/pocs/{poc.id}/stdout.txt"
+        stderr_key = f"spectre/{organization_id}/scans/{scan.id}/pocs/{poc.id}/stderr.txt"
         stdout_stored = await _put_blob(stdout_key, stdout.encode("utf-8"), "text/plain")
         stderr_stored = await _put_blob(stderr_key, stderr.encode("utf-8"), "text/plain")
         exit_code = int(result.get("exit_code", 1))

@@ -691,7 +691,7 @@ async def start_repository_audit(
             "repository_id": str(repository.id),
             "repository_name": repository.name,
             "repository_url": repository.remote_url,
-            "codesentry_scan_id": str(scan.id),
+            "spectre_scan_id": str(scan.id),
             "conversation_id": payload.conversation_id,
             "plan": [
                 "capture repository snapshot and run bounded static analysis",
@@ -856,7 +856,7 @@ async def cancel_research_run(
     run.cancelled_at = now
     linked_scan: SpectreScanRun | None = None
     linked_scan_cancelled = False
-    linked_scan_id = (run.blackboard or {}).get("codesentry_scan_id")
+    linked_scan_id = (run.blackboard or {}).get("spectre_scan_id")
     if isinstance(linked_scan_id, str):
         try:
             linked_scan = await db.get(SpectreScanRun, UUID(linked_scan_id))

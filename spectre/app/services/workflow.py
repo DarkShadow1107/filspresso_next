@@ -450,7 +450,7 @@ async def _run_repository_scan_stage(
     else:
         run.current_stage = "repository_scan"
     await _ensure_active(db, run, settings)
-    scan_id = (run.blackboard or {}).get("codesentry_scan_id")
+    scan_id = (run.blackboard or {}).get("spectre_scan_id")
     if not isinstance(scan_id, str):
         task.status = TaskStatus.FAILED
         task.error = "Linked Spectre scan identifier is missing"
@@ -491,9 +491,9 @@ async def _run_repository_scan_stage(
         ScanStatus.FAILED.value,
         ScanStatus.CANCELLED.value,
     }:
-        from app.services.spectre import execute_codesentry_scan
+        from app.services.spectre import execute_spectre_scan
 
-        await execute_codesentry_scan(db, scan.id, run.organization_id)
+        await execute_spectre_scan(db, scan.id, run.organization_id)
     await db.refresh(scan)
     if scan.status == ScanStatus.CANCELLED.value:
         raise RunCancelled("Linked repository scan was cancelled")
@@ -554,7 +554,7 @@ async def _run_repository_scan_stage(
         ),
         task_id=task.id,
         payload={
-            "tool": "codesentry_scan",
+            "tool": "spectre_scan",
             "scan_id": str(scan.id),
             "status": scan.status,
             "finding_count": len(findings),

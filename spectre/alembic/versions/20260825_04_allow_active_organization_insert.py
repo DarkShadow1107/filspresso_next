@@ -20,12 +20,12 @@ def upgrade() -> None:
         CREATE POLICY organizations_membership_read ON organizations
         FOR SELECT
         USING (
-            organizations.id = public.sentinelforge_current_organization_id()
+            organizations.id = public.spectre_current_organization_id()
             OR EXISTS (
                 SELECT 1
                 FROM memberships
                 WHERE memberships.organization_id = organizations.id
-                    AND memberships.user_id = public.sentinelforge_current_user_id()
+                    AND memberships.user_id = public.spectre_current_user_id()
             )
         )
         """
@@ -43,7 +43,7 @@ def downgrade() -> None:
                 SELECT 1
                 FROM memberships
                 WHERE memberships.organization_id = organizations.id
-                    AND memberships.user_id = public.sentinelforge_current_user_id()
+                    AND memberships.user_id = public.spectre_current_user_id()
             )
         )
         """

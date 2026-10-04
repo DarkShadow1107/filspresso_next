@@ -55,7 +55,7 @@
 			const repoStore = JSON.parse(sessionStorage.getItem(REPO_STORE_KEY) || '{}');
 			attachedRepo = repoStore['current'] || '';
 		} catch (_) {}
-		window.addEventListener('sentinelforge-settings-change', syncExternalSettings);
+		window.addEventListener('spectre-settings-change', syncExternalSettings);
 
 		// Load memory preference from API
 		fetch('/api/v1/me/memory/preferences')
@@ -67,7 +67,7 @@
 				}
 			});
 
-		return () => window.removeEventListener('sentinelforge-settings-change', syncExternalSettings);
+		return () => window.removeEventListener('spectre-settings-change', syncExternalSettings);
 	});
 
 	function saveSettings() {
@@ -79,7 +79,7 @@
 				tools: { repo_analysis: true, web_search: true }
 			}));
 		} catch (_) {}
-		window.dispatchEvent(new CustomEvent('sentinelforge-settings-change', {
+		window.dispatchEvent(new CustomEvent('spectre-settings-change', {
 			detail: {
 				context_size: contextSize,
 				reasoning_level: reasoningLevel,

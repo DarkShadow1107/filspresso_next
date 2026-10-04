@@ -9,7 +9,7 @@ from app.db import get_db, set_current_user_context, set_organization_context
 from app.models import Membership, MembershipRole, Organization, User
 
 DEFAULT_USER_EMAIL = "local@spectre.dev"
-DEFAULT_ORG_SLUG = "codesentry-workspace"
+DEFAULT_ORG_SLUG = "spectre-workspace"
 
 
 async def local_default_user(db: AsyncSession = Depends(get_db)) -> User:

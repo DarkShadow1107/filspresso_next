@@ -93,7 +93,7 @@ def downgrade() -> None:
             DROP POLICY IF EXISTS email_verification_tokens_user_scope ON email_verification_tokens;
             CREATE POLICY email_verification_tokens_user_scope ON email_verification_tokens
             FOR ALL
-            USING (user_id = public.sentinelforge_current_user_id())
-            WITH CHECK (user_id = public.sentinelforge_current_user_id());
+            USING (user_id = public.spectre_current_user_id())
+            WITH CHECK (user_id = public.spectre_current_user_id());
             """
         )

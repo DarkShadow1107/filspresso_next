@@ -16,7 +16,7 @@ depends_on = None
 def upgrade() -> None:
     op.execute(
         """
-        CREATE OR REPLACE FUNCTION public.sentinelforge_current_user_id()
+        CREATE OR REPLACE FUNCTION public.spectre_current_user_id()
         RETURNS uuid
         LANGUAGE sql
         VOLATILE
@@ -24,7 +24,7 @@ def upgrade() -> None:
             SELECT NULLIF(current_setting('app.user_id', true), '')::uuid
         $$;
 
-        CREATE OR REPLACE FUNCTION public.sentinelforge_current_organization_id()
+        CREATE OR REPLACE FUNCTION public.spectre_current_organization_id()
         RETURNS uuid
         LANGUAGE sql
         VOLATILE
@@ -38,7 +38,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(
         """
-        CREATE OR REPLACE FUNCTION public.sentinelforge_current_user_id()
+        CREATE OR REPLACE FUNCTION public.spectre_current_user_id()
         RETURNS uuid
         LANGUAGE sql
         STABLE
@@ -46,7 +46,7 @@ def downgrade() -> None:
             SELECT NULLIF(current_setting('app.user_id', true), '')::uuid
         $$;
 
-        CREATE OR REPLACE FUNCTION public.sentinelforge_current_organization_id()
+        CREATE OR REPLACE FUNCTION public.spectre_current_organization_id()
         RETURNS uuid
         LANGUAGE sql
         STABLE

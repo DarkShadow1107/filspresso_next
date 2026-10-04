@@ -13,13 +13,13 @@ class Settings(BaseSettings):
 
     environment: str = "development"
     app_secret: str = "development-only-change-me"
-    database_url: str = "postgresql+asyncpg://codesentry:codesentry@localhost:5432/codesentry"
+    database_url: str = "postgresql+asyncpg://spectre:spectre@localhost:5432/spectre"
     migration_database_url: str | None = None
     redis_url: str = "redis://localhost:6379/0"
     minio_endpoint: str = "localhost:9000"
-    minio_access_key: str = "codesentry"
+    minio_access_key: str = "spectre"
     minio_secret_key: str = "replace-this-minio-secret"
-    minio_bucket: str = "codesentry-artifacts"
+    minio_bucket: str = "spectre-artifacts"
     model_runtime_url: str = "http://localhost:8090"
     embedding_runtime_url: str = "http://localhost:8092"
     sandbox_url: str = "http://localhost:8091"
@@ -63,8 +63,8 @@ class Settings(BaseSettings):
             "development-only-change-me",
             "replace-with-a-long-random-secret",
 "replace-this-minio-secret",
-                "codesentry",
-                "codesentry_app",
+                "spectre",
+                "spectre_app",
         }
         sensitive_values = {
             self.app_secret,

@@ -4,7 +4,7 @@ param()
 $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $composeFile = Join-Path $projectRoot "docker-compose.yml"
-$certificatePath = Join-Path ([System.IO.Path]::GetTempPath()) "sentinelforge-caddy-root.crt"
+$certificatePath = Join-Path ([System.IO.Path]::GetTempPath()) "spectre-caddy-root.crt"
 
 function Get-CaddyContainerId {
     $containerId = & docker compose -f $composeFile ps -q caddy

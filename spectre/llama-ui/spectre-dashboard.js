@@ -35,10 +35,10 @@
     const style = document.createElement("style");
     style.id = "spectre-dashboard-styles";
     style.textContent = `
-      #codesentry-launcher { position: fixed; top: 1rem; right: 1rem; z-index: 9000; border: 1px solid rgba(129,140,248,.55); border-radius: 999px; padding: .55rem .9rem; color: #eef2ff; background: linear-gradient(135deg,#27245f,#111827); box-shadow: 0 10px 25px rgba(0,0,0,.35); font: 600 12px/1.2 system-ui,sans-serif; cursor: pointer; }
-      #codesentry-launcher:hover { border-color: #a5b4fc; transform: translateY(-1px); }
-      #codesentry-root { position: fixed; inset: 0; z-index: 10001; display: none; background: rgba(3,7,18,.76); backdrop-filter: blur(10px); font-family: Inter,ui-sans-serif,system-ui,sans-serif; color: #e5e7eb; }
-      #codesentry-root.open { display: flex; justify-content: flex-end; }
+      #spectre-launcher { position: fixed; top: 1rem; right: 1rem; z-index: 9000; border: 1px solid rgba(129,140,248,.55); border-radius: 999px; padding: .55rem .9rem; color: #eef2ff; background: linear-gradient(135deg,#27245f,#111827); box-shadow: 0 10px 25px rgba(0,0,0,.35); font: 600 12px/1.2 system-ui,sans-serif; cursor: pointer; }
+      #spectre-launcher:hover { border-color: #a5b4fc; transform: translateY(-1px); }
+      #spectre-root { position: fixed; inset: 0; z-index: 10001; display: none; background: rgba(3,7,18,.76); backdrop-filter: blur(10px); font-family: Inter,ui-sans-serif,system-ui,sans-serif; color: #e5e7eb; }
+      #spectre-root.open { display: flex; justify-content: flex-end; }
       .cs-panel { width: min(44rem,100vw); height: 100%; overflow: auto; padding: 1.25rem; background: radial-gradient(circle at top right,rgba(49,46,129,.4),transparent 38%),#0b1020; border-left: 1px solid rgba(148,163,184,.18); box-shadow: -20px 0 60px rgba(0,0,0,.45); }
       .cs-header { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:1.25rem; }
       .cs-kicker { color:#a5b4fc; text-transform:uppercase; letter-spacing:.14em; font-size:.65rem; font-weight:700; }
@@ -73,23 +73,23 @@
       .cs-report-links { display:flex; flex-wrap:wrap; gap:.45rem; }
       .cs-report-links a { color:#c4b5fd; font-size:.72rem; text-decoration:none; border-bottom:1px solid rgba(196,181,253,.4); }
       .cs-empty { color:#64748b; font-size:.75rem; }
-      @media (max-width: 560px) { #codesentry-launcher { top:auto; bottom:1rem; right:1rem; } .cs-panel { padding:.85rem; } .cs-row { grid-template-columns:1fr; } }
+      @media (max-width: 560px) { #spectre-launcher { top:auto; bottom:1rem; right:1rem; } .cs-panel { padding:.85rem; } .cs-row { grid-template-columns:1fr; } }
     `;
     document.head.appendChild(style);
   }
 
   function renderShell() {
-    if (document.getElementById("codesentry-root")) return;
+    if (document.getElementById("spectre-root")) return;
     addStyles();
     const launcher = document.createElement("button");
-    launcher.id = "codesentry-launcher";
+    launcher.id = "spectre-launcher";
     launcher.type = "button";
     launcher.textContent = "Spectre";
     launcher.setAttribute("aria-label", "Open Spectre security auditor");
     document.body.appendChild(launcher);
 
     const root = document.createElement("div");
-    root.id = "codesentry-root";
+    root.id = "spectre-root";
     root.innerHTML = `
       <section class="cs-panel" role="dialog" aria-modal="true" aria-labelledby="cs-title">
         <header class="cs-header">
@@ -306,7 +306,7 @@
         })
       });
       currentRunId = run.id;
-      currentScanId = run.blackboard?.codesentry_scan_id || "";
+      currentScanId = run.blackboard?.spectre_scan_id || "";
       document.getElementById("cs-cancel-audit").hidden = false;
       document.getElementById("cs-events").innerHTML = "";
       document.getElementById("cs-findings").innerHTML = '<div class="cs-empty">Repository scan is running…</div>';
@@ -341,7 +341,7 @@
       const run = runs[0];
       if (!run) return;
       currentRunId = run.id;
-      currentScanId = run.blackboard?.codesentry_scan_id || "";
+      currentScanId = run.blackboard?.spectre_scan_id || "";
       document.getElementById("cs-events").innerHTML = "";
       document.getElementById("cs-cancel-audit").hidden = TERMINAL.has(String(run.status));
       addEvent({ event_type: "history", content: `Restored audit ${run.id.slice(0, 8)} (${run.status}, stage: ${run.current_stage}).` });

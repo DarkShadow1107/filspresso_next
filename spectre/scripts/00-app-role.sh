@@ -2,7 +2,7 @@
 set -eu
 
 : "${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set for database initialization}"
-: "${APP_DB_ROLE:=codesentry_app}"
+: "${APP_DB_ROLE:=spectre_app}"
 : "${POSTGRES_DB:?POSTGRES_DB must be set}"
 
 if ! psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \

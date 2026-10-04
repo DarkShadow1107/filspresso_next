@@ -10,12 +10,12 @@ RUN apk add --no-cache curl tar && \
 
 WORKDIR /src
 
-COPY llama-ui/sentinelforge-controls.js tools/ui/static/sentinelforge-controls-v2.js
-COPY llama-ui/sf-core/ tools/ui/src/lib/sentinelforge/
+COPY llama-ui/spectre-controls.js tools/ui/static/spectre-controls-v2.js
+COPY llama-ui/spectre-core/ tools/ui/src/lib/spectre/
 
-RUN sed -i '/%sveltekit.body%/a\        <script src="/sentinelforge-controls-v2.js"></script>' \
+RUN sed -i '/%sveltekit.body%/a\        <script src="/spectre-controls-v2.js"></script>' \
       tools/ui/src/app.html && \
-    sed -i "s|import '../app.css';|import '../app.css';\nimport '\$lib/sentinelforge/core';|" \
+    sed -i "s|import '../app.css';|import '../app.css';\nimport '\$lib/spectre/core';|" \
       tools/ui/src/routes/+layout.svelte && \
     sed -i '/components\/pwa/d; /use-pwa\.svelte/d; /const pwa = usePwa()/d; /const { needRefresh, updateServiceWorker } = pwa;/d; /virtual:pwa-assets\/head/d; /{#if pwaAssetsHead.themeColor}/,/{\/if}/d; /{#each pwaAssetsHead.links/,/{\/each}/d; /<PwaMetaTags \/>/d; /<PwaRefreshAlert/,/\/>/d' tools/ui/src/routes/+layout.svelte && \
     sed -i '/SVELTEKIT_PWA_OPTIONS/d; /@vite-pwa\/sveltekit/d; /SvelteKitPWA(SVELTEKIT_PWA_OPTIONS)/d' tools/ui/vite.config.ts && \
@@ -33,17 +33,17 @@ RUN sed -i '/%sveltekit.body%/a\        <script src="/sentinelforge-controls-v2.
       tools/ui/src/lib/components/app/models/ModelId.svelte && \
     sed -i "s@{entry.definition.function.name}@{entry.definition.function.name.replace(/^Tools_/i, '').replaceAll('_', ' ').replace(/(^| )([a-z])/gi, (_, prefix, char) => prefix + char.toUpperCase()).replace(/\\bCve\\b/g, 'CVE')}@" \
       tools/ui/src/lib/components/app/chat/ChatForm/ChatFormActions/ChatFormActionAdd/ChatFormActionAddToolsSubmenu.svelte && \
-    grep -n "sentinelforge\|codesentry" tools/ui/src/app.html tools/ui/src/routes/+layout.svelte
+    grep -n "spectre" tools/ui/src/app.html tools/ui/src/routes/+layout.svelte
 
 RUN apk add --no-cache python3
 
-RUN sed -i "s@interface LiveStats {@const SENTINELFORGE_CONTEXT_OPTIONS = [32768, 65536, 131072];\n\nfunction sentinelForgeSelectedContext(): number | null {\n  if (typeof window === 'undefined') return null;\n  try {\n    const value = Number(JSON.parse(localStorage.getItem('codesentry.ui.settings.v1') || '{}').context_size);\n    return SENTINELFORGE_CONTEXT_OPTIONS.includes(value) ? value : null;\n  } catch {\n    return null;\n  }\n}\n\ninterface LiveStats {@" \
+RUN sed -i "s@interface LiveStats {@const SPECTRE_CONTEXT_OPTIONS = [32768, 65536, 131072];\n\nfunction spectreSelectedContext(): number | null {\n  if (typeof window === 'undefined') return null;\n  try {\n    const value = Number(JSON.parse(localStorage.getItem('spectre.ui.settings.v1') || '{}').context_size);\n    return SPECTRE_CONTEXT_OPTIONS.includes(value) ? value : null;\n  } catch {\n    return null;\n  }\n}\n\ninterface LiveStats {@" \
   tools/ui/src/lib/stores/chat/context-stats.svelte.ts
 
-RUN sed -i "s|class ContextStatsStore {|class ContextStatsStore {\n  private sentinelForgeContextSettingsVersion = \$state(0);\n\n  constructor() {\n    if (typeof window !== 'undefined') {\n      window.addEventListener('sentinelforge-settings-change', () => {\n        this.sentinelForgeContextSettingsVersion += 1;\n      });\n    }\n  }|" \
+RUN sed -i "s|class ContextStatsStore {|class ContextStatsStore {\n  private spectreContextSettingsVersion = \$state(0);\n\n  constructor() {\n    if (typeof window !== 'undefined') {\n      window.addEventListener('spectre-settings-change', () => {\n        this.spectreContextSettingsVersion += 1;\n      });\n    }\n  }|" \
   tools/ui/src/lib/stores/chat/context-stats.svelte.ts
 
-RUN sed -i "s|void modelsStore.props.cacheVersion;|this.sentinelForgeContextSettingsVersion;\n\t\tconst configuredContext = sentinelForgeSelectedContext();\n\t\tif (configuredContext !== null) return configuredContext;\n\t\tvoid modelsStore.props.cacheVersion;|" \
+RUN sed -i "s|void modelsStore.props.cacheVersion;|this.spectreContextSettingsVersion;\n\t\tconst configuredContext = spectreSelectedContext();\n\t\tif (configuredContext !== null) return configuredContext;\n\t\tvoid modelsStore.props.cacheVersion;|" \
   tools/ui/src/lib/stores/chat/context-stats.svelte.ts
 
 COPY llama-ui/CollapsibleContentBlock.patched.svelte tools/ui/src/lib/components/app/content/CollapsibleContentBlock.svelte

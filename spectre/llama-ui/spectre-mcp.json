@@ -4,7 +4,7 @@
       "command": "/usr/bin/python3",
       "args": ["/app/spectre-mcp.py"],
       "env": {
-        "SENTINELFORGE_TOOLS_URL": "http://tools:8091"
+        "SPECTRE_TOOLS_URL": "http://tools:8091"
       },
       "timeout_ms": 75000
     }

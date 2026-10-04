@@ -121,8 +121,8 @@ def upgrade() -> None:
                 DROP POLICY IF EXISTS {table}_user_scope ON {table};
                 CREATE POLICY {table}_user_scope ON {table}
                 FOR ALL
-                USING (user_id = public.sentinelforge_current_user_id())
-                WITH CHECK (user_id = public.sentinelforge_current_user_id());
+                USING (user_id = public.spectre_current_user_id())
+                WITH CHECK (user_id = public.spectre_current_user_id());
                 """
             )
 

@@ -17,7 +17,7 @@ async def enforce_rate_limit(
 ) -> None:
     settings = get_settings()
     client = redis_asyncio.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
-    key = f"codesentry:rate:{scope}:{_client_identifier(request, subject)}"
+    key = f"spectre:rate:{scope}:{_client_identifier(request, subject)}"
     try:
         count = await client.incr(key)
         if count == 1:

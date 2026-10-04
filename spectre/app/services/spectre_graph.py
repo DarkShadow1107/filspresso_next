@@ -34,9 +34,9 @@ async def run_spectre_graph(
         return {"status": "completed", **state}
 
     graph = StateGraph(SpectreGraphState)
-    graph.add_node("codesentry_pipeline", execute_pipeline)
-    graph.add_edge(START, "codesentry_pipeline")
-    graph.add_edge("codesentry_pipeline", END)
+    graph.add_node("spectre_pipeline", execute_pipeline)
+    graph.add_edge(START, "spectre_pipeline")
+    graph.add_edge("spectre_pipeline", END)
     compiled = graph.compile()
     await compiled.ainvoke(
         {

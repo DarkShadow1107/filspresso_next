@@ -7,7 +7,7 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-TOOLS_URL = os.environ.get("SENTINELFORGE_TOOLS_URL", "http://tools:8091").rstrip("/")
+TOOLS_URL = os.environ.get("SPECTRE_TOOLS_URL", "http://tools:8091").rstrip("/")
 MCP_RESULT_MAX_CHARS = 30000
 
 TOOLS = [

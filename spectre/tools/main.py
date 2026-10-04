@@ -42,7 +42,7 @@ from tools.repository_workspace import (
 )
 from tools.vision import SANDBOX_IMAGE_SCRIPT
 
-RESULT_SENTINEL = "__CODESENTRY_RESULT__"
+RESULT_SENTINEL = "__SPECTRE_RESULT__"
 
 app = FastAPI(title="Spectre Tools", version="0.3.0")
 
@@ -224,7 +224,7 @@ def _safe_asset_name(filename: str, mime: str, counter: int = 0) -> str:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "codesentry-tools"}
+    return {"status": "ok", "service": "spectre-tools"}
 
 
 @app.post("/api/search")

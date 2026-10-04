@@ -79,7 +79,7 @@ async def _scan_or_404(db: AsyncSession, organization_id: UUID, scan_id: UUID) -
 async def _rate_limit_scan(request: Request, user: User, organization_id: UUID) -> None:
     await enforce_rate_limit(
         request,
-        scope="codesentry_scan",
+        scope="spectre_scan",
         limit=settings.expensive_rate_limit_per_hour,
         window_seconds=3600,
         subject=f"{user.id}:{organization_id}",
@@ -141,7 +141,7 @@ async def create_scan(
     await record_audit_event(
         db,
         action="spectre.scan_queued",
-        resource_type="codesentry_scan",
+        resource_type="spectre_scan",
         resource_id=str(scan.id),
         organization_id=organization_id,
         actor_id=user.id,
@@ -149,9 +149,9 @@ async def create_scan(
     )
     await db.commit()
     try:
-        from app.worker import execute_codesentry_scan_task
+        from app.worker import execute_spectre_scan_task
 
-        execute_codesentry_scan_task.delay(str(scan.id), str(organization_id))
+        execute_spectre_scan_task.delay(str(scan.id), str(organization_id))
     except Exception as exc:
         scan.status = ScanStatus.FAILED.value
         scan.current_stage = "failed_to_queue"
@@ -483,9 +483,9 @@ async def _decide_poc(
         )
     if approve:
         try:
-            from app.worker import execute_codesentry_poc_task
+            from app.worker import execute_spectre_poc_task
 
-            execute_codesentry_poc_task.delay(str(poc.id), str(organization_id))
+            execute_spectre_poc_task.delay(str(poc.id), str(organization_id))
         except Exception as exc:
             poc.status = "failed"
             poc.error = f"Unable to queue PoC execution: {exc}"[:2_000]
@@ -557,6 +557,6 @@ async def download_scan_report(
         content=data,
         media_type=report.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="codesentry-{report.id}.{extension}"'
+            "Content-Disposition": f'attachment; filename="spectre-{report.id}.{extension}"'
         },
     )

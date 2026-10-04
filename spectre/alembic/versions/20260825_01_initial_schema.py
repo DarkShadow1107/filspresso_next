@@ -1,4 +1,4 @@
-"""Initial SentinelForge schema.
+"""Initial Spectre schema.
 
 Revision ID: 20260825_01
 Revises:

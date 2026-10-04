@@ -8,7 +8,7 @@ from app.core.config import get_settings
 from app.services.workflow import execute_research_run_sync
 
 settings = get_settings()
-celery_app = Celery("codesentry", broker=settings.redis_url, backend=settings.redis_url)
+celery_app = Celery("spectre", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(
     task_serializer="json",
     result_serializer="json",
@@ -258,23 +258,23 @@ def analyze_repository_task(self: object, repository_id: str, organization_id: s
 
 
 @celery_app.task(
-    name="app.worker.execute_codesentry_scan",
+    name="app.worker.execute_spectre_scan",
     bind=True,
     autoretry_for=(Exception,),
     retry_backoff=True,
     max_retries=2,
 )
-def execute_codesentry_scan_task(self: object, scan_id: str, organization_id: str) -> None:
+def execute_spectre_scan_task(self: object, scan_id: str, organization_id: str) -> None:
     import asyncio
 
-    from app.services.spectre import execute_codesentry_scan
+    from app.services.spectre import execute_spectre_scan
 
     async def runner() -> None:
         from app.db import SessionLocal, close_database
 
         try:
             async with SessionLocal() as session:
-                await execute_codesentry_scan(session, UUID(scan_id), UUID(organization_id))
+                await execute_spectre_scan(session, UUID(scan_id), UUID(organization_id))
         finally:
             await close_database()
 
@@ -282,23 +282,23 @@ def execute_codesentry_scan_task(self: object, scan_id: str, organization_id: st
 
 
 @celery_app.task(
-    name="app.worker.execute_codesentry_poc",
+    name="app.worker.execute_spectre_poc",
     bind=True,
     autoretry_for=(Exception,),
     retry_backoff=True,
     max_retries=1,
 )
-def execute_codesentry_poc_task(self: object, poc_id: str, organization_id: str) -> None:
+def execute_spectre_poc_task(self: object, poc_id: str, organization_id: str) -> None:
     import asyncio
 
-    from app.services.spectre import execute_codesentry_poc
+    from app.services.spectre import execute_spectre_poc
 
     async def runner() -> None:
         from app.db import SessionLocal, close_database
 
         try:
             async with SessionLocal() as session:
-                await execute_codesentry_poc(session, UUID(poc_id), UUID(organization_id))
+                await execute_spectre_poc(session, UUID(poc_id), UUID(organization_id))
         finally:
             await close_database()
 

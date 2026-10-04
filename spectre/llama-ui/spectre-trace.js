@@ -330,7 +330,7 @@
   }
 
   function installFetchObserver() {
-    if (window.fetch.sentinelForgeTraceWrapped) return;
+    if (window.fetch.spectreTraceWrapped) return;
     const originalFetch = window.fetch.bind(window);
     const wrappedFetch = async (input, init = {}) => {
       const url = typeof input === "string" ? input : input?.url || "";
@@ -361,7 +361,7 @@
       void observeJson(response, entry);
       return response;
     };
-    wrappedFetch.sentinelForgeTraceWrapped = true;
+    wrappedFetch.spectreTraceWrapped = true;
     window.fetch = wrappedFetch;
   }
 

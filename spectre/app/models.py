@@ -437,7 +437,7 @@ class Artifact(Base):
 
 
 class SpectreScanRun(Base):
-    __tablename__ = "codesentry_scan_runs"
+    __tablename__ = "spectre_scan_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -464,10 +464,10 @@ class SpectreScanRun(Base):
 
 
 class SpectreFinding(Base):
-    __tablename__ = "codesentry_findings"
+    __tablename__ = "spectre_findings"
     __table_args__ = (
         UniqueConstraint(
-            "scan_run_id", "fingerprint", name="uq_codesentry_finding_scan_fingerprint"
+            "scan_run_id", "fingerprint", name="uq_spectre_finding_scan_fingerprint"
         ),
     )
 
@@ -476,7 +476,7 @@ class SpectreFinding(Base):
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True
     )
     scan_run_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"), index=True
+        ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"), index=True
     )
     snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("repository_snapshots.id", ondelete="SET NULL"), nullable=True, index=True
@@ -508,9 +508,9 @@ class SpectreFinding(Base):
 
 
 class SpectreScanEvent(Base):
-    __tablename__ = "codesentry_scan_events"
+    __tablename__ = "spectre_scan_events"
     __table_args__ = (
-        UniqueConstraint("scan_run_id", "sequence", name="uq_codesentry_scan_event_sequence"),
+        UniqueConstraint("scan_run_id", "sequence", name="uq_spectre_scan_event_sequence"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -518,7 +518,7 @@ class SpectreScanEvent(Base):
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True
     )
     scan_run_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"), index=True
+        ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"), index=True
     )
     sequence: Mapped[int] = mapped_column(Integer, index=True)
     level: Mapped[str] = mapped_column(String(16), default="info")
@@ -532,14 +532,14 @@ class SpectreScanEvent(Base):
 
 
 class SpectreLLMUsage(Base):
-    __tablename__ = "codesentry_llm_usage"
+    __tablename__ = "spectre_llm_usage"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True
     )
     scan_run_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"), index=True
+        ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"), index=True
     )
     operation: Mapped[str] = mapped_column(String(80), index=True)
     model: Mapped[str] = mapped_column(String(80), default="granite-4.2")
@@ -555,17 +555,17 @@ class SpectreLLMUsage(Base):
 
 
 class SpectrePoc(Base):
-    __tablename__ = "codesentry_pocs"
+    __tablename__ = "spectre_pocs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True
     )
     scan_run_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"), index=True
+        ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"), index=True
     )
     finding_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("codesentry_findings.id", ondelete="CASCADE"), index=True
+        ForeignKey("spectre_findings.id", ondelete="CASCADE"), index=True
     )
     title: Mapped[str] = mapped_column(String(240))
     purpose: Mapped[str] = mapped_column(Text)
@@ -586,14 +586,14 @@ class SpectrePoc(Base):
 
 
 class SpectreReport(Base):
-    __tablename__ = "codesentry_reports"
+    __tablename__ = "spectre_reports"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True
     )
     scan_run_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"), index=True
+        ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"), index=True
     )
     format: Mapped[str] = mapped_column(String(16), index=True)
     status: Mapped[str] = mapped_column(String(24), default="ready")

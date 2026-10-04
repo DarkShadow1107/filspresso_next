@@ -80,7 +80,7 @@ def main() -> None:
         f"--{boundary}\r\n"
         'Content-Disposition: form-data; name="file"; filename="note.txt"\r\n'
         "Content-Type: text/plain\r\n\r\n"
-        "SentinelForge memory probe with enough unique body text to chunk properly today.\r\n"
+        "Spectre memory probe with enough unique body text to chunk properly today.\r\n"
         f"--{boundary}--\r\n"
     ).encode()
     upload_request = urllib.request.Request(

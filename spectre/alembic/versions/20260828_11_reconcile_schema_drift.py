@@ -76,16 +76,16 @@ def upgrade() -> None:
         _set_json_not_null(bind, table, column)
 
     for name in (
-        "ix_codesentry_scan_events_scan_run_sequence",
+        "ix_spectre_scan_events_scan_run_sequence",
         "ix_memberships_user_organization",
     ):
         _drop_index_if_present(bind, name)
 
     for name, table, columns in (
         ("ix_agent_events_organization_id", "agent_events", ["organization_id"]),
-        ("ix_codesentry_scan_events_event_type", "codesentry_scan_events", ["event_type"]),
-        ("ix_codesentry_scan_events_scan_run_id", "codesentry_scan_events", ["scan_run_id"]),
-        ("ix_codesentry_scan_events_sequence", "codesentry_scan_events", ["sequence"]),
+        ("ix_spectre_scan_events_event_type", "spectre_scan_events", ["event_type"]),
+        ("ix_spectre_scan_events_scan_run_id", "spectre_scan_events", ["scan_run_id"]),
+        ("ix_spectre_scan_events_sequence", "spectre_scan_events", ["sequence"]),
         ("ix_repository_snapshots_content_hash", "repository_snapshots", ["content_hash"]),
     ):
         _create_index_if_missing(bind, name, table, columns)
@@ -96,17 +96,17 @@ def downgrade() -> None:
 
     for name in (
         "ix_agent_events_organization_id",
-        "ix_codesentry_scan_events_event_type",
-        "ix_codesentry_scan_events_scan_run_id",
-        "ix_codesentry_scan_events_sequence",
+        "ix_spectre_scan_events_event_type",
+        "ix_spectre_scan_events_scan_run_id",
+        "ix_spectre_scan_events_sequence",
         "ix_repository_snapshots_content_hash",
     ):
         _drop_index_if_present(bind, name)
 
     _create_index_if_missing(
         bind,
-        "ix_codesentry_scan_events_scan_run_sequence",
-        "codesentry_scan_events",
+        "ix_spectre_scan_events_scan_run_sequence",
+        "spectre_scan_events",
         ["scan_run_id", "sequence"],
     )
     _create_index_if_missing(

@@ -3,11 +3,11 @@ services:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-sentinelforge}
-      POSTGRES_USER: ${POSTGRES_USER:-sentinelforge}
+      POSTGRES_DB: ${POSTGRES_DB:-spectre}
+      POSTGRES_USER: ${POSTGRES_USER:-spectre}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
-      APP_DB_ROLE: ${APP_DB_ROLE:-sentinelforge_app}
+      APP_DB_ROLE: ${APP_DB_ROLE:-spectre_app}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -84,12 +84,12 @@ services:
               ;;
           esac
           printf '%s\n' "$${line}"
-        done < /policy.json > /tmp/codesentry-policy.json
+        done < /policy.json > /tmp/spectre-policy.json
         mc mb --ignore-existing "local/$${MINIO_BUCKET}"
-        mc admin policy remove local codesentry-app >/dev/null 2>&1 || true
-        mc admin policy create local codesentry-app /tmp/codesentry-policy.json
+        mc admin policy remove local spectre-app >/dev/null 2>&1 || true
+        mc admin policy create local spectre-app /tmp/spectre-policy.json
         mc admin user info local "$${MINIO_ACCESS_KEY}" >/dev/null 2>&1 || mc admin user add local "$${MINIO_ACCESS_KEY}" "$${MINIO_SECRET_KEY}"
-        mc admin policy attach local codesentry-app --user "$${MINIO_ACCESS_KEY}"
+        mc admin policy attach local spectre-app --user "$${MINIO_ACCESS_KEY}"
     volumes:
       - ./scripts/minio-app-policy.json:/policy.json:ro
     depends_on:

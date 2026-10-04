@@ -63,8 +63,8 @@ def _enable_scope(bind: sa.Connection, table: str) -> None:
         f"""
         CREATE POLICY {table}_organization_scope ON {table}
         FOR ALL
-        USING (organization_id = public.sentinelforge_current_organization_id())
-        WITH CHECK (organization_id = public.sentinelforge_current_organization_id())
+        USING (organization_id = public.spectre_current_organization_id())
+        WITH CHECK (organization_id = public.spectre_current_organization_id())
         """
     )
 
@@ -130,9 +130,9 @@ def upgrade() -> None:
             sa.UniqueConstraint("snapshot_id", "path", name="uq_repository_file_snapshot_path"),
         )
 
-    if not _has_table(bind, "codesentry_scan_runs"):
+    if not _has_table(bind, "spectre_scan_runs"):
         op.create_table(
-            "codesentry_scan_runs",
+            "spectre_scan_runs",
             sa.Column("id", uuid_type, primary_key=True),
             sa.Column(
                 "organization_id",
@@ -169,9 +169,9 @@ def upgrade() -> None:
             sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
         )
 
-    if not _has_table(bind, "codesentry_findings"):
+    if not _has_table(bind, "spectre_findings"):
         op.create_table(
-            "codesentry_findings",
+            "spectre_findings",
             sa.Column("id", uuid_type, primary_key=True),
             sa.Column(
                 "organization_id",
@@ -182,7 +182,7 @@ def upgrade() -> None:
             sa.Column(
                 "scan_run_id",
                 uuid_type,
-                sa.ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"),
+                sa.ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"),
                 nullable=False,
             ),
             sa.Column(
@@ -220,13 +220,13 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=now, nullable=False),
             sa.Column("updated_at", sa.DateTime(timezone=True), server_default=now, nullable=False),
             sa.UniqueConstraint(
-                "scan_run_id", "fingerprint", name="uq_codesentry_finding_scan_fingerprint"
+                "scan_run_id", "fingerprint", name="uq_spectre_finding_scan_fingerprint"
             ),
         )
 
-    if not _has_table(bind, "codesentry_scan_events"):
+    if not _has_table(bind, "spectre_scan_events"):
         op.create_table(
-            "codesentry_scan_events",
+            "spectre_scan_events",
             sa.Column("id", uuid_type, primary_key=True),
             sa.Column(
                 "organization_id",
@@ -237,7 +237,7 @@ def upgrade() -> None:
             sa.Column(
                 "scan_run_id",
                 uuid_type,
-                sa.ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"),
+                sa.ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"),
                 nullable=False,
             ),
             sa.Column("sequence", sa.Integer(), nullable=False),
@@ -249,9 +249,9 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=now, nullable=False),
         )
 
-    if not _has_table(bind, "codesentry_llm_usage"):
+    if not _has_table(bind, "spectre_llm_usage"):
         op.create_table(
-            "codesentry_llm_usage",
+            "spectre_llm_usage",
             sa.Column("id", uuid_type, primary_key=True),
             sa.Column(
                 "organization_id",
@@ -262,7 +262,7 @@ def upgrade() -> None:
             sa.Column(
                 "scan_run_id",
                 uuid_type,
-                sa.ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"),
+                sa.ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"),
                 nullable=False,
             ),
             sa.Column("operation", sa.String(80), nullable=False),
@@ -278,9 +278,9 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=now, nullable=False),
         )
 
-    if not _has_table(bind, "codesentry_pocs"):
+    if not _has_table(bind, "spectre_pocs"):
         op.create_table(
-            "codesentry_pocs",
+            "spectre_pocs",
             sa.Column("id", uuid_type, primary_key=True),
             sa.Column(
                 "organization_id",
@@ -291,13 +291,13 @@ def upgrade() -> None:
             sa.Column(
                 "scan_run_id",
                 uuid_type,
-                sa.ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"),
+                sa.ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"),
                 nullable=False,
             ),
             sa.Column(
                 "finding_id",
                 uuid_type,
-                sa.ForeignKey("codesentry_findings.id", ondelete="CASCADE"),
+                sa.ForeignKey("spectre_findings.id", ondelete="CASCADE"),
                 nullable=False,
             ),
             sa.Column("title", sa.String(240), nullable=False),
@@ -321,9 +321,9 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=now, nullable=False),
         )
 
-    if not _has_table(bind, "codesentry_reports"):
+    if not _has_table(bind, "spectre_reports"):
         op.create_table(
-            "codesentry_reports",
+            "spectre_reports",
             sa.Column("id", uuid_type, primary_key=True),
             sa.Column(
                 "organization_id",
@@ -334,7 +334,7 @@ def upgrade() -> None:
             sa.Column(
                 "scan_run_id",
                 uuid_type,
-                sa.ForeignKey("codesentry_scan_runs.id", ondelete="CASCADE"),
+                sa.ForeignKey("spectre_scan_runs.id", ondelete="CASCADE"),
                 nullable=False,
             ),
             sa.Column("format", sa.String(16), nullable=False),
@@ -349,12 +349,12 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=now, nullable=False),
         )
 
-    if _has_table(bind, "codesentry_scan_events") and not _has_constraint(
-        bind, "uq_codesentry_scan_event_sequence"
+    if _has_table(bind, "spectre_scan_events") and not _has_constraint(
+        bind, "uq_spectre_scan_event_sequence"
     ):
         op.create_unique_constraint(
-            "uq_codesentry_scan_event_sequence",
-            "codesentry_scan_events",
+            "uq_spectre_scan_event_sequence",
+            "spectre_scan_events",
             ["scan_run_id", "sequence"],
         )
 
@@ -365,45 +365,45 @@ def upgrade() -> None:
         ("ix_repository_files_organization_id", "repository_files", ["organization_id"]),
         ("ix_repository_files_snapshot_id", "repository_files", ["snapshot_id"]),
         ("ix_repository_files_sha256", "repository_files", ["sha256"]),
-        ("ix_codesentry_scan_runs_organization_id", "codesentry_scan_runs", ["organization_id"]),
-        ("ix_codesentry_scan_runs_repository_id", "codesentry_scan_runs", ["repository_id"]),
-        ("ix_codesentry_scan_runs_status", "codesentry_scan_runs", ["status"]),
-        ("ix_codesentry_scan_runs_snapshot_id", "codesentry_scan_runs", ["snapshot_id"]),
-        ("ix_codesentry_findings_organization_id", "codesentry_findings", ["organization_id"]),
-        ("ix_codesentry_findings_scan_run_id", "codesentry_findings", ["scan_run_id"]),
-        ("ix_codesentry_findings_snapshot_id", "codesentry_findings", ["snapshot_id"]),
+        ("ix_spectre_scan_runs_organization_id", "spectre_scan_runs", ["organization_id"]),
+        ("ix_spectre_scan_runs_repository_id", "spectre_scan_runs", ["repository_id"]),
+        ("ix_spectre_scan_runs_status", "spectre_scan_runs", ["status"]),
+        ("ix_spectre_scan_runs_snapshot_id", "spectre_scan_runs", ["snapshot_id"]),
+        ("ix_spectre_findings_organization_id", "spectre_findings", ["organization_id"]),
+        ("ix_spectre_findings_scan_run_id", "spectre_findings", ["scan_run_id"]),
+        ("ix_spectre_findings_snapshot_id", "spectre_findings", ["snapshot_id"]),
         (
-            "ix_codesentry_findings_repository_file_id",
-            "codesentry_findings",
+            "ix_spectre_findings_repository_file_id",
+            "spectre_findings",
             ["repository_file_id"],
         ),
-        ("ix_codesentry_findings_source", "codesentry_findings", ["source"]),
-        ("ix_codesentry_findings_rule_id", "codesentry_findings", ["rule_id"]),
-        ("ix_codesentry_findings_cwe", "codesentry_findings", ["cwe"]),
-        ("ix_codesentry_findings_severity", "codesentry_findings", ["severity"]),
-        ("ix_codesentry_findings_status", "codesentry_findings", ["status"]),
-        ("ix_codesentry_findings_fingerprint", "codesentry_findings", ["fingerprint"]),
+        ("ix_spectre_findings_source", "spectre_findings", ["source"]),
+        ("ix_spectre_findings_rule_id", "spectre_findings", ["rule_id"]),
+        ("ix_spectre_findings_cwe", "spectre_findings", ["cwe"]),
+        ("ix_spectre_findings_severity", "spectre_findings", ["severity"]),
+        ("ix_spectre_findings_status", "spectre_findings", ["status"]),
+        ("ix_spectre_findings_fingerprint", "spectre_findings", ["fingerprint"]),
         (
-            "ix_codesentry_scan_events_organization_id",
-            "codesentry_scan_events",
+            "ix_spectre_scan_events_organization_id",
+            "spectre_scan_events",
             ["organization_id"],
         ),
         (
-            "ix_codesentry_scan_events_scan_run_sequence",
-            "codesentry_scan_events",
+            "ix_spectre_scan_events_scan_run_sequence",
+            "spectre_scan_events",
             ["scan_run_id", "sequence"],
         ),
-        ("ix_codesentry_scan_events_created_at", "codesentry_scan_events", ["created_at"]),
-        ("ix_codesentry_llm_usage_organization_id", "codesentry_llm_usage", ["organization_id"]),
-        ("ix_codesentry_llm_usage_scan_run_id", "codesentry_llm_usage", ["scan_run_id"]),
-        ("ix_codesentry_llm_usage_operation", "codesentry_llm_usage", ["operation"]),
-        ("ix_codesentry_pocs_organization_id", "codesentry_pocs", ["organization_id"]),
-        ("ix_codesentry_pocs_scan_run_id", "codesentry_pocs", ["scan_run_id"]),
-        ("ix_codesentry_pocs_finding_id", "codesentry_pocs", ["finding_id"]),
-        ("ix_codesentry_pocs_status", "codesentry_pocs", ["status"]),
-        ("ix_codesentry_reports_organization_id", "codesentry_reports", ["organization_id"]),
-        ("ix_codesentry_reports_scan_run_id", "codesentry_reports", ["scan_run_id"]),
-        ("ix_codesentry_reports_format", "codesentry_reports", ["format"]),
+        ("ix_spectre_scan_events_created_at", "spectre_scan_events", ["created_at"]),
+        ("ix_spectre_llm_usage_organization_id", "spectre_llm_usage", ["organization_id"]),
+        ("ix_spectre_llm_usage_scan_run_id", "spectre_llm_usage", ["scan_run_id"]),
+        ("ix_spectre_llm_usage_operation", "spectre_llm_usage", ["operation"]),
+        ("ix_spectre_pocs_organization_id", "spectre_pocs", ["organization_id"]),
+        ("ix_spectre_pocs_scan_run_id", "spectre_pocs", ["scan_run_id"]),
+        ("ix_spectre_pocs_finding_id", "spectre_pocs", ["finding_id"]),
+        ("ix_spectre_pocs_status", "spectre_pocs", ["status"]),
+        ("ix_spectre_reports_organization_id", "spectre_reports", ["organization_id"]),
+        ("ix_spectre_reports_scan_run_id", "spectre_reports", ["scan_run_id"]),
+        ("ix_spectre_reports_format", "spectre_reports", ["format"]),
     )
     for name, table, columns in indexes:
         _create_index_if_missing(bind, name, table, columns)
@@ -411,12 +411,12 @@ def upgrade() -> None:
     for table in (
         "repository_snapshots",
         "repository_files",
-        "codesentry_scan_runs",
-        "codesentry_findings",
-        "codesentry_scan_events",
-        "codesentry_llm_usage",
-        "codesentry_pocs",
-        "codesentry_reports",
+        "spectre_scan_runs",
+        "spectre_findings",
+        "spectre_scan_events",
+        "spectre_llm_usage",
+        "spectre_pocs",
+        "spectre_reports",
     ):
         _enable_scope(bind, table)
 
@@ -424,12 +424,12 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     tables = (
-        "codesentry_reports",
-        "codesentry_pocs",
-        "codesentry_llm_usage",
-        "codesentry_scan_events",
-        "codesentry_findings",
-        "codesentry_scan_runs",
+        "spectre_reports",
+        "spectre_pocs",
+        "spectre_llm_usage",
+        "spectre_scan_events",
+        "spectre_findings",
+        "spectre_scan_runs",
         "repository_files",
         "repository_snapshots",
     )
