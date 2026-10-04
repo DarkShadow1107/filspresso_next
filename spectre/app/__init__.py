@@ -1,0 +1,1 @@
+"""CodeSentry application package."""

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>CodeSentry</title>
+    <style>
+      body {
+        margin: 0;
+        background: #090b10;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #f3f4f6;
+      }
+      .msg {
+        text-align: center;
+        padding: 2rem;
+      }
+      .msg h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+      .msg p { color: #9ca3af; font-size: 0.875rem; }
+    </style>
+  </head>
+  <body>
+    <div class="msg">
+      <h1>CodeSentry</h1>
+      <p>Redirecting to workspace...</p>
+    </div>
+    <script>
+      window.location.replace("/llama/");
+    </script>
+  </body>
+</html>

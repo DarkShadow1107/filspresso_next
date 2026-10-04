@@ -1,0 +1,384 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentinelforge}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinelforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+      APP_DB_ROLE: ${APP_DB_ROLE:-sentinelforge_app}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/00-app-role.sh:/docker-entrypoint-initdb.d/00-app-role.sh:ro
+    networks: [data]
+
+  migrate:
+    build: .
+    env_file: .env
+    command: alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    restart: "no"
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    command: ["sh", "-ec", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - redis-data:/data
+    networks: [data]
+
+  minio:
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - minio-data:/data
+    networks: [data]
+
+  minio-provision:
+    image: minio/mc:latest
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      MINIO_BUCKET: ${MINIO_BUCKET:?Set MINIO_BUCKET in .env}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY in .env}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY in .env}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do sleep 2; done
+        case "$${MINIO_BUCKET}" in
+          ''|*[!a-z0-9.-]*) echo "MINIO_BUCKET must be a valid lowercase bucket name" >&2; exit 1 ;;
+        esac
+        while IFS= read -r line; do
+          case "$${line}" in
+            *__MINIO_BUCKET__*)
+              prefix="$${line%%__MINIO_BUCKET__*}"
+              suffix="$${line#*__MINIO_BUCKET__}"
+              line="$${prefix}$${MINIO_BUCKET}$${suffix}"
+              ;;
+          esac
+          printf '%s\n' "$${line}"
+        done < /policy.json > /tmp/codesentry-policy.json
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}"
+        mc admin policy remove local codesentry-app >/dev/null 2>&1 || true
+        mc admin policy create local codesentry-app /tmp/codesentry-policy.json
+        mc admin user info local "$${MINIO_ACCESS_KEY}" >/dev/null 2>&1 || mc admin user add local "$${MINIO_ACCESS_KEY}" "$${MINIO_SECRET_KEY}"
+        mc admin policy attach local codesentry-app --user "$${MINIO_ACCESS_KEY}"
+    volumes:
+      - ./scripts/minio-app-policy.json:/policy.json:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks: [data]
+    restart: "no"
+
+  api:
+    build: .
+    env_file: .env
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 768m
+    cpus: 1.5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-provision:
+        condition: service_completed_successfully
+    volumes:
+      - app-artifacts:/srv/app/artifacts
+      - app-workspaces:/srv/app/workspaces
+    networks: [api, data, model, sandbox]
+
+  worker:
+    build:
+      context: .
+      args:
+        INSTALL_SCANNERS: "1"
+    env_file: .env
+    command: celery -A app.worker.celery_app worker --loglevel=INFO --concurrency=2
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1536m
+    cpus: 2.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-provision:
+        condition: service_completed_successfully
+    volumes:
+      - app-artifacts:/srv/app/artifacts
+      - app-workspaces:/srv/app/workspaces
+      - trivy-cache:/tmp/trivy-cache
+    networks: [data, model, sandbox, outbound]
+
+  scheduler:
+    build: .
+    env_file: .env
+    command: celery -A app.worker.celery_app beat --loglevel=INFO --schedule /tmp/celerybeat-schedule
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [data]
+
+  embedding-runtime:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    command:
+      - --model
+      - /models/MiniLM-L6-v2.gguf
+      - --alias
+      - MiniLM-L6-v2
+      - --embedding
+      - --pooling
+      - mean
+      - --n-gpu-layers
+      - all
+      - --ctx-size
+      - "2048"
+      - --parallel
+      - "1"
+      - --no-webui
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8092"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    gpus: all
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8092/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    volumes:
+      - ./models/MiniLM-L6-v2.gguf:/models/MiniLM-L6-v2.gguf:ro
+    networks: [model]
+
+  sandbox:
+    build: .
+    command: uvicorn app.sandbox:app --host 0.0.0.0 --port 8091
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SANDBOX_SERVICE_TOKEN: ${SANDBOX_SERVICE_TOKEN:-}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    volumes:
+      - repository-workspaces:/srv/repositories:ro
+      - app-workspaces:/srv/app/workspaces:ro
+    networks: [sandbox]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 128m
+    cpus: 0.5
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    networks: [edge, api]
+
+  llama-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.llama-ui
+    image: codesentry-llama-ui
+    command:
+      - --model
+      - /models/LFM2.5-2.6B-Q4_0.gguf
+      - --alias
+      - LFM-2.5-2.6B
+      - --models-dir
+      - /models
+      - --models-max
+      - "1"
+      - --cache-type-k
+      - q4_0
+      - --cache-type-v
+      - q4_0
+      - --flash-attn
+      - on
+      - --reasoning
+      - on
+      - --reasoning-format
+      - deepseek
+      - --reasoning-preserve
+      - --ctx-size
+      - "131072"
+      - --device
+      - CUDA0
+      - --fit
+      - off
+      - --n-gpu-layers
+      - all
+      - --parallel
+      - "1"
+      - --context-shift
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --path
+      - /webui
+      - --mcp-servers-config
+      - /app/codesentry-mcp.json
+      - --cors-origins
+      - https://127.0.0.1:8080
+      - --no-cors-credentials
+    gpus: all
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 4g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+    volumes:
+      - ./models/LFM2.5-2.6B-Q4_0.gguf:/models/LFM2.5-2.6B-Q4_0.gguf:ro
+    networks: [edge, model]
+
+  tools:
+    build:
+      context: .
+      dockerfile: Dockerfile.tools
+    image: codesentry-tools
+    command: uvicorn tools.main:app --host 0.0.0.0 --port 8091
+    environment:
+      SANDBOX_URL: http://sandbox:8091
+      SANDBOX_SERVICE_TOKEN: ${SANDBOX_SERVICE_TOKEN:-}
+      REPOSITORY_ROOT: ${REPOSITORY_ROOT:-/srv/tools/repositories}
+      KNOWLEDGE_ROOT: /srv/tools/knowledge
+      DDG_MAX_RESULTS: "10"
+      MAX_FETCH_BYTES: "52428800"
+      CVE_TIMEOUT: "12"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1536m
+    cpus: 1.5
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    volumes:
+      - tool-files:/srv/tools/files
+      - repository-workspaces:${REPOSITORY_ROOT:-/srv/tools/repositories}:rw
+      - knowledge-data:/srv/tools/knowledge:rw
+    networks: [edge, sandbox]
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  app-artifacts:
+  app-workspaces:
+  caddy-data:
+  caddy-config:
+  tool-files:
+  knowledge-data:
+  repository-workspaces:
+  trivy-cache:
+
+networks:
+  edge:
+  api:
+    internal: true
+  data:
+    internal: true
+  model:
+    internal: true
+  sandbox:
+    internal: true
+  outbound: {}

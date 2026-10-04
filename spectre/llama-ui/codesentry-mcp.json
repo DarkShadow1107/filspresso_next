@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "agent": {
+      "command": "/usr/bin/python3",
+      "args": ["/app/codesentry-mcp.py"],
+      "env": {
+        "SENTINELFORGE_TOOLS_URL": "http://tools:8091"
+      },
+      "timeout_ms": 75000
+    }
+  }
+}

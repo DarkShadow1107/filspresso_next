@@ -1,0 +1,37 @@
+# Local secrets. `.env.example` is tracked; the real file holds APP_SECRET,
+# POSTGRES_PASSWORD, APP_DB_PASSWORD, REDIS_PASSWORD and MINIO_ROOT_PASSWORD.
+.env
+.env.local
+.env.*.local
+
+# Spectre is a separate product from the coffee app and runs as its own compose
+# stack. These are build and runtime artifacts of that stack, not source.
+
+# Python bytecode and tooling caches.
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Virtualenvs.
+.venv/
+venv/
+env/
+
+# Node, for the llama-ui build.
+node_modules/
+.npm/
+
+# ~1.1 GB of Windows CUDA/llama.cpp binaries and superseded TypeScript from a
+# previous attempt. Nothing in the source references this directory.
+old/
+
+# Downloaded model weights. Only the .gitkeep placeholder is tracked.
+models/*
+!models/.gitkeep
+
+# Local render/analysis output.
+reports/
+snapshots/
+*.log
