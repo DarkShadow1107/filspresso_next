@@ -148,7 +148,8 @@ export function normalizeModelTier(rawTier: unknown, fallback: UserSubscriptionT
  * so the answer to "who gets 8B?" is readable without evaluating the code, and
  * so the `basic` no-vision rule is stated rather than implied by an off-by-one.
  */
-const MODEL_TIERS: Record<ModelKey, readonly UserSubscriptionTier[]> = {
+/** Tier entitlements per model. Exported so feature gating derives from the same table. */
+export const MODEL_TIERS: Record<ModelKey, readonly UserSubscriptionTier[]> = {
 	[TEXT_MODEL_230M]: ["free", "basic", "plus", "pro", "max", "ultimate"],
 	[TEXT_MODEL_350M]: ["basic", "plus", "pro", "max", "ultimate"],
 	[TEXT_MODEL_1_2B_INSTRUCT]: ["plus", "pro", "max", "ultimate"],
@@ -188,10 +189,6 @@ export function defaultModelForTier(tier: UserSubscriptionTier): ModelKey {
 /** True when the tier may use a model that emits visible reasoning. */
 export function tierCanUseThinkingModel(tier: UserSubscriptionTier): boolean {
 	return tierAllowsModel(tier, TEXT_MODEL_1_2B_THINKING) || tierAllowsModel(tier, TEXT_MODEL_8B);
-}
-
-export function tierCanAutoConvertVisionImage(tier: UserSubscriptionTier): boolean {
-	return tierAllowsModel(tier, VISION_MODEL_450M) || tierAllowsModel(tier, VISION_MODEL_3B);
 }
 
 /**

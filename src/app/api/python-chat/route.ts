@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { resolveAiHost } from "@/lib/server/aiHost";
 import {
+	ALLOWED_VISION_UPLOAD_EXTENSIONS,
+	ALLOWED_VISION_UPLOAD_MIME_TYPES,
+	DIRECT_UPLOAD_EXTENSIONS,
+	DIRECT_UPLOAD_MIME_TYPES,
+	VISION_MIN_SHORT_EDGE_PX,
+	tierCanAutoConvertVisionImage,
+} from "@/lib/entitlements";
+import {
 	allowedTextModelsForTier as sharedAllowedTextModels,
 	allowedVisionModelsForTier as sharedAllowedVisionModels,
 	defaultModelForTier,
@@ -34,21 +42,6 @@ const TEXT_MODEL_TAG_BY_KEY = MODEL_LABEL_BY_KEY as Record<TextModelKey, string>
 const VISION_MODEL_NAME_BY_KEY = MODEL_FILE_BY_KEY as Record<VisionModelKey, string>;
 const VISION_MODEL_TAG_BY_KEY = MODEL_LABEL_BY_KEY as Record<VisionModelKey, string>;
 
-const ALLOWED_VISION_UPLOAD_MIME_TYPES = new Set([
-	"image/webp",
-	"image/png",
-	"image/avif",
-	"image/tiff",
-	"image/svg+xml",
-	"image/jpeg",
-	"image/jpg",
-	"image/heic",
-]);
-const ALLOWED_VISION_UPLOAD_EXTENSIONS = new Set(["webp", "png", "avif", "tif", "tiff", "svg", "jpg", "jpeg", "heic"]);
-const DIRECT_PNG_JPEG_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg"]);
-const DIRECT_PNG_JPEG_EXTENSIONS = new Set(["png", "jpg", "jpeg"]);
-const AUTO_CONVERT_VISION_TIERS = new Set(["pro", "max", "ultimate"]);
-const MIN_VISION_DIMENSION_PX = 128;
 
 type VisionImageNormalizationResult = {
 	file: File;
@@ -60,10 +53,6 @@ function normalizeSubscriptionTier(value: unknown): string {
 	return String(value || "")
 		.trim()
 		.toLowerCase();
-}
-
-function tierCanAutoConvertVisionImage(tier: string): boolean {
-	return AUTO_CONVERT_VISION_TIERS.has(tier);
 }
 
 function normalizeImageMime(value: unknown): string {
@@ -80,14 +69,14 @@ function extractFileExtension(name: string): string {
 }
 
 function isAllowedVisionUploadType(mime: string, extension: string): boolean {
-	if (extension) return ALLOWED_VISION_UPLOAD_EXTENSIONS.has(extension);
-	if (mime && ALLOWED_VISION_UPLOAD_MIME_TYPES.has(mime)) return true;
+	if (extension) return ALLOWED_VISION_UPLOAD_EXTENSIONS.includes(extension);
+	if (mime && ALLOWED_VISION_UPLOAD_MIME_TYPES.includes(mime)) return true;
 	return false;
 }
 
 function isDirectPngOrJpegType(mime: string, extension: string): boolean {
-	if (mime && DIRECT_PNG_JPEG_MIME_TYPES.has(mime)) return true;
-	if (extension && DIRECT_PNG_JPEG_EXTENSIONS.has(extension)) return true;
+	if (mime && DIRECT_UPLOAD_MIME_TYPES.includes(mime)) return true;
+	if (extension && DIRECT_UPLOAD_EXTENSIONS.includes(extension)) return true;
 	return false;
 }
 
@@ -132,7 +121,7 @@ function imageValidationMessage(code: string): string {
 		return "BASIC and PLUS support PNG/JPG uploads only. PRO, MAX, and ULTIMATE auto-convert supported image formats to JPG.";
 	}
 	if (code === "IMAGE_TOO_SMALL") {
-		return `Image is too small. Minimum size is ${MIN_VISION_DIMENSION_PX}x${MIN_VISION_DIMENSION_PX} pixels.`;
+		return `Image is too small. Minimum size is ${VISION_MIN_SHORT_EDGE_PX}x${VISION_MIN_SHORT_EDGE_PX} pixels.`;
 	}
 	if (code === "IMAGE_DECODE_FAILED") {
 		return "The uploaded image could not be decoded. Please upload a valid WEBP, PNG, AVIF, TIFF, SVG, JPG, JPEG, or HEIC image.";
@@ -167,7 +156,7 @@ async function normalizeVisionUploadForTier(image: File, tier: string): Promise<
 		throw new Error("IMAGE_DECODE_FAILED");
 	}
 
-	const needsUpscale = width < MIN_VISION_DIMENSION_PX || height < MIN_VISION_DIMENSION_PX;
+	const needsUpscale = width < VISION_MIN_SHORT_EDGE_PX || height < VISION_MIN_SHORT_EDGE_PX;
 	if (needsUpscale && !canAutoConvert) {
 		throw new Error("IMAGE_TOO_SMALL");
 	}
@@ -191,9 +180,9 @@ async function normalizeVisionUploadForTier(image: File, tier: string): Promise<
 
 	let transform = sharp(sourceBuffer, { failOn: "none", limitInputPixels: false });
 	if (needsUpscale) {
-		const scale = Math.max(MIN_VISION_DIMENSION_PX / width, MIN_VISION_DIMENSION_PX / height);
-		const targetWidth = Math.max(MIN_VISION_DIMENSION_PX, Math.ceil(width * scale));
-		const targetHeight = Math.max(MIN_VISION_DIMENSION_PX, Math.ceil(height * scale));
+		const scale = Math.max(VISION_MIN_SHORT_EDGE_PX / width, VISION_MIN_SHORT_EDGE_PX / height);
+		const targetWidth = Math.max(VISION_MIN_SHORT_EDGE_PX, Math.ceil(width * scale));
+		const targetHeight = Math.max(VISION_MIN_SHORT_EDGE_PX, Math.ceil(height * scale));
 		transform = transform.resize(targetWidth, targetHeight, {
 			fit: "fill",
 			kernel: "lanczos3",

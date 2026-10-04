@@ -61,7 +61,22 @@ import {
 } from "@/lib/modelAccess";
 import { useModelLoadStatus } from "@/hooks/useModelLoadStatus";
 import { useHydrated } from "@/hooks/useHydrated";
-import { tierCanEditPrompt } from "@/lib/entitlements";
+import {
+	ALLOWED_VISION_UPLOAD_EXTENSIONS,
+	ALLOWED_VISION_UPLOAD_MIME_TYPES,
+	DIRECT_UPLOAD_EXTENSIONS,
+	DIRECT_UPLOAD_MIME_TYPES,
+	VISION_MIN_SHORT_EDGE_PX,
+	coffeeHelperImageLimitForTier,
+	tierCanAutoConvertVisionImage,
+	tierCanEditPrompt,
+} from "@/lib/entitlements";
+
+// Set views of the shared lists, for the hot-path membership checks below.
+const ALLOWED_VISION_UPLOAD_EXTENSIONS_SET = new Set(ALLOWED_VISION_UPLOAD_EXTENSIONS);
+const ALLOWED_VISION_UPLOAD_MIME_TYPES_SET = new Set(ALLOWED_VISION_UPLOAD_MIME_TYPES);
+const DIRECT_UPLOAD_MIME_TYPES_SET = new Set(DIRECT_UPLOAD_MIME_TYPES);
+const DIRECT_UPLOAD_EXTENSIONS_SET = new Set(DIRECT_UPLOAD_EXTENSIONS);
 import ModelLoadingBar from "./playground/ModelLoadingBar";
 
 // Parse **bold** and *italic* markdown in chat messages
@@ -310,30 +325,6 @@ const KNOWN_SUBSCRIPTION_TIERS = new Set<UserSubscriptionTier>(["none", "free", 
  * Qwen-era tier map. Deriving both from one table is the fix.
  */
 
-const ALLOWED_VISION_UPLOAD_MIME_TYPES = new Set([
-	"image/webp",
-	"image/png",
-	"image/avif",
-	"image/tiff",
-	"image/svg+xml",
-	"image/jpeg",
-	"image/jpg",
-	"image/heic",
-]);
-const ALLOWED_VISION_UPLOAD_EXTENSIONS = new Set(["webp", "png", "avif", "tif", "tiff", "svg", "jpg", "jpeg", "heic"]);
-const DIRECT_VISION_UPLOAD_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg"]);
-const DIRECT_VISION_UPLOAD_EXTENSIONS = new Set(["png", "jpg", "jpeg"]);
-const AUTO_CONVERT_VISION_TIERS = new Set<UserSubscriptionTier>(["pro", "max", "ultimate"]);
-const MIN_VISION_IMAGE_DIMENSION_PX = 128;
-const PREMIUM_COFFEE_HELPER_IMAGE_LIMIT = 3;
-
-function canAutoConvertVisionUpload(tier: UserSubscriptionTier): boolean {
-	return AUTO_CONVERT_VISION_TIERS.has(tier);
-}
-
-function coffeeHelperImageLimitForTier(tier: UserSubscriptionTier): number {
-	return tier === "max" || tier === "ultimate" ? PREMIUM_COFFEE_HELPER_IMAGE_LIMIT : 1;
-}
 
 function normalizeImageMime(value: unknown): string {
 	const normalized = String(value || "")
@@ -349,14 +340,14 @@ function extractFileExtension(name: string): string {
 }
 
 function isAllowedVisionUploadType(mime: string, extension: string): boolean {
-	if (extension) return ALLOWED_VISION_UPLOAD_EXTENSIONS.has(extension);
-	if (mime && ALLOWED_VISION_UPLOAD_MIME_TYPES.has(mime)) return true;
+	if (extension) return ALLOWED_VISION_UPLOAD_EXTENSIONS_SET.has(extension);
+	if (mime && ALLOWED_VISION_UPLOAD_MIME_TYPES_SET.has(mime)) return true;
 	return false;
 }
 
 function isDirectPngOrJpegType(mime: string, extension: string): boolean {
-	if (mime && DIRECT_VISION_UPLOAD_MIME_TYPES.has(mime)) return true;
-	if (extension && DIRECT_VISION_UPLOAD_EXTENSIONS.has(extension)) return true;
+	if (mime && DIRECT_UPLOAD_MIME_TYPES_SET.has(mime)) return true;
+	if (extension && DIRECT_UPLOAD_EXTENSIONS_SET.has(extension)) return true;
 	return false;
 }
 
@@ -518,7 +509,7 @@ async function validateVisionUploadCandidate(
 		};
 	}
 
-	const autoConvertAllowed = canAutoConvertVisionUpload(tier);
+	const autoConvertAllowed = tierCanAutoConvertVisionImage(tier);
 	if (!autoConvertAllowed && !isDirectPngOrJpegType(mime, extension)) {
 		return {
 			ok: false,
@@ -538,10 +529,10 @@ async function validateVisionUploadCandidate(
 			};
 		}
 
-		if (dimensions.width < MIN_VISION_IMAGE_DIMENSION_PX || dimensions.height < MIN_VISION_IMAGE_DIMENSION_PX) {
+		if (dimensions.width < VISION_MIN_SHORT_EDGE_PX || dimensions.height < VISION_MIN_SHORT_EDGE_PX) {
 			return {
 				ok: false,
-				message: `Image is too small. Minimum supported size is ${MIN_VISION_IMAGE_DIMENSION_PX}x${MIN_VISION_IMAGE_DIMENSION_PX}px.`,
+				message: `Image is too small. Minimum supported size is ${VISION_MIN_SHORT_EDGE_PX}x${VISION_MIN_SHORT_EDGE_PX}px.`,
 			};
 		}
 	}
@@ -880,7 +871,7 @@ export default React.memo(function CoffeeRecommender() {
 	// of the chat model. So the toggle is eligible for any entitled model except
 	// the thinking model itself, which already thinks.
 	const thinkingEligibleModel = hasThinkingAccess && selectedModel !== TEXT_MODEL_1_2B_THINKING;
-	const hasVisionAutoConvert = useMemo(() => canAutoConvertVisionUpload(userSubscription), [userSubscription]);
+	const hasVisionAutoConvert = useMemo(() => tierCanAutoConvertVisionImage(userSubscription), [userSubscription]);
 	const maxImagesPerPrompt = useMemo(
 		() => (chemistryMode ? 1 : coffeeHelperImageLimitForTier(userSubscription)),
 		[chemistryMode, userSubscription],
@@ -892,9 +883,9 @@ export default React.memo(function CoffeeRecommender() {
 			const multiImageHint = supportsMultiImagePrompt
 				? ` Coffee Helper supports up to ${maxImagesPerPrompt} images per prompt on ${userSubscription.toUpperCase()}.`
 				: "";
-			return `Allowed: WEBP, PNG, AVIF, TIFF, SVG, JPG, JPEG, HEIC. PRO, MAX, and ULTIMATE auto-convert non-PNG/JPG uploads to JPG and upscale small images to at least ${MIN_VISION_IMAGE_DIMENSION_PX}px.${multiImageHint}`;
+			return `Allowed: WEBP, PNG, AVIF, TIFF, SVG, JPG, JPEG, HEIC. PRO, MAX, and ULTIMATE auto-convert non-PNG/JPG uploads to JPG and upscale small images to at least ${VISION_MIN_SHORT_EDGE_PX}px.${multiImageHint}`;
 		}
-		return `BASIC and PLUS accept PNG/JPG only, minimum ${MIN_VISION_IMAGE_DIMENSION_PX}x${MIN_VISION_IMAGE_DIMENSION_PX}px.`;
+		return `BASIC and PLUS accept PNG/JPG only, minimum ${VISION_MIN_SHORT_EDGE_PX}x${VISION_MIN_SHORT_EDGE_PX}px.`;
 	}, [hasVisionAccess, hasVisionAutoConvert, maxImagesPerPrompt, supportsMultiImagePrompt, userSubscription]);
 	// Derived: a plan without Thinking entitlement can never have it on, whatever is
 	// stored. Reading through this (instead of resetting the stored value in an
@@ -2183,7 +2174,7 @@ export default React.memo(function CoffeeRecommender() {
 
 				if (shouldPreviewAsJpeg) {
 					try {
-						previewFile = await convertVisionUploadToJpegPreview(file, MIN_VISION_IMAGE_DIMENSION_PX);
+						previewFile = await convertVisionUploadToJpegPreview(file, VISION_MIN_SHORT_EDGE_PX);
 						previewConvertedCount += 1;
 					} catch {
 						previewConversionFailedCount += 1;

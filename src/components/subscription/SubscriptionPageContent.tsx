@@ -30,10 +30,8 @@ import {
 	PenIcon,
 } from "@/icons";
 
-import {
-	modelAccessLinesForTier,
-	normalizeModelTier,
-} from "@/lib/modelAccess";
+import { normalizeModelTier } from "@/lib/modelAccess";
+import { featureLinesForTier, modelAccessLinesForTier } from "@/lib/entitlements";
 
 type CurrentSubscription = {
 	tier: string;
@@ -70,11 +68,7 @@ const plans = [
 			"1x Suport capsules Mia Lume",
 			"🤖 Kafelot - 1000 prompts/month",
 			"🧠 MiniLM V2 access",
-			"📷 Auto-convert image formats to JPG + auto-upscale (min 128px)",
-			"📷 Coffee Helper - up to 3 images per prompt",
 			"💾 200-conversation memory",
-			"🧬 Molecule Helper - 200 prompts/month (LFM 2.5 VL)",
-			"✏️ Edit prompt feature",
 		],
 	},
 	{
@@ -92,10 +86,7 @@ const plans = [
 			"1x Suport des bonbons",
 			"🤖 Kafelot - 300 prompts/month",
 			"🧠 MiniLM V2 access",
-			"📷 Auto-convert image formats to JPG + auto-upscale (min 128px)",
-			"📷 Coffee Helper - up to 3 images per prompt",
 			"💾 100-conversation memory",
-			"✏️ Edit prompt feature",
 		],
 	},
 	{
@@ -113,7 +104,6 @@ const plans = [
 			"1x Suport des bonbons",
 			"🤖 Kafelot - 150 prompts/month",
 			"🧠 MiniLM V2 access",
-			"📷 Auto-convert image formats to JPG + auto-upscale (min 128px)",
 			"💾 50-conversation memory",
 		],
 	},
@@ -181,12 +171,15 @@ function benefitsForPlan(
 	planId: string,
 	baseBenefits: readonly string[],
 ): string[] {
-	const modelLines = modelAccessLinesForTier(normalizeModelTier(planId));
+	const tier = normalizeModelTier(planId);
+	// Models first, then the non-model features. Both derived, so a plan card can
+	// never advertise something the API refuses.
+	const derived = [...modelAccessLinesForTier(tier), ...featureLinesForTier(tier)];
 	const insertAt = baseBenefits.findIndex((b) => b.includes("MiniLM"));
-	if (insertAt === -1) return [...baseBenefits, ...modelLines];
+	if (insertAt === -1) return [...baseBenefits, ...derived];
 	return [
 		...baseBenefits.slice(0, insertAt + 1),
-		...modelLines,
+		...derived,
 		...baseBenefits.slice(insertAt + 1),
 	];
 }
