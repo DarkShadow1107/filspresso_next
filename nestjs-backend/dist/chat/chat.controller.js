@@ -37,11 +37,10 @@ let ChatController = class ChatController {
     }
     replaceHistory(req) {
         const body = (req.body ?? {});
-        return this.chatHistory.replaceHistory(Number(req.user?.["id"]), Array.isArray(body.history) ? body.history : [], 
-        // The client-supplied tier is only used to pick the retention cap. It never
-        // grants anything: entitlements are decided elsewhere, and an overstated
-        // tier here would only leave more rows for the user to see, not grant access.
-        typeof req.user?.["subscription"] === "string" ? req.user["subscription"] : null);
+        // No tier argument: the retention cap comes from the account row, read inside the
+        // transaction. Passing one in from the session was always null, because the session
+        // carries no subscription, so every plan silently got the anonymous cap of 5.
+        return this.chatHistory.replaceHistory(Number(req.user?.["id"]), Array.isArray(body.history) ? body.history : []);
     }
     // ---------------------------------------------------------------- sessions
     getSessions(req, limit, offset) {

@@ -42,6 +42,22 @@ function chatMemoryLimitForTier(tier) {
     const key = String(tier || "none").trim().toLowerCase();
     return CHAT_MEMORY_LIMIT_BY_TIER[key] ?? CHAT_MEMORY_LIMIT_BY_TIER.none;
 }
+/**
+ * The account's authoritative tier, straight from the database.
+ *
+ * This exists because the session does not carry a subscription: `ActiveSessionService`
+ * returns `{ token, claims, accountId }`, so `req.user.subscription` is always
+ * undefined and every caller fell through to the `none` cap of 5. Paid plans were
+ * charged their price and given the anonymous allowance.
+ *
+ * The tier is read inside the caller's transaction rather than trusted from the request,
+ * so a caller cannot inflate their own retention.
+ */
+async function resolveAccountTier(client, accountId) {
+    const { rows } = await client.query("SELECT subscription FROM accounts WHERE id = $1", [accountId]);
+    const raw = String(rows[0]?.subscription ?? "").trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(CHAT_MEMORY_LIMIT_BY_TIER, raw) ? raw : "none";
+}
 let ChatHistoryService = class ChatHistoryService {
     db;
     constructor(db) {
@@ -191,11 +207,14 @@ let ChatHistoryService = class ChatHistoryService {
      * Sessions missing from the payload are soft-deleted, and the per-plan memory
      * cap is enforced by soft-deleting the oldest overflow.
      */
-    async replaceHistory(accountId, conversations, tier) {
+    async replaceHistory(accountId, conversations) {
         const pool = this.db.getPool();
         const client = await pool.connect();
         try {
             await client.query("BEGIN");
+            // Resolved here, from the account row, rather than accepted from the caller: the
+            // session carries no subscription, so the old signature always received null.
+            const tier = await resolveAccountTier(client, accountId);
             const keep = [];
             for (const conversation of conversations) {
                 // A browser-generated id like `chat-1775669298678` fits session_uuid, and
