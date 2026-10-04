@@ -865,7 +865,9 @@ export default React.memo(function CoffeeRecommender() {
 		return fp;
 	}
 
-	async function fetchPromptStatus(token?: string, scope: PromptScope = "general", updateDisplay = true) {
+	// No token argument: the session lives in an httpOnly cookie, so a same-origin
+	// fetch is authenticated automatically and there is nothing to read in JS.
+	async function fetchPromptStatus(scope: PromptScope = "general", updateDisplay = true) {
 		try {
 			const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
 			const normalizedScope: PromptScope = scope === "molecule_helper" ? "molecule_helper" : "general";
@@ -875,9 +877,11 @@ export default React.memo(function CoffeeRecommender() {
 				"x-kafelot-fingerprint": fp,
 				"x-kafelot-scope": normalizedScope,
 			};
-			if (token) headers["authorization"] = `Bearer ${token}`;
-			const res = await fetch(`${API_BASE}/api/kafelot/status?scope=${normalizedScope}`, { headers });
-			if (token && res.status === 401) {
+			const res = await fetch(`${API_BASE}/api/kafelot/status?scope=${normalizedScope}`, {
+				headers,
+				credentials: "same-origin",
+			});
+			if (res.status === 401) {
 				setIsLoggedIn(false);
 				setUserSubscription("none");
 				clearAccountSession();
@@ -890,13 +894,17 @@ export default React.memo(function CoffeeRecommender() {
 					reset_date?: string;
 					tier?: string;
 				};
-				const backendTier = token ? normalizeUserSubscriptionTier(data.tier, userSubscription) : "free";
-				const effectiveTier = backendTier === "none" ? (token ? userSubscription : "free") : backendTier;
+				// Whether this response represents an authenticated caller. A 401 already
+				// returned above, so reaching here with a session in localStorage means
+				// the cookie is still valid.
+				const callerAuthenticated = isLoggedIn;
+				const backendTier = normalizeUserSubscriptionTier(data.tier, userSubscription);
+				const effectiveTier = backendTier === "none" ? (callerAuthenticated ? userSubscription : "free") : backendTier;
 				const normalizedCounters = normalizePromptCounters(
 					data.prompts_remaining,
 					data.prompts_limit,
 					effectiveTier,
-					!!token,
+					callerAuthenticated,
 					normalizedScope,
 				);
 
@@ -907,7 +915,7 @@ export default React.memo(function CoffeeRecommender() {
 					setPromptResetDate(data.reset_date ?? null);
 					setLimitReached(normalizedCounters.promptsRemaining <= 0);
 				}
-				if (token && typeof data.tier === "string") {
+				if (callerAuthenticated && typeof data.tier === "string") {
 					const backendTier = normalizeUserSubscriptionTier(data.tier, userSubscription);
 					if (backendTier !== "none") {
 						setUserSubscription(backendTier);
@@ -972,19 +980,19 @@ export default React.memo(function CoffeeRecommender() {
 				const storedIsLoggedIn = !!accountSession;
 				setIsLoggedIn(storedIsLoggedIn);
 
-				// Fetch subscription from DB via /api/subscriptions if logged in
+				// The session token lives in an httpOnly cookie, so JS cannot read it. Auth is
+				// resolved server-side; a same-origin fetch carries the cookie automatically.
 				if (accountSession) {
-					const token = accountSession.token;
-					if (token) {
+					{
 						const API_BASE =
 							typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
-						const authHeaders = { Authorization: `Bearer ${token}` };
+						const authHeaders = { credentials: "same-origin" as const };
 						const expireSession = () => {
 							clearAccountSession();
 							setIsLoggedIn(false);
 							setUserSubscription("none");
 							setSelectedModel(TEXT_MODEL_230M);
-							fetchPromptStatus(undefined, "general");
+							fetchPromptStatus("general");
 						};
 
 						// Primary: Fetch subscription tier from subscriptions API (database)
@@ -1076,13 +1084,12 @@ export default React.memo(function CoffeeRecommender() {
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 		const accountSession = readAccountSession();
-		const token = accountSession?.token ?? undefined;
 		const scope: PromptScope = chemistryMode ? "molecule_helper" : "general";
-		fetchPromptStatus(token, scope, true);
+		fetchPromptStatus(scope, true);
 		const hasMoleculeHelperAccess = allowedVisionModelsForTier(userSubscription).length > 0;
 		if (hasMoleculeHelperAccess) {
 			const secondaryScope: PromptScope = scope === "general" ? "molecule_helper" : "general";
-			fetchPromptStatus(token, secondaryScope, false);
+			fetchPromptStatus(secondaryScope, false);
 		}
 	}, [chemistryMode, isLoggedIn, userSubscription]);
 
@@ -1776,9 +1783,6 @@ export default React.memo(function CoffeeRecommender() {
 			const fp = fingerprintRef.current || getOrCreateFingerprint();
 			fingerprintRef.current = fp;
 
-			// Include auth token if logged in
-			const sessionToken = readAccountSession()?.token ?? undefined;
-
 			if (imageToSend && shouldUsePython) {
 				const fd = new FormData();
 				fd.append("messages", JSON.stringify([...messagesForApi, userMsg]));
@@ -1794,13 +1798,11 @@ export default React.memo(function CoffeeRecommender() {
 				fetchBody = fd;
 				if (fp) fetchHeaders["x-kafelot-fingerprint"] = fp;
 				fetchHeaders["x-kafelot-scope"] = promptScope;
-				if (sessionToken) fetchHeaders["authorization"] = `Bearer ${sessionToken}`;
-			} else {
+				} else {
 				fetchHeaders = { "Content-Type": "application/json" };
 				if (fp) fetchHeaders["x-kafelot-fingerprint"] = fp;
 				fetchHeaders["x-kafelot-scope"] = promptScope;
-				if (sessionToken) fetchHeaders["authorization"] = `Bearer ${sessionToken}`;
-				fetchBody = JSON.stringify({
+					fetchBody = JSON.stringify({
 					messages: [...messagesForApi, userMsg],
 					mode: chatMode,
 					model: modelForRequest,
@@ -1839,7 +1841,7 @@ export default React.memo(function CoffeeRecommender() {
 					clearAccountSession();
 					setIsLoggedIn(false);
 					setUserSubscription("none");
-					fetchPromptStatus(undefined, chemistryMode ? "molecule_helper" : "general");
+					fetchPromptStatus(chemistryMode ? "molecule_helper" : "general");
 					const authMsg: Message = {
 						role: "assistant",
 						content: "Your session expired. Please log in again to continue with subscription access.",
