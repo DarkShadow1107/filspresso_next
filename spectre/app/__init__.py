@@ -1,1 +1,1 @@
-"""CodeSentry application package."""
+"""Spectre application package."""

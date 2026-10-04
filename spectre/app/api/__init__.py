@@ -1,1 +1,1 @@
-"""HTTP routes for CodeSentry."""
+"""HTTP routes for Spectre."""

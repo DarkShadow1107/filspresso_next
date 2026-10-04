@@ -107,7 +107,7 @@ def test_sandbox_rejects_unknown_profile_and_repository_id(
         )
 
 
-def test_codesentry_checkout_profiles_are_bounded_and_fixed(
+def test_spectre_checkout_profiles_are_bounded_and_fixed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     checkout = tmp_path / "audit-checkout"
@@ -124,14 +124,14 @@ def test_codesentry_checkout_profiles_are_bounded_and_fixed(
     )
     monkeypatch.setattr(sandbox, "CHECKOUT_ROOT", tmp_path)
 
-    compiled = sandbox.execute_codesentry_checkout(
+    compiled = sandbox.execute_spectre_checkout(
         RepositoryCheckoutExecutionRequest(checkout_name=checkout.name, profile="compile_python")
     )
     assert compiled.exit_code == 0
     assert compiled.output_json == {"checked": 2, "errors": []}
     assert not (checkout / "should-not-exist").exists()
 
-    tested = sandbox.execute_codesentry_checkout(
+    tested = sandbox.execute_spectre_checkout(
         RepositoryCheckoutExecutionRequest(checkout_name=checkout.name, profile="python_tests")
     )
     assert tested.exit_code == 0

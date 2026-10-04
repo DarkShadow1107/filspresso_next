@@ -35,7 +35,7 @@ from app.models import (
     Artifact,
     CaseStatus,
     CodeProposal,
-    CodeSentryScanRun,
+    SpectreScanRun,
     DocumentChunk,
     Membership,
     MembershipRole,
@@ -81,7 +81,7 @@ from app.schemas import (
 )
 from app.services.artifacts import create_artifact, read_artifact_bytes
 from app.services.audit import record_audit_event
-from app.services.codesentry import emit_scan_event
+from app.services.spectre import emit_scan_event
 from app.services.documents import (
     UnsupportedDocumentError,
     delete_document_originals,
@@ -597,7 +597,7 @@ async def start_repository_audit(
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
 ) -> ResearchRun:
-    """Start one durable research run and its linked CodeSentry repository scan."""
+    """Start one durable research run and its linked Spectre repository scan."""
 
     await get_membership(organization_id, user, db, MembershipRole.ADMIN, MembershipRole.ANALYST)
     await _limit_expensive_action(request, user, organization_id)
@@ -620,11 +620,11 @@ async def start_repository_audit(
         )
 
     active_scan = await db.scalar(
-        select(CodeSentryScanRun)
+        select(SpectreScanRun)
         .where(
-            CodeSentryScanRun.organization_id == organization_id,
-            CodeSentryScanRun.repository_id == repository_id,
-            CodeSentryScanRun.status.in_(
+            SpectreScanRun.organization_id == organization_id,
+            SpectreScanRun.repository_id == repository_id,
+            SpectreScanRun.status.in_(
                 [
                     ScanStatus.QUEUED.value,
                     ScanStatus.RUNNING.value,
@@ -637,7 +637,7 @@ async def start_repository_audit(
     if active_scan is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Repository already has an active CodeSentry scan",
+            detail="Repository already has an active Spectre scan",
         )
 
     from app.schemas import AgentSettings
@@ -656,7 +656,7 @@ async def start_repository_audit(
     db.add(case)
     await db.flush()
 
-    scan = CodeSentryScanRun(
+    scan = SpectreScanRun(
         organization_id=organization_id,
         repository_id=repository.id,
         requested_by_id=user.id,
@@ -670,7 +670,7 @@ async def start_repository_audit(
             "request_poc_proposals": payload.request_poc_proposals,
         },
         summary={
-            "product": "CodeSentry",
+            "product": "Spectre",
             "generation_model": "granite-4.2",
             "embedding_model": "minilm",
             "audit_kind": "repository_audit",
@@ -725,7 +725,7 @@ async def start_repository_audit(
             run_id=run.id,
             agent_name="orchestrator",
             event_type="status",
-            content="Repository audit queued with a linked CodeSentry scan.",
+            content="Repository audit queued with a linked Spectre scan.",
             payload={
                 "stage": "queued",
                 "repository_id": str(repository.id),
@@ -748,7 +748,7 @@ async def start_repository_audit(
         scan,
         event_type="scan_queued",
         stage="queued",
-        message="Repository audit queued its linked CodeSentry scan.",
+        message="Repository audit queued its linked Spectre scan.",
         payload={"scan_id": str(scan.id), "research_run_id": str(run.id)},
     )
     try:
@@ -854,12 +854,12 @@ async def cancel_research_run(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Run already finished")
     now = datetime.now(UTC)
     run.cancelled_at = now
-    linked_scan: CodeSentryScanRun | None = None
+    linked_scan: SpectreScanRun | None = None
     linked_scan_cancelled = False
     linked_scan_id = (run.blackboard or {}).get("codesentry_scan_id")
     if isinstance(linked_scan_id, str):
         try:
-            linked_scan = await db.get(CodeSentryScanRun, UUID(linked_scan_id))
+            linked_scan = await db.get(SpectreScanRun, UUID(linked_scan_id))
         except ValueError:
             linked_scan = None
         if linked_scan is not None and linked_scan.organization_id == organization_id:
@@ -1124,7 +1124,7 @@ async def export_sources(
     return Response(
         content=json.dumps(payload, default=str),
         media_type="application/json",
-        headers={"Content-Disposition": 'attachment; filename="codesentry-memory.json"'},
+        headers={"Content-Disposition": 'attachment; filename="spectre-memory.json"'},
     )
 
 

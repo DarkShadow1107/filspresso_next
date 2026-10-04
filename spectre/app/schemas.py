@@ -323,7 +323,7 @@ class RepositoryRead(BaseModel):
     created_at: datetime
 
 
-class CodeSentryScanCreate(BaseModel):
+class SpectreScanCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tier: Literal["T1", "T2", "T3"] = "T1"
@@ -351,7 +351,7 @@ class RepositoryAuditCreate(BaseModel):
     request_poc_proposals: bool = True
 
 
-class CodeSentryScanRead(BaseModel):
+class SpectreScanRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -370,7 +370,7 @@ class CodeSentryScanRead(BaseModel):
     cancelled_at: datetime | None
 
 
-class CodeSentryFindingRead(BaseModel):
+class SpectreFindingRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -394,7 +394,7 @@ class CodeSentryFindingRead(BaseModel):
     updated_at: datetime
 
 
-class CodeSentryScanEventRead(BaseModel):
+class SpectreScanEventRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -408,7 +408,7 @@ class CodeSentryScanEventRead(BaseModel):
     created_at: datetime
 
 
-class CodeSentryRepositoryFileRead(BaseModel):
+class SpectreRepositoryFileRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -420,7 +420,7 @@ class CodeSentryRepositoryFileRead(BaseModel):
     line_count: int
 
 
-class CodeSentryLLMUsageRead(BaseModel):
+class SpectreLLMUsageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -438,7 +438,7 @@ class CodeSentryLLMUsageRead(BaseModel):
     created_at: datetime
 
 
-class CodeSentryPocRead(BaseModel):
+class SpectrePocRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -458,13 +458,13 @@ class CodeSentryPocRead(BaseModel):
     created_at: datetime
 
 
-class CodeSentryDecision(BaseModel):
+class SpectreDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     note: str | None = Field(default=None, max_length=2_000)
 
 
-class CodeSentryReportRead(BaseModel):
+class SpectreReportRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -566,7 +566,7 @@ class TerminalExecutionResult(SandboxResult):
 
 
 class RepositoryCheckoutExecutionRequest(BaseModel):
-    """Internal sandbox request for a temporary CodeSentry checkout."""
+    """Internal sandbox request for a temporary Spectre checkout."""
 
     model_config = ConfigDict(extra="forbid")
 

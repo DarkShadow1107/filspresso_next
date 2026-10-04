@@ -234,7 +234,7 @@ async def _analyze_repository(repository_id: str, organization_id: str) -> None:
                 repository.manifest = {"error": str(exc)}
                 await session.commit()
             finally:
-                # Local uploads are the repository's source of truth for later CodeSentry scans.
+                # Local uploads are the repository's source of truth for later Spectre scans.
                 if checkout is not None and repository.remote_url:
                     import shutil
 
@@ -267,7 +267,7 @@ def analyze_repository_task(self: object, repository_id: str, organization_id: s
 def execute_codesentry_scan_task(self: object, scan_id: str, organization_id: str) -> None:
     import asyncio
 
-    from app.services.codesentry import execute_codesentry_scan
+    from app.services.spectre import execute_codesentry_scan
 
     async def runner() -> None:
         from app.db import SessionLocal, close_database
@@ -291,7 +291,7 @@ def execute_codesentry_scan_task(self: object, scan_id: str, organization_id: st
 def execute_codesentry_poc_task(self: object, poc_id: str, organization_id: str) -> None:
     import asyncio
 
-    from app.services.codesentry import execute_codesentry_poc
+    from app.services.spectre import execute_codesentry_poc
 
     async def runner() -> None:
         from app.db import SessionLocal, close_database

@@ -62,9 +62,9 @@ class Settings(BaseSettings):
         placeholders = {
             "development-only-change-me",
             "replace-with-a-long-random-secret",
-            "replace-this-minio-secret",
-            "codesentry",
-            "codesentry_app",
+"replace-this-minio-secret",
+                "codesentry",
+                "codesentry_app",
         }
         sensitive_values = {
             self.app_secret,

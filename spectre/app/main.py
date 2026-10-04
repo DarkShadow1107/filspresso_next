@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.codesentry import router as codesentry_router
+from app.api.spectre import router as codesentry_router
 from app.api.router import router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -15,7 +15,7 @@ from app.db import SessionLocal, close_database, initialize_database
 
 settings = get_settings()
 
-DEFAULT_USER_EMAIL = "local@codesentry.dev"
+DEFAULT_USER_EMAIL = "local@spectre.dev"
 DEFAULT_USER_ID = _uuid.uuid5(_uuid.NAMESPACE_URL, "codesentry:local-user")
 DEFAULT_ORG_ID = _uuid.uuid5(_uuid.NAMESPACE_URL, "codesentry:local-workspace")
 
@@ -57,7 +57,7 @@ async def _ensure_default_identity() -> None:
                 text("INSERT INTO organizations (id, name, slug) VALUES (:id, :name, :slug)"),
                 {
                     "id": DEFAULT_ORG_ID,
-                    "name": "CodeSentry Workspace",
+                    "name": "Spectre Workspace",
                     "slug": "codesentry-workspace",
                 },
             )
@@ -92,7 +92,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="CodeSentry API",
+    title="Spectre API",
     version="0.1.0",
     description="Collaborative defensive security intelligence and evidence automation platform.",
     lifespan=lifespan,

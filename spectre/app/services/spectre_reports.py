@@ -12,16 +12,16 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen.canvas import Canvas
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import CodeSentryFinding, CodeSentryReport, CodeSentryScanRun, Repository
+from app.models import SpectreFinding, SpectreReport, SpectreScanRun, Repository
 from app.services.artifacts import MinioArtifactStore
-from app.services.codesentry import redact_text
+from app.services.spectre import redact_text
 
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def _finding_record(finding: CodeSentryFinding) -> dict[str, Any]:
+def _finding_record(finding: SpectreFinding) -> dict[str, Any]:
     payload = finding.raw_payload if isinstance(finding.raw_payload, dict) else {}
     return {
         "id": str(finding.id),
@@ -44,11 +44,11 @@ def _finding_record(finding: CodeSentryFinding) -> dict[str, Any]:
 
 
 def build_json_report(
-    scan: CodeSentryScanRun, repository: Repository, findings: list[CodeSentryFinding]
+    scan: SpectreScanRun, repository: Repository, findings: list[SpectreFinding]
 ) -> bytes:
     body = {
         "schema_version": "1.0",
-        "product": "CodeSentry",
+        "product": "Spectre",
         "scan": {
             "id": str(scan.id),
             "repository_id": str(repository.id),
@@ -65,7 +65,7 @@ def build_json_report(
 
 
 def build_sarif_report(
-    scan: CodeSentryScanRun, repository: Repository, findings: list[CodeSentryFinding]
+    scan: SpectreScanRun, repository: Repository, findings: list[SpectreFinding]
 ) -> bytes:
     rules: dict[str, dict[str, Any]] = {}
     results: list[dict[str, Any]] = []
@@ -119,7 +119,7 @@ def build_sarif_report(
             {
                 "tool": {
                     "driver": {
-                        "name": "CodeSentry",
+                        "name": "Spectre",
                         "version": "0.1.0",
                         "informationUri": "https://127.0.0.1:8080",
                         "rules": list(rules.values()),
@@ -140,10 +140,10 @@ def build_sarif_report(
 
 
 def build_markdown_report(
-    scan: CodeSentryScanRun, repository: Repository, findings: list[CodeSentryFinding]
+    scan: SpectreScanRun, repository: Repository, findings: list[SpectreFinding]
 ) -> bytes:
     lines = [
-        f"# CodeSentry Security Report: {repository.name}",
+        f"# Spectre Security Report: {repository.name}",
         "",
         f"- Scan: `{scan.id}`",
         f"- Commit: `{repository.commit_sha or 'unknown'}`",
@@ -181,7 +181,7 @@ def build_markdown_report(
 
 
 def build_pdf_report(
-    scan: CodeSentryScanRun, repository: Repository, findings: list[CodeSentryFinding]
+    scan: SpectreScanRun, repository: Repository, findings: list[SpectreFinding]
 ) -> bytes:
     buffer = io.BytesIO()
     canvas = Canvas(buffer, pagesize=A4)
@@ -207,7 +207,7 @@ def build_pdf_report(
         cursor -= 9
 
     block(
-        "CodeSentry Security Report",
+        "Spectre Security Report",
         f"Repository: {repository.name} | Scan: {scan.id} | "
         f"Commit: {repository.commit_sha or 'unknown'} | Status: {scan.status}",
     )
@@ -236,11 +236,11 @@ REPORT_BUILDERS = {
 async def create_scan_reports(
     db: AsyncSession,
     *,
-    scan: CodeSentryScanRun,
+    scan: SpectreScanRun,
     repository: Repository,
-    findings: list[CodeSentryFinding],
-) -> list[CodeSentryReport]:
-    reports: list[CodeSentryReport] = []
+    findings: list[SpectreFinding],
+) -> list[SpectreReport]:
+    reports: list[SpectreReport] = []
     for report_format, (builder, content_type, extension) in REPORT_BUILDERS.items():
         data = builder(scan, repository, findings)
         report_id = uuid.uuid4()
@@ -249,7 +249,7 @@ async def create_scan_reports(
             f"{report_format}-{report_id}.{extension}"
         )
         await MinioArtifactStore().put(key, data, content_type)
-        report = CodeSentryReport(
+        report = SpectreReport(
             id=report_id,
             organization_id=scan.organization_id,
             scan_run_id=scan.id,
@@ -262,7 +262,7 @@ async def create_scan_reports(
             sha256=hashlib.sha256(data).hexdigest(),
             finding_count=len(findings),
             metadata_json={
-                "product": "CodeSentry",
+                "product": "Spectre",
                 "repository": repository.name,
                 "commit_sha": repository.commit_sha,
             },
@@ -273,5 +273,5 @@ async def create_scan_reports(
     return reports
 
 
-async def get_scan_report_bytes(report: CodeSentryReport) -> bytes:
+async def get_scan_report_bytes(report: SpectreReport) -> bytes:
     return await MinioArtifactStore().get(report.storage_key)

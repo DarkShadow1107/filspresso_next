@@ -1,9 +1,9 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "codesentry.ui.settings.v1";
-  const REPO_STORE_KEY = "codesentry.chat.repositories.v1";
-  const REPO_CONTEXT_STORE_KEY = "codesentry.chat.repository-context.v1";
+  const STORAGE_KEY = "spectre.ui.settings.v1";
+  const REPO_STORE_KEY = "spectre.chat.repositories.v1";
+  const REPO_CONTEXT_STORE_KEY = "spectre.chat.repository-context.v1";
 
   const DEFAULT_CONTEXT_SIZE = 32768;
   const STANDARD_CONTEXTS = [32768, 65536];
@@ -28,7 +28,7 @@
   const isSecureApp = (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost") && window.location.port === "8080";
   const apiBase = "/api/v1";
   const toolsBase = "/tools-api";
-  const DEVICE_KEY = "codesentry.device.v1";
+  const DEVICE_KEY = "spectre.device.v1";
 
   function getDeviceId() {
     try {
@@ -342,7 +342,7 @@
     status.classList.toggle("is-visible", visible && Boolean(message));
   }
 
-  const SANDBOX_WIDTH_KEY = "codesentry.sandbox.width.v1";
+  const SANDBOX_WIDTH_KEY = "spectre.sandbox.width.v1";
 
   function applySandboxWidth(px) {
     const width = Math.min(720, Math.max(280, Math.round(px)));
@@ -2735,7 +2735,7 @@
       const parallelSlots = props.default_generation_settings?.n_parallel ?? props.model?.n_parallel ?? 1;
 
       const rows = [
-          ["Model Name", loaded.name || loaded.id || activeModelId || "CodeSentry"],
+          ["Model Name", loaded.name || loaded.id || activeModelId || "Spectre"],
         ["File Path", loaded.path || "/models"],
         ["Parameters", formatParams(meta.n_params || props.model?.n_params)],
         ["Context Size", meta.n_ctx != null ? `${Number(meta.n_ctx).toLocaleString()} tokens` : (props.default_generation_settings?.n_ctx ? `${props.default_generation_settings.n_ctx} tokens` : "64K / 128K")],

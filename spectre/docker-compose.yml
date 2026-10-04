@@ -260,7 +260,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.llama-ui
-    image: codesentry-llama-ui
+    image: spectre-llama-ui
     command:
       - --model
       - /models/LFM2.5-2.6B-Q4_0.gguf
@@ -299,7 +299,7 @@ services:
       - --path
       - /webui
       - --mcp-servers-config
-      - /app/codesentry-mcp.json
+      - /app/spectre-mcp.json
       - --cors-origins
       - https://127.0.0.1:8080
       - --no-cors-credentials
@@ -327,7 +327,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.tools
-    image: codesentry-tools
+    image: spectre-tools
     command: uvicorn tools.main:app --host 0.0.0.0 --port 8091
     environment:
       SANDBOX_URL: http://sandbox:8091

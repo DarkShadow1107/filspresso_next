@@ -15,12 +15,12 @@ from app.core.config import get_settings
 from app.db import SessionLocal, get_db, set_organization_context
 from app.dependencies import local_default_user
 from app.models import (
-    CodeSentryFinding,
-    CodeSentryLLMUsage,
-    CodeSentryPoc,
-    CodeSentryReport,
-    CodeSentryScanEvent,
-    CodeSentryScanRun,
+    SpectreFinding,
+    SpectreLLMUsage,
+    SpectrePoc,
+    SpectreReport,
+    SpectreScanEvent,
+    SpectreScanRun,
     FindingSeverity,
     FindingStatus,
     Membership,
@@ -31,23 +31,23 @@ from app.models import (
     User,
 )
 from app.schemas import (
-    CodeSentryDecision,
-    CodeSentryFindingRead,
-    CodeSentryLLMUsageRead,
-    CodeSentryPocRead,
-    CodeSentryReportRead,
-    CodeSentryRepositoryFileRead,
-    CodeSentryScanCreate,
-    CodeSentryScanEventRead,
-    CodeSentryScanRead,
+    SpectreDecision,
+    SpectreFindingRead,
+    SpectreLLMUsageRead,
+    SpectrePocRead,
+    SpectreReportRead,
+    SpectreRepositoryFileRead,
+    SpectreScanCreate,
+    SpectreScanEventRead,
+    SpectreScanRead,
 )
 from app.services.artifacts import MinioArtifactStore
 from app.services.audit import record_audit_event
-from app.services.codesentry import emit_scan_event
-from app.services.codesentry_reports import get_scan_report_bytes
+from app.services.spectre import emit_scan_event
+from app.services.spectre_reports import get_scan_report_bytes
 from app.services.rate_limit import enforce_rate_limit
 
-router = APIRouter(prefix="/organizations/{organization_id}", tags=["CodeSentry"])
+router = APIRouter(prefix="/organizations/{organization_id}", tags=["Spectre"])
 settings = get_settings()
 
 
@@ -69,10 +69,10 @@ async def _membership(
     return membership
 
 
-async def _scan_or_404(db: AsyncSession, organization_id: UUID, scan_id: UUID) -> CodeSentryScanRun:
-    scan = await db.get(CodeSentryScanRun, scan_id)
+async def _scan_or_404(db: AsyncSession, organization_id: UUID, scan_id: UUID) -> SpectreScanRun:
+    scan = await db.get(SpectreScanRun, scan_id)
     if scan is None or scan.organization_id != organization_id:
-        raise HTTPException(status_code=404, detail="CodeSentry scan not found")
+        raise HTTPException(status_code=404, detail="Spectre scan not found")
     return scan
 
 
@@ -88,28 +88,28 @@ async def _rate_limit_scan(request: Request, user: User, organization_id: UUID) 
 
 @router.post(
     "/repositories/{repository_id}/scans",
-    response_model=CodeSentryScanRead,
+    response_model=SpectreScanRead,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def create_scan(
     organization_id: UUID,
     repository_id: UUID,
-    payload: CodeSentryScanCreate,
+    payload: SpectreScanCreate,
     request: Request,
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> CodeSentryScanRun:
+) -> SpectreScanRun:
     await _membership(organization_id, user, db, MembershipRole.ADMIN, MembershipRole.ANALYST)
     await _rate_limit_scan(request, user, organization_id)
     repository = await db.get(Repository, repository_id)
     if repository is None or repository.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Repository not found")
     active = await db.scalar(
-        select(CodeSentryScanRun)
+        select(SpectreScanRun)
         .where(
-            CodeSentryScanRun.organization_id == organization_id,
-            CodeSentryScanRun.repository_id == repository_id,
-            CodeSentryScanRun.status.in_(
+            SpectreScanRun.organization_id == organization_id,
+            SpectreScanRun.repository_id == repository_id,
+            SpectreScanRun.status.in_(
                 [
                     ScanStatus.QUEUED.value,
                     ScanStatus.RUNNING.value,
@@ -121,9 +121,9 @@ async def create_scan(
     )
     if active is not None:
         raise HTTPException(
-            status_code=409, detail="Repository already has an active CodeSentry scan"
+            status_code=409, detail="Repository already has an active Spectre scan"
         )
-    scan = CodeSentryScanRun(
+    scan = SpectreScanRun(
         organization_id=organization_id,
         repository_id=repository_id,
         requested_by_id=user.id,
@@ -131,7 +131,7 @@ async def create_scan(
         current_stage="queued",
         settings=payload.model_dump(),
         summary={
-            "product": "CodeSentry",
+            "product": "Spectre",
             "generation_model": "granite-4.2",
             "embedding_model": "minilm",
         },
@@ -140,7 +140,7 @@ async def create_scan(
     await db.flush()
     await record_audit_event(
         db,
-        action="codesentry.scan_queued",
+        action="spectre.scan_queued",
         resource_type="codesentry_scan",
         resource_id=str(scan.id),
         organization_id=organization_id,
@@ -157,13 +157,13 @@ async def create_scan(
         scan.current_stage = "failed_to_queue"
         scan.error = f"Unable to queue scan: {exc}"[:2_000]
         await db.commit()
-        raise HTTPException(status_code=503, detail="CodeSentry worker is unavailable") from exc
+        raise HTTPException(status_code=503, detail="Spectre worker is unavailable") from exc
     await emit_scan_event(
         db,
         scan,
         event_type="scan_queued",
         stage="queued",
-        message="CodeSentry scan queued for the local worker.",
+        message="Spectre scan queued for the local worker.",
         payload={"scan_id": str(scan.id), "repository_id": str(repository_id)},
     )
     await db.refresh(scan)
@@ -172,7 +172,7 @@ async def create_scan(
 
 @router.get(
     "/repositories/{repository_id}/scans",
-    response_model=list[CodeSentryScanRead],
+    response_model=list[SpectreScanRead],
 )
 async def list_repository_scans(
     organization_id: UUID,
@@ -180,38 +180,38 @@ async def list_repository_scans(
     limit: int = Query(default=50, ge=1, le=200),
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> list[CodeSentryScanRun]:
+) -> list[SpectreScanRun]:
     await _membership(organization_id, user, db)
     result = await db.scalars(
-        select(CodeSentryScanRun)
+        select(SpectreScanRun)
         .where(
-            CodeSentryScanRun.organization_id == organization_id,
-            CodeSentryScanRun.repository_id == repository_id,
+            SpectreScanRun.organization_id == organization_id,
+            SpectreScanRun.repository_id == repository_id,
         )
-        .order_by(CodeSentryScanRun.created_at.desc(), CodeSentryScanRun.id.desc())
+        .order_by(SpectreScanRun.created_at.desc(), SpectreScanRun.id.desc())
         .limit(limit)
     )
     return list(result)
 
 
-@router.get("/scans/{scan_id}", response_model=CodeSentryScanRead)
+@router.get("/scans/{scan_id}", response_model=SpectreScanRead)
 async def get_scan(
     organization_id: UUID,
     scan_id: UUID,
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> CodeSentryScanRun:
+) -> SpectreScanRun:
     await _membership(organization_id, user, db)
     return await _scan_or_404(db, organization_id, scan_id)
 
 
-@router.post("/scans/{scan_id}/cancel", response_model=CodeSentryScanRead)
+@router.post("/scans/{scan_id}/cancel", response_model=SpectreScanRead)
 async def cancel_scan(
     organization_id: UUID,
     scan_id: UUID,
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> CodeSentryScanRun:
+) -> SpectreScanRun:
     await _membership(organization_id, user, db, MembershipRole.ADMIN, MembershipRole.ANALYST)
     scan = await _scan_or_404(db, organization_id, scan_id)
     if scan.status in {
@@ -237,7 +237,7 @@ async def cancel_scan(
     return scan
 
 
-@router.get("/scans/{scan_id}/events", response_model=list[CodeSentryScanEventRead])
+@router.get("/scans/{scan_id}/events", response_model=list[SpectreScanEventRead])
 async def list_scan_events(
     organization_id: UUID,
     scan_id: UUID,
@@ -245,17 +245,17 @@ async def list_scan_events(
     limit: int = Query(default=100, ge=1, le=500),
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> list[CodeSentryScanEvent]:
+) -> list[SpectreScanEvent]:
     await _membership(organization_id, user, db)
     await _scan_or_404(db, organization_id, scan_id)
     result = await db.scalars(
-        select(CodeSentryScanEvent)
+        select(SpectreScanEvent)
         .where(
-            CodeSentryScanEvent.organization_id == organization_id,
-            CodeSentryScanEvent.scan_run_id == scan_id,
-            CodeSentryScanEvent.sequence > after,
+            SpectreScanEvent.organization_id == organization_id,
+            SpectreScanEvent.scan_run_id == scan_id,
+            SpectreScanEvent.sequence > after,
         )
-        .order_by(CodeSentryScanEvent.sequence)
+        .order_by(SpectreScanEvent.sequence)
         .limit(limit)
     )
     return list(result)
@@ -265,22 +265,22 @@ async def _event_stream(organization_id: UUID, scan_id: UUID, after: int) -> Asy
     cursor = after
     idle_ticks = 0
     while True:
-        rows: list[CodeSentryScanEvent] = []
+        rows: list[SpectreScanEvent] = []
         terminal = False
         async with SessionLocal() as session:
             await set_organization_context(session, organization_id)
-            scan = await session.get(CodeSentryScanRun, scan_id)
+            scan = await session.get(SpectreScanRun, scan_id)
             if scan is None or scan.organization_id != organization_id:
                 return
             rows = list(
                 await session.scalars(
-                    select(CodeSentryScanEvent)
+                    select(SpectreScanEvent)
                     .where(
-                        CodeSentryScanEvent.organization_id == organization_id,
-                        CodeSentryScanEvent.scan_run_id == scan_id,
-                        CodeSentryScanEvent.sequence > cursor,
+                        SpectreScanEvent.organization_id == organization_id,
+                        SpectreScanEvent.scan_run_id == scan_id,
+                        SpectreScanEvent.sequence > cursor,
                     )
-                    .order_by(CodeSentryScanEvent.sequence)
+                    .order_by(SpectreScanEvent.sequence)
                     .limit(200)
                 )
             )
@@ -292,7 +292,7 @@ async def _event_stream(organization_id: UUID, scan_id: UUID, after: int) -> Asy
             }
         for row in rows:
             cursor = row.sequence
-            payload = CodeSentryScanEventRead.model_validate(row).model_dump(mode="json")
+            payload = SpectreScanEventRead.model_validate(row).model_dump(mode="json")
             yield f"id: {row.sequence}\nevent: {row.event_type}\ndata: {json.dumps(payload)}\n\n"
         if rows:
             idle_ticks = 0
@@ -328,7 +328,7 @@ async def stream_scan_events(
     )
 
 
-@router.get("/scans/{scan_id}/findings", response_model=list[CodeSentryFindingRead])
+@router.get("/scans/{scan_id}/findings", response_model=list[SpectreFindingRead])
 async def list_scan_findings(
     organization_id: UUID,
     scan_id: UUID,
@@ -337,42 +337,42 @@ async def list_scan_findings(
     limit: int = Query(default=500, ge=1, le=2_000),
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> list[CodeSentryFinding]:
+) -> list[SpectreFinding]:
     await _membership(organization_id, user, db)
     await _scan_or_404(db, organization_id, scan_id)
-    query = select(CodeSentryFinding).where(
-        CodeSentryFinding.organization_id == organization_id,
-        CodeSentryFinding.scan_run_id == scan_id,
+    query = select(SpectreFinding).where(
+        SpectreFinding.organization_id == organization_id,
+        SpectreFinding.scan_run_id == scan_id,
     )
     if severity is not None:
-        query = query.where(CodeSentryFinding.severity == severity.value)
+        query = query.where(SpectreFinding.severity == severity.value)
     if finding_status is not None:
-        query = query.where(CodeSentryFinding.status == finding_status.value)
-    result = await db.scalars(query.order_by(CodeSentryFinding.created_at).limit(limit))
+        query = query.where(SpectreFinding.status == finding_status.value)
+    result = await db.scalars(query.order_by(SpectreFinding.created_at).limit(limit))
     return list(result)
 
 
-@router.get("/scans/{scan_id}/usage", response_model=list[CodeSentryLLMUsageRead])
+@router.get("/scans/{scan_id}/usage", response_model=list[SpectreLLMUsageRead])
 async def list_scan_usage(
     organization_id: UUID,
     scan_id: UUID,
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> list[CodeSentryLLMUsage]:
+) -> list[SpectreLLMUsage]:
     await _membership(organization_id, user, db)
     await _scan_or_404(db, organization_id, scan_id)
     result = await db.scalars(
-        select(CodeSentryLLMUsage)
+        select(SpectreLLMUsage)
         .where(
-            CodeSentryLLMUsage.organization_id == organization_id,
-            CodeSentryLLMUsage.scan_run_id == scan_id,
+            SpectreLLMUsage.organization_id == organization_id,
+            SpectreLLMUsage.scan_run_id == scan_id,
         )
-        .order_by(CodeSentryLLMUsage.created_at)
+        .order_by(SpectreLLMUsage.created_at)
     )
     return list(result)
 
 
-@router.get("/scans/{scan_id}/files", response_model=list[CodeSentryRepositoryFileRead])
+@router.get("/scans/{scan_id}/files", response_model=list[SpectreRepositoryFileRead])
 async def list_snapshot_files(
     organization_id: UUID,
     scan_id: UUID,
@@ -422,22 +422,22 @@ async def read_snapshot_file(
     return PlainTextResponse(content.decode("utf-8", errors="replace"))
 
 
-@router.get("/scans/{scan_id}/pocs", response_model=list[CodeSentryPocRead])
+@router.get("/scans/{scan_id}/pocs", response_model=list[SpectrePocRead])
 async def list_scan_pocs(
     organization_id: UUID,
     scan_id: UUID,
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> list[CodeSentryPoc]:
+) -> list[SpectrePoc]:
     await _membership(organization_id, user, db)
     await _scan_or_404(db, organization_id, scan_id)
     result = await db.scalars(
-        select(CodeSentryPoc)
+        select(SpectrePoc)
         .where(
-            CodeSentryPoc.organization_id == organization_id,
-            CodeSentryPoc.scan_run_id == scan_id,
+            SpectrePoc.organization_id == organization_id,
+            SpectrePoc.scan_run_id == scan_id,
         )
-        .order_by(CodeSentryPoc.created_at)
+        .order_by(SpectrePoc.created_at)
     )
     return list(result)
 
@@ -445,15 +445,15 @@ async def list_scan_pocs(
 async def _decide_poc(
     organization_id: UUID,
     poc_id: UUID,
-    payload: CodeSentryDecision,
+    payload: SpectreDecision,
     user: User,
     db: AsyncSession,
     approve: bool,
-) -> CodeSentryPoc:
+) -> SpectrePoc:
     await _membership(organization_id, user, db, MembershipRole.ADMIN, MembershipRole.REVIEWER)
     poc = await db.scalar(
-        select(CodeSentryPoc)
-        .where(CodeSentryPoc.id == poc_id, CodeSentryPoc.organization_id == organization_id)
+        select(SpectrePoc)
+        .where(SpectrePoc.id == poc_id, SpectrePoc.organization_id == organization_id)
         .with_for_update()
     )
     if poc is None:
@@ -467,7 +467,7 @@ async def _decide_poc(
     if not approve:
         poc.error = payload.note or "Rejected by reviewer"
     await db.commit()
-    scan = await db.get(CodeSentryScanRun, poc.scan_run_id)
+    scan = await db.get(SpectreScanRun, poc.scan_run_id)
     if scan is not None:
         await emit_scan_event(
             db,
@@ -495,44 +495,44 @@ async def _decide_poc(
     return poc
 
 
-@router.post("/pocs/{poc_id}/approve", response_model=CodeSentryPocRead)
+@router.post("/pocs/{poc_id}/approve", response_model=SpectrePocRead)
 async def approve_poc(
     organization_id: UUID,
     poc_id: UUID,
-    payload: CodeSentryDecision = CodeSentryDecision(),
+    payload: SpectreDecision = SpectreDecision(),
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> CodeSentryPoc:
+) -> SpectrePoc:
     return await _decide_poc(organization_id, poc_id, payload, user, db, True)
 
 
-@router.post("/pocs/{poc_id}/reject", response_model=CodeSentryPocRead)
+@router.post("/pocs/{poc_id}/reject", response_model=SpectrePocRead)
 async def reject_poc(
     organization_id: UUID,
     poc_id: UUID,
-    payload: CodeSentryDecision = CodeSentryDecision(),
+    payload: SpectreDecision = SpectreDecision(),
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> CodeSentryPoc:
+) -> SpectrePoc:
     return await _decide_poc(organization_id, poc_id, payload, user, db, False)
 
 
-@router.get("/scans/{scan_id}/reports", response_model=list[CodeSentryReportRead])
+@router.get("/scans/{scan_id}/reports", response_model=list[SpectreReportRead])
 async def list_scan_reports(
     organization_id: UUID,
     scan_id: UUID,
     user: User = Depends(local_default_user),
     db: AsyncSession = Depends(get_db),
-) -> list[CodeSentryReport]:
+) -> list[SpectreReport]:
     await _membership(organization_id, user, db)
     await _scan_or_404(db, organization_id, scan_id)
     result = await db.scalars(
-        select(CodeSentryReport)
+        select(SpectreReport)
         .where(
-            CodeSentryReport.organization_id == organization_id,
-            CodeSentryReport.scan_run_id == scan_id,
+            SpectreReport.organization_id == organization_id,
+            SpectreReport.scan_run_id == scan_id,
         )
-        .order_by(CodeSentryReport.format)
+        .order_by(SpectreReport.format)
     )
     return list(result)
 
@@ -545,9 +545,9 @@ async def download_scan_report(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await _membership(organization_id, user, db)
-    report = await db.get(CodeSentryReport, report_id)
+    report = await db.get(SpectreReport, report_id)
     if report is None or report.organization_id != organization_id:
-        raise HTTPException(status_code=404, detail="CodeSentry report not found")
+        raise HTTPException(status_code=404, detail="Spectre report not found")
     try:
         data = await get_scan_report_bytes(report)
     except Exception as exc:

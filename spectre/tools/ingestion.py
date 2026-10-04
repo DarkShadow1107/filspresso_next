@@ -13,7 +13,7 @@ from scrapling.fetchers import AsyncFetcher
 
 DDG_MAX_RESULTS = int(os.environ.get("DDG_MAX_RESULTS", "8"))
 MAX_FETCH_BYTES = int(os.environ.get("MAX_FETCH_BYTES", str(50 * 1024 * 1024)))
-USER_AGENT = "CodeSentry/0.2 research bot"
+USER_AGENT = "Spectre/0.2 research bot"
 
 
 class UnsafeUrlError(ValueError):

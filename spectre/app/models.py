@@ -436,7 +436,7 @@ class Artifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class CodeSentryScanRun(Base):
+class SpectreScanRun(Base):
     __tablename__ = "codesentry_scan_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -463,7 +463,7 @@ class CodeSentryScanRun(Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class CodeSentryFinding(Base):
+class SpectreFinding(Base):
     __tablename__ = "codesentry_findings"
     __table_args__ = (
         UniqueConstraint(
@@ -507,7 +507,7 @@ class CodeSentryFinding(Base):
     )
 
 
-class CodeSentryScanEvent(Base):
+class SpectreScanEvent(Base):
     __tablename__ = "codesentry_scan_events"
     __table_args__ = (
         UniqueConstraint("scan_run_id", "sequence", name="uq_codesentry_scan_event_sequence"),
@@ -531,7 +531,7 @@ class CodeSentryScanEvent(Base):
     )
 
 
-class CodeSentryLLMUsage(Base):
+class SpectreLLMUsage(Base):
     __tablename__ = "codesentry_llm_usage"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -554,7 +554,7 @@ class CodeSentryLLMUsage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class CodeSentryPoc(Base):
+class SpectrePoc(Base):
     __tablename__ = "codesentry_pocs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -585,7 +585,7 @@ class CodeSentryPoc(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class CodeSentryReport(Base):
+class SpectreReport(Base):
     __tablename__ = "codesentry_reports"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -77,7 +77,7 @@
 
 				<div class="sf-info-row">
 					<span class="text-gray-400 font-medium">MCP Tools</span>
-          <span class="text-green-400 font-semibold">CodeSentry tools active</span>
+          <span class="text-green-400 font-semibold">Spectre tools active</span>
 				</div>
 
 				<div class="sf-info-row">

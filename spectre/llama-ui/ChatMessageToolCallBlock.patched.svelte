@@ -35,7 +35,7 @@
 		searchResults.length > 0 || (searchQuery.length > 0 && isWebSearchToolName(section.toolName))
 	);
 
-	// Custom routing for CodeSentry tools to match requested formatting (Images 2-4)
+	// Custom routing for Spectre tools to match requested formatting (Images 2-4)
 	// - execute_terminal -> Execute Terminal (CollapsibleTerminalBlock) like Image2
 	// - run_python -> Execute Python code (RunJavascript block) like Image4
 	// - repository_run with C++/terminal -> Execute Terminal

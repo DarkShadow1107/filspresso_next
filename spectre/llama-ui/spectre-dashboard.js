@@ -31,9 +31,9 @@
   };
 
   function addStyles() {
-    if (document.getElementById("codesentry-dashboard-styles")) return;
+    if (document.getElementById("spectre-dashboard-styles")) return;
     const style = document.createElement("style");
-    style.id = "codesentry-dashboard-styles";
+    style.id = "spectre-dashboard-styles";
     style.textContent = `
       #codesentry-launcher { position: fixed; top: 1rem; right: 1rem; z-index: 9000; border: 1px solid rgba(129,140,248,.55); border-radius: 999px; padding: .55rem .9rem; color: #eef2ff; background: linear-gradient(135deg,#27245f,#111827); box-shadow: 0 10px 25px rgba(0,0,0,.35); font: 600 12px/1.2 system-ui,sans-serif; cursor: pointer; }
       #codesentry-launcher:hover { border-color: #a5b4fc; transform: translateY(-1px); }
@@ -84,8 +84,8 @@
     const launcher = document.createElement("button");
     launcher.id = "codesentry-launcher";
     launcher.type = "button";
-    launcher.textContent = "CodeSentry";
-    launcher.setAttribute("aria-label", "Open CodeSentry security auditor");
+    launcher.textContent = "Spectre";
+    launcher.setAttribute("aria-label", "Open Spectre security auditor");
     document.body.appendChild(launcher);
 
     const root = document.createElement("div");
@@ -93,7 +93,7 @@
     root.innerHTML = `
       <section class="cs-panel" role="dialog" aria-modal="true" aria-labelledby="cs-title">
         <header class="cs-header">
-          <div><div class="cs-kicker">Local security lab</div><h1 class="cs-title" id="cs-title">CodeSentry</h1><p class="cs-subtitle">Repository evidence, deterministic scanners, Granite triage, and approval-gated PoCs. Nothing leaves this computer.</p></div>
+          <div><div class="cs-kicker">Local security lab</div><h1 class="cs-title" id="cs-title">Spectre</h1><p class="cs-subtitle">Repository evidence, deterministic scanners, Granite triage, and approval-gated PoCs. Nothing leaves this computer.</p></div>
           <button type="button" class="cs-close" id="cs-close" aria-label="Close">×</button>
         </header>
         <div class="cs-card">
@@ -260,7 +260,7 @@
         const organizations = await api("/organizations");
         organizationId = organizations[0]?.id || "";
       }
-      if (!organizationId) throw new Error("Local CodeSentry workspace is not ready");
+      if (!organizationId) throw new Error("Local Spectre workspace is not ready");
       const repository = await findOrCreateRepository(url);
       const scan = await api(`/organizations/${organizationId}/repositories/${repository.id}/scans`, { method: "POST", body: JSON.stringify({ tier, max_findings: 500, run_static_scanners: true, request_poc_proposals: true }) });
       currentScanId = scan.id;
@@ -290,7 +290,7 @@
         const organizations = await api("/organizations");
         organizationId = organizations[0]?.id || "";
       }
-      if (!organizationId) throw new Error("Local CodeSentry workspace is not ready");
+      if (!organizationId) throw new Error("Local Spectre workspace is not ready");
       if (question.length < 10) throw new Error("Enter an audit question with at least 10 characters");
       const repository = await findOrCreateRepository(url);
       const run = await api(`/organizations/${organizationId}/repositories/${repository.id}/audits`, {

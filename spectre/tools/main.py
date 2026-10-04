@@ -44,7 +44,7 @@ from tools.vision import SANDBOX_IMAGE_SCRIPT
 
 RESULT_SENTINEL = "__CODESENTRY_RESULT__"
 
-app = FastAPI(title="CodeSentry Tools", version="0.3.0")
+app = FastAPI(title="Spectre Tools", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,

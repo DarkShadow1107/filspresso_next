@@ -17,8 +17,8 @@
 	let memoryStatus = $state('');
   let memoryStatusError = $state(false);
 
-  const STORAGE_KEY = 'codesentry.ui.settings.v1';
-  const REPO_STORE_KEY = 'codesentry.chat.repositories.v1';
+  const STORAGE_KEY = 'spectre.ui.settings.v1';
+  const REPO_STORE_KEY = 'spectre.chat.repositories.v1';
 	const CONTEXT_OPTIONS = [
 		{ value: 32768, label: '32K' },
 		{ value: 65536, label: '64K' },

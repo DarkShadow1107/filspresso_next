@@ -130,7 +130,7 @@ class SingleModelRuntime:
 
 
 runtime = SingleModelRuntime()
-app = FastAPI(title="CodeSentry Model Runtime", version="0.1.0")
+app = FastAPI(title="Spectre Model Runtime", version="0.1.0")
 
 
 @app.on_event("startup")

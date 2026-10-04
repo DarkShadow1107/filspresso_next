@@ -2,7 +2,7 @@ import { TOOL_UI } from '$lib/constants';
 import type { ToolUiEntry } from '$lib/types';
 
 /**
- * Friendly labels for CodeSentry MCP tools so chat shows
+ * Friendly labels for Spectre MCP tools so chat shows
  * "CVE Search", "Clone Repository", "Execute Terminal" — never raw
  * snake_case names and never a "Tools" prefix.
  */
@@ -40,7 +40,7 @@ function prettify(toolName: string): string {
 
 /**
  * Resolve the UI metadata (label + icon) for a server or browser tool by its
- * name. Falls back to a prettified label for CodeSentry MCP tools so callers
+ * name. Falls back to a prettified label for Spectre MCP tools so callers
  * render a friendly title instead of the raw function name.
  */
 export function getToolUi(toolName: string | undefined): ToolUiEntry | null {

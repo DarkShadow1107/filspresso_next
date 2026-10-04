@@ -1,8 +1,8 @@
 (() => {
   "use strict";
 
-  const TRACE_KEY = "codesentry.chat.trace.v1:";
-  const SETTINGS_KEY = "codesentry.ui.settings.v1";
+  const TRACE_KEY = "spectre.chat.trace.v1:";
+  const SETTINGS_KEY = "spectre.ui.settings.v1";
   const MAX_ENTRIES = 80;
   const MAX_TEXT = 120000;
   const MAX_TOOL_TEXT = 40000;

@@ -5,14 +5,14 @@ from typing import Any, TypedDict
 from uuid import UUID
 
 
-class CodeSentryGraphState(TypedDict, total=False):
+class SpectreGraphState(TypedDict, total=False):
     scan_id: str
     organization_id: str
     status: str
     error: str | None
 
 
-async def run_codesentry_graph(
+async def run_spectre_graph(
     *,
     scan_id: UUID,
     organization_id: UUID,
@@ -29,11 +29,11 @@ async def run_codesentry_graph(
         await pipeline()
         return
 
-    async def execute_pipeline(state: CodeSentryGraphState) -> dict[str, Any]:
+    async def execute_pipeline(state: SpectreGraphState) -> dict[str, Any]:
         await pipeline()
         return {"status": "completed", **state}
 
-    graph = StateGraph(CodeSentryGraphState)
+    graph = StateGraph(SpectreGraphState)
     graph.add_node("codesentry_pipeline", execute_pipeline)
     graph.add_edge(START, "codesentry_pipeline")
     graph.add_edge("codesentry_pipeline", END)

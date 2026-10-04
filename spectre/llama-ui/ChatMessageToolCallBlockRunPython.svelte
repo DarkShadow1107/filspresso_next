@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Block for the CodeSentry `run_python` MCP tool. Mirrors the
+	// Block for the Spectre `run_python` MCP tool. Mirrors the
 	// `RunJavascript` look (Request code + Console output) but parses our own
 	// tool name/args directly, since the builtin parser only accepts
 	// `browser_run_javascript` (which rendered our calls as an empty block).

@@ -1,4 +1,4 @@
-# PLAN.md — CodeSentry: Agentic Repository Security Auditor
+# PLAN.md — Spectre: Agentic Repository Security Auditor
 **GenAI Capstone — production-style application**
 
 > One-liner: an autonomous agent that clones a repository, hunts for vulnerabilities with
@@ -87,7 +87,7 @@ Granite tensor names (visible in the load log), then decide max ctx per tier.
 ### The "only model" clarification (important)
 - **Generation/reasoning: Granite 4.2 3B only.** ✔
 - **Embeddings:** MiniLM-L6-v2 GGUF through the local embeddings endpoint, producing 384-dimensional vectors. This is infrastructure, not the agent brain; it runs locally and costs nothing. Without an embedder there is no RAG — the rubric requires RAG.
-- **Image understanding:** intentionally out of scope. CodeSentry uses no vision model; all generation uses Granite 4.2 and all retrieval embeddings use MiniLM.
+- **Image understanding:** intentionally out of scope. Spectre uses no vision model; all generation uses Granite 4.2 and all retrieval embeddings use MiniLM.
 
 ---
 

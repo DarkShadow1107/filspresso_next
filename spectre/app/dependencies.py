@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db, set_current_user_context, set_organization_context
 from app.models import Membership, MembershipRole, Organization, User
 
-DEFAULT_USER_EMAIL = "local@codesentry.dev"
+DEFAULT_USER_EMAIL = "local@spectre.dev"
 DEFAULT_ORG_SLUG = "codesentry-workspace"
 
 

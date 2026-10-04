@@ -16,7 +16,7 @@ async def generate_with_local_model(
     temperature: float = 0.1,
 ) -> dict[str, Any] | None:
     if model != "granite":
-        raise ValueError("CodeSentry generation is restricted to Granite 4.2")
+        raise ValueError("Spectre generation is restricted to Granite 4.2")
     try:
         async with httpx.AsyncClient(timeout=300) as client:
             response = await client.post(

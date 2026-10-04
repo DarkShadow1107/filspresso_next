@@ -886,17 +886,17 @@ def execute_repository(request: RepositoryExecutionRequest) -> RepositoryExecuti
     return result
 
 
-def _load_codesentry_checkout(checkout_name: str) -> tuple[Path, list[str]]:
+def _load_spectre_checkout(checkout_name: str) -> tuple[Path, list[str]]:
     if CHECKOUT_ROOT.is_symlink() or not CHECKOUT_ROOT.is_dir():
-        raise HTTPException(status_code=503, detail="CodeSentry checkout volume is unavailable")
+        raise HTTPException(status_code=503, detail="Spectre checkout volume is unavailable")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", checkout_name):
-        raise HTTPException(status_code=422, detail="Invalid CodeSentry checkout name")
+        raise HTTPException(status_code=422, detail="Invalid Spectre checkout name")
     root = CHECKOUT_ROOT.resolve()
     checkout = root / checkout_name
     if checkout.is_symlink() or not checkout.is_dir():
-        raise HTTPException(status_code=404, detail="CodeSentry checkout is unavailable")
+        raise HTTPException(status_code=404, detail="Spectre checkout is unavailable")
     if not checkout.resolve().is_relative_to(root):
-        raise HTTPException(status_code=422, detail="CodeSentry checkout escapes its root")
+        raise HTTPException(status_code=422, detail="Spectre checkout escapes its root")
 
     python_paths: list[str] = []
     total_bytes = 0
@@ -914,13 +914,13 @@ def _load_codesentry_checkout(checkout_name: str) -> tuple[Path, list[str]]:
             directory = current_path / name
             if directory.is_symlink() or not directory.resolve().is_relative_to(resolved_checkout):
                 raise HTTPException(
-                    status_code=422, detail="CodeSentry checkout contains a symbolic link"
+                    status_code=422, detail="Spectre checkout contains a symbolic link"
                 )
         for name in filenames:
             path = current_path / name
             if path.is_symlink() or not path.resolve().is_relative_to(resolved_checkout):
                 raise HTTPException(
-                    status_code=422, detail="CodeSentry checkout contains a symbolic link"
+                    status_code=422, detail="Spectre checkout contains a symbolic link"
                 )
             if not path.is_file():
                 continue
@@ -929,17 +929,17 @@ def _load_codesentry_checkout(checkout_name: str) -> tuple[Path, list[str]]:
             total_bytes += size
             if file_count > 20_000 or total_bytes > 262_144_000 or size > 26_214_400:
                 raise HTTPException(
-                    status_code=422, detail="CodeSentry checkout exceeds safety limits"
+                    status_code=422, detail="Spectre checkout exceeds safety limits"
                 )
             if path.suffix.lower() == ".py":
                 python_paths.append(path.relative_to(checkout).as_posix())
     return checkout, sorted(python_paths)
 
 
-def execute_codesentry_checkout(
+def execute_spectre_checkout(
     request: RepositoryCheckoutExecutionRequest,
 ) -> RepositoryCheckoutExecutionResult:
-    checkout, python_paths = _load_codesentry_checkout(request.checkout_name)
+    checkout, python_paths = _load_spectre_checkout(request.checkout_name)
     output_json: dict[str, Any] | None = None
     if request.profile == "compile_python":
         with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as directory:
@@ -992,7 +992,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="CodeSentry Sandbox", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Spectre Sandbox", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -1094,7 +1094,7 @@ async def execute_repository_profile(
     "/v1/checkout/execute",
     response_model=RepositoryCheckoutExecutionResult,
 )
-async def execute_codesentry_checkout_profile(
+async def execute_spectre_checkout_profile(
     request: RepositoryCheckoutExecutionRequest,
     sandbox_token: Annotated[str | None, Header(alias="X-Sandbox-Token")] = None,
 ) -> RepositoryCheckoutExecutionResult:
@@ -1111,8 +1111,8 @@ async def execute_codesentry_checkout_profile(
             detail="Sandbox authentication failed",
         )
     try:
-        return await asyncio.to_thread(execute_codesentry_checkout, request)
+        return await asyncio.to_thread(execute_spectre_checkout, request)
     except subprocess.TimeoutExpired:
         raise HTTPException(
-            status_code=408, detail="CodeSentry repository test exceeded sandbox time limit"
+            status_code=408, detail="Spectre repository test exceeded sandbox time limit"
         ) from None

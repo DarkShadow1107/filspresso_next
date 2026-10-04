@@ -1,4 +1,4 @@
-"""Add the CodeSentry repository security pipeline.
+"""Add the Spectre repository security pipeline.
 
 Revision ID: 20260827_10
 Revises: 20260826_09

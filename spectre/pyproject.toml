@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "codesentry"
+name = "spectre"
 version = "0.1.0"
 description = "Collaborative security intelligence, repository risk, and evidence automation platform"
 requires-python = ">=3.11"

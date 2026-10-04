@@ -1,6 +1,6 @@
-# CodeSentry
+# Spectre
 
-CodeSentry is a local-only defensive repository security auditor. It clones authorized
+Spectre is a local-only defensive repository security auditor. It clones authorized
 GitHub repositories, snapshots source files, runs bounded static analyzers, uses Granite
 4.2 for evidence-based triage, uses MiniLM for 384-dimensional retrieval embeddings,
 and produces reviewable findings and reports. Repository code is never executed by the
@@ -33,7 +33,7 @@ Copy `.env.example` to `.env`, set local secrets, and run:
 docker compose up --build
 ```
 
-Open `https://127.0.0.1:8080`. The API is available under `/api/v1` and the CodeSentry
+Open `https://127.0.0.1:8080`. The API is available under `/api/v1` and the Spectre
 scan endpoints start at:
 
 ```text
@@ -51,4 +51,4 @@ result is never inferred from a missing scanner.
 Only analyze repositories you own or are authorized to inspect. Repository content,
 scanner output, and web content are untrusted data. Static scanners never execute repository
 code. Model-requested repository runs are limited to fixed Python profiles in a read-only,
-resource-bounded sandbox; CodeSentry PoCs still require reviewer approval.
+resource-bounded sandbox; Spectre PoCs still require reviewer approval.

@@ -1,6 +1,6 @@
-const REPO_STORE_KEY = 'codesentry.chat.repositories.v1';
-const REPO_CONTEXT_STORE_KEY = 'codesentry.chat.repository-context.v1';
-const DRAFT_STORE_KEY = 'codesentry.chat.drafts.v1';
+const REPO_STORE_KEY = 'spectre.chat.repositories.v1';
+const REPO_CONTEXT_STORE_KEY = 'spectre.chat.repository-context.v1';
+const DRAFT_STORE_KEY = 'spectre.chat.drafts.v1';
 const PENDING_REPO_KEY = '__pending__';
 
 function readStore(storage: Storage | undefined, key: string): Record<string, unknown> {

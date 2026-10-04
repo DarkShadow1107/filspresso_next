@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.models import DocumentChunk, Source, SourceVersion
 
 settings = get_settings()
-USER_AGENT = "CodeSentry/0.1 research bot"
+USER_AGENT = "Spectre/0.1 research bot"
 
 
 class UnsafeUrlError(ValueError):
