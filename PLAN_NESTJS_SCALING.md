@@ -599,7 +599,83 @@ taking an order from N+3 round-trips to ~4.
 store and replay the prior response), so a retried request from a flaky mobile
 connection cannot create a duplicate order. Complements 8.1 rather than replacing it.
 
-### Phase 6 - delivered (8.1-8.3; 8.4 outstanding)
+### Phase 6 - delivered
+
+**Checkout was completely dead.** Three independent faults, each enough to return 500
+for every request:
+
+1. `createOrder` called `assertServiceContract("order_create_v1", ...)` but that name
+   was never registered in `CONTRACT_VALIDATORS`, and `assertServiceContract` throws on
+   an unknown name. Registered, with validation that also rejects a negative or
+   implausibly large total.
+2. `shipping_address` / `billing_address` are **jsonb**, but the value was passed
+   through from the request as a string. A client omitting the address inserted `""`,
+   which is not valid JSON. A client that sent an object happened to work, which is
+   exactly why this stayed hidden.
+3. The new `unnest()` insert initially declared seven alias columns against six arrays.
+
+So the 12 orders in the table predate the current code. Nothing was losing money,
+because nothing could be bought.
+
+**8.2 — server-side pricing.** The request is now only a wish list: product identity and
+quantity are the only values taken from it. Price, stock and name come from
+`coffee_products` / `machine_products` with `FOR UPDATE`, so two concurrent checkouts
+cannot both pass the stock check and drive it negative. Unknown product and insufficient
+stock are now `409`s rather than order lines for something that may not exist. Stock is
+decremented after the insert, guarded on `stock >= quantity`. Money is rounded to minor
+units per step rather than accumulated as a float.
+
+Shipping was previously whatever the client posted, including zero. There is no
+server-side shipping table anywhere, so `SHIPPING_FLAT_RON` is now an explicit configured
+rate (default 24.99, matching the only non-zero value in the table) — **this must be set
+to the real carrier cost.**
+
+**Currency: non-RON is refused.** The catalogue holds one unconverted price per product,
+and historic orders carry RON, CHF, PLN, CZK, DKK and TRY against identical numbers, so
+those totals were never converted. Refusing is deliberate — silently labelling a RON
+amount "CHF" is the worse failure. Restoring multi-currency requires an FX table and is
+a separate decision.
+
+**Images.** Persisted only when the catalogue holds a usable path, which today means
+`machine_products`. Capsule paths cannot be rebuilt from `coffee_products`: the public
+path needs a sub-collection segment ("Vertuo/Barista Creation") the catalogue does not
+store, and `popular_products_cache` is both unreadable by `filspresso_backend_svc` and
+covers 12 of 100 products, so it is not a catalogue. NULL is correct rather than the
+client's string — `Cart.tsx` already resolves a missing image from `product_id` via
+`getProductImageForId`, and an order record should not be able to name an arbitrary path.
+The real fix is an `image_path` column on `coffee_products`.
+
+**8.1 — order numbers.** `ORD-${Date.now()}` collides within a millisecond.
+`orders_order_number_key` (UNIQUE) already existed, so the collision failed the
+customer's checkout rather than duplicating an order — still a lost sale. Now a sequence,
+unique by construction, with the constraint kept as the backstop. The sequence is granted
+to `filspresso_backend_svc`, because the application does not connect as the owner; that
+grant is the one thing to update if `BACKEND_DB_USER` changes.
+
+**8.3 — batched inserts.** One `unnest()` statement instead of one per item: N+3
+round-trips down to ~4.
+
+**8.4 — idempotency key.** `Idempotency-Key` header, optional: omitting it keeps the old
+behaviour, so this is opt-in per client. Uniqueness is
+`(account_id, idempotency_key)`, partial on `key IS NOT NULL` — per-account so one
+account cannot probe or block another's key, partial so keyless rows do not all collide
+on NULL. The response is stored so a retry returns exactly what the first attempt
+returned.
+
+The replay `SELECT` cannot be the guarantee: concurrent retries of one key all miss it
+and all proceed to `INSERT`. The partial unique index is what makes it safe — the losers
+block on it, get `23505`, and that is a replay rather than a failure, so the catch path
+re-reads the winner's response on a fresh connection. Two bugs surfaced here only
+because the concurrent case was tested rather than assumed: the service matched a
+constraint name while the migration had created an *index* (so pg's reported name never
+matched and every concurrent retry 500'd), and the migration added `idempotency_key` but
+not `response`. `test/order-idempotency.test.ts` now pins the index name in the service
+against the migration.
+
+Verified live: a sequential retry replays the same order id with `replayed: true`; six
+concurrent retries of one key produce exactly one row, one distinct order id and no
+errors; the same key on two accounts creates two orders; a malformed key is a 400;
+requests with no key still create a new order each time.
 
 **Checkout was completely dead.** Three independent faults, each enough to return 500
 for every request:
@@ -659,10 +735,6 @@ Verified live: a real product posted at 0.01 is charged the catalogue price; cli
 shipping of 0 is replaced by the server rate; unknown product and over-stock both 409;
 six concurrent checkouts yield six distinct order numbers; stock decrements by the
 quantity ordered; the persisted line carries the database name and price.
-
-**8.4 is not done.** The sequence makes accidental collisions impossible, but it does
-nothing about a *retried request* — a flaky mobile connection that replays
-`POST /api/orders` will create a second order. That still needs an `Idempotency-Key`.
 
 ---
 
