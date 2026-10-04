@@ -189,7 +189,7 @@ services:
             GO_OPS_CLIENT_KEY_FILE: ${GO_OPS_CLIENT_KEY_FILE:-}
             GO_OPS_CA_CERT: ${GO_OPS_CA_CERT:-}
             GO_OPS_CA_CERT_FILE: ${GO_OPS_CA_CERT_FILE:-}
-            INTERNAL_EGRESS_ALLOWLIST: ${INTERNAL_EGRESS_ALLOWLIST:-go-ops,rust-crypto,invoice-java,kotlin-subscriptions,ai,opa,localhost,127.0.0.1}
+            INTERNAL_EGRESS_ALLOWLIST: ${INTERNAL_EGRESS_ALLOWLIST:-go-ops,rust-crypto,invoice-java,kotlin-subscriptions,ai,opa,localhost,127.0.0.1,api.frankfurter.app,open.er-api.com}
             KOTLIN_SUBSCRIPTIONS_URL: http://kotlin-subscriptions:8084
             RUST_CRYPTO_URL: ${RUST_CRYPTO_URL:-http://rust-crypto:8090}
             RUST_CRYPTO_TIMEOUT_MS: ${RUST_CRYPTO_TIMEOUT_MS:-4000}
