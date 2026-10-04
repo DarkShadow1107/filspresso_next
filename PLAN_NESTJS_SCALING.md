@@ -512,6 +512,54 @@ in `auth-tokens.ts`, and the same in `serviceAssertions.ts` for public and priva
 keys. Removes a PEM parse from every authenticated request and every outbound
 service call.
 
+### Phase 5 - delivered
+
+All three items are done.
+
+**5.1.** `login` reads the user row, releases, verifies with no connection, then
+re-acquires for the write phase. The binding is `let client: PoolClient | null` and
+`finally` is `client?.release()`, because a throw between the phases must not release
+the same client twice. The password hash is lifted out of `user` before the release.
+
+`test/login-connection-release.test.ts` asserts the **ordering**, not the latency, and
+fails on the previous code. Latency turned out to be the wrong instrument:
+`passwords.ts` clamps `ARGON2_TIME_COST` to 10, so the verify window is ~200 ms — about
+the same size as login's own database work, which is not enough separation to measure
+against. Measured end-to-end, wall clock did **not** improve, and at `DB_POOL_MAX=2` it
+was slightly *worse*, because the extra connect/release pair costs more than it saves
+when the pool is already the binding constraint.
+
+So the honest statement of the benefit is: this reduces pool **occupancy**, not login
+latency, and it only pays off when logins contend with other database work at a
+realistic pool size. Re-measure once the write phase — `invalidateExpiredUserMfaChallenges`
+in particular — is no longer its own bottleneck.
+
+**5.2.** Wired through with the same values `passwords.ts` already defaulted to, so
+nothing changes until `.env` says otherwise — but `.env` now has effect. Verified
+present in the running container. Note the clamp: `ARGON2_TIME_COST` is capped at 10
+regardless of what is set, which is worth knowing before anyone tries to tune it.
+
+**5.3.** Both modules memoise by **PEM**, not by `kid`. Keying on `kid` would be the
+obvious choice and is wrong: the same `kid` can legitimately be re-pointed at a new key
+during a rotation, and a `kid`-keyed cache would then keep verifying with the old key.
+`test/ed25519-key-cache.test.ts` covers the failure modes — a malformed key must still
+throw and must not poison the cache, distinct keys must not collide, and a token signed
+by an untrusted key must still be rejected.
+
+Verified live: login succeeds, a wrong password is still rejected, `/api/auth/me`
+round-trips, 30 consecutive authenticated requests all return 200, and logout still
+revokes immediately.
+
+### Fixed alongside
+
+Chat retention was capped from `req.user.subscription`, but `ActiveSessionService`
+returns `{ token, claims, accountId }` and carries no subscription. The tier argument
+was therefore always null and **every** plan was capped at the anonymous allowance of 5
+conversations, including MAX and ULTIMATE. `replaceHistory` no longer accepts a tier at
+all; it reads the account row inside the write transaction, so the cap cannot be widened
+by the caller. Previously this was only verified on a free account, where the correct
+and broken answers are both 5.
+
 ---
 
 ## 8. Phase 6 — Order correctness and throughput

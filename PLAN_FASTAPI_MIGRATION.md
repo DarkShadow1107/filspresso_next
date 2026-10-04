@@ -567,6 +567,85 @@ terminal rather than waiting out the full timeout.
 
 ---
 
+## 8c. Phase I — Entitlement correctness
+
+Not part of the original plan. These were found while metering the models Phase H made
+resident, and each was a case of the plans page describing something the code did not
+do.
+
+### Chemistry was not gated at all
+
+Molecule Helper is advertised as an ULTIMATE feature. Nothing enforced it: `mode` was
+derived from the client's `model` field, `kafelot.service.ts` grants the 200-prompt
+molecule bucket to *every* tier, and the toggle rendered unconditionally. Text chemistry
+worked for anonymous and free callers.
+
+Gated in two places, because there is no Next `middleware.ts` and the quota controller
+is the real choke point:
+
+- `/api/python-chat` returns `403 CHEMISTRY_LOCKED` once the tier is resolved. The check
+  runs *after* resolution on purpose: `limitCheck.tier` comes from the limiter and
+  already wins over anything the client claimed in `subscription`.
+- `/api/kafelot/check-and-use` rejects the `molecule_helper` scope below ULTIMATE, so a
+  direct call cannot reach the 200-prompt bucket unthrottled.
+
+The gate is `tierCanUseMoleculeHelper`, not "has a vision model" — the helper's text
+mode was never a vision feature.
+
+### The quota bucket did not follow the mode
+
+`promptScope` came from the `x-kafelot-scope` header while chemistry came from the model
+field, and nothing bound them. A crafted request could charge the molecule bucket while
+sending a normal chat, or `general` while running chemistry. The bucket is now derived
+from the resolved mode, and if that disagrees with the header the dry-run is repeated
+against the scope actually being spent.
+
+### `MODEL_MONTHLY_LIMITS` was never read by anything
+
+The table existed and was rendered to every visitor of the subscription page, but only
+the plan total was enforced. An ULTIMATE customer was promised the 8B at 120
+prompts/month and got it for all 1000.
+
+Enforced with a `model_key` column on `kafelot_prompt_usage`, holding two granularities
+in one table:
+
+```
+model_key = ''     the plan total, which every existing query already meant
+model_key = 'key'  that model's own sub-count
+```
+
+A request passes only when both are under their limits, checked and incremented in the
+same transaction. Both existing uniqueness objects had to be dropped — a fresh database
+carries the table-level `UNIQUE(account_id, month_year, usage_scope)`, named
+`kafelot_prompt_usage_account_id_month_year_usage_scope_key`, and older ones also have
+the explicit 3-column index — and the queries that keyed on them now filter on
+`model_key = ''`.
+
+`MODEL_ALLOWANCE_EXHAUSTED` (429) and `MODEL_NOT_IN_PLAN` (403) are deliberately
+distinct from `PROMPT_LIMIT_REACHED`. Collapsing them would tell a customer with 120 of
+1000 prompts left that they were out of prompts.
+
+The NestJS mirror is checked against the TypeScript source by
+`nestjs-backend/test/model-limits.test.ts`, because those two files are what customers
+are shown and what they are actually given.
+
+### Model selection was silently ignored
+
+Found while verifying the above, and it made all of it unreachable.
+`normalizeTextModelKey` only matched a hand-maintained legacy alias table, so neither of
+the two forms callers actually send resolved: not the canonical key (what
+`CoffeeRecommender` sends) and not the GGUF file name (what `/api/playground/chat`
+sends). Both fell through to the cheapest allowed model, so a user who selected the 8B
+was served the 230M — and per-model metering would have charged the 230M for an 8B
+request. The normalizers now accept both, with the file map built from
+`MODEL_FILE_BY_KEY` so a rename cannot desync.
+
+Verified live: a 350M request is now both served and metered as the 350M; the 8B
+exhausted at 120 blocks while the plan total still reports 997; a PRO account gets
+`MODEL_NOT_IN_PLAN` rather than an exhausted-looking quota; a dry-run writes nothing.
+
+---
+
 ## 9. Risks
 
 | Risk | Mitigation |
