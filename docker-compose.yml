@@ -582,10 +582,18 @@ services:
         environment:
             # Bare host:port on purpose - see the note at the top of ./Caddyfile.
             NEXT_UPSTREAM: ${NEXT_UPSTREAM:-host.docker.internal:3000}
+            # Only read by ./Caddyfile.acme. Harmless with the local config.
+            CADDY_DOMAIN: ${CADDY_DOMAIN:-}
+            CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-}
         ports:
             - "${CADDY_HTTPS_PORT:-8443}:8443"
         volumes:
-            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            # CADDYFILE selects the config: ./Caddyfile for local (mkcert), or
+            # ./Caddyfile.acme for a real deployment (Let's Encrypt over ACME).
+            - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+            # mkcert leaf certificate, read-only. Caddy runs as root in the container
+            # but the key must not be writable by it.
+            - ./secrets/tls:/certs:ro
             - caddy_data:/data
             - caddy_config:/config
         extra_hosts:

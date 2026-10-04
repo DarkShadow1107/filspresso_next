@@ -1,0 +1,84 @@
+# Filspresso edge TLS termination -- ACME / Let's Encrypt.
+#
+# Use this for a real deployment. Select it with:
+#
+#   CADDYFILE=./Caddyfile.acme CADDY_DOMAIN=app.example.com docker compose up -d caddy
+#
+# Caddy requests and renews the certificate automatically; there is no cert file to
+# manage and nothing to wire into the `tls` directive, because ACME is what Caddy does
+# by default for a real hostname.
+#
+# Requirements, all of which are the reason ./Caddyfile uses mkcert instead:
+#
+#   - CADDY_DOMAIN must be a publicly resolvable domain with an A/AAAA record pointing at
+#     this host.
+#   - Inbound TCP 80 and 443 must be reachable from the internet. Caddy answers the
+#     HTTP-01 challenge on port 80; if 443 is already taken by something else, set
+#     ACME_TLS_ALPN to disable that challenge and rely on HTTP-01 alone.
+#   - The certificate is issued for the domain only. localhost and IP addresses can
+#     never be covered, which is why the local stack needs a locally trusted CA.
+#
+# Set CADDY_ACME_EMAIL to receive expiry and issuance notices. Caddy works without it
+# but will not warn you before the certificate expires.
+
+{
+	admin off
+	default_sni {$CADDY_DOMAIN}
+}
+
+https://{$CADDY_DOMAIN} {
+	encode zstd gzip
+
+	# Serve the ACME HTTP-01 challenge on port 80 as well as TLS-ALPN on 443, so a host
+	# where 443 is already bound can still obtain a certificate.
+	{$ACME_HTTP01_EXTRA}
+
+	request_body {
+		# Product/molecule uploads and chat image attachments.
+		max_size 52MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https://db.onlinewebfonts.com; style-src 'self' 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline' https://db.onlinewebfonts.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: http: ws: wss:"
+		Permissions-Policy "camera=(), geolocation=(), microphone=()"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Cross-Origin-Resource-Policy "same-site"
+		-Server
+	}
+
+	# Server-Sent Events: the Playground streams model tokens, so buffering must be
+	# disabled or the whole reply arrives in one batch after generation ends.
+	@stream {
+		path /api/playground/chat
+	}
+	handle @stream {
+		reverse_proxy {env.NEXT_UPSTREAM} {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy {env.NEXT_UPSTREAM}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# Plain HTTP exists only to answer the ACME challenge and to redirect everything else.
+# It is a separate site block, so it cannot inherit the HTTPS site's configuration.
+http://{$CADDY_DOMAIN} {
+	@acme path /.well-known/acme-challenge/*
+	handle @acme {
+		# Caddy intercepts this itself; the handler is a placeholder that must never run.
+		respond "challenge handled by Caddy" 404
+	}
+	handle {
+		redir https://{host}{uri} permanent
+	}
+}

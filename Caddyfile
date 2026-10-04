@@ -8,24 +8,46 @@
 # container.
 #
 # NEXT_UPSTREAM must be a bare `host:port`, NOT a full URL. Caddyfile expands
-# {env.*} placeholders textually before parsing, so the `//` in an
+# {env.*} placeholders textually before parsing, so the `//` in a
 # `http://host` value is read as the start of a comment and Caddy ends up trying
 # to resolve a host literally named "/host". Omitting the scheme makes Caddy
 # default to HTTP.
 #
-# Certificates are issued by Caddy's own local CA (`tls internal`), matching the
-# sentinel playground. Browsers will warn on first visit until that CA is
-# trusted. Swap `tls internal` for a real domain to get publicly trusted certs
-# automatically.
+# ## Certificates
+#
+# Local development uses a certificate from `mkcert`, whose root CA is installed in
+# the operating system trust store. Browsers therefore show a normal padlock with no
+# interstitial, which `tls internal` did not: Caddy's own CA is trusted by nothing
+# outside the container that minted it.
+#
+# Generate and install with:
+#   mkcert -install
+#   mkcert -cert-file secrets/tls/filspresso.pem -key-file secrets/tls/filspresso-key.pem \
+#          localhost 127.0.0.1 ::1 127.0.1
+#
+# Note that Let's Encrypt cannot be used here. It issues only for publicly resolvable
+# domain names, and not for IP addresses at all, so `localhost` and `127.0.0.1` are
+# permanently out of reach -- as is every other address in 127.0.0/8, which is not
+# routable off the machine. mkcert is the tool for a locally trusted certificate.
+#
+# When probing with curl.exe on Windows, pass --ssl-no-revoke. Windows schannel then
+# fails a private root with CRYPT_E_NO_REVOCATION_CHECK (0x80092012) because a local
+# root publishes neither a CRL nor an OCSP responder. That is a revocation-check
+# failure, not a trust failure -- browsers do not check revocation this way and show a
+# normal padlock. `curl --ssl-no-revoke https://localhost:8443/` returns 200 with
+# ssl_verify_result 0.
+#
+# For a real deployment, use ./Caddyfile.acme instead, which requests a publicly
+# trusted certificate over ACME. Select it with CADDYFILE=./Caddyfile.acme.
 
 {
 	admin off
-	local_certs
 	default_sni 127.0.0.1
 }
 
-https://127.0.0.1:8443, https://localhost:8443 {
-	tls internal
+https://127.0.0.1:8443, https://localhost:8443, https://127.0.1:8443 {
+	# mkcert leaf. Paths are inside the container; see the `caddy` service volumes.
+	tls /certs/filspresso.pem /certs/filspresso-key.pem
 	encode zstd gzip
 
 	request_body {
