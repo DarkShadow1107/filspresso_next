@@ -87,3 +87,9 @@ override.tf.json
 # history, which would need a history rewrite.
 src/data/chat_history.json
 src/data/chat_history.json.tmp
+
+# CodeSentry (separate product) lives here locally. Was committed in 48c3a6e as a
+# gitlink to 64638ea, a commit that exists in no repository, with no
+# .gitmodules -- so a fresh clone got an empty directory. Untracked; the
+# tracked playground code is under src/app/api/playground and src/components/playground.
+playground/
