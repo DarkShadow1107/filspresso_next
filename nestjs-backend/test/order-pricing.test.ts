@@ -94,11 +94,6 @@ describe("createOrder trusts the database, not the client", () => {
     );
   });
 
-  it("refuses a currency the catalogue cannot express", () => {
-    assert.match(body, /CATALOGUE_CURRENCY/);
-    assert.match(body, /unsupported currency/);
-  });
-
   it("uses a sequence for the order number", () => {
     assert.match(body, /nextval\('orders_order_number_seq'\)/);
     assert.doesNotMatch(body, /ORD-\$\{Date\.now\(\)\}/, "Date.now() order numbers can collide");
@@ -114,15 +109,35 @@ describe("createOrder trusts the database, not the client", () => {
 describe("money and catalogue constants", () => {
   const src = readFileSync(SERVICE, "utf8");
 
-  it("has a single catalogue currency", () => {
-    assert.match(src, /const CATALOGUE_CURRENCY = "RON"/);
+  it("takes the shipping rate and free threshold from configuration", () => {
+    // Not hardcoded, because they are business facts about the carrier, not the code.
+    // readMoneyEnv(name, fallback) reads process.env[name] and falls back when unset.
+    assert.match(src, /function readMoneyEnv\(name: string, fallback: number\)/);
+    assert.match(src, /readMoneyEnv\("SHIPPING_FLAT_RON", 24\.99\)/);
+    assert.match(src, /readMoneyEnv\("SHIPPING_FREE_ABOVE_RON", 200\)/);
   });
 
-  it("takes the shipping rate from configuration, with a documented default", () => {
-    // Not hardcoded, because it is a business fact about the carrier, not about the code.
-    assert.match(src, /process\.env\.SHIPPING_FLAT_RON/);
-    assert.match(src, /SHIPPING_FLAT_RON \?\? "24\.99"/);
+  it("never reads an exchange rate off the request", () => {
+    // The rate decides what the customer pays. A rate in the body is a rate the caller
+    // chose, so this is checked on the whole file rather than only createOrder, in case
+    // it reappears anywhere else.
+    assert.doesNotMatch(
+      src,
+      /body\["exchangeRate"\]|body\["exchange_rate"\]|body\["rate"\]/,
+      "the exchange rate must come from the FX service, never the request",
+    );
   });
+
+  it("charges shipping per band, not a flat rate", () => {
+    // A single flat rate was wrong: the rule is a flat fee under a threshold and free
+    // above it, so the threshold has to be applied rather than ignored.
+    assert.match(src, /function shippingCostForRon\(/);
+    assert.match(
+      src,
+      /merchandiseTotal >= SHIPPING_FREE_ABOVE_RON \? 0 : SHIPPING_FLAT_RON/,
+    );
+  });
+
 
   it("guards against a nonsense configured shipping rate", () => {
     assert.match(src, /Number\.isFinite\(raw\) && raw >= 0/);

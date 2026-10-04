@@ -46,6 +46,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.OrdersService = void 0;
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
+const fx_rates_service_1 = require("./fx-rates.service");
 const serviceAssertionUtils = __importStar(require("../common/utils/serviceAssertions"));
 const serviceContracts = __importStar(require("../common/utils/serviceContracts"));
 const TIER_DISCOUNTS = {
@@ -56,28 +57,50 @@ const TIER_THRESHOLDS = [
     { tier: "Master", min: 2000 }, { tier: "Expert", min: 750 }, { tier: "Connoisseur", min: 1 },
 ];
 /**
- * The only currency the catalogue prices are in.
- *
- * Historic orders carry RON, CHF, PLN, CZK, DKK and TRY against the same unconverted
- * numbers, so those totals were never actually converted. Rather than keep labelling a
- * RON amount as a foreign currency, checkout refuses it until there is an FX table.
- */
-const CATALOGUE_CURRENCY = "RON";
-/**
- * Flat shipping rate, in RON.
+ * Shipping: a flat rate below a threshold, free at or above it.
  *
  * There is no server-side shipping table anywhere, and shipping used to come straight
  * from the request body -- so a client could post any rate it liked, including zero.
- * This must be set to the real carrier cost; it is configuration, not a fact about the
- * system, which is why it is read from the environment rather than hardcoded.
+ *
+ * Both numbers are configuration rather than constants because they are business facts
+ * about the carrier, not facts about the code.
  */
-const SHIPPING_FLAT_RON = (() => {
-    const raw = Number.parseFloat(String(process.env.SHIPPING_FLAT_RON ?? "24.99"));
-    return Number.isFinite(raw) && raw >= 0 ? roundMoney(raw) : 24.99;
-})();
+const SHIPPING_FLAT_RON = readMoneyEnv("SHIPPING_FLAT_RON", 24.99);
+const SHIPPING_FREE_ABOVE_RON = readMoneyEnv("SHIPPING_FREE_ABOVE_RON", 200);
+/** Parse a non-negative money setting, falling back when unset or nonsensical. */
+function readMoneyEnv(name, fallback) {
+    const raw = Number.parseFloat(String(process.env[name] ?? ""));
+    return Number.isFinite(raw) && raw >= 0 ? roundMoney(raw) : fallback;
+}
+/**
+ * Shipping for one order, in RON.
+ *
+ * `merchandiseTotal` is the discounted goods total: the threshold is about how big the
+ * basket is, and the discount is what the customer is actually paying for the goods.
+ * Tier members with free shipping included (FREE_SHIPPING_TIERS) skip the charge
+ * entirely, which is a separate rule from the threshold.
+ */
+function shippingCostForRon(merchandiseTotal, freeShippingTier) {
+    if (freeShippingTier)
+        return 0;
+    return merchandiseTotal >= SHIPPING_FREE_ABOVE_RON ? 0 : SHIPPING_FLAT_RON;
+}
 /** Money is rounded to minor units at every step, never accumulated as a float. */
 function roundMoney(value) {
     return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+/**
+ * Normalise a destination country to ISO-3166 alpha-2, uppercased.
+ *
+ * Stored on the order for the shipping region and for dispute resolution. Anything not
+ * two letters becomes null rather than being stored as-is, so this column cannot become
+ * a free-text dumping ground.
+ */
+function normalizeCountry(value) {
+    if (typeof value !== "string")
+        return null;
+    const code = value.trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(code) ? code : null;
 }
 /**
  * Coerce a shipping/billing address into something the jsonb column accepts.
@@ -190,6 +213,7 @@ function serializeBigInt(obj) {
 }
 let OrdersService = OrdersService_1 = class OrdersService {
     db;
+    fx;
     logger = new common_1.Logger(OrdersService_1.name);
     assertionPrivateKey;
     assertionIssuer;
@@ -197,8 +221,9 @@ let OrdersService = OrdersService_1 = class OrdersService {
     assertionTtlSeconds;
     invoiceServiceUrl;
     invoiceRequireServiceAssertion;
-    constructor(db) {
+    constructor(db, fx) {
         this.db = db;
+        this.fx = fx;
         this.assertionPrivateKey = String(process.env.SERVICE_ASSERTION_PRIVATE_KEY || "");
         this.assertionIssuer = String(process.env.SERVICE_ASSERTION_ISSUER || "filspresso-backend");
         this.assertionSubject = String(process.env.SERVICE_ASSERTION_SUBJECT || "backend");
@@ -422,21 +447,23 @@ let OrdersService = OrdersService_1 = class OrdersService {
             }
             requested.push({ productId, quantity });
         }
-        // The catalogue holds a single unconverted price per product, so an order can only
-        // be totalled honestly in that currency. Orders in the table already carry RON, CHF,
-        // PLN, CZK, DKK and TRY against identical numbers, which means those totals were
-        // never converted. Refusing non-RON is deliberate: silently labelling a RON number
-        // "CHF" is the worse failure. Restoring multi-currency needs an FX table, which is
-        // a separate decision.
+        // ---- Multi-currency ----
+        //
+        // The catalogue prices everything in RON; `currency_code` is what the *customer* is
+        // charged in. The rate is resolved here, server-side, before the transaction opens,
+        // for two reasons: a rate taken from the request is a rate the caller chooses, and a
+        // network call inside a transaction would hold a pooled connection for the duration.
         const requestedCurrency = String(body["currencyCode"] || body["currency_code"] || "RON")
             .trim()
             .toUpperCase();
-        if (requestedCurrency !== CATALOGUE_CURRENCY) {
+        if (!this.fx.supports(requestedCurrency)) {
             throw new common_1.BadRequestException({
                 error: `unsupported currency ${requestedCurrency}`,
-                supported: [CATALOGUE_CURRENCY],
+                supported: Object.keys(fx_rates_service_1.CURRENCY_FEE_PERCENT),
             });
         }
+        const destinationCountry = normalizeCountry(body["destinationCountry"] ?? body["destination_country"]);
+        const fx = await this.fx.resolve(requestedCurrency);
         const pool = this.db.getPool();
         const client = await pool.connect();
         try {
@@ -550,11 +577,18 @@ let OrdersService = OrdersService_1 = class OrdersService {
                 });
             }
             const discountAmount = roundMoney((subtotal * discountPct) / 100);
-            // Shipping was previously whatever the client posted. There is no server-side
-            // shipping table, so this is now an explicit configured rate -- see
-            // SHIPPING_FLAT_RON, which must match the real carrier cost.
-            const shippingCost = freeShipping ? 0 : SHIPPING_FLAT_RON;
+            const shippingCost = shippingCostForRon(subtotal - discountAmount, freeShipping);
             const total = roundMoney(Math.max(0, subtotal - discountAmount + shippingCost));
+            // What the customer is actually charged, in their currency.
+            //
+            // Each component is rounded separately rather than converting the total once: the
+            // fee is a percentage of the *converted* subtotal, so rounding order is visible in
+            // the final figure and has to match the invoice.
+            const chargedSubtotal = roundMoney(subtotal * fx.rate);
+            const chargedShipping = roundMoney(shippingCost * fx.rate);
+            const chargedTax = roundMoney(0 * fx.rate);
+            const conversionFee = roundMoney((chargedSubtotal * fx.feePercent) / 100);
+            const chargedTotal = roundMoney(chargedSubtotal + chargedShipping + chargedTax + conversionFee);
             // Phase 6.1: sequence-backed, so two checkouts in the same millisecond cannot
             // collide. The UNIQUE constraint on orders.order_number remains the backstop.
             const seqResult = await client.query("SELECT nextval('orders_order_number_seq')::bigint AS seq");
@@ -563,15 +597,25 @@ let OrdersService = OrdersService_1 = class OrdersService {
             serviceContracts.assertServiceContract("order_create_v1", { accountId, orderNumber, subtotal, total });
             const orderResult = await client.query(`INSERT INTO orders (account_id, order_number, status, subtotal, discount_amount, shipping_cost,
                 tax, total, payment_method, shipping_address, billing_address, currency_code,
-                idempotency_key, response)
-         VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, '{}'::jsonb)
+                idempotency_key, response, exchange_rate, conversion_fee_percent,
+                charged_subtotal, charged_shipping_cost, charged_tax, charged_total,
+                destination_country)
+         VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, '{}'::jsonb,
+                 $13, $14, $15, $16, $17, $18, $19)
          RETURNING *`, [
                 accountId, orderNumber, subtotal, discountAmount, shippingCost, 0, total,
                 body["paymentMethod"] || body["payment_method"] || "",
                 JSON.stringify(normalizeAddress(body["shippingAddress"] ?? body["shipping_address"])),
                 JSON.stringify(normalizeAddress(body["billingAddress"] ?? body["billing_address"])),
-                CATALOGUE_CURRENCY,
+                fx.currency,
                 key,
+                fx.rate,
+                fx.feePercent,
+                chargedSubtotal,
+                chargedShipping,
+                chargedTax,
+                chargedTotal,
+                destinationCountry,
             ]);
             const order = orderResult.rows[0];
             // ---- Phase 6.3: one statement for all items, not one per item ----
@@ -611,7 +655,20 @@ let OrdersService = OrdersService_1 = class OrdersService {
                     }
                 }
             }
-            const response = { status: "success", order: serializeBigInt(order), orderNumber };
+            const response = {
+                status: "success",
+                order: serializeBigInt(order),
+                orderNumber,
+                // Echoed so the client can show the rate it was charged at without a second call.
+                fx: {
+                    currency: fx.currency,
+                    rate: fx.rate,
+                    date: fx.date,
+                    source: fx.source,
+                    stale: fx.stale,
+                    feePercent: fx.feePercent,
+                },
+            };
             // ---- Phase 6.4: store the response so a retry can be replayed ----
             //
             // Written inside the transaction, and only when a key was supplied. Without a key
@@ -713,5 +770,5 @@ let OrdersService = OrdersService_1 = class OrdersService {
 exports.OrdersService = OrdersService;
 exports.OrdersService = OrdersService = OrdersService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [database_service_1.DatabaseService])
+    __metadata("design:paramtypes", [database_service_1.DatabaseService, fx_rates_service_1.FxRatesService])
 ], OrdersService);
