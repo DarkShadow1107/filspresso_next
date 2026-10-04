@@ -84,9 +84,9 @@ export function verifyServiceAssertion(token: string, options: any = {}) {
     return { ok: false, reason: "token alg invalid" };
   }
 
-  let publicKey;
+  let publicKey: crypto.KeyObject;
   try {
-    publicKey = crypto.createPublicKey(SERVICE_ASSERTION_PUBLIC_KEY);
+    publicKey = cachedPublicKey(SERVICE_ASSERTION_PUBLIC_KEY);
   } catch {
     return { ok: false, reason: "service assertion public key malformed" };
   }
@@ -121,6 +121,38 @@ export function verifyServiceAssertion(token: string, options: any = {}) {
   }
 
   return { ok: true, claims: payload };
+}
+
+// ---- Phase 5.3: cache parsed KeyObjects ----
+//
+// Same reasoning as auth-tokens.ts: an OpenSSL key parse per verification, on a path
+// every outbound service call takes. Keyed on the PEM so a rotated key is a different
+// cache entry rather than a stale hit.
+const PUBLIC_KEY_CACHE = new Map<string, crypto.KeyObject>();
+const PRIVATE_KEY_CACHE = new Map<string, crypto.KeyObject>();
+
+function cachedPublicKey(pem: string): crypto.KeyObject {
+  const key = String(pem || "").trim();
+  const hit = PUBLIC_KEY_CACHE.get(key);
+  if (hit) return hit;
+  const parsed = crypto.createPublicKey(key);
+  PUBLIC_KEY_CACHE.set(key, parsed);
+  return parsed;
+}
+
+function cachedPrivateKey(pem: string): crypto.KeyObject {
+  const key = String(pem || "").trim();
+  const hit = PRIVATE_KEY_CACHE.get(key);
+  if (hit) return hit;
+  const parsed = crypto.createPrivateKey(key);
+  PRIVATE_KEY_CACHE.set(key, parsed);
+  return parsed;
+}
+
+/** Drop every cached KeyObject. Test-only. */
+export function clearServiceAssertionKeyCache(): void {
+  PUBLIC_KEY_CACHE.clear();
+  PRIVATE_KEY_CACHE.clear();
 }
 
 export function issueServiceAssertion(options: any = {}) {
@@ -162,7 +194,7 @@ export function issueServiceAssertion(options: any = {}) {
   const payloadPart = toBase64Url(JSON.stringify(payload));
   const signingInput = `${headerPart}.${payloadPart}`;
   const signature = crypto
-    .sign(null, Buffer.from(signingInput, "utf8"), crypto.createPrivateKey(privateKeyPem))
+    .sign(null, Buffer.from(signingInput, "utf8"), cachedPrivateKey(privateKeyPem))
     .toString("base64url");
 
   return {

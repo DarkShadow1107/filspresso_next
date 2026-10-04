@@ -442,8 +442,18 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
             throw new common_1.BadRequestException({ error: "Email/username and password are required" });
         if (loginField.length > 254 || password.length > 128 || !loginKey)
             throw new common_1.BadRequestException({ error: "Invalid credentials format" });
+        // ---- Phase 5.1: never hold a pooled connection across the Argon2 verify ----
+        //
+        // `verifyPassword` is deliberately expensive (19 MiB, three passes), and it used
+        // to run with a connection checked out for the whole of it. That made CPU and
+        // pool depth the same bottleneck: a handful of concurrent logins could exhaust the
+        // pool while doing no database work at all, and an unrelated slow query could then
+        // stall logins. The fix is to hold a connection only for the queries.
+        //
+        // `client` is `null` while the connection is released, so every write below has to
+        // re-acquire; `finally` only releases what is actually held.
         const pool = this.db.getPool();
-        const client = await pool.connect();
+        let client = await pool.connect();
         try {
             const lockState = await this.getLockState(client, loginAttemptKey);
             if (lockState.isLocked) {
@@ -458,7 +468,13 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
                 await this.logAuthSecurityEvent(client, "login_failed", { loginKey, ipAddress, userAgent, details: { failedAttempts: failed.failedAttempts, lockSeconds: failed.lockSeconds, reason: "unknown_user" } });
                 throw new common_1.UnauthorizedException({ error: "Invalid credentials" });
             }
-            const validPassword = await passwords.verifyPassword(password, user.password_hash);
+            // Everything needed for the write phase is already on `user`; nothing below
+            // reads the connection that was just given up.
+            const passwordHash = user.password_hash;
+            client.release();
+            client = null;
+            const validPassword = await passwords.verifyPassword(password, passwordHash);
+            client = await pool.connect();
             if (!validPassword) {
                 const failed = await this.recordFailedAttempt(client, loginAttemptKey);
                 await this.logAuthSecurityEvent(client, "login_failed", { loginKey, accountId: user.id, ipAddress, userAgent, details: { failedAttempts: failed.failedAttempts, lockSeconds: failed.lockSeconds, reason: "bad_password" } });
@@ -499,7 +515,7 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
             return { status: "success", message: "Login successful", account: this.buildAuthAccountPayload(user), token };
         }
         finally {
-            client.release();
+            client?.release();
         }
     }
     async loginMfaVerify(req, res) {

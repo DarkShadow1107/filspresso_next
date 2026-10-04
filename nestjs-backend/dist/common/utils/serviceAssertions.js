@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyServiceAssertion = verifyServiceAssertion;
+exports.clearServiceAssertionKeyCache = clearServiceAssertionKeyCache;
 exports.issueServiceAssertion = issueServiceAssertion;
 const crypto = __importStar(require("crypto"));
 const secrets_1 = require("./secrets");
@@ -114,7 +115,7 @@ function verifyServiceAssertion(token, options = {}) {
     }
     let publicKey;
     try {
-        publicKey = crypto.createPublicKey(SERVICE_ASSERTION_PUBLIC_KEY);
+        publicKey = cachedPublicKey(SERVICE_ASSERTION_PUBLIC_KEY);
     }
     catch {
         return { ok: false, reason: "service assertion public key malformed" };
@@ -146,6 +147,36 @@ function verifyServiceAssertion(token, options = {}) {
         return { ok: false, reason: "token_jti_missing" };
     }
     return { ok: true, claims: payload };
+}
+// ---- Phase 5.3: cache parsed KeyObjects ----
+//
+// Same reasoning as auth-tokens.ts: an OpenSSL key parse per verification, on a path
+// every outbound service call takes. Keyed on the PEM so a rotated key is a different
+// cache entry rather than a stale hit.
+const PUBLIC_KEY_CACHE = new Map();
+const PRIVATE_KEY_CACHE = new Map();
+function cachedPublicKey(pem) {
+    const key = String(pem || "").trim();
+    const hit = PUBLIC_KEY_CACHE.get(key);
+    if (hit)
+        return hit;
+    const parsed = crypto.createPublicKey(key);
+    PUBLIC_KEY_CACHE.set(key, parsed);
+    return parsed;
+}
+function cachedPrivateKey(pem) {
+    const key = String(pem || "").trim();
+    const hit = PRIVATE_KEY_CACHE.get(key);
+    if (hit)
+        return hit;
+    const parsed = crypto.createPrivateKey(key);
+    PRIVATE_KEY_CACHE.set(key, parsed);
+    return parsed;
+}
+/** Drop every cached KeyObject. Test-only. */
+function clearServiceAssertionKeyCache() {
+    PUBLIC_KEY_CACHE.clear();
+    PRIVATE_KEY_CACHE.clear();
 }
 function issueServiceAssertion(options = {}) {
     const privateKeyPem = String(options.privateKeyPem || "").trim();
@@ -181,7 +212,7 @@ function issueServiceAssertion(options = {}) {
     const payloadPart = toBase64Url(JSON.stringify(payload));
     const signingInput = `${headerPart}.${payloadPart}`;
     const signature = crypto
-        .sign(null, Buffer.from(signingInput, "utf8"), crypto.createPrivateKey(privateKeyPem))
+        .sign(null, Buffer.from(signingInput, "utf8"), cachedPrivateKey(privateKeyPem))
         .toString("base64url");
     return {
         token: `${headerPart}.${payloadPart}.${signature}`,

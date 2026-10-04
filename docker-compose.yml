@@ -130,6 +130,15 @@ services:
             JWT_ISSUER: ${JWT_ISSUER:-http://localhost:4000}
             JWT_AUDIENCE: ${JWT_AUDIENCE:-filspresso-users}
             AUTH_SESSION_IDLE_TIMEOUT_DAYS: ${AUTH_SESSION_IDLE_TIMEOUT_DAYS:-30}
+            # Phase 5.2 (PLAN_NESTJS_SCALING.md). These were documented in .env but
+            # never passed in, so the container silently used the hardcoded defaults in
+            # passwords.ts and the deployed parameters were not the intended ones.
+            # Wired through with the same values the code already defaults to, so this
+            # changes nothing until .env says otherwise -- but .env now has effect.
+            ARGON2_MEMORY_COST_KIB: ${ARGON2_MEMORY_COST_KIB:-19456}
+            ARGON2_TIME_COST: ${ARGON2_TIME_COST:-3}
+            ARGON2_PARALLELISM: ${ARGON2_PARALLELISM:-1}
+            ARGON2_HASH_LENGTH: ${ARGON2_HASH_LENGTH:-32}
             ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
             ENCRYPTION_KEY_FILE: ${ENCRYPTION_KEY_FILE:-}
             ENCRYPTION_KEY_LEGACY: ${ENCRYPTION_KEY_LEGACY:-}

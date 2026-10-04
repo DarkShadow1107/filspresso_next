@@ -184,12 +184,51 @@ function decodeJwtSegment(segment: string): unknown {
 	return JSON.parse(Buffer.from(segment, "base64url").toString("utf8"));
 }
 
+// ---- Phase 5.3: cache parsed KeyObjects ----
+//
+// `crypto.createKey` runs an OpenSSL key parse, which is not free and was happening
+// on every token signature and -- worse -- on every authenticated request, because
+// verification needs a KeyObject too. The key material here is fixed for the process
+// lifetime, so the parse is done once and the object reused.
+//
+// Keyed by the PEM rather than by kid: the same kid can legitimately be re-pointed at
+// a new key during a rotation, and a stale object would then verify with the old key.
+// Keying on the material means a rotation produces a different cache entry.
+const PRIVATE_KEY_CACHE = new Map<string, crypto.KeyObject>();
+const PUBLIC_KEY_CACHE = new Map<string, crypto.KeyObject>();
+
 function createEd25519PrivateKey(): crypto.KeyObject {
-	return crypto.createPrivateKey(normalizePem(JWT_SIGNING_PRIVATE_KEY));
+	const pem = normalizePem(JWT_SIGNING_PRIVATE_KEY);
+	const cached = PRIVATE_KEY_CACHE.get(pem);
+	if (cached) return cached;
+	const key = crypto.createPrivateKey(pem);
+	PRIVATE_KEY_CACHE.set(pem, key);
+	return key;
 }
 
 function createEd25519PublicKey(publicKeyPem: string): crypto.KeyObject {
-	return crypto.createPublicKey(normalizePem(publicKeyPem));
+	const pem = normalizePem(publicKeyPem);
+	const cached = PUBLIC_KEY_CACHE.get(pem);
+	if (cached) return cached;
+	const key = crypto.createPublicKey(pem);
+	PUBLIC_KEY_CACHE.set(pem, key);
+	return key;
+}
+
+/**
+ * Parse a public key without going through the cache above.
+ *
+ * Exposed for tests and for `getJwtJwks`, which iterates the keyring and must not be
+ * able to poison the verification cache with an arbitrary PEM.
+ */
+export function parseEd25519PublicKey(publicKeyPem: string): crypto.KeyObject {
+	return createEd25519PublicKey(publicKeyPem);
+}
+
+/** Drop every cached KeyObject. Test-only; the key material is static in production. */
+export function clearEd25519KeyCache(): void {
+	PRIVATE_KEY_CACHE.clear();
+	PUBLIC_KEY_CACHE.clear();
 }
 
 function signEd25519Jwt(payload: object, expiresIn: string | number, nowSeconds: number): string {
@@ -372,7 +411,7 @@ export function getJwtJwks(): Record<string, unknown> {
 	const keys: Record<string, unknown>[] = [];
 	for (const [kid, publicKeyPem] of JWT_EDDSA_PUBLIC_KEYS.entries()) {
 		try {
-			const keyObj = crypto.createPublicKey(publicKeyPem);
+			const keyObj = createEd25519PublicKey(publicKeyPem);
 			const jwk = keyObj.export({ format: "jwk" }) as Record<string, unknown>;
 			keys.push({ ...jwk, kid, use: "sig", alg: "EdDSA" });
 		} catch {
