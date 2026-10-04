@@ -8,6 +8,7 @@ import {
 	DIRECT_UPLOAD_MIME_TYPES,
 	VISION_MIN_SHORT_EDGE_PX,
 	tierCanAutoConvertVisionImage,
+	tierCanUseMoleculeHelper,
 } from "@/lib/entitlements";
 import {
 	allowedTextModelsForTier as sharedAllowedTextModels,
@@ -28,6 +29,7 @@ import {
 	checkPromptLimit,
 	normalizePromptScope,
 	type PromptLimitCheck,
+	type PromptScope,
 } from "@/lib/server/promptLimits";
 
 export const runtime = "nodejs";
@@ -326,7 +328,8 @@ function chemistryUnavailablePayload(isImageRequest: boolean, requestId: string,
 
 export async function POST(request: Request) {
 	try {
-		const promptScope = normalizePromptScope(request.headers.get("x-kafelot-scope"));
+		// Provisional: replaced below by a scope derived from the resolved mode.
+		let promptScope: PromptScope = normalizePromptScope(request.headers.get("x-kafelot-scope"));
 		const limitCheck = await checkPromptLimit(request, true, promptScope);
 		if (!limitCheck.allowed) return limitCheck.errorResponse!;
 
@@ -477,6 +480,41 @@ export async function POST(request: Request) {
 			}
 			pyBody = JSON.stringify(pyPayload);
 		}
+
+		// ---- Chemistry / Molecule Helper entitlement ----
+		//
+		// Molecule Helper is an ULTIMATE feature. This is enforced here, after the
+		// tier is resolved, because `limitCheck.tier` comes from the limiter and
+		// therefore already wins over anything the client claimed in `subscription`.
+		//
+		// Previously there was no gate at all: `mode` was derived from the client's
+		// `model` field and `kafelot.service.ts` grants the 200-prompt molecule bucket
+		// to *every* tier, so text chemistry worked for anonymous and free callers.
+		if (isChemistryRequest && !tierCanUseMoleculeHelper(resolvedTier)) {
+			return NextResponse.json(
+				{
+					error: "CHEMISTRY_LOCKED",
+					message: "Molecule Helper is available on the ULTIMATE plan.",
+				},
+				{ status: 403, headers: { "Cache-Control": "no-store" } },
+			);
+		}
+
+		// The metered bucket must follow the mode, not the client-supplied header.
+		// They were independent: a crafted request could charge `molecule_helper`
+		// while sending a normal chat, or `general` while running chemistry. The
+		// header is only honoured when it agrees with the resolved mode.
+		const effectiveScope: PromptScope = isChemistryRequest
+			? "molecule_helper"
+			: "general";
+		if (effectiveScope !== promptScope) {
+			// The dry-run at the top of this handler checked the header-derived scope,
+			// so re-check against the scope actually being spent before proceeding.
+			const scoped = await checkPromptLimit(request, true, effectiveScope);
+			if (!scoped.allowed) return scoped.errorResponse!;
+			limitCheck.tier = scoped.tier;
+		}
+		promptScope = effectiveScope;
 
 		const pythonAbortController = new AbortController();
 		const timeout = setTimeout(() => pythonAbortController.abort(), PYTHON_CHAT_TIMEOUT_MS);

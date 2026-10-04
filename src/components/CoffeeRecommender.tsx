@@ -70,6 +70,7 @@ import {
 	coffeeHelperImageLimitForTier,
 	tierCanAutoConvertVisionImage,
 	tierCanEditPrompt,
+	tierCanUseMoleculeHelper,
 } from "@/lib/entitlements";
 
 // Set views of the shared lists, for the hot-path membership checks below.
@@ -814,7 +815,6 @@ export default React.memo(function CoffeeRecommender() {
 			};
 		};
 
-		const hasMoleculeHelperAccess = allowedVisionModelsForTier(userSubscription).length > 0;
 
 		const memoryLimit = CHAT_MEMORY_LIMIT_BY_TIER[userSubscription] ?? MAX_HISTORY;
 		const memoryUsed = chatHistory.length;
@@ -871,6 +871,9 @@ export default React.memo(function CoffeeRecommender() {
 	// of the chat model. So the toggle is eligible for any entitled model except
 	// the thinking model itself, which already thinks.
 	const thinkingEligibleModel = hasThinkingAccess && selectedModel !== TEXT_MODEL_1_2B_THINKING;
+	// Molecule Helper (chemistry) is ULTIMATE-only. Distinct from vision access:
+	// the helper's text mode used to be available on every plan.
+	const hasMoleculeHelperAccess = tierCanUseMoleculeHelper(userSubscription);
 	const hasVisionAutoConvert = useMemo(() => tierCanAutoConvertVisionImage(userSubscription), [userSubscription]);
 	const maxImagesPerPrompt = useMemo(
 		() => (chemistryMode ? 1 : coffeeHelperImageLimitForTier(userSubscription)),
@@ -1132,7 +1135,6 @@ export default React.memo(function CoffeeRecommender() {
 		// exactly what this effect is for.
 		// eslint-disable-next-line react-hooks/set-state-in-effect
 		fetchPromptStatus(scope, true);
-		const hasMoleculeHelperAccess = allowedVisionModelsForTier(userSubscription).length > 0;
 		if (hasMoleculeHelperAccess) {
 			const secondaryScope: PromptScope = scope === "general" ? "molecule_helper" : "general";
 			fetchPromptStatus(secondaryScope, false);
@@ -1452,6 +1454,19 @@ export default React.memo(function CoffeeRecommender() {
 		(nextChemistryMode: boolean) => {
 			if (nextChemistryMode === chemistryMode) return;
 
+			// Molecule Helper is ULTIMATE-only. /api/python-chat re-checks this
+			// server-side; refusing here too keeps the toggle honest rather than
+			// letting the user switch into a mode whose next message will 403.
+			if (nextChemistryMode && !hasMoleculeHelperAccess) {
+				notify(
+					"Molecule Helper is available on the ULTIMATE plan.",
+					4000,
+					"error",
+					"coffee",
+				);
+				return;
+			}
+
 			saveCurrentChat();
 
 			const currentHelper: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
@@ -1494,7 +1509,7 @@ export default React.memo(function CoffeeRecommender() {
 		const activeHelper: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
 		helperConversationsRef.current[activeHelper] = { chatId: null, messages: [] };
 		setStep("chat");
-	}, [saveCurrentChat, chemistryMode]);
+	}, [saveCurrentChat, chemistryMode, hasMoleculeHelperAccess]);
 
 	// Load a chat from history
 	const loadChat = useCallback(

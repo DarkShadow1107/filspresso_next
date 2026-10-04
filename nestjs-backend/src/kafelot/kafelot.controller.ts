@@ -36,6 +36,17 @@ function resolveUsageScope(req: Request): string {
   return normalizeUsageScope((bodyScope || headerScope || queryScope || USAGE_SCOPES.GENERAL) as string);
 }
 
+/**
+ * Molecule Helper (chemistry) is ULTIMATE-only.
+ *
+ * The Next.js route gates it too, but there is no Next `middleware.ts`, so this
+ * controller is the authoritative choke point for the quota: a direct call to
+ * `/api/kafelot/check-and-use` with `scope=molecule_helper` would otherwise reach
+ * `checkAndUse` unthrottled by any tier check. That matters because the molecule
+ * bucket is 200 prompts on every tier.
+ */
+const MOLECULE_HELPER_TIER = "ultimate";
+
 @Controller("api/kafelot")
 export class KafelotController {
   constructor(private readonly kafelotService: KafelotService) {}
@@ -50,9 +61,24 @@ export class KafelotController {
     const systemInfo = req.body?.system_info || {};
     const dryRun = req.body?.dry_run === true;
     const usageScope = resolveUsageScope(req);
-    
+
     if (hasBearerToken && !req.user) {
       return res.status(HttpStatus.UNAUTHORIZED).json({ error: "AUTH_SESSION_INVALID", message: "Authentication session expired or invalid" });
+    }
+
+    // Defence in depth for the chemistry gate. `req.user.tier` is not populated by
+    // the session claims, so ask the service for the caller's authoritative tier
+    // rather than trusting anything on the request.
+    if (usageScope === USAGE_SCOPES.MOLECULE_HELPER) {
+      const tier = req.user?.id
+        ? await this.kafelotService.resolveTier(Number(req.user.id))
+        : "anonymous";
+      if (String(tier || "").toLowerCase() !== MOLECULE_HELPER_TIER) {
+        return res.status(HttpStatus.FORBIDDEN).json({
+          error: "CHEMISTRY_LOCKED",
+          message: "Molecule Helper is available on the ULTIMATE plan.",
+        });
+      }
     }
 
     const result = await this.kafelotService.checkAndUse({

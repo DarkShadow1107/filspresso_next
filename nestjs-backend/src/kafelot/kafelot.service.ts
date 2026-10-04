@@ -78,6 +78,17 @@ function tierToLimit(tier: string | undefined | null, usageScope: string = USAGE
 export class KafelotService {
   constructor(private readonly db: DatabaseService) {}
 
+  /**
+   * The caller's authoritative tier, for gates that run outside a transaction.
+   *
+   * `fetchUserTier` is private and needs a client; this exposes the same lookup on
+   * its own connection so a controller can gate a request before consuming quota.
+   */
+  async resolveTier(accountId: number): Promise<string> {
+    const pool = this.db.getPool();
+    return this.fetchUserTier(pool, accountId);
+  }
+
   private async fetchUserTier(client: any, accountId: number): Promise<string> {
     try {
       const { rows } = await client.query(
