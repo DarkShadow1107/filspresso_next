@@ -44,6 +44,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var AuthComplexService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthComplexService = void 0;
+const httpClient_1 = require("../common/utils/httpClient");
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
 const session_store_service_1 = require("../common/guards/session-store.service");
@@ -728,11 +729,24 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
             return res.redirect(302, this.buildOAuthFailureRedirect(returnTo, "invalid_oauth_response"));
         let profile;
         try {
-            const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: oauthConfig.clientId, client_secret: oauthConfig.clientSecret, redirect_uri: oauthConfig.redirectUri, grant_type: "authorization_code" }).toString() });
+            // Phase 7: bounded. Both Google calls sat in an OAuth callback with no timeout, so
+            // a stalled token endpoint held the browser request open indefinitely. The
+            // surrounding try/catch already turns a throw into a redirect, so a timeout lands
+            // in the same failure path as any other OAuth error.
+            const oauthTimeoutMs = (0, httpClient_1.readIntEnv)("OAUTH_TIMEOUT_MS", 8000, 1000, 30000);
+            const tokenResponse = await (0, httpClient_1.fetchBounded)("https://oauth2.googleapis.com/token", {
+                timeoutMs: oauthTimeoutMs,
+                maxBytes: 256 * 1024,
+                method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: oauthConfig.clientId, client_secret: oauthConfig.clientSecret, redirect_uri: oauthConfig.redirectUri, grant_type: "authorization_code" }).toString()
+            });
             if (!tokenResponse.ok)
                 throw new Error("Google token exchange failed");
             const tokenData = await tokenResponse.json();
-            const userInfoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${String(tokenData.access_token || "")}` } });
+            const userInfoResponse = await (0, httpClient_1.fetchBounded)("https://openidconnect.googleapis.com/v1/userinfo", {
+                timeoutMs: oauthTimeoutMs,
+                maxBytes: 256 * 1024,
+                headers: { Authorization: `Bearer ${String(tokenData.access_token || "")}` }
+            });
             if (!userInfoResponse.ok)
                 throw new Error("Google userinfo fetch failed");
             profile = await userInfoResponse.json();

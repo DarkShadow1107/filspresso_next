@@ -87,6 +87,16 @@ let OperationsService = OperationsService_1 = class OperationsService {
         // Validate egress target at startup
         egressPolicy.assertAllowedEgress(this.goOpsUrl, "GO_OPS_URL");
     }
+    /**
+     * Ceiling on a buffered go_ops response.
+     *
+     * Configurable because the right value depends on what go_ops is asked to return; the
+     * default suits the JSON event payloads this endpoint actually exchanges.
+     */
+    goOpsMaxResponseBytes = (() => {
+        const parsed = Number.parseInt(String(process.env.GO_OPS_MAX_RESPONSE_BYTES ?? ""), 10);
+        return Number.isFinite(parsed) && parsed >= 1024 ? Math.min(parsed, 64 * 1024 * 1024) : 2 * 1024 * 1024;
+    })();
     getHttpsAgent() {
         if (!this.clientCert && !this.clientKey && !this.caCert)
             return undefined;
@@ -151,9 +161,42 @@ let OperationsService = OperationsService_1 = class OperationsService {
                     reqOptions.agent = agent;
             }
             const req = transport.request(reqOptions, (res) => {
+                // Phase 7.4: bound the buffer.
+                //
+                // This accumulates every chunk with no limit and then concatenates, so a peer
+                // that streams without end would grow the heap until the process died. The
+                // request is destroyed as soon as the budget is exceeded rather than after the
+                // fact, so the memory is never actually held.
+                const maxBytes = this.goOpsMaxResponseBytes;
+                const declared = Number(res.headers["content-length"]);
+                if (Number.isFinite(declared) && declared > maxBytes) {
+                    res.destroy();
+                    reject(new Error(`go_ops response exceeded ${maxBytes} bytes`));
+                    return;
+                }
                 const chunks = [];
-                res.on("data", (chunk) => chunks.push(chunk));
+                let total = 0;
+                let settled = false;
+                const fail = (message) => {
+                    if (settled)
+                        return;
+                    settled = true;
+                    req.destroy();
+                    reject(new Error(message));
+                };
+                res.on("data", (chunk) => {
+                    total += chunk.length;
+                    if (total > maxBytes) {
+                        fail(`go_ops response exceeded ${maxBytes} bytes`);
+                        return;
+                    }
+                    chunks.push(chunk);
+                });
+                res.on("error", (e) => fail(e.message));
                 res.on("end", () => {
+                    if (settled)
+                        return;
+                    settled = true;
                     const rawBody = Buffer.concat(chunks).toString("utf8");
                     let parsedBody = null;
                     if (rawBody) {

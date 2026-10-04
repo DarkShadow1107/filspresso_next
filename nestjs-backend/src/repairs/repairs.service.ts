@@ -1,3 +1,4 @@
+import { fetchBounded, readIntEnv } from "../common/utils/httpClient";
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 
@@ -34,9 +35,12 @@ export class RepairsService {
     // 1. Check weather for delivery adjustment
     let isBadWeather = false;
     try {
-      const weatherRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${DEFAULT_LAT}&longitude=${DEFAULT_LON}&current=precipitation,weather_code`,
-      );
+      // Phase 7.3: bounded, and capped. The old call had neither, so a stalled
+      // open-meteo held the repair request open indefinitely.
+      const weatherRes = await fetchBounded(
+`https://api.open-meteo.com/v1/forecast?latitude=${DEFAULT_LAT}&longitude=${DEFAULT_LON}&current=precipitation,weather_code`,
+        { timeoutMs: readIntEnv("REPAIRS_WEATHER_TIMEOUT_MS", 4000, 500, 20000), maxBytes: 128 * 1024 },
+    );
       if (weatherRes.ok) {
         const wd = await weatherRes.json() as Record<string, Record<string, number>>;
         const precip = wd.current?.precipitation || 0;

@@ -12,11 +12,14 @@ const security_observability_controller_1 = require("./security-observability.co
 const security_observability_scheduler_1 = require("./security-observability.scheduler");
 const security_observability_service_1 = require("./security-observability.service");
 const service_events_auth_guard_1 = require("./service-events-auth.guard");
+const database_module_1 = require("../database/database.module");
 let SecurityObservabilityModule = class SecurityObservabilityModule {
 };
 exports.SecurityObservabilityModule = SecurityObservabilityModule;
 exports.SecurityObservabilityModule = SecurityObservabilityModule = __decorate([
     (0, common_1.Module)({
+        // Phase 7.5: the scheduler now owns the replay-guard expiry sweep and needs the pool.
+        imports: [database_module_1.DatabaseModule],
         controllers: [security_observability_controller_1.SecurityObservabilityController],
         providers: [security_observability_service_1.SecurityObservabilityService, service_events_auth_guard_1.ServiceEventsAuthGuard, security_observability_scheduler_1.SecurityObservabilityScheduler],
         exports: [security_observability_service_1.SecurityObservabilityService, service_events_auth_guard_1.ServiceEventsAuthGuard],

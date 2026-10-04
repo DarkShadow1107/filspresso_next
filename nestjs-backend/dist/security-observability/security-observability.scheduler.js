@@ -13,13 +13,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SecurityObservabilityScheduler = void 0;
 const common_1 = require("@nestjs/common");
 const security_observability_service_1 = require("./security-observability.service");
+const replayGuard_1 = require("../common/utils/replayGuard");
+const database_service_1 = require("../database/database.service");
 let SecurityObservabilityScheduler = SecurityObservabilityScheduler_1 = class SecurityObservabilityScheduler {
     securityObservabilityService;
+    db;
     logger = new common_1.Logger(SecurityObservabilityScheduler_1.name);
     retentionJobTimer;
     ledgerArchiveJobTimer;
-    constructor(securityObservabilityService) {
+    constructor(securityObservabilityService, db) {
         this.securityObservabilityService = securityObservabilityService;
+        this.db = db;
     }
     async onModuleInit() {
         await this.securityObservabilityService.pruneOldServiceIncidents();
@@ -32,6 +36,9 @@ let SecurityObservabilityScheduler = SecurityObservabilityScheduler_1 = class Se
                 void this.securityObservabilityService.runSecurityLedgerArchiveJob();
             }, this.securityObservabilityService.getArchiveSchedulerIntervalMs());
         }
+        // Phase 7.5: the replay-guard expiry sweep lives here, beside the other timers.
+        // It used to run as a DELETE on every guarded request.
+        (0, replayGuard_1.startReplaySweep)(this.db.getPool());
         this.logger.log("Security observability schedulers initialized");
     }
     onModuleDestroy() {
@@ -43,10 +50,12 @@ let SecurityObservabilityScheduler = SecurityObservabilityScheduler_1 = class Se
             clearInterval(this.ledgerArchiveJobTimer);
             this.ledgerArchiveJobTimer = undefined;
         }
+        (0, replayGuard_1.stopReplaySweep)();
     }
 };
 exports.SecurityObservabilityScheduler = SecurityObservabilityScheduler;
 exports.SecurityObservabilityScheduler = SecurityObservabilityScheduler = SecurityObservabilityScheduler_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [security_observability_service_1.SecurityObservabilityService])
+    __metadata("design:paramtypes", [security_observability_service_1.SecurityObservabilityService,
+        database_service_1.DatabaseService])
 ], SecurityObservabilityScheduler);

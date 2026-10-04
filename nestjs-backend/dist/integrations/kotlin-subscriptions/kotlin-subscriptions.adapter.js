@@ -10,6 +10,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.KotlinSubscriptionsAdapter = void 0;
+const httpClient_1 = require("../../common/utils/httpClient");
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 let KotlinSubscriptionsAdapter = class KotlinSubscriptionsAdapter {
@@ -19,8 +20,22 @@ let KotlinSubscriptionsAdapter = class KotlinSubscriptionsAdapter {
         this.configService = configService;
         this.baseUrl = String(this.configService.get("integrations.kotlinSubscriptionsUrl") || "http://localhost:8084").replace(/\/$/, "");
     }
+    /**
+     * Deadline for calls to the kotlin-subscriptions service.
+     *
+     * Phase 7.6: this adapter had no timeout at all. It is registered as a global
+     * provider, so the moment anything injects it, a kotlin-subscriptions that accepted the
+     * connection and then stalled would hang the caller forever.
+     */
+    timeoutMs = (0, httpClient_1.readIntEnv)("KOTLIN_SUBSCRIPTIONS_TIMEOUT_MS", 5000, 500, 60000);
+    /**
+     * Ceiling on a buffered kotlin-subscriptions response, so a runaway peer cannot exhaust the heap.
+     */
+    maxResponseBytes = (0, httpClient_1.readIntEnv)("KOTLIN_SUBSCRIPTIONS_MAX_RESPONSE_BYTES", 65536, 1024, 64 * 1024 * 1024);
     async health() {
-        const response = await fetch(`${this.baseUrl}/api/subscriptions/health`, {
+        const response = await (0, httpClient_1.fetchBounded)(`${this.baseUrl}/api/subscriptions/health`, {
+            timeoutMs: this.timeoutMs,
+            maxBytes: this.maxResponseBytes,
             method: "GET",
             headers: { Accept: "application/json" },
         });
@@ -30,7 +45,9 @@ let KotlinSubscriptionsAdapter = class KotlinSubscriptionsAdapter {
         return (await response.json());
     }
     async quote(payload, headers = {}) {
-        const response = await fetch(`${this.baseUrl}/api/subscriptions/quote`, {
+        const response = await (0, httpClient_1.fetchBounded)(`${this.baseUrl}/api/subscriptions/quote`, {
+            timeoutMs: this.timeoutMs,
+            maxBytes: this.maxResponseBytes,
             method: "POST",
             headers: {
                 "Content-Type": "application/json",

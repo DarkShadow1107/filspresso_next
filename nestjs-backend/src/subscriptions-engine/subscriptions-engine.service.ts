@@ -1,3 +1,4 @@
+import { fetchBounded, readIntEnv } from "../common/utils/httpClient";
 import {
   Injectable, Logger, ServiceUnavailableException,
 } from "@nestjs/common";
@@ -48,7 +49,11 @@ export class SubscriptionsEngineService {
   async getHealth(): Promise<unknown> {
     const headers = this.buildUpstreamHeaders({ Accept: "application/json" });
     if (!headers) throw new ServiceUnavailableException({ error: "Subscription service assertion is required but could not be issued" });
-    const upstream = await fetch(`${this.kotlinSubsUrl}/api/subscriptions/health`, { headers });
+    // Phase 7.3: bounded. An unbounded call to the quote engine held the request open
+    // indefinitely if that service stopped responding.
+    const upstream = await fetchBounded(`${this.kotlinSubsUrl}/api/subscriptions/health`, {
+      headers, timeoutMs: readIntEnv("KOTLIN_SUBSCRIPTIONS_TIMEOUT_MS", 5000, 500, 30000),
+    });
     if (!upstream.ok) throw new ServiceUnavailableException({ error: "Kotlin subscription service unavailable" });
     const data = await upstream.json();
     return { upstream: data };
@@ -62,8 +67,11 @@ export class SubscriptionsEngineService {
       currentTier: body["currentTier"] || String(user["subscription"] || "free").toLowerCase(),
     };
     serviceContracts.assertServiceContract("kotlin_quote_request_v1", quoteRequest);
-    const upstream = await fetch(`${this.kotlinSubsUrl}/api/subscriptions/quote`, {
+    const upstream = await fetchBounded(`${this.kotlinSubsUrl}/api/subscriptions/quote`, {
       method: "POST", headers, body: JSON.stringify(quoteRequest),
+      timeoutMs: readIntEnv("KOTLIN_SUBSCRIPTIONS_TIMEOUT_MS", 5000, 500, 30000),
+      // A quote is a small JSON object; anything larger is a malfunction or an attack.
+      maxBytes: 64 * 1024,
     });
     if (!upstream.ok) {
       const detail = await upstream.text().catch(() => "");

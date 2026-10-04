@@ -754,9 +754,17 @@ let OrdersService = OrdersService_1 = class OrdersService {
         }
     }
     // ── GET /api/orders/:id/invoice
+    /**
+     * Render an order's invoice via the Java invoice service.
+     *
+     * Phase 7.2: the connection is released before the HTTP call. Rendering is a CPU-bound
+     * job in another process that can take seconds; holding a pooled connection across it
+     * meant a handful of concurrent invoice requests could exhaust the pool while no
+     * database work was happening at all.
+     */
     async getOrderInvoice(accountId, orderId) {
         const pool = this.db.getPool();
-        const client = await pool.connect();
+        let client = await pool.connect();
         try {
             const orderResult = await client.query("SELECT * FROM orders WHERE id = $1 AND account_id = $2 LIMIT 1", [orderId, accountId]);
             const order = orderResult.rows[0];
@@ -810,8 +818,17 @@ let OrdersService = OrdersService_1 = class OrdersService {
             // Asserted, so a future change that drops `items` again fails here rather than
             // shipping a blank invoice to a customer.
             serviceContracts.assertServiceContract("invoice_render_request_v1", invoicePayload);
+            // ---- Give the connection back before the network call ----
+            //
+            // Nothing below reads the database, so holding a slot through a multi-second
+            // render would only ever hurt.
+            client.release();
+            client = null;
             const headers = {
                 "Content-Type": "application/json", Accept: "application/pdf",
+                // A PDF is already compressed, so gzipping it burns CPU on both ends to save
+                // almost nothing. Identity is the cheaper correct answer.
+                "Accept-Encoding": "identity",
                 "x-service-name": "filspresso-backend",
             };
             if (serviceAssertion)
@@ -834,7 +851,7 @@ let OrdersService = OrdersService_1 = class OrdersService {
             }
         }
         finally {
-            client.release();
+            client?.release();
         }
     }
     // Role check helper

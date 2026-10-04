@@ -44,6 +44,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var SubscriptionsEngineService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SubscriptionsEngineService = void 0;
+const httpClient_1 = require("../common/utils/httpClient");
 const common_1 = require("@nestjs/common");
 const serviceAssertionUtils = __importStar(require("../common/utils/serviceAssertions"));
 const serviceContracts = __importStar(require("../common/utils/serviceContracts"));
@@ -92,7 +93,11 @@ let SubscriptionsEngineService = SubscriptionsEngineService_1 = class Subscripti
         const headers = this.buildUpstreamHeaders({ Accept: "application/json" });
         if (!headers)
             throw new common_1.ServiceUnavailableException({ error: "Subscription service assertion is required but could not be issued" });
-        const upstream = await fetch(`${this.kotlinSubsUrl}/api/subscriptions/health`, { headers });
+        // Phase 7.3: bounded. An unbounded call to the quote engine held the request open
+        // indefinitely if that service stopped responding.
+        const upstream = await (0, httpClient_1.fetchBounded)(`${this.kotlinSubsUrl}/api/subscriptions/health`, {
+            headers, timeoutMs: (0, httpClient_1.readIntEnv)("KOTLIN_SUBSCRIPTIONS_TIMEOUT_MS", 5000, 500, 30000),
+        });
         if (!upstream.ok)
             throw new common_1.ServiceUnavailableException({ error: "Kotlin subscription service unavailable" });
         const data = await upstream.json();
@@ -107,8 +112,11 @@ let SubscriptionsEngineService = SubscriptionsEngineService_1 = class Subscripti
             currentTier: body["currentTier"] || String(user["subscription"] || "free").toLowerCase(),
         };
         serviceContracts.assertServiceContract("kotlin_quote_request_v1", quoteRequest);
-        const upstream = await fetch(`${this.kotlinSubsUrl}/api/subscriptions/quote`, {
+        const upstream = await (0, httpClient_1.fetchBounded)(`${this.kotlinSubsUrl}/api/subscriptions/quote`, {
             method: "POST", headers, body: JSON.stringify(quoteRequest),
+            timeoutMs: (0, httpClient_1.readIntEnv)("KOTLIN_SUBSCRIPTIONS_TIMEOUT_MS", 5000, 500, 30000),
+            // A quote is a small JSON object; anything larger is a malfunction or an attack.
+            maxBytes: 64 * 1024,
         });
         if (!upstream.ok) {
             const detail = await upstream.text().catch(() => "");

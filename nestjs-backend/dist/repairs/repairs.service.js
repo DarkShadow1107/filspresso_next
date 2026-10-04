@@ -10,6 +10,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RepairsService = void 0;
+const httpClient_1 = require("../common/utils/httpClient");
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
 const DEFAULT_LAT = 44.4323;
@@ -41,7 +42,9 @@ let RepairsService = class RepairsService {
         // 1. Check weather for delivery adjustment
         let isBadWeather = false;
         try {
-            const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${DEFAULT_LAT}&longitude=${DEFAULT_LON}&current=precipitation,weather_code`);
+            // Phase 7.3: bounded, and capped. The old call had neither, so a stalled
+            // open-meteo held the repair request open indefinitely.
+            const weatherRes = await (0, httpClient_1.fetchBounded)(`https://api.open-meteo.com/v1/forecast?latitude=${DEFAULT_LAT}&longitude=${DEFAULT_LON}&current=precipitation,weather_code`, { timeoutMs: (0, httpClient_1.readIntEnv)("REPAIRS_WEATHER_TIMEOUT_MS", 4000, 500, 20000), maxBytes: 128 * 1024 });
             if (weatherRes.ok) {
                 const wd = await weatherRes.json();
                 const precip = wd.current?.precipitation || 0;

@@ -1,3 +1,4 @@
+import { fetchBounded, readIntEnv } from "../common/utils/httpClient";
 import { Injectable, Logger, HttpException, BadRequestException, NotFoundException, ConflictException, UnauthorizedException, ServiceUnavailableException } from "@nestjs/common";
 import type { PoolClient } from "pg";
 import { DatabaseService } from "../database/database.service";
@@ -717,10 +718,21 @@ export class AuthComplexService {
 
     let profile;
     try {
-      const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: oauthConfig.clientId, client_secret: oauthConfig.clientSecret, redirect_uri: oauthConfig.redirectUri, grant_type: "authorization_code" }).toString() });
+      // Phase 7: bounded. Both Google calls sat in an OAuth callback with no timeout, so
+      // a stalled token endpoint held the browser request open indefinitely. The
+      // surrounding try/catch already turns a throw into a redirect, so a timeout lands
+      // in the same failure path as any other OAuth error.
+      const oauthTimeoutMs = readIntEnv("OAUTH_TIMEOUT_MS", 8000, 1000, 30000);
+      const tokenResponse = await fetchBounded("https://oauth2.googleapis.com/token", {
+        timeoutMs: oauthTimeoutMs,
+        maxBytes: 256 * 1024,
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: oauthConfig.clientId, client_secret: oauthConfig.clientSecret, redirect_uri: oauthConfig.redirectUri, grant_type: "authorization_code" }).toString() });
       if (!tokenResponse.ok) throw new Error("Google token exchange failed");
       const tokenData = await tokenResponse.json() as { access_token?: string };
-      const userInfoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${String(tokenData.access_token || "")}` } });
+      const userInfoResponse = await fetchBounded("https://openidconnect.googleapis.com/v1/userinfo", {
+        timeoutMs: oauthTimeoutMs,
+        maxBytes: 256 * 1024,
+        headers: { Authorization: `Bearer ${String(tokenData.access_token || "")}` } });
       if (!userInfoResponse.ok) throw new Error("Google userinfo fetch failed");
       profile = await userInfoResponse.json() as any;
     } catch (error) {

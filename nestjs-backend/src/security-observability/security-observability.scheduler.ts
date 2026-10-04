@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { SecurityObservabilityService } from "./security-observability.service";
+import { startReplaySweep, stopReplaySweep } from "../common/utils/replayGuard";
+import { DatabaseService } from "../database/database.service";
 
 @Injectable()
 export class SecurityObservabilityScheduler implements OnModuleInit, OnModuleDestroy {
@@ -7,7 +9,10 @@ export class SecurityObservabilityScheduler implements OnModuleInit, OnModuleDes
 	private retentionJobTimer?: NodeJS.Timeout;
 	private ledgerArchiveJobTimer?: NodeJS.Timeout;
 
-	constructor(private readonly securityObservabilityService: SecurityObservabilityService) {}
+	constructor(
+		private readonly securityObservabilityService: SecurityObservabilityService,
+		private readonly db: DatabaseService,
+	) {}
 
 	async onModuleInit(): Promise<void> {
 		await this.securityObservabilityService.pruneOldServiceIncidents();
@@ -23,6 +28,10 @@ export class SecurityObservabilityScheduler implements OnModuleInit, OnModuleDes
 			}, this.securityObservabilityService.getArchiveSchedulerIntervalMs());
 		}
 
+		// Phase 7.5: the replay-guard expiry sweep lives here, beside the other timers.
+		// It used to run as a DELETE on every guarded request.
+		startReplaySweep(this.db.getPool());
+
 		this.logger.log("Security observability schedulers initialized");
 	}
 
@@ -36,5 +45,7 @@ export class SecurityObservabilityScheduler implements OnModuleInit, OnModuleDes
 			clearInterval(this.ledgerArchiveJobTimer);
 			this.ledgerArchiveJobTimer = undefined;
 		}
+
+		stopReplaySweep();
 	}
 }

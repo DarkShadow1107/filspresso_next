@@ -61,64 +61,134 @@ function getCoffeeRecommendation(temperature: number | null, weatherCode = 0, ho
   return { type: "warm", drink: "Espresso", message: "A classic espresso — always a good idea.", icon: "☕" };
 }
 
+const FORECAST_TIMEOUT_MS = readInt("WEATHER_TIMEOUT_MS", 6000, 500, 30000);
+const GEO_TIMEOUT_MS = readInt("WEATHER_GEO_TIMEOUT_MS", 3000, 500, 15000);
+const GEO_PROVIDER = String(process.env.WEATHER_GEO_PROVIDER || "ipwho.is").trim().toLowerCase();
+
+function readInt(name: string, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(String(process.env[name] ?? ""), 10);
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, min), max) : fallback;
+}
+
+/**
+ * fetch with a deadline.
+ *
+ * Without this a third party that accepts the connection and then stalls holds the
+ * request open indefinitely, which is what turned a slow weather API into an exhausted
+ * connection pool.
+ */
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Current conditions and hourly series for a coordinate. Throws if the provider fails. */
+async function fetchForecast(lat: number, lon: number): Promise<Record<string, unknown>> {
+  const url = new URL("https://api.open-meteo.com/v1/forecast");
+  url.searchParams.set("latitude", lat.toString());
+  url.searchParams.set("longitude", lon.toString());
+  url.searchParams.set("hourly", "temperature_2m,precipitation,precipitation_probability,weather_code");
+  url.searchParams.set("current", "temperature_2m,weather_code,is_day");
+  url.searchParams.set("timezone", "auto");
+  url.searchParams.set("forecast_days", "2");
+
+  const response = await fetchWithTimeout(url.toString(), FORECAST_TIMEOUT_MS);
+  if (!response.ok) throw new BadRequestException({ error: "Weather API unavailable" });
+  return (await response.json()) as Record<string, unknown>;
+}
+
+/**
+ * Coarse city/country for the visitor's IP.
+ *
+ * Moved off `http://ip-api.com`, which is plaintext: it published the caller's IP
+ * address to a third party in clear text on every weather request, and its HTTPS tier
+ * returns 403 without a paid plan. `ipwho.is` answers over TLS on the free tier.
+ *
+ * Best-effort throughout -- the endpoint still works without a location, so a failure
+ * here returns nulls rather than an error.
+ */
+async function lookupLocation(clientIp: string): Promise<{ city: string | null; country: string | null }> {
+  const empty = { city: null as string | null, country: null as string | null };
+  if (!clientIp || !GEO_PROVIDER) return empty;
+  try {
+    const response = await fetchWithTimeout(
+      `https://${GEO_PROVIDER}/${encodeURIComponent(clientIp)}`,
+      GEO_TIMEOUT_MS,
+    );
+    if (!response.ok) return empty;
+    const data = (await response.json()) as Record<string, unknown>;
+    // ipwho.is reports `success`; geojs has no such field. Accept either.
+    if (data.success === false) return empty;
+    const city = typeof data.city === "string" && data.city.trim() ? data.city.trim() : null;
+    const country = typeof data.country === "string" && data.country.trim() ? data.country.trim() : null;
+    return { city, country };
+  } catch {
+    return empty;
+  }
+}
+
 @Injectable()
 export class WeatherService {
   constructor(private readonly db: DatabaseService) {}
 
+  /**
+   * Weather for a location, cached in Postgres.
+   *
+   * Phase 7.1: neither outbound call happens while a pooled connection is checked out.
+   * The open-meteo fetch used to run inside the `try` that held a connection, so a slow
+   * third party held a database slot for as long as it took to answer -- or forever, if
+   * it never did, because there was no timeout. Now the cache is read, the connection
+   * given back, the fetch done, and the connection taken again only to write.
+   *
+   * Single statements, so `pool.query` is used rather than a dedicated client: there is
+   * no transaction to keep on one connection.
+   */
   async getWeather(lat: number, lon: number, clientIp: string): Promise<unknown> {
     const safeLat = Number.isFinite(lat) ? lat : DEFAULT_LAT;
     const safeLon = Number.isFinite(lon) ? lon : DEFAULT_LON;
     const cacheKey = `${safeLat.toFixed(2)}:${safeLon.toFixed(2)}`;
 
-    let city: string | null = null;
-    let country: string | null = null;
-    try {
-      const geoRes = await fetch(`http://ip-api.com/json/${clientIp}?fields=city,country,status`);
-      if (geoRes.ok) {
-        const geoData = await geoRes.json() as Record<string, string>;
-        if (geoData.status === "success") { city = geoData.city || null; country = geoData.country || null; }
+    // Geo is cosmetic and non-critical, so it never throws.
+    const { city, country } = await lookupLocation(clientIp);
+
+    const nowHour = new Date().getHours();
+
+    const cached = await this.db.getPool().query(
+      "SELECT data, timestamp FROM weather_cache WHERE cache_key = $1",
+      [cacheKey],
+    );
+    if (cached.rows[0]) {
+      const ageMinutes = (Date.now() - new Date(String(cached.rows[0].timestamp)).getTime()) / 60000;
+      if (ageMinutes < CACHE_TTL_MINUTES) {
+        const data = cached.rows[0].data as Record<string, unknown>;
+        const current = data.current as Record<string, number> | null;
+        return {
+          ...data, city, country,
+          recommendation: getCoffeeRecommendation(current?.temperature_2m ?? null, current?.weather_code ?? 0, nowHour),
+        };
       }
-    } catch { /* geo is non-critical */ }
+    }
 
-    const pool = this.db.getPool();
-    const client = await pool.connect();
-    try {
-      const cached = await client.query("SELECT data, timestamp FROM weather_cache WHERE cache_key = $1", [cacheKey]);
-      if (cached.rows[0]) {
-        const ageMinutes = (Date.now() - new Date(String(cached.rows[0].timestamp)).getTime()) / 60000;
-        if (ageMinutes < CACHE_TTL_MINUTES) {
-          const data = cached.rows[0].data as Record<string, unknown>;
-          const nowHour = new Date().getHours();
-          const current = data.current as Record<string, number> | null;
-          return { ...data, city, country, recommendation: getCoffeeRecommendation(current?.temperature_2m ?? null, current?.weather_code ?? 0, nowHour) };
-        }
-      }
+    // No connection is held here.
+    const json = await fetchForecast(safeLat, safeLon);
+    const current = json.current as Record<string, number> | null;
+    const rawOutput = {
+      latitude: json.latitude, longitude: json.longitude, timezone: json.timezone,
+      timezone_abbreviation: json.timezone_abbreviation, current: json.current || null, hourly: json.hourly || null,
+    };
 
-      const url = new URL("https://api.open-meteo.com/v1/forecast");
-      url.searchParams.set("latitude", safeLat.toString());
-      url.searchParams.set("longitude", safeLon.toString());
-      url.searchParams.set("hourly", "temperature_2m,precipitation,precipitation_probability,weather_code");
-      url.searchParams.set("current", "temperature_2m,weather_code,is_day");
-      url.searchParams.set("timezone", "auto");
-      url.searchParams.set("forecast_days", "2");
+    await this.db.getPool().query(
+      `INSERT INTO weather_cache (cache_key, data, timestamp) VALUES ($1, $2, NOW())
+       ON CONFLICT (cache_key) DO UPDATE SET data = EXCLUDED.data, timestamp = NOW()`,
+      [cacheKey, JSON.stringify(rawOutput)],
+    );
 
-      const response = await fetch(url.toString());
-      if (!response.ok) throw new BadRequestException({ error: "Weather API unavailable" });
-
-      const json = await response.json() as Record<string, unknown>;
-      const nowHour = new Date().getHours();
-      const current = json.current as Record<string, number> | null;
-      const rawOutput = {
-        latitude: json.latitude, longitude: json.longitude, timezone: json.timezone,
-        timezone_abbreviation: json.timezone_abbreviation, current: json.current || null, hourly: json.hourly || null,
-      };
-      await client.query(
-        `INSERT INTO weather_cache (cache_key, data, timestamp) VALUES ($1, $2, NOW())
-         ON CONFLICT (cache_key) DO UPDATE SET data = EXCLUDED.data, timestamp = NOW()`,
-        [cacheKey, JSON.stringify(rawOutput)],
-      );
-      return { ...rawOutput, city, country, recommendation: getCoffeeRecommendation(current?.temperature_2m ?? null, current?.weather_code ?? 0, nowHour) };
-    } finally { client.release(); }
+    return { ...rawOutput, city, country, recommendation: getCoffeeRecommendation(current?.temperature_2m ?? null, current?.weather_code ?? 0, nowHour) };
   }
 
   async getRecommendation(lat: number, lon: number): Promise<unknown> {
@@ -129,9 +199,7 @@ export class WeatherService {
     url.searchParams.set("longitude", safeLon.toString());
     url.searchParams.set("current", "temperature_2m,weather_code,is_day");
     url.searchParams.set("timezone", "auto");
-    const response = await fetch(url.toString());
-    if (!response.ok) throw new BadRequestException({ error: "Weather API unavailable" });
-    const json = await response.json() as Record<string, unknown>;
+    const json = await fetchForecast(safeLat, safeLon);
     const current = json.current as Record<string, number> | null;
     const temp = current?.temperature_2m ?? null;
     const code = current?.weather_code ?? 0;

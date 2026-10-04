@@ -8,6 +8,7 @@ exports.buildEmailVerificationHtml = buildEmailVerificationHtml;
 exports.buildOrderEmailHtml = buildOrderEmailHtml;
 exports.buildWelcomeHtml = buildWelcomeHtml;
 exports.buildSecurityLoginHtml = buildSecurityLoginHtml;
+const httpClient_1 = require("./httpClient");
 const RESEND_API_URL = "https://api.resend.com/emails";
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const MAIL_FROM = String(process.env.MAIL_FROM || process.env.RESEND_FROM_EMAIL || "Filspresso <noreply@filspresso.com>").trim();
@@ -27,7 +28,14 @@ async function sendTransactionalEmail(payload) {
     if (!apiKey || !payload.to || !payload.subject) {
         return { skipped: true };
     }
-    const response = await fetch(RESEND_API_URL, {
+    // Phase 7: bounded. This call had no timeout, so a Resend endpoint that accepted the
+    // connection and then stalled held the caller -- which is the login path -- open
+    // indefinitely. Callers already treat a rejected promise as "mail not sent", so this
+    // fails soft rather than propagating.
+    const response = await (0, httpClient_1.fetchBounded)(RESEND_API_URL, {
+        timeoutMs: (0, httpClient_1.readIntEnv)("RESEND_TIMEOUT_MS", 8000, 1000, 30000),
+        // A send receipt is a small JSON object.
+        maxBytes: 256 * 1024,
         method: "POST",
         headers: {
             Authorization: `Bearer ${apiKey}`,

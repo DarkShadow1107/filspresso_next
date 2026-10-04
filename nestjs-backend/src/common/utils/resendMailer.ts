@@ -1,3 +1,5 @@
+import { fetchBounded, readIntEnv } from "./httpClient";
+
 type MailPayload = {
 	to: string;
 	subject: string;
@@ -31,7 +33,14 @@ export async function sendTransactionalEmail(payload: MailPayload): Promise<{ sk
 		return { skipped: true };
 	}
 
-	const response = await fetch(RESEND_API_URL, {
+	// Phase 7: bounded. This call had no timeout, so a Resend endpoint that accepted the
+	// connection and then stalled held the caller -- which is the login path -- open
+	// indefinitely. Callers already treat a rejected promise as "mail not sent", so this
+	// fails soft rather than propagating.
+	const response = await fetchBounded(RESEND_API_URL, {
+		timeoutMs: readIntEnv("RESEND_TIMEOUT_MS", 8000, 1000, 30000),
+		// A send receipt is a small JSON object.
+		maxBytes: 256 * 1024,
 		method: "POST",
 		headers: {
 			Authorization: `Bearer ${apiKey}`,

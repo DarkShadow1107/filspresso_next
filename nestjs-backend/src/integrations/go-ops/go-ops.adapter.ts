@@ -1,3 +1,4 @@
+import { fetchBounded, readIntEnv } from "../../common/utils/httpClient";
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
@@ -12,8 +13,25 @@ export class GoOpsAdapter {
 		);
 	}
 
+	/**
+	 * Deadline for calls to the go-ops service.
+	 *
+	 * Phase 7.6: this adapter had no timeout at all. It is registered as a global
+	 * provider, so the moment anything injects it, a go-ops that accepted the
+	 * connection and then stalled would hang the caller forever.
+	 */
+	private readonly timeoutMs = readIntEnv("GO_OPS_TIMEOUT_MS", 5000, 500, 60000);
+
+	/**
+	 * Ceiling on a buffered go-ops response, so a runaway peer cannot exhaust the heap.
+	 */
+	private readonly maxResponseBytes = readIntEnv("GO_OPS_MAX_RESPONSE_BYTES", 2097152, 1024, 64 * 1024 * 1024);
+
+
 	async health(): Promise<Record<string, unknown>> {
-		const response = await fetch(`${this.baseUrl}/health`, {
+		const response = await fetchBounded(`${this.baseUrl}/health`, {
+			timeoutMs: this.timeoutMs,
+			maxBytes: this.maxResponseBytes,
 			method: "GET",
 			headers: { Accept: "application/json" },
 		});
@@ -26,7 +44,9 @@ export class GoOpsAdapter {
 	}
 
 	async ingestEvent(payload: Record<string, unknown>, headers: Record<string, string> = {}): Promise<Record<string, unknown>> {
-		const response = await fetch(`${this.baseUrl}/events/ingest`, {
+		const response = await fetchBounded(`${this.baseUrl}/events/ingest`, {
+			timeoutMs: this.timeoutMs,
+			maxBytes: this.maxResponseBytes,
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
