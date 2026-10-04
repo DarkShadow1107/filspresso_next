@@ -1,95 +1,45 @@
-import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+import { NextRequest, NextResponse } from "next/server";
+import { proxyBackendRequest } from "@/lib/server/backend";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const DATA_FILE_PATH = path.join(process.cwd(), "src", "data", "chat_history.json");
-let latestPendingHistory: unknown = null;
-let writeLoopPromise: Promise<void> | null = null;
+/**
+ * Chat history, proxied to the NestJS chat module.
+ *
+ * This route used to read and write `src/data/chat_history.json`: one shared file
+ * for every visitor, with no authentication, no size cap and no per-account
+ * scoping. Anyone could read every other person's transcripts (including inline
+ * base64 images) or overwrite the lot.
+ *
+ * It is now a thin, authenticated proxy to `/api/chat/history`, which is scoped by
+ * `JwtAuthGuard` to `req.user.id` and stores rows in Postgres. The request and
+ * response shapes are unchanged, so the browser needs no change here.
+ */
 
-async function flushLatestHistory() {
-	if (writeLoopPromise) {
-		await writeLoopPromise;
-		return;
-	}
-
-	writeLoopPromise = (async () => {
-		while (latestPendingHistory !== null) {
-			const snapshot = latestPendingHistory;
-			latestPendingHistory = null;
-
-			const dir = path.dirname(DATA_FILE_PATH);
-			if (!fs.existsSync(dir)) {
-				fs.mkdirSync(dir, { recursive: true });
-			}
-
-			const serialized = JSON.stringify(snapshot, null, 2);
-			const tmpFile = `${DATA_FILE_PATH}.tmp`;
-			await fs.promises.writeFile(tmpFile, serialized, "utf-8");
-			await fs.promises.rename(tmpFile, DATA_FILE_PATH);
-		}
-	})();
-
-	try {
-		await writeLoopPromise;
-	} finally {
-		writeLoopPromise = null;
-	}
+/**
+ * A signed-out caller gets 401 instead of a fallback payload.
+ *
+ * Deliberately no "empty history" fallback: silently returning `[]` would let the
+ * client believe a signed-out visitor had no conversations, and would mask a
+ * backend outage as data loss.
+ */
+function unauthorized() {
+	return NextResponse.json(
+		{ error: "AUTH_SESSION_INVALID", message: "Sign in to load your conversations." },
+		{ status: 401, headers: { "Cache-Control": "no-store" } },
+	);
 }
 
-export async function POST(req: Request) {
-	try {
-		const body = await req.json();
-		const { history } = body;
-
-		if (!history) {
-			return NextResponse.json({ error: "No history provided" }, { status: 400 });
-		}
-
-		latestPendingHistory = history;
-		await flushLatestHistory();
-
-		return NextResponse.json(
-			{ success: true },
-			{
-				headers: {
-					"Cache-Control": "no-store",
-				},
-			},
-		);
-	} catch (error) {
-		console.error("Error saving chat history:", error);
-		return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
-	}
+export async function GET(request: NextRequest) {
+	return proxyBackendRequest(request, "/api/chat/history", {
+		timeoutMs: 5000,
+		fallback: () => unauthorized(),
+	});
 }
 
-export async function GET() {
-	try {
-		if (fs.existsSync(DATA_FILE_PATH)) {
-			const fileContent = await fs.promises.readFile(DATA_FILE_PATH, "utf-8");
-			const history = JSON.parse(fileContent);
-			return NextResponse.json(
-				{ history },
-				{
-					headers: {
-						"Cache-Control": "no-store",
-					},
-				},
-			);
-		}
-		return NextResponse.json(
-			{ history: [] },
-			{
-				headers: {
-					"Cache-Control": "no-store",
-				},
-			},
-		);
-	} catch (error) {
-		console.error("Error reading chat history:", error);
-		return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
-	}
+export async function POST(request: NextRequest) {
+	// No fallback: a failed save must surface as an error rather than a silent 200.
+	return proxyBackendRequest(request, "/api/chat/history", { timeoutMs: 8000 });
 }

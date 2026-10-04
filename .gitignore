@@ -77,3 +77,13 @@ override.tf.json
 *.tfvars
 *.tfvars.json
 !.tfvars.example
+
+# Chat transcripts written by the legacy /api/chat/save route.
+#
+# That route wrote ONE shared file for every visitor and is now replaced by the
+# authenticated, per-account NestJS chat history (NestJS chat_sessions /
+# chat_messages). ~6.4MB of real user transcripts with inline base64 images had
+# been committed here. The rule stops it coming back; it does NOT remove it from
+# history, which would need a history rewrite.
+src/data/chat_history.json
+src/data/chat_history.json.tmp

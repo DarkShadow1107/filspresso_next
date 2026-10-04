@@ -4,13 +4,52 @@ import {
 } from "@nestjs/common";
 import type { Request } from "express";
 import { ChatService } from "./chat.service";
+import {
+  ChatHistoryService,
+  type IncomingConversation,
+} from "./chat-history.service";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 
 interface AuthenticatedRequest extends Request { user?: Record<string, unknown>; }
 
 @Controller("api/chat")
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly chatHistory: ChatHistoryService,
+  ) {}
+
+  // ---------------------------------------------------------- history (bulk)
+
+  /**
+   * The browser's whole conversation list.
+   *
+   * Replaces `GET /api/chat/save`, which read one shared JSON file for every
+   * visitor with no authentication at all. Same response shape, but scoped to the
+   * authenticated account and served from Postgres.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get("history")
+  getHistory(@Req() req: AuthenticatedRequest) {
+    return this.chatHistory.listHistory(Number(req.user?.["id"]));
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("history")
+  @HttpCode(HttpStatus.OK)
+  replaceHistory(@Req() req: AuthenticatedRequest) {
+    const body = (req.body ?? {}) as { history?: IncomingConversation[] };
+    return this.chatHistory.replaceHistory(
+      Number(req.user?.["id"]),
+      Array.isArray(body.history) ? body.history : [],
+      // The client-supplied tier is only used to pick the retention cap. It never
+      // grants anything: entitlements are decided elsewhere, and an overstated
+      // tier here would only leave more rows for the user to see, not grant access.
+      typeof req.user?.["subscription"] === "string" ? req.user["subscription"] : null,
+    );
+  }
+
+  // ---------------------------------------------------------------- sessions
 
   @UseGuards(JwtAuthGuard)
   @Get("sessions")

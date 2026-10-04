@@ -340,6 +340,7 @@ export async function ensureAppSchema(pool: Pool) {
         title VARCHAR(255) DEFAULT 'New Chat',
         model_type VARCHAR(20) NOT NULL DEFAULT 'tanka_semantic',
         category VARCHAR(20) NOT NULL DEFAULT 'general',
+        metadata JSONB,
         ai_enabled BOOLEAN DEFAULT TRUE,
         is_active BOOLEAN DEFAULT TRUE,
         message_count INTEGER DEFAULT 0,
@@ -365,6 +366,7 @@ export async function ensureAppSchema(pool: Pool) {
     await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS is_active BOOLEAN`);
     await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS message_count INTEGER`);
     await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS category VARCHAR(20)`);
+    await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS metadata JSONB`);
     await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP`);
     await client.query(`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS metadata JSONB`);
 
