@@ -78,6 +78,42 @@ function normalizeAddress(value: unknown): Record<string, unknown> | null {
 }
 
 /**
+ * Name of the unique index behind idempotency, as Postgres reports it on a 23505.
+ *
+ * Kept as a constant because it has to agree with the migration, and the two live in
+ * different files. `test/order-idempotency.test.ts` asserts they still match.
+ */
+const IDEMPOTENCY_UNIQUE_INDEX = "idx_orders_account_idempotency_key";
+
+/**
+ * True when `error` is a Postgres unique violation (SQLSTATE 23505) on `constraint`.
+ *
+ * Checked by constraint name rather than by message text, so it cannot be fooled by a
+ * product name that happens to contain the words.
+ */
+function isUniqueViolation(error: unknown, constraint: string): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code !== "23505") return false;
+  const name = (error as { constraint?: unknown } | null)?.constraint;
+  return name === constraint;
+}
+
+/**
+ * Normalise an `Idempotency-Key` header into something safe to store and compare.
+ *
+ * Returns null for an absent key, and for a present-but-unusable one -- the caller
+ * distinguishes those two, because a malformed key is a client error worth reporting
+ * while an absent key is simply the old non-idempotent behaviour.
+ */
+function normalizeIdempotencyKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 128) return null;
+  if (!/^[A-Za-z0-9._:-]+$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+/**
  * Best-effort product type, from the request.
  *
  * Only a label on the order line, and never used for pricing or stock -- those come
@@ -280,10 +316,60 @@ export class OrdersService {
   }
 
   // ── POST /api/orders
-  async createOrder(accountId: number, body: Record<string, unknown>): Promise<unknown> {
+  /**
+   * Read back the stored response for a key, on its own connection.
+   *
+   * Used by the conflict path, where the transaction that lost has already rolled back
+   * and cannot serve the read.
+   */
+  private async replayStoredResponse(accountId: number, key: string): Promise<unknown | null> {
+    const pool = this.db.getPool();
+    const client = await pool.connect();
+    try {
+      const { rows } = await client.query(
+        "SELECT response FROM orders WHERE account_id = $1 AND idempotency_key = $2 LIMIT 1",
+        [accountId, key],
+      );
+      const stored = rows[0];
+      if (!stored) return null;
+      const replayed = stored.response;
+      return {
+        replayed: true,
+        ...(typeof replayed === "object" && replayed !== null ? replayed : { order: replayed }),
+      };
+    } catch {
+      return null;
+    } finally { client.release(); }
+  }
+
+  /**
+   * `idempotencyKey` is the caller's `Idempotency-Key` header, if any.
+   *
+   * Phase 6.4: a retry after a dropped response must not create a second order. When a
+   * key is supplied and has been seen before for this account, the stored response is
+   * replayed verbatim and nothing is inserted. Omitting the key keeps the previous
+   * behaviour, so this is opt-in per client rather than a breaking change.
+   */
+  async createOrder(
+    accountId: number,
+    body: Record<string, unknown>,
+    idempotencyKey?: string | null,
+  ): Promise<unknown> {
     const items = body["items"] as Array<Record<string, unknown>> | undefined;
     if (!Array.isArray(items) || items.length === 0) {
       throw new BadRequestException({ error: "items array is required" });
+    }
+
+    // Bounded and character-restricted: this value is stored, so it must not be free
+    // storage and must not smuggle anything odd into logs or error messages.
+    const key = normalizeIdempotencyKey(idempotencyKey);
+    const keySupplied =
+      idempotencyKey !== undefined && idempotencyKey !== null && idempotencyKey !== "";
+    if (keySupplied && !key) {
+      throw new BadRequestException({
+        error: "invalid Idempotency-Key",
+        expected: "1-128 characters from [A-Za-z0-9._:-]",
+      });
     }
     // Phase 6.2: the request is now only a *wish list*. Product identity and quantity
     // are the only things taken from it; price, stock, name and shipping all come from
@@ -325,6 +411,32 @@ export class OrdersService {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+
+      // ---- Phase 6.4: replay a previous result for this key ----
+      //
+      // Inside the transaction, before anything is written. The unique index on
+      // (account_id, idempotency_key) is what actually makes this safe: two concurrent
+      // retries can both miss this SELECT, and exactly one of them wins the INSERT.
+      if (key) {
+        const prior = await client.query(
+          `SELECT id, response FROM orders
+            WHERE account_id = $1 AND idempotency_key = $2 LIMIT 1`,
+          [accountId, key],
+        );
+        const stored = prior.rows[0];
+        if (stored) {
+          await client.query("COMMIT");
+          const replayed = stored.response;
+          return {
+            // Flagged so a client can tell a replay from a fresh creation without
+            // having to diff the response body.
+            replayed: true,
+            ...(typeof replayed === "object" && replayed !== null
+              ? replayed
+              : { order: replayed }),
+          };
+        }
+      }
 
       // Get user tier
       const tierResult = await client.query(
@@ -448,14 +560,17 @@ export class OrdersService {
 
       const orderResult = await client.query(
         `INSERT INTO orders (account_id, order_number, status, subtotal, discount_amount, shipping_cost,
-                tax, total, payment_method, shipping_address, billing_address, currency_code)
-         VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+                tax, total, payment_method, shipping_address, billing_address, currency_code,
+                idempotency_key, response)
+         VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, '{}'::jsonb)
+         RETURNING *`,
         [
           accountId, orderNumber, subtotal, discountAmount, shippingCost, 0, total,
           body["paymentMethod"] || body["payment_method"] || "",
           JSON.stringify(normalizeAddress(body["shippingAddress"] ?? body["shipping_address"])),
           JSON.stringify(normalizeAddress(body["billingAddress"] ?? body["billing_address"])),
           CATALOGUE_CURRENCY,
+          key,
         ],
       );
       const order = orderResult.rows[0] as Record<string, unknown>;
@@ -508,9 +623,38 @@ export class OrdersService {
         }
       }
 
+      const response = { status: "success", order: serializeBigInt(order), orderNumber };
+
+      // ---- Phase 6.4: store the response so a retry can be replayed ----
+      //
+      // Written inside the transaction, and only when a key was supplied. Without a key
+      // there is nothing to look the response up by, and storing it would just be a copy
+      // of data already in the orders and order_items tables.
+      if (key) {
+        await client.query(
+          "UPDATE orders SET response = $1::jsonb WHERE id = $2",
+          [JSON.stringify(response), order["id"]],
+        );
+      }
+
       await client.query("COMMIT");
-      return { status: "success", order: serializeBigInt(order), orderNumber };
-    } catch (e) { await client.query("ROLLBACK").catch(() => undefined); throw e; } finally { client.release(); }
+      return response;
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => undefined);
+
+      // The unique index is the real guarantee. If two concurrent retries both missed
+      // the replay SELECT, the loser's INSERT violates (account_id, idempotency_key).
+      // That is a replay, not a failure, so re-read the winner's response and return it
+      // rather than surfacing a 500 for what is, to the client, the same request.
+      // The name must match the object Postgres actually reports. This is a unique *index*
+      // (idx_orders_account_idempotency_key), and for an index violation pg reports the
+      // index name in err.constraint -- not a constraint name.
+      if (key && isUniqueViolation(e, IDEMPOTENCY_UNIQUE_INDEX)) {
+        const winner = await this.replayStoredResponse(accountId, key);
+        if (winner) return winner;
+      }
+      throw e;
+    } finally { client.release(); }
   }
 
   // ── PUT /api/orders/:id/status

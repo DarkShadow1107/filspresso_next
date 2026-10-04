@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Param, ParseIntPipe,
-  Query, Req, Res, HttpCode, HttpStatus, UseGuards,
+  Query, Req, Res, Headers, HttpCode, HttpStatus, UseGuards,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { OrdersService } from "./orders.service";
@@ -55,8 +55,15 @@ export class OrdersController {
   @Throttle({ default: { limit: ruleFor("POST /api/orders").limit, ttl: ruleFor("POST /api/orders").ttlMs } })
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  createOrder(@Req() req: AuthenticatedRequest) {
-    return this.ordersService.createOrder(Number(req.user?.["id"]), req.body as Record<string, unknown>);
+  createOrder(@Req() req: AuthenticatedRequest, @Headers("idempotency-key") idempotencyKey?: string) {
+    // Phase 6.4. Header rather than a body field on purpose: the body is the order and
+    // must stay byte-identical across retries, while the key is transport metadata.
+    // A missing header keeps the previous behaviour.
+    return this.ordersService.createOrder(
+      Number(req.user?.["id"]),
+      req.body as Record<string, unknown>,
+      idempotencyKey,
+    );
   }
 
   @UseGuards(JwtAuthGuard)

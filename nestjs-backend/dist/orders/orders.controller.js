@@ -43,8 +43,11 @@ let OrdersController = class OrdersController {
     getOrder(req, id) {
         return this.ordersService.getOrder(Number(req.user?.["id"]), id);
     }
-    createOrder(req) {
-        return this.ordersService.createOrder(Number(req.user?.["id"]), req.body);
+    createOrder(req, idempotencyKey) {
+        // Phase 6.4. Header rather than a body field on purpose: the body is the order and
+        // must stay byte-identical across retries, while the key is transport metadata.
+        // A missing header keeps the previous behaviour.
+        return this.ordersService.createOrder(Number(req.user?.["id"]), req.body, idempotencyKey);
     }
     updateStatus(req, id) {
         const { status } = req.body;
@@ -117,8 +120,9 @@ __decorate([
     (0, common_1.Post)(),
     (0, common_1.HttpCode)(common_1.HttpStatus.CREATED),
     __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Headers)("idempotency-key")),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", void 0)
 ], OrdersController.prototype, "createOrder", null);
 __decorate([
