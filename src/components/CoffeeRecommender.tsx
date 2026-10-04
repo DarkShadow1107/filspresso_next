@@ -1,6 +1,13 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import useCart from "@/hooks/useCart";
@@ -21,20 +28,16 @@ import {
 	HistoryCircleIcon,
 	GithubCopilotIcon,
 	SparklesIcon,
-	FlameIcon,
 	MessageCircleIcon,
 	MagnifierIcon,
 	BulbSvg,
 	RocketIcon,
-	VinylIcon,
 	FileDescriptionIcon,
 	RefreshIcon,
-	InfoCircleIcon,
 	ArrowNarrowDownIcon,
 	ShoppingCartIcon,
 	CoffeeIcon,
 	BrandGrokIcon,
-	BrandOllamaIcon,
 	BrandAnthropicIcon,
 	BrandGeminiIcon,
 	BrandQwenIcon,
@@ -57,6 +60,7 @@ import {
 	type VisionModelKey,
 } from "@/lib/modelAccess";
 import { useModelLoadStatus } from "@/hooks/useModelLoadStatus";
+import { useHydrated } from "@/hooks/useHydrated";
 import { tierCanEditPrompt } from "@/lib/entitlements";
 import ModelLoadingBar from "./playground/ModelLoadingBar";
 
@@ -236,6 +240,30 @@ function getStylizedModelInfo(rawModel?: string): StylizedModelInfo {
 	return { label: "Kafelot", accent: "minilm" };
 }
 
+
+/**
+ * Auth state, derived from the profile in localStorage.
+ *
+ * It used to be `useState` seeded by an effect on mount, which is a synchronous
+ * setState during commit and therefore a cascading render. `useSyncExternalStore`
+ * reads the same value and re-reads when `accountSession` dispatches
+ * `session-update`, which `writeAccountSession` and `clearAccountSession` already
+ * do. Logging out is then just `clearAccountSession()`.
+ *
+ * The snapshot is a boolean, not the profile object: `readAccountSession` parses
+ * fresh each call, and returning a new object every time would loop.
+ */
+const subscribeAuthProfile = (onChange: () => void) => {
+	window.addEventListener("session-update", onChange);
+	window.addEventListener("storage", onChange);
+	return () => {
+		window.removeEventListener("session-update", onChange);
+		window.removeEventListener("storage", onChange);
+	};
+};
+const readAuthProfileSnapshot = () => readAccountSession() !== null;
+// The server has no localStorage, so it must render the signed-out state.
+const readAuthProfileServerSnapshot = () => false;
 
 type ChatHistory = {
 	id: string;
@@ -598,16 +626,10 @@ function shouldEnableThinkingForPrompt(prompt: string, hasThinkingAccess: boolea
 	return toggleEnabled;
 }
 
-const STORAGE_KEY = "coffee-recommender-history";
 const POPULAR_PRODUCTS_CACHE_KEY = "filspresso_popular_products_cache";
 const POPULAR_PRODUCTS_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_HISTORY = 50; // Increased history limit
 let lastSavedHistoryPayload = "";
-
-function loadChatHistory(): ChatHistory[] {
-	// Chat history is now loaded from the server, not localStorage
-	return [];
-}
 
 async function saveChatHistory(history: ChatHistory[]) {
 	if (typeof window === "undefined") return;
@@ -632,7 +654,11 @@ async function saveChatHistory(history: ChatHistory[]) {
 export default React.memo(function CoffeeRecommender() {
 	const allProducts = useAllProducts();
 	const allProductsById = useMemo(() => new Map(allProducts.map((product) => [product.id, product])), [allProducts]);
-	const [mounted, setMounted] = useState(false);
+	// `useEffect(() => setMounted(true), [])` performed a synchronous setState during
+	// the commit phase, which React flags as a cascading-render risk. `useHydrated`
+	// gets the same "false on the server, true on the client" signal from
+	// useSyncExternalStore, with no state update at all.
+	const mounted = useHydrated();
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<"greeting" | "prefs" | "results" | "chat" | "history" | "stats">("greeting");
 	const [selected, setSelected] = useState<string[]>([]);
@@ -654,15 +680,12 @@ export default React.memo(function CoffeeRecommender() {
 		molecule_helper: { chatId: null, messages: [] },
 	});
 	const [chatMode, setChatMode] = useState<"coffee" | "general">("coffee");
-	const [selectedModel, setSelectedModel] = useState<TextModelKey>(TEXT_MODEL_230M);
-	// Only one chat model is resident at a time, so switching model means a swap.
-	// Track it so the composer can show determinate progress for every model, not
-	// just the Playground.
-	const modelLoad = useModelLoadStatus(selectedModel);
-	// Stable binding for the send path's dependency list; `modelLoad` itself is a new
-	// object on every render.
-	const { waitUntilLoaded } = modelLoad;
-	const [selectedVisionModel, setSelectedVisionModel] = useState<VisionModelKey>(VISION_MODEL_450M);
+	// The user's *intent*. The effective model is derived below, because a tier change
+	// can invalidate the stored choice and an effect that resets it would be a
+	// synchronous setState during commit.
+	const [selectedModelIntent, setSelectedModelIntent] = useState<TextModelKey>(TEXT_MODEL_230M);
+	const [selectedVisionModelIntent, setSelectedVisionModelIntent] =
+		useState<VisionModelKey>(VISION_MODEL_450M);
 	const [chemistryMode, setChemistryMode] = useState(false);
 	const [thinkingEnabledByHelper, setThinkingEnabledByHelper] = useState<Record<HelperMode, boolean>>({
 		coffee_helper: false,
@@ -671,7 +694,12 @@ export default React.memo(function CoffeeRecommender() {
 	const [visualizationMode, setVisualizationMode] = useState<"text" | "2d" | "3d" | "both">("both");
 	const [mediaLightbox, setMediaLightbox] = useState<{ type: "image" | "html"; src: string; title?: string } | null>(null);
 	const [smarterAIAvailable, setSmarterAIAvailable] = useState(false);
-	const [isLoggedIn, setIsLoggedIn] = useState(false); // User login state
+	// Derived from the stored profile rather than mirrored into state.
+	const isLoggedIn = useSyncExternalStore(
+		subscribeAuthProfile,
+		readAuthProfileSnapshot,
+		readAuthProfileServerSnapshot,
+	);
 	const [userSubscription, setUserSubscription] = useState<UserSubscriptionTier>("free");
 	const [isTyping, setIsTyping] = useState(false);
 	const abortControllerRef = useRef<AbortController | null>(null);
@@ -696,7 +724,6 @@ export default React.memo(function CoffeeRecommender() {
 			resetDate: null,
 		},
 	});
-	const [limitReached, setLimitReached] = useState(false);
 	const fingerprintRef = useRef<string>("");
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -827,6 +854,22 @@ export default React.memo(function CoffeeRecommender() {
 
 	const allowedTextModels = useMemo(() => allowedTextModelsForTier(userSubscription), [userSubscription]);
 	const allowedVisionModels = useMemo(() => allowedVisionModelsForTier(userSubscription), [userSubscription]);
+	// Derived, not synchronised: if the tier no longer entitles the stored choice,
+	// fall back to the first allowed model during render instead of writing state.
+	const selectedModel = allowedTextModels.includes(selectedModelIntent)
+		? selectedModelIntent
+		: (allowedTextModels[0] ?? TEXT_MODEL_230M);
+	const selectedVisionModel =
+		allowedVisionModels.includes(selectedVisionModelIntent)
+			? selectedVisionModelIntent
+			: (allowedVisionModels[0] ?? VISION_MODEL_450M);
+	// Only one chat model is resident at a time, so switching model means a swap.
+	// Track it so the composer can show determinate progress for every model, not
+	// just the Playground.
+	const modelLoad = useModelLoadStatus(selectedModel);
+	// Stable binding for the send path's dependency list; `modelLoad` itself is a new
+	// object on every render.
+	const { waitUntilLoaded } = modelLoad;
 	const hasVisionAccess = allowedVisionModels.length > 0;
 	// Entitlement to the 1.2B Thinking model. This previously hardcoded
 	// `max || ultimate`, which contradicted the canonical table and denied Pro a
@@ -853,7 +896,13 @@ export default React.memo(function CoffeeRecommender() {
 		}
 		return `BASIC and PLUS accept PNG/JPG only, minimum ${MIN_VISION_IMAGE_DIMENSION_PX}x${MIN_VISION_IMAGE_DIMENSION_PX}px.`;
 	}, [hasVisionAccess, hasVisionAutoConvert, maxImagesPerPrompt, supportsMultiImagePrompt, userSubscription]);
-	const thinkingEnabledForActiveHelper = thinkingEnabledByHelper[activeHelperMode];
+	// Derived: a plan without Thinking entitlement can never have it on, whatever is
+	// stored. Reading through this (instead of resetting the stored value in an
+	// effect) means a downgrade takes effect immediately and without a cascading
+	// re-render. The stored intent is preserved so upgrading back restores it.
+	const thinkingEnabledForHelper = (mode: HelperMode): boolean =>
+		hasThinkingAccess && thinkingEnabledByHelper[mode];
+	const thinkingEnabledForActiveHelper = thinkingEnabledForHelper(activeHelperMode);
 
 	const subscriptionTierLabel = useMemo(() => {
 		if (!isLoggedIn) return "Guest";
@@ -890,7 +939,6 @@ export default React.memo(function CoffeeRecommender() {
 				credentials: "same-origin",
 			});
 			if (res.status === 401) {
-				setIsLoggedIn(false);
 				setUserSubscription("none");
 				clearAccountSession();
 				return;
@@ -921,7 +969,6 @@ export default React.memo(function CoffeeRecommender() {
 					setPromptsRemaining(normalizedCounters.promptsRemaining);
 					setPromptsLimit(normalizedCounters.promptsLimit);
 					setPromptResetDate(data.reset_date ?? null);
-					setLimitReached(normalizedCounters.promptsRemaining <= 0);
 				}
 				if (callerAuthenticated && typeof data.tier === "string") {
 					const backendTier = normalizeUserSubscriptionTier(data.tier, userSubscription);
@@ -935,10 +982,9 @@ export default React.memo(function CoffeeRecommender() {
 		}
 	}
 
-	// Fix hydration: only render portal after mount
+	// Fetch stock data for coffee products. The portal itself is gated on
+	// `useHydrated()` above rather than on a mount flag set here.
 	useEffect(() => {
-		setMounted(true);
-
 		// Fetch stock data for coffee products
 		const fetchStockData = async () => {
 			try {
@@ -985,8 +1031,6 @@ export default React.memo(function CoffeeRecommender() {
 		if (typeof window !== "undefined") {
 			try {
 				const accountSession = readAccountSession();
-				const storedIsLoggedIn = !!accountSession;
-				setIsLoggedIn(storedIsLoggedIn);
 
 				// The session token lives in an httpOnly cookie, so JS cannot read it. Auth is
 				// resolved server-side; a same-origin fetch carries the cookie automatically.
@@ -997,9 +1041,8 @@ export default React.memo(function CoffeeRecommender() {
 						const authHeaders = { credentials: "same-origin" as const };
 						const expireSession = () => {
 							clearAccountSession();
-							setIsLoggedIn(false);
 							setUserSubscription("none");
-							setSelectedModel(TEXT_MODEL_230M);
+							setSelectedModelIntent(TEXT_MODEL_230M);
 							fetchPromptStatus("general");
 						};
 
@@ -1023,7 +1066,7 @@ export default React.memo(function CoffeeRecommender() {
 								}
 								setUserSubscription(tier);
 
-								setSelectedModel(TEXT_MODEL_230M);
+								setSelectedModelIntent(TEXT_MODEL_230M);
 							})
 							.catch((subscriptionError) => {
 								if ((subscriptionError as Error)?.message === "AUTH_EXPIRED") {
@@ -1053,7 +1096,7 @@ export default React.memo(function CoffeeRecommender() {
 											throw new Error("AUTH_ME_SUBSCRIPTION_MISSING");
 										}
 										setUserSubscription(sub);
-										setSelectedModel(TEXT_MODEL_230M);
+										setSelectedModelIntent(TEXT_MODEL_230M);
 									})
 									.catch((authError) => {
 										if ((authError as Error)?.message === "AUTH_EXPIRED") {
@@ -1062,7 +1105,7 @@ export default React.memo(function CoffeeRecommender() {
 										}
 										const sessionTier = normalizeUserSubscriptionTier(accountSession.subscription, "free");
 										setUserSubscription(sessionTier);
-										setSelectedModel(TEXT_MODEL_230M);
+										setSelectedModelIntent(TEXT_MODEL_230M);
 									});
 							});
 					}
@@ -1092,6 +1135,11 @@ export default React.memo(function CoffeeRecommender() {
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 		const scope: PromptScope = chemistryMode ? "molecule_helper" : "general";
+		// fetchPromptStatus is async and every setState in it runs after an `await`,
+		// so this is not a synchronous update during commit. The rule cannot see
+		// through the async callback, and polling the prompt allowance on mount is
+		// exactly what this effect is for.
+		// eslint-disable-next-line react-hooks/set-state-in-effect
 		fetchPromptStatus(scope, true);
 		const hasMoleculeHelperAccess = allowedVisionModelsForTier(userSubscription).length > 0;
 		if (hasMoleculeHelperAccess) {
@@ -1107,25 +1155,6 @@ export default React.memo(function CoffeeRecommender() {
 			messages: [...chatMessages],
 		};
 	}, [chatMessages, currentChatId, chemistryMode]);
-
-	useEffect(() => {
-		if (!allowedTextModels.includes(selectedModel)) {
-			setSelectedModel(allowedTextModels[0]);
-		}
-	}, [allowedTextModels, selectedModel]);
-
-	useEffect(() => {
-		if (allowedVisionModels.length === 0) return;
-		if (!allowedVisionModels.includes(selectedVisionModel)) {
-			setSelectedVisionModel(allowedVisionModels[0]);
-		}
-	}, [allowedVisionModels, selectedVisionModel]);
-
-	useEffect(() => {
-		if (!hasThinkingAccess) {
-			setThinkingEnabledByHelper({ coffee_helper: false, molecule_helper: false });
-		}
-	}, [hasThinkingAccess]);
 
 	useEffect(() => {
 		// close on Escape
@@ -1753,7 +1782,7 @@ export default React.memo(function CoffeeRecommender() {
 		const moleculeRequested =
 			chemistryMode && (isMoleculeQuery(prompt) || /CHEMBL\d+/i.test(prompt) || !!extractMoleculeQuery(prompt));
 		const helperModeForPrompt: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
-		const thinkingToggleEnabled = thinkingEnabledByHelper[helperModeForPrompt];
+		const thinkingToggleEnabled = thinkingEnabledForHelper(helperModeForPrompt);
 		const enableThinking = shouldEnableThinkingForPrompt(prompt, thinkingEligibleModel, thinkingToggleEnabled);
 		const selectedTextModelLabel = MODEL_LABEL_BY_KEY[selectedModel];
 		const selectedVisionModelLabel = MODEL_LABEL_BY_KEY[selectedVisionModel];
@@ -1859,7 +1888,6 @@ export default React.memo(function CoffeeRecommender() {
 				);
 				if (response.status === 401 || errorData.error === "AUTH_SESSION_INVALID") {
 					clearAccountSession();
-					setIsLoggedIn(false);
 					setUserSubscription("none");
 					fetchPromptStatus(chemistryMode ? "molecule_helper" : "general");
 					const authMsg: Message = {
@@ -1883,7 +1911,6 @@ export default React.memo(function CoffeeRecommender() {
 					setPromptsRemaining(normalizedCounters.promptsRemaining);
 					setPromptsLimit(normalizedCounters.promptsLimit);
 					updatePromptScopeState(promptScope, normalizedCounters, errorData.reset_date ?? null);
-					setLimitReached(normalizedCounters.promptsRemaining <= 0);
 					const resetText = errorData.reset_date
 						? ` Your limit resets on ${new Date(errorData.reset_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`
 						: " Your limit resets next month.";
@@ -1940,7 +1967,6 @@ export default React.memo(function CoffeeRecommender() {
 						setPromptsRemaining(normalizedCounters.promptsRemaining);
 						setPromptsLimit(normalizedCounters.promptsLimit);
 						updatePromptScopeState(promptScope, normalizedCounters);
-						setLimitReached(normalizedCounters.promptsRemaining <= 0);
 					}
 					if (typeof errorData.subscription_tier === "string") {
 						const backendTier = normalizeUserSubscriptionTier(errorData.subscription_tier, userSubscription);
@@ -1990,13 +2016,10 @@ export default React.memo(function CoffeeRecommender() {
 				setPromptsRemaining(normalizedCounters.promptsRemaining);
 				setPromptsLimit(normalizedCounters.promptsLimit);
 				updatePromptScopeState(promptScope, normalizedCounters);
-				setLimitReached(normalizedCounters.promptsRemaining <= 0);
 			} else {
 				setPromptsRemaining((prev) => {
 					if (prev === null) return prev;
-					const next = Math.max(0, prev - 1);
-					if (next <= 0) setLimitReached(true);
-					return next;
+					return Math.max(0, prev - 1);
 				});
 				setPromptUsageByScope((prev) => {
 					const current = prev[promptScope];
@@ -2699,7 +2722,7 @@ export default React.memo(function CoffeeRecommender() {
 									</label>
 									<select
 										value={selectedModel}
-										onChange={(e) => setSelectedModel(e.target.value as TextModelKey)}
+										onChange={(e) => setSelectedModelIntent(e.target.value as TextModelKey)}
 										style={{
 											width: "100%",
 											background: "rgba(18, 18, 18, 0.95)",
@@ -2723,7 +2746,7 @@ export default React.memo(function CoffeeRecommender() {
 									</label>
 									<select
 										value={selectedVisionModel}
-										onChange={(e) => setSelectedVisionModel(e.target.value as VisionModelKey)}
+										onChange={(e) => setSelectedVisionModelIntent(e.target.value as VisionModelKey)}
 										disabled={!hasVisionAccess}
 										style={{
 											width: "100%",
