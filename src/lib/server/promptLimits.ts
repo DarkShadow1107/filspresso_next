@@ -19,6 +19,11 @@ export type PromptLimitCheck = {
 	reset_date?: string;
 	tier?: string;
 	scope?: PromptScope;
+	/** Per-model metering, present only when a model key was supplied. */
+	model_key?: string;
+	model_prompts_remaining?: number;
+	model_prompts_limit?: number;
+	model_prompts_used?: number;
 };
 
 export function normalizePromptScope(value: unknown): PromptScope {
@@ -60,6 +65,8 @@ type LimitPayload = {
 	prompts_remaining?: number;
 	reset_date?: string;
 	tier?: string;
+	model_key?: string;
+	prompts_used?: number;
 };
 
 function limitReachedPayload(data: LimitPayload, scope: PromptScope) {
@@ -73,6 +80,31 @@ function limitReachedPayload(data: LimitPayload, scope: PromptScope) {
 		prompts_limit: data.prompts_limit,
 		reset_date: data.reset_date,
 		// The Kafelot UI reads this to show the plan the counters belong to.
+		tier: data.tier,
+		prompts_scope: scope,
+	};
+}
+
+/**
+ * A model's own allowance is spent, while the plan total may still have room.
+ *
+ * Deliberately distinct from `PROMPT_LIMIT_REACHED`: that one means "you are out of
+ * prompts" and the UI must stop the user entirely, whereas this means "pick another
+ * model". Collapsing the two would tell an ULTIMATE user with 120/1000 prompts left
+ * that they are out of prompts.
+ */
+function modelAllowancePayload(data: LimitPayload & { error?: string; model_key?: string }, scope: PromptScope) {
+	return {
+		error: data.error === "MODEL_NOT_IN_PLAN" ? "MODEL_NOT_IN_PLAN" : "MODEL_ALLOWANCE_EXHAUSTED",
+		message:
+			data.error === "MODEL_NOT_IN_PLAN"
+				? "That model is not included in your plan."
+				: "You have used all of this model's prompts for this period. Please choose another model.",
+		model_key: data.model_key,
+		prompts_remaining: data.prompts_remaining,
+		prompts_limit: data.prompts_limit,
+		prompts_used: (data as { prompts_used?: number }).prompts_used,
+		reset_date: data.reset_date,
 		tier: data.tier,
 		prompts_scope: scope,
 	};
@@ -109,6 +141,13 @@ export async function checkPromptLimit(
 	request: Request,
 	dryRun: boolean,
 	scope: PromptScope,
+	/**
+	 * The model that will serve this request, for per-model metering.
+	 *
+	 * Optional: omit it and only the plan total is checked. The initial dry-run
+	 * passes nothing on purpose -- at that point the model has not been resolved yet.
+	 */
+	modelKey?: string | null,
 ): Promise<PromptLimitCheck> {
 	let promptLimitUrl = "";
 	try {
@@ -118,7 +157,7 @@ export async function checkPromptLimit(
 		const res = await fetch(promptLimitUrl, {
 			method: "POST",
 			headers,
-			body: JSON.stringify({ dry_run: dryRun, scope }),
+			body: JSON.stringify({ dry_run: dryRun, scope, ...(modelKey ? { model_key: modelKey } : {}) }),
 		});
 
 		if (res.status === 401 && headers.cookie) {
@@ -131,14 +170,41 @@ export async function checkPromptLimit(
 			};
 		}
 
-		if (res.status === 429) {
+		if (res.status === 429 || res.status === 403) {
 			const data = (await res.json()) as {
+				error?: string;
 				reset_date?: string;
 				prompts_limit?: number;
 				prompts_remaining?: number;
 				tier?: string;
 				scope?: string;
+				model_key?: string;
+				prompts_used?: number;
 			};
+			// Per-model exhaustion is not plan exhaustion; keep the two distinguishable.
+			if (data.error === "MODEL_ALLOWANCE_EXHAUSTED" || data.error === "MODEL_NOT_IN_PLAN") {
+				return {
+					allowed: false,
+					model_key: data.model_key,
+					model_prompts_remaining: data.prompts_remaining,
+					model_prompts_limit: data.prompts_limit,
+					model_prompts_used: data.prompts_used,
+					prompts_remaining: data.prompts_remaining,
+					prompts_limit: data.prompts_limit,
+					reset_date: data.reset_date,
+					tier: data.tier,
+					scope: (data.scope as PromptScope) || scope,
+					errorResponse: Response.json(modelAllowancePayload(data, scope), {
+						status: data.error === "MODEL_NOT_IN_PLAN" ? 403 : 429,
+						headers: { "Cache-Control": "no-store" },
+					}),
+				};
+			}
+			if (res.status === 403) {
+				// Some other 403 (e.g. the chemistry gate) is not a quota problem, so
+				// pass the backend's own payload through untouched.
+				return { allowed: false, errorResponse: Response.json(data, { status: 403, headers: { "Cache-Control": "no-store" } }) };
+			}
 			return {
 				allowed: false,
 				prompts_remaining: data.prompts_remaining,
@@ -170,6 +236,10 @@ export async function checkPromptLimit(
 			reset_date?: string;
 			tier?: string;
 			scope?: string;
+			model_key?: string;
+			model_prompts_remaining?: number;
+			model_prompts_limit?: number;
+			model_prompts_used?: number;
 		};
 
 		if (data.allowed === false) {
@@ -202,6 +272,10 @@ export async function checkPromptLimit(
 			reset_date: data.reset_date,
 			tier: data.tier,
 			scope: (data.scope as PromptScope) || scope,
+			model_key: data.model_key,
+			model_prompts_remaining: data.model_prompts_remaining,
+			model_prompts_limit: data.model_prompts_limit,
+			model_prompts_used: data.model_prompts_used,
 		};
 	} catch {
 		return {

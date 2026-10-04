@@ -15,12 +15,35 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChatController = void 0;
 const common_1 = require("@nestjs/common");
 const chat_service_1 = require("./chat.service");
+const chat_history_service_1 = require("./chat-history.service");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 let ChatController = class ChatController {
     chatService;
-    constructor(chatService) {
+    chatHistory;
+    constructor(chatService, chatHistory) {
         this.chatService = chatService;
+        this.chatHistory = chatHistory;
     }
+    // ---------------------------------------------------------- history (bulk)
+    /**
+     * The browser's whole conversation list.
+     *
+     * Replaces `GET /api/chat/save`, which read one shared JSON file for every
+     * visitor with no authentication at all. Same response shape, but scoped to the
+     * authenticated account and served from Postgres.
+     */
+    getHistory(req) {
+        return this.chatHistory.listHistory(Number(req.user?.["id"]));
+    }
+    replaceHistory(req) {
+        const body = (req.body ?? {});
+        return this.chatHistory.replaceHistory(Number(req.user?.["id"]), Array.isArray(body.history) ? body.history : [], 
+        // The client-supplied tier is only used to pick the retention cap. It never
+        // grants anything: entitlements are decided elsewhere, and an overstated
+        // tier here would only leave more rows for the user to see, not grant access.
+        typeof req.user?.["subscription"] === "string" ? req.user["subscription"] : null);
+    }
+    // ---------------------------------------------------------------- sessions
     getSessions(req, limit, offset) {
         return this.chatService.getSessions(Number(req.user?.["id"]), Number.parseInt(limit || "20", 10), Number.parseInt(offset || "0", 10));
     }
@@ -41,6 +64,23 @@ let ChatController = class ChatController {
     }
 };
 exports.ChatController = ChatController;
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)("history"),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], ChatController.prototype, "getHistory", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Post)("history"),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], ChatController.prototype, "replaceHistory", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Get)("sessions"),
@@ -100,5 +140,6 @@ __decorate([
 ], ChatController.prototype, "deleteSession", null);
 exports.ChatController = ChatController = __decorate([
     (0, common_1.Controller)("api/chat"),
-    __metadata("design:paramtypes", [chat_service_1.ChatService])
+    __metadata("design:paramtypes", [chat_service_1.ChatService,
+        chat_history_service_1.ChatHistoryService])
 ], ChatController);

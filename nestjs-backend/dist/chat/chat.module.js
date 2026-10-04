@@ -10,6 +10,7 @@ exports.ChatModule = void 0;
 const common_1 = require("@nestjs/common");
 const chat_controller_1 = require("./chat.controller");
 const chat_service_1 = require("./chat.service");
+const chat_history_service_1 = require("./chat-history.service");
 const database_module_1 = require("../database/database.module");
 let ChatModule = class ChatModule {
 };
@@ -18,6 +19,6 @@ exports.ChatModule = ChatModule = __decorate([
     (0, common_1.Module)({
         imports: [database_module_1.DatabaseModule],
         controllers: [chat_controller_1.ChatController],
-        providers: [chat_service_1.ChatService],
+        providers: [chat_service_1.ChatService, chat_history_service_1.ChatHistoryService],
     })
 ], ChatModule);

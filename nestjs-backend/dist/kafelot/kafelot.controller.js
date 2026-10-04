@@ -48,6 +48,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.KafelotController = void 0;
 const common_1 = require("@nestjs/common");
 const kafelot_service_1 = require("./kafelot.service");
+const model_usage_service_1 = require("./model-usage.service");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const optional_jwt_auth_guard_1 = require("../common/guards/optional-jwt-auth.guard");
 const net = __importStar(require("net"));
@@ -83,10 +84,38 @@ function resolveUsageScope(req) {
     const queryScope = req.query?.scope;
     return (0, kafelot_service_1.normalizeUsageScope)((bodyScope || headerScope || queryScope || kafelot_service_1.USAGE_SCOPES.GENERAL));
 }
+/**
+ * Molecule Helper (chemistry) is ULTIMATE-only.
+ *
+ * The Next.js route gates it too, but there is no Next `middleware.ts`, so this
+ * controller is the authoritative choke point for the quota: a direct call to
+ * `/api/kafelot/check-and-use` with `scope=molecule_helper` would otherwise reach
+ * `checkAndUse` unthrottled by any tier check. That matters because the molecule
+ * bucket is 200 prompts on every tier.
+ */
+const MOLECULE_HELPER_TIER = "ultimate";
+/**
+ * Normalise the client-supplied model key.
+ *
+ * Only keys we actually meter are accepted. An unrecognised key must NOT fall
+ * through to "meter nothing" -- that would let a caller bypass per-model limits by
+ * sending a typo, so it is dropped and the request is metered on the scope total
+ * alone, which is the correct, if less specific, fallback.
+ */
+function normalizeModelKey(raw) {
+    if (typeof raw !== "string")
+        return null;
+    const key = raw.trim();
+    if (!key || key.length > 64)
+        return null;
+    return (0, model_usage_service_1.isMeteredModel)(key) ? key : null;
+}
 let KafelotController = class KafelotController {
     kafelotService;
-    constructor(kafelotService) {
+    modelUsage;
+    constructor(kafelotService, modelUsage) {
         this.kafelotService = kafelotService;
+        this.modelUsage = modelUsage;
     }
     async checkAndUse(req, res) {
         const fingerprint = req.headers["x-kafelot-fingerprint"];
@@ -99,8 +128,24 @@ let KafelotController = class KafelotController {
         if (hasBearerToken && !req.user) {
             return res.status(common_1.HttpStatus.UNAUTHORIZED).json({ error: "AUTH_SESSION_INVALID", message: "Authentication session expired or invalid" });
         }
+        // Defence in depth for the chemistry gate. `req.user.tier` is not populated by
+        // the session claims, so ask the service for the caller's authoritative tier
+        // rather than trusting anything on the request.
+        if (usageScope === kafelot_service_1.USAGE_SCOPES.MOLECULE_HELPER) {
+            const tier = req.user?.id
+                ? await this.kafelotService.resolveTier(Number(req.user.id))
+                : "anonymous";
+            if (String(tier || "").toLowerCase() !== MOLECULE_HELPER_TIER) {
+                return res.status(common_1.HttpStatus.FORBIDDEN).json({
+                    error: "CHEMISTRY_LOCKED",
+                    message: "Molecule Helper is available on the ULTIMATE plan.",
+                });
+            }
+        }
         const result = await this.kafelotService.checkAndUse({
-            accountId: req.user?.id, fingerprint, ip, userAgent, systemInfo, dryRun, usageScope, hasBearerToken
+            accountId: req.user?.id, fingerprint, ip, userAgent, systemInfo, dryRun, usageScope, hasBearerToken,
+            // Optional: absent means "meter the scope total only".
+            modelKey: normalizeModelKey(req.body?.model_key),
         });
         return res.status(result.status).json(result.data);
     }
@@ -116,6 +161,18 @@ let KafelotController = class KafelotController {
         const result = await this.kafelotService.getStatus({
             accountId: req.user?.id, fingerprint, ip, userAgent, usageScope, hasBearerToken
         });
+        if (result.status === 200 && req.user?.id) {
+            // Per-model allowances travel with the status response so the client can grey
+            // out a spent model and show what is left, instead of discovering it via a 429.
+            // Best-effort: a failure here must not break the status endpoint itself.
+            try {
+                const tier = await this.kafelotService.resolveTier(Number(req.user.id));
+                result.data.model_allowances = await this.modelUsage.allowancesForTier(Number(req.user.id), tier, usageScope);
+            }
+            catch {
+                // leave model_allowances absent; the client treats that as "unknown"
+            }
+        }
         return res.status(result.status).json(result.data);
     }
     getAnonymousUsers(req, limit, offset, search, res) {
@@ -213,5 +270,6 @@ __decorate([
 ], KafelotController.prototype, "updateUserUsage", null);
 exports.KafelotController = KafelotController = __decorate([
     (0, common_1.Controller)("api/kafelot"),
-    __metadata("design:paramtypes", [kafelot_service_1.KafelotService])
+    __metadata("design:paramtypes", [kafelot_service_1.KafelotService,
+        model_usage_service_1.ModelUsageService])
 ], KafelotController);

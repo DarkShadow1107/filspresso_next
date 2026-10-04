@@ -296,6 +296,15 @@ type HelperConversationSnapshot = {
 	messages: Message[];
 };
 
+type ModelAllowance = {
+	modelKey: string;
+	limit: number;
+	used: number;
+	remaining: number;
+	/** Not on this plan at all, as opposed to on it but spent. */
+	notEntitled: boolean;
+};
+
 type PromptScope = "general" | "molecule_helper";
 
 type PromptScopeState = {
@@ -716,6 +725,10 @@ export default React.memo(function CoffeeRecommender() {
 			resetDate: null,
 		},
 	});
+	// Per-model allowances, from the `model_allowances` block on the kafelot status
+	// response. Absent means "unknown", which must not be treated as "exhausted" --
+	// the server is still authoritative and will reject the send.
+	const [modelAllowances, setModelAllowances] = useState<Record<string, ModelAllowance> | null>(null);
 	const fingerprintRef = useRef<string>("");
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -854,6 +867,20 @@ export default React.memo(function CoffeeRecommender() {
 		allowedVisionModels.includes(selectedVisionModelIntent)
 			? selectedVisionModelIntent
 			: (allowedVisionModels[0] ?? VISION_MODEL_450M);
+
+	// Which model the next message will actually be metered against. An image
+	// request is served by the vision model, so that is the allowance that matters --
+	// charging the text model's would report the wrong numbers.
+	const nextMeteredModelKey: string =
+		chatImages.length > 0 && selectedVisionModel ? selectedVisionModel : selectedModel;
+	const nextModelAllowance = modelAllowances?.[nextMeteredModelKey] ?? null;
+	/**
+	 * Only "entitled but spent" blocks the send. `notEntitled` is already handled by
+	// the model pickers, and a missing allowance entry means the status call has not
+	// landed yet -- blocking on unknown state would strand a signed-out user.
+	 */
+	const nextModelExhausted =
+		nextModelAllowance !== null && !nextModelAllowance.notEntitled && nextModelAllowance.limit > 0 && nextModelAllowance.remaining <= 0;
 	// Only one chat model is resident at a time, so switching model means a swap.
 	// Track it so the composer can show determinate progress for every model, not
 	// just the Playground.
@@ -943,6 +970,13 @@ export default React.memo(function CoffeeRecommender() {
 					prompts_limit: number;
 					reset_date?: string;
 					tier?: string;
+					model_allowances?: Array<{
+						modelKey: string;
+						limit: number;
+						used: number;
+						remaining: number;
+						notEntitled: boolean;
+					}>;
 				};
 				// Whether this response represents an authenticated caller. A 401 already
 				// returned above, so reaching here with a session in localStorage means
@@ -959,6 +993,20 @@ export default React.memo(function CoffeeRecommender() {
 				);
 
 				updatePromptScopeState(normalizedScope, normalizedCounters, data.reset_date ?? null);
+				if (Array.isArray(data.model_allowances)) {
+					const next: Record<string, ModelAllowance> = {};
+					for (const row of data.model_allowances) {
+						if (typeof row?.modelKey !== "string" || !row.modelKey) continue;
+						next[row.modelKey] = {
+							modelKey: row.modelKey,
+							limit: Number(row.limit) || 0,
+							used: Number(row.used) || 0,
+							remaining: Math.max(0, Number(row.remaining) || 0),
+							notEntitled: row.notEntitled === true,
+						};
+					}
+					setModelAllowances(next);
+				}
 				if (updateDisplay && normalizedScope === activePromptScopeRef.current) {
 					setPromptsRemaining(normalizedCounters.promptsRemaining);
 					setPromptsLimit(normalizedCounters.promptsLimit);
@@ -1862,6 +1910,18 @@ export default React.memo(function CoffeeRecommender() {
 			// out here rather than letting the gateway answer 429 after
 			// AI_QUEUE_WAIT_SECONDS; the progress bar beside the model chips is what the
 			// user is watching, so gating the request on it is the point of option (b).
+			// Per-model allowance. Checked client-side first so the user gets an
+			// immediate, model-specific message instead of a round trip that ends in a
+			// generic 429. The server still re-checks; this is UX, not enforcement.
+			if (nextModelExhausted) {
+				const exhaustedMsg: Message = {
+					role: "assistant",
+					content: `You have used all ${nextModelAllowance.limit} prompts available for this model this month. Please choose another model.`,
+				};
+				setChatMessages((m) => [...m, exhaustedMsg]);
+				return;
+			}
+
 			if (!(await waitUntilLoaded())) {
 				const loadFailedMsg: Message = {
 					role: "assistant",
@@ -1890,6 +1950,7 @@ export default React.memo(function CoffeeRecommender() {
 							prompts_remaining?: number;
 							subscription_tier?: string;
 							tier?: string;
+							model_key?: string;
 						},
 				);
 				if (response.status === 401 || errorData.error === "AUTH_SESSION_INVALID") {
@@ -1903,6 +1964,31 @@ export default React.memo(function CoffeeRecommender() {
 					setChatMessages((m) => [...m, authMsg]);
 					return;
 				}
+				// A model's own allowance ran out. Distinct from PROMPT_LIMIT_REACHED,
+				// which means the whole plan is spent and the user must stop entirely.
+				if (errorData.error === "MODEL_ALLOWANCE_EXHAUSTED" || errorData.error === "MODEL_NOT_IN_PLAN") {
+					const spentKey = typeof errorData.model_key === "string" ? errorData.model_key : nextMeteredModelKey;
+					setModelAllowances((prev) => {
+						if (!prev) return prev;
+						const current = prev[spentKey];
+						if (!current) return prev;
+						return {
+							...prev,
+							[spentKey]: { ...current, remaining: 0, used: current.limit },
+						};
+					});
+					const modelLabel = (MODEL_LABEL_BY_KEY as Record<string, string>)[spentKey] ?? selectedTextModelLabel;
+					const exhaustedMsg: Message = {
+						role: "assistant",
+						content:
+							errorData.error === "MODEL_NOT_IN_PLAN"
+								? `${modelLabel} is not included in your plan. Please choose another model.`
+								: `You have used all prompts available for ${modelLabel} this month. Please choose another model.`,
+					};
+					setChatMessages((m) => [...m, exhaustedMsg]);
+					return;
+				}
+
 				if (errorData.error === "PROMPT_LIMIT_REACHED") {
 					const rawTier = errorData.subscription_tier || errorData.tier;
 					const backendTier = normalizeUserSubscriptionTier(rawTier, userSubscription);
@@ -3350,6 +3436,26 @@ export default React.memo(function CoffeeRecommender() {
 													day: "numeric",
 												})
 											: "next month"}
+									</span>
+								)}
+							</div>
+						)}
+
+						{/* Per-model allowance, shown next to the plan counter.
+						    The plan total and the per-model limit are independent: an ULTIMATE
+						    user has 1000 general prompts but only 120 on the 8B, so the model
+						    line is the one that can run out first. */}
+						{nextModelAllowance && nextModelAllowance.limit > 0 && !chemistryMode && (
+							<div className="kafelot-prompt-counter">
+								{nextModelExhausted ? (
+									<span className="limit-hit">
+										{MODEL_LABEL_BY_KEY[selectedModel]} allowance used ({nextModelAllowance.limit}/
+										{nextModelAllowance.limit}) — pick another model
+									</span>
+								) : (
+									<span>
+										{nextModelAllowance.remaining} / {nextModelAllowance.limit} {MODEL_LABEL_BY_KEY[selectedModel]} prompts remaining
+										this month
 									</span>
 								)}
 							</div>

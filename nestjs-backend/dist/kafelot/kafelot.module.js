@@ -10,6 +10,7 @@ exports.KafelotModule = void 0;
 const common_1 = require("@nestjs/common");
 const kafelot_controller_1 = require("./kafelot.controller");
 const kafelot_service_1 = require("./kafelot.service");
+const model_usage_service_1 = require("./model-usage.service");
 const database_module_1 = require("../database/database.module");
 let KafelotModule = class KafelotModule {
 };
@@ -18,6 +19,6 @@ exports.KafelotModule = KafelotModule = __decorate([
     (0, common_1.Module)({
         imports: [database_module_1.DatabaseModule],
         controllers: [kafelot_controller_1.KafelotController],
-        providers: [kafelot_service_1.KafelotService],
+        providers: [kafelot_service_1.KafelotService, model_usage_service_1.ModelUsageService],
     })
 ], KafelotModule);

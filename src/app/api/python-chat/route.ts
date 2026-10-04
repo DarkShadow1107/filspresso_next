@@ -19,6 +19,8 @@ import {
 	TEXT_MODEL_1_2B_THINKING,
 	VISION_MODEL_450M,
 	MODEL_FILE_BY_KEY,
+	isTextModelKey,
+	isVisionModelKey,
 	MODEL_LABEL_BY_KEY,
 	normalizeModelTier,
 	tierCanUseThinkingModel as sharedTierCanUseThinking,
@@ -244,10 +246,28 @@ const LEGACY_VISION_MODEL_ALIASES: Record<string, VisionModelKey> = {
 	qwen3_vl_2b_q4_0_gguf: VISION_MODEL_450M,
 };
 
+/**
+ * Resolve whatever the client sent into a canonical model key.
+ *
+ * This used to accept only a hand-maintained legacy alias table, which meant the
+ * two things callers actually send -- the canonical key (`lfm2_5_8b_a1b_q4_k_m`, what
+ * CoffeeRecommender sends) and the GGUF file name (`LFM2.5-8B-A1B-Q4_K_M.gguf`,
+ * what /api/playground/chat sends) -- both resolved to `null`. The route then fell
+ * back to the cheapest allowed model, so a user who picked the 8B silently got the
+ * 230M, and per-model metering charged the wrong model.
+ *
+ * Order matters: canonical keys win, then file names, then the legacy aliases.
+ */
 function normalizeTextModelKey(value: unknown): TextModelKey | null {
 	const normalized = String(value || "")
 		.trim()
 		.toLowerCase();
+	if (!normalized) return null;
+
+	if (isTextModelKey(normalized)) return normalized;
+
+	const byFile = TEXT_MODEL_KEY_SET_BY_FILE.get(normalized);
+	if (byFile) return byFile;
 
 	const legacy = LEGACY_TEXT_MODEL_ALIASES[normalized];
 	if (legacy) return legacy;
@@ -262,6 +282,12 @@ function normalizeVisionModelKey(value: unknown): VisionModelKey | null {
 	const normalized = String(value || "")
 		.trim()
 		.toLowerCase();
+	if (!normalized) return null;
+
+	if (isVisionModelKey(normalized)) return normalized;
+
+	const byFile = VISION_MODEL_KEY_SET_BY_FILE.get(normalized);
+	if (byFile) return byFile;
 
 	const legacy = LEGACY_VISION_MODEL_ALIASES[normalized];
 	if (legacy) return legacy;
@@ -271,6 +297,23 @@ function normalizeVisionModelKey(value: unknown): VisionModelKey | null {
 	}
 	return null;
 }
+
+/**
+ * Lowercased GGUF file name -> canonical key.
+ *
+ * Built from `MODEL_FILE_BY_KEY` so a rename in one place cannot desync the route.
+ */
+const TEXT_MODEL_KEY_SET_BY_FILE: Map<string, TextModelKey> = new Map(
+	(Object.entries(MODEL_FILE_BY_KEY) as Array<[string, string]>)
+		.filter(([key]) => key !== "minilm_l6_v2_gguf")
+		.map(([key, file]) => [file.trim().toLowerCase(), key as TextModelKey]),
+);
+
+const VISION_MODEL_KEY_SET_BY_FILE: Map<string, VisionModelKey> = new Map(
+	(Object.entries(MODEL_FILE_BY_KEY) as Array<[string, string]>)
+		.filter(([key]) => key === "lfm2_5_vl_450m_q4_k_m" || key === "lfm2_5_vl_3b_q4_k_m")
+		.map(([key, file]) => [file.trim().toLowerCase(), key as VisionModelKey]),
+);
 
 /** Tier -> model tables live in @/lib/modelAccess so this route, the prewarm
  *  route, and the Kafelot UI cannot drift apart. */
@@ -507,14 +550,24 @@ export async function POST(request: Request) {
 		const effectiveScope: PromptScope = isChemistryRequest
 			? "molecule_helper"
 			: "general";
-		if (effectiveScope !== promptScope) {
-			// The dry-run at the top of this handler checked the header-derived scope,
-			// so re-check against the scope actually being spent before proceeding.
-			const scoped = await checkPromptLimit(request, true, effectiveScope);
-			if (!scoped.allowed) return scoped.errorResponse!;
-			limitCheck.tier = scoped.tier;
-		}
 		promptScope = effectiveScope;
+
+		// ---- Per-model metering ----
+		//
+		// The plan total alone cannot express what the plans page advertises: an
+		// ULTIMATE user has 1000 general prompts but only 120 on the 8B model, so the
+		// 8B has to run out first. The vision model is metered when the request uses
+		// one, otherwise the text model is.
+		const meteredModelKey = isImageRequest && selectedVisionModelKey ? selectedVisionModelKey : selectedTextModelKey;
+
+		// The dry-run at the top of this handler ran before the model was resolved, so
+		// it checked the header-derived scope with no model key. Re-check now that both
+		// the scope and the model are known, before anything is consumed.
+		const scoped = await checkPromptLimit(request, true, promptScope, meteredModelKey);
+		if (!scoped.allowed) return scoped.errorResponse!;
+		limitCheck.tier = scoped.tier;
+		limitCheck.model_key = scoped.model_key;
+		limitCheck.model_prompts_remaining = scoped.model_prompts_remaining;
 
 		const pythonAbortController = new AbortController();
 		const timeout = setTimeout(() => pythonAbortController.abort(), PYTHON_CHAT_TIMEOUT_MS);
@@ -582,7 +635,7 @@ export async function POST(request: Request) {
 			return NextResponse.json({ cancelled: true, request_id: requestId }, { status: 200 });
 		}
 
-		const consumed = isChemistryUnavailableFromBackend ? limitCheck : await checkPromptLimit(request, false, promptScope);
+		const consumed = isChemistryUnavailableFromBackend ? limitCheck : await checkPromptLimit(request, false, promptScope, meteredModelKey);
 		const promptsRemaining =
 			typeof consumed.prompts_remaining === "number"
 				? consumed.prompts_remaining

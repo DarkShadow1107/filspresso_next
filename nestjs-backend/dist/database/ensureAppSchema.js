@@ -43,6 +43,29 @@ async function ensureAppSchema(pool) {
         await client.query(`ALTER TABLE kafelot_prompt_usage ALTER COLUMN usage_scope SET NOT NULL`);
         await client.query(`ALTER TABLE kafelot_prompt_usage DROP CONSTRAINT IF EXISTS kafelot_prompt_usage_account_id_month_year_key`);
         await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_account_month_scope ON kafelot_prompt_usage(account_id, month_year, usage_scope)`);
+        // ---- Per-model metering (see data/migrations/2026-10-kafelot-model-key.sql) ----
+        //
+        // Two granularities in one table: `model_key = ''` is the scope total that every
+        // existing query already means, and a real model key is that model's sub-count.
+        // A request passes only when both are under their limits.
+        //
+        // BOTH uniqueness objects must be dropped. A fresh database has the table-level
+        // UNIQUE (account_id, month_year, usage_scope) whose auto-generated name is
+        // kafelot_prompt_usage_account_id_month_year_usage_scope_key; an older one also
+        // has the explicit index created just above. The old index is dropped and
+        // recreated with model_key in the key so ON CONFLICT has something to infer.
+        //
+        // Note this bootstrap does not run at all when STRICT_SERVICE_DB_CREDENTIALS is
+        // true, and it is not transactional, so the SQL migration is the reliable path.
+        await client.query(`ALTER TABLE kafelot_prompt_usage ADD COLUMN IF NOT EXISTS model_key VARCHAR(64)`);
+        await client.query(`ALTER TABLE kafelot_prompt_usage ALTER COLUMN model_key SET DEFAULT ''`);
+        await client.query(`UPDATE kafelot_prompt_usage SET model_key = '' WHERE model_key IS NULL`);
+        await client.query(`ALTER TABLE kafelot_prompt_usage ALTER COLUMN model_key SET NOT NULL`);
+        await client.query(`ALTER TABLE kafelot_prompt_usage DROP CONSTRAINT IF EXISTS kafelot_prompt_usage_account_id_month_year_usage_scope_key`);
+        await client.query(`ALTER TABLE kafelot_prompt_usage DROP CONSTRAINT IF EXISTS kafelot_prompt_usage_account_id_month_year_key`);
+        await client.query(`DROP INDEX IF EXISTS idx_kafelot_prompt_usage_account_month_scope`);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_account_month_scope_model ON kafelot_prompt_usage(account_id, month_year, usage_scope, model_key)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_model ON kafelot_prompt_usage(model_key)`);
         await client.query(`
       CREATE TABLE IF NOT EXISTS service_health_incidents (
         id BIGSERIAL PRIMARY KEY,
@@ -293,6 +316,75 @@ async function ensureAppSchema(pool) {
         await client.query(`ALTER TABLE security_event_ledger_archive ADD COLUMN IF NOT EXISTS ciphertext_hash CHAR(64)`);
         await client.query(`DROP INDEX IF EXISTS idx_accounts_apple_sub`);
         await client.query(`ALTER TABLE accounts DROP COLUMN IF EXISTS apple_sub`);
+        // ---------------------------------------------------------------------
+        // Chat sessions and messages.
+        //
+        // These are declared in `data/schema.sql`, which only runs when Postgres
+        // initialises an *empty* data directory. A volume created before these tables
+        // existed therefore never gets them, and `chat.service.ts` queries columns
+        // (`is_active`, `message_count`) that would be missing. Mirroring the
+        // definition here makes the tables and every column they are read for
+        // self-healing on boot, the same way the rest of this file works.
+        //
+        // `category` and `metadata` are additions for the move away from the global
+        // `src/data/chat_history.json` blob:
+        //   - `category` preserves the coffee/chemistry/general split the Kafelot
+        //     stats panel counts. `model_type` alone cannot express it (it only has
+        //     tanka_semantic / tanka_chemistry).
+        //   - `metadata` carries the per-message extras the UI renders but SQL has no
+        //     column for: attached products, image data, the model that answered, and
+        //     the molecule view. Encoding them into `content` would corrupt the text.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        session_uuid VARCHAR(36) NOT NULL UNIQUE,
+        title VARCHAR(255) DEFAULT 'New Chat',
+        model_type VARCHAR(20) NOT NULL DEFAULT 'tanka_semantic',
+        category VARCHAR(20) NOT NULL DEFAULT 'general',
+        metadata JSONB,
+        ai_enabled BOOLEAN DEFAULT TRUE,
+        is_active BOOLEAN DEFAULT TRUE,
+        message_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        role VARCHAR(20) NOT NULL,
+        content TEXT NOT NULL,
+        metadata JSONB,
+        tokens_used INTEGER DEFAULT 0,
+        response_time_ms INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        // Columns added after the tables shipped. Ordered nullable-first, backfilled,
+        // then tightened -- the sequence used for the usage_scope migration above.
+        await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS is_active BOOLEAN`);
+        await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS message_count INTEGER`);
+        await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS category VARCHAR(20)`);
+        await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS metadata JSONB`);
+        await client.query(`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP`);
+        await client.query(`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS metadata JSONB`);
+        await client.query(`UPDATE chat_sessions SET is_active = TRUE WHERE is_active IS NULL`);
+        await client.query(`UPDATE chat_sessions SET message_count = 0 WHERE message_count IS NULL`);
+        await client.query(`UPDATE chat_sessions SET category = 'general' WHERE category IS NULL OR category = ''`);
+        await client.query(`UPDATE chat_sessions SET updated_at = COALESCE(updated_at, created_at, NOW()) WHERE updated_at IS NULL`);
+        await client.query(`ALTER TABLE chat_sessions ALTER COLUMN is_active SET DEFAULT TRUE`);
+        await client.query(`ALTER TABLE chat_sessions ALTER COLUMN is_active SET NOT NULL`);
+        await client.query(`ALTER TABLE chat_sessions ALTER COLUMN message_count SET DEFAULT 0`);
+        await client.query(`ALTER TABLE chat_sessions ALTER COLUMN message_count SET NOT NULL`);
+        await client.query(`ALTER TABLE chat_sessions ALTER COLUMN category SET DEFAULT 'general'`);
+        await client.query(`ALTER TABLE chat_sessions ALTER COLUMN category SET NOT NULL`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_account ON chat_sessions(account_id)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_uuid ON chat_sessions(session_uuid)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_account_active ON chat_sessions(account_id, is_active)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at)`);
         await client.query(`
       CREATE TABLE IF NOT EXISTS admin_mfa_challenges (
         id BIGSERIAL PRIMARY KEY,
@@ -423,7 +515,7 @@ async function ensureAppSchema(pool) {
         ELSE prompts_limit
       END,
       updated_at = CURRENT_TIMESTAMP
-      WHERE (usage_scope = 'general' AND LOWER(subscription_tier) = 'ultimate' AND prompts_limit <> 1000)
+      WHERE (usage_scope = 'general' AND model_key = '' AND LOWER(subscription_tier) = 'ultimate' AND prompts_limit <> 1000)
          OR (usage_scope = 'molecule_helper' AND prompts_limit <> 200)
     `);
         await client.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency_code VARCHAR(3) NOT NULL DEFAULT 'RON'`);

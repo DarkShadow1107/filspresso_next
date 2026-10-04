@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Param, Query, Req, Res, UseGuards, ParseIntPipe, HttpStatus } from "@nestjs/common";
 import { Request, Response } from "express";
 import { KafelotService, normalizeUsageScope, USAGE_SCOPES } from "./kafelot.service";
+import { ModelUsageService, isMeteredModel } from "./model-usage.service";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { OptionalJwtAuthGuard } from "../common/guards/optional-jwt-auth.guard";
 import * as net from "net";
@@ -47,9 +48,27 @@ function resolveUsageScope(req: Request): string {
  */
 const MOLECULE_HELPER_TIER = "ultimate";
 
+/**
+ * Normalise the client-supplied model key.
+ *
+ * Only keys we actually meter are accepted. An unrecognised key must NOT fall
+ * through to "meter nothing" -- that would let a caller bypass per-model limits by
+ * sending a typo, so it is dropped and the request is metered on the scope total
+ * alone, which is the correct, if less specific, fallback.
+ */
+function normalizeModelKey(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const key = raw.trim();
+  if (!key || key.length > 64) return null;
+  return isMeteredModel(key) ? key : null;
+}
+
 @Controller("api/kafelot")
 export class KafelotController {
-  constructor(private readonly kafelotService: KafelotService) {}
+  constructor(
+    private readonly kafelotService: KafelotService,
+    private readonly modelUsage: ModelUsageService,
+  ) {}
 
   @UseGuards(OptionalJwtAuthGuard)
   @Post("check-and-use")
@@ -82,7 +101,9 @@ export class KafelotController {
     }
 
     const result = await this.kafelotService.checkAndUse({
-      accountId: req.user?.id, fingerprint, ip, userAgent, systemInfo, dryRun, usageScope, hasBearerToken
+      accountId: req.user?.id, fingerprint, ip, userAgent, systemInfo, dryRun, usageScope, hasBearerToken,
+      // Optional: absent means "meter the scope total only".
+      modelKey: normalizeModelKey(req.body?.model_key),
     });
     return res.status(result.status).json(result.data);
   }
@@ -103,6 +124,19 @@ export class KafelotController {
     const result = await this.kafelotService.getStatus({
       accountId: req.user?.id, fingerprint, ip, userAgent, usageScope, hasBearerToken
     });
+    if (result.status === 200 && req.user?.id) {
+      // Per-model allowances travel with the status response so the client can grey
+      // out a spent model and show what is left, instead of discovering it via a 429.
+      // Best-effort: a failure here must not break the status endpoint itself.
+      try {
+        const tier = await this.kafelotService.resolveTier(Number(req.user.id));
+        result.data.model_allowances = await this.modelUsage.allowancesForTier(
+          Number(req.user.id), tier, usageScope,
+        );
+      } catch {
+        // leave model_allowances absent; the client treats that as "unknown"
+      }
+    }
     return res.status(result.status).json(result.data);
   }
 

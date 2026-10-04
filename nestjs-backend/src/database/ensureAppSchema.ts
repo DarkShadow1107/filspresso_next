@@ -47,6 +47,30 @@ export async function ensureAppSchema(pool: Pool) {
     await client.query(`ALTER TABLE kafelot_prompt_usage DROP CONSTRAINT IF EXISTS kafelot_prompt_usage_account_id_month_year_key`);
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_account_month_scope ON kafelot_prompt_usage(account_id, month_year, usage_scope)`);
 
+    // ---- Per-model metering (see data/migrations/2026-10-kafelot-model-key.sql) ----
+    //
+    // Two granularities in one table: `model_key = ''` is the scope total that every
+    // existing query already means, and a real model key is that model's sub-count.
+    // A request passes only when both are under their limits.
+    //
+    // BOTH uniqueness objects must be dropped. A fresh database has the table-level
+    // UNIQUE (account_id, month_year, usage_scope) whose auto-generated name is
+    // kafelot_prompt_usage_account_id_month_year_usage_scope_key; an older one also
+    // has the explicit index created just above. The old index is dropped and
+    // recreated with model_key in the key so ON CONFLICT has something to infer.
+    //
+    // Note this bootstrap does not run at all when STRICT_SERVICE_DB_CREDENTIALS is
+    // true, and it is not transactional, so the SQL migration is the reliable path.
+    await client.query(`ALTER TABLE kafelot_prompt_usage ADD COLUMN IF NOT EXISTS model_key VARCHAR(64)`);
+    await client.query(`ALTER TABLE kafelot_prompt_usage ALTER COLUMN model_key SET DEFAULT ''`);
+    await client.query(`UPDATE kafelot_prompt_usage SET model_key = '' WHERE model_key IS NULL`);
+    await client.query(`ALTER TABLE kafelot_prompt_usage ALTER COLUMN model_key SET NOT NULL`);
+    await client.query(`ALTER TABLE kafelot_prompt_usage DROP CONSTRAINT IF EXISTS kafelot_prompt_usage_account_id_month_year_usage_scope_key`);
+    await client.query(`ALTER TABLE kafelot_prompt_usage DROP CONSTRAINT IF EXISTS kafelot_prompt_usage_account_id_month_year_key`);
+    await client.query(`DROP INDEX IF EXISTS idx_kafelot_prompt_usage_account_month_scope`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_account_month_scope_model ON kafelot_prompt_usage(account_id, month_year, usage_scope, model_key)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_model ON kafelot_prompt_usage(model_key)`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS service_health_incidents (
         id BIGSERIAL PRIMARY KEY,
@@ -527,7 +551,7 @@ export async function ensureAppSchema(pool: Pool) {
         ELSE prompts_limit
       END,
       updated_at = CURRENT_TIMESTAMP
-      WHERE (usage_scope = 'general' AND LOWER(subscription_tier) = 'ultimate' AND prompts_limit <> 1000)
+      WHERE (usage_scope = 'general' AND model_key = '' AND LOWER(subscription_tier) = 'ultimate' AND prompts_limit <> 1000)
          OR (usage_scope = 'molecule_helper' AND prompts_limit <> 200)
     `);
 

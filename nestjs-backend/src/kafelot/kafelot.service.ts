@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
+import { modelLimitForTier } from "./model-usage.service";
 
 export const USAGE_SCOPES = { GENERAL: "general", MOLECULE_HELPER: "molecule_helper" } as const;
 export type UsageScope = typeof USAGE_SCOPES[keyof typeof USAGE_SCOPES];
@@ -144,7 +145,7 @@ export class KafelotService {
     const monthYear = currentMonthYear();
     const normalizedScope = normalizeUsageScope(usageScope);
     const { rows } = await client.query(
-      `SELECT * FROM kafelot_prompt_usage WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3`,
+      `SELECT * FROM kafelot_prompt_usage WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3 AND model_key = ''`,
       [accountId, monthYear, normalizedScope],
     );
     if (rows[0]) return rows[0];
@@ -161,6 +162,41 @@ export class KafelotService {
     };
   }
 
+  /**
+   * Fetch-or-create one model's sub-count row.
+   *
+   * Mirrors `getOrCreateUserUsage` but keys on `model_key`, and takes the limit as
+   * an argument because a model's allowance comes from `MODEL_MONTHLY_LIMITS` rather
+   * than from the tier-to-scope mapping. A limit of 0 is stored, not rejected, so the
+   * caller can report `model_not_in_plan` with the real numbers instead of guessing.
+   */
+  private async getOrCreateModelUsage(client: any, accountId: number, usageScope: string, modelKey: string, limit: number) {
+    const monthYear = currentMonthYear();
+    const resetDate = nextMonthReset();
+    const normalizedScope = normalizeUsageScope(usageScope);
+    await client.query(
+      `INSERT INTO kafelot_prompt_usage (account_id, month_year, usage_scope, model_key, prompts_limit, subscription_tier, reset_date)
+       VALUES ($1, $2, $3, $4, $5, '', $6)
+       ON CONFLICT (account_id, month_year, usage_scope, model_key) DO UPDATE
+         SET prompts_limit = EXCLUDED.prompts_limit, updated_at = CURRENT_TIMESTAMP`,
+      [accountId, monthYear, normalizedScope, modelKey, limit, resetDate],
+    );
+    const { rows } = await client.query(
+      `SELECT * FROM kafelot_prompt_usage WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3 AND model_key = $4`,
+      [accountId, monthYear, normalizedScope, modelKey],
+    );
+    return rows[0];
+  }
+
+  /** Increment a model's sub-count. Called inside the caller's transaction. */
+  private async consumeModelUsage(client: any, accountId: number, usageScope: string, modelKey: string): Promise<void> {
+    await client.query(
+      `UPDATE kafelot_prompt_usage SET prompts_used = prompts_used + 1, updated_at = CURRENT_TIMESTAMP
+       WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3 AND model_key = $4`,
+      [accountId, currentMonthYear(), normalizeUsageScope(usageScope), modelKey],
+    );
+  }
+
   private async getOrCreateUserUsage(client: any, accountId: number, tier: string, usageScope: string = USAGE_SCOPES.GENERAL) {
     const monthYear = currentMonthYear();
     const resetDate = nextMonthReset();
@@ -169,13 +205,13 @@ export class KafelotService {
     await client.query(
       `INSERT INTO kafelot_prompt_usage (account_id, month_year, usage_scope, prompts_limit, subscription_tier, reset_date)
        VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (account_id, month_year, usage_scope) DO UPDATE
+       ON CONFLICT (account_id, month_year, usage_scope, model_key) DO UPDATE
          SET subscription_tier = EXCLUDED.subscription_tier, prompts_limit = EXCLUDED.prompts_limit,
              updated_at = CURRENT_TIMESTAMP`,
       [accountId, monthYear, normalizedScope, limit, tier, resetDate],
     );
     const { rows } = await client.query(
-      `SELECT * FROM kafelot_prompt_usage WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3`,
+      `SELECT * FROM kafelot_prompt_usage WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3 AND model_key = ''`,
       [accountId, monthYear, normalizedScope],
     );
     return rows[0];
@@ -184,6 +220,13 @@ export class KafelotService {
   async checkAndUse(params: {
     accountId?: number; fingerprint?: string; ip: string | null; userAgent: string;
     systemInfo: any; dryRun: boolean; usageScope: string; hasBearerToken: boolean;
+    /**
+     * The model this request will use, for per-model metering.
+     *
+     * Optional on purpose: an absent key means "meter the scope total only", which
+     * is what the anonymous path and any pre-model-resolution dry-run do.
+     */
+    modelKey?: string | null;
   }): Promise<any> {
     const pool = this.db.getPool();
     const client = await pool.connect();
@@ -196,17 +239,82 @@ export class KafelotService {
           await client.query("ROLLBACK");
           return { status: 429, data: { error: "PROMPT_LIMIT_REACHED", prompts_remaining: 0, prompts_limit: row.prompts_limit, reset_date: row.reset_date, tier, scope: params.usageScope } };
         }
+
+        // Per-model allowance. Checked after the scope total and inside the same
+        // transaction, so the two cannot disagree: a request must satisfy both.
+        let modelAllowance: Record<string, unknown> | null = null;
+        if (params.modelKey) {
+          const limit = modelLimitForTier(params.modelKey, tier);
+          const modelRow = await this.getOrCreateModelUsage(client, params.accountId, params.usageScope, params.modelKey, limit);
+          modelAllowance = {
+            model_key: params.modelKey,
+            prompts_limit: modelRow.prompts_limit,
+            prompts_used: modelRow.prompts_used,
+            prompts_remaining: Math.max(0, modelRow.prompts_limit - modelRow.prompts_used),
+          };
+          if (modelRow.prompts_limit <= 0) {
+            await client.query("ROLLBACK");
+            return { status: 403, data: { error: "MODEL_NOT_IN_PLAN", model_key: params.modelKey, tier, scope: params.usageScope, ...modelAllowance } };
+          }
+          if (modelRow.prompts_used >= modelRow.prompts_limit) {
+            await client.query("ROLLBACK");
+            // Distinct from PROMPT_LIMIT_REACHED so the UI can grey the model out and
+            // let the user pick another, rather than implying the whole plan is spent.
+            return { status: 429, data: { error: "MODEL_ALLOWANCE_EXHAUSTED", model_key: params.modelKey, reset_date: row.reset_date, tier, scope: params.usageScope, ...modelAllowance } };
+          }
+        }
         if (params.dryRun) {
           await client.query("COMMIT");
-          return { status: 200, data: { allowed: true, prompts_remaining: row.prompts_limit - row.prompts_used, prompts_limit: row.prompts_limit, reset_date: row.reset_date, tier, scope: params.usageScope } };
+          // The dry-run reports the model's own remaining count too, so the client can
+          // show "12 / 120 on this model" before the user commits a prompt. Omitting
+          // it made every dry-run look like an unknown allowance.
+          return {
+            status: 200,
+            data: {
+              allowed: true,
+              prompts_remaining: row.prompts_limit - row.prompts_used,
+              prompts_limit: row.prompts_limit,
+              reset_date: row.reset_date,
+              tier,
+              scope: params.usageScope,
+              ...(modelAllowance
+                ? {
+                    model_key: modelAllowance.model_key,
+                    model_prompts_remaining: modelAllowance.prompts_remaining,
+                    model_prompts_limit: modelAllowance.prompts_limit,
+                    model_prompts_used: modelAllowance.prompts_used,
+                  }
+                : {}),
+            },
+          };
         }
         await client.query(
           `UPDATE kafelot_prompt_usage SET prompts_used = prompts_used + 1, updated_at = CURRENT_TIMESTAMP
-           WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3`,
+           WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3 AND model_key = ''`,
           [params.accountId, currentMonthYear(), normalizeUsageScope(params.usageScope)],
         );
+        if (params.modelKey) {
+          await this.consumeModelUsage(client, params.accountId, params.usageScope, params.modelKey);
+        }
         await client.query("COMMIT");
-        return { status: 200, data: { allowed: true, prompts_remaining: row.prompts_limit - row.prompts_used - 1, prompts_limit: row.prompts_limit, reset_date: row.reset_date, tier, scope: params.usageScope } };
+        return {
+          status: 200,
+          data: {
+            allowed: true,
+            prompts_remaining: row.prompts_limit - row.prompts_used - 1,
+            prompts_limit: row.prompts_limit,
+            reset_date: row.reset_date,
+            tier,
+            scope: params.usageScope,
+            ...(modelAllowance
+              ? {
+                  model_key: modelAllowance.model_key,
+                  model_prompts_remaining:
+                    Number(modelAllowance.prompts_remaining) - 1,
+                }
+              : {}),
+          },
+        };
       } else {
         if (!params.fingerprint) {
           const anonLimit = scopeLimits(params.usageScope)["anonymous"] ?? GENERAL_PROMPT_LIMITS["anonymous"];
