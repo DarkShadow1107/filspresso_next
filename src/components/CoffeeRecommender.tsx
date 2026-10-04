@@ -38,11 +38,26 @@ import {
 	BrandAnthropicIcon,
 	BrandGeminiIcon,
 	BrandQwenIcon,
+	BrandLiquidIcon,
 	XIcon,
 	CameraIcon,
 	SendHorizontalIcon,
 	PenIcon,
 } from "@/icons";
+import {
+	MODEL_LABEL_BY_KEY,
+	allowedTextModelsForTier,
+	allowedVisionModelsForTier,
+	tierCanUseThinkingModel,
+	TEXT_MODEL_230M,
+	TEXT_MODEL_1_2B_INSTRUCT,
+	TEXT_MODEL_1_2B_THINKING,
+	TEXT_MODEL_8B,
+	VISION_MODEL_450M,
+	type ModelKey,
+	type TextModelKey,
+	type VisionModelKey,
+} from "@/lib/modelAccess";
 
 // Parse **bold** and *italic* markdown in chat messages
 function formatMarkdown(text: string): React.ReactNode[] {
@@ -122,43 +137,44 @@ type Message = {
 
 type StylizedModelInfo = {
 	label: string;
-	accent: "qwen" | "minilm" | "clip";
+	accent: "lfm" | "minilm" | "clip";
 };
 
-type TextModelKey = "minilm_l6_v2_gguf" | "qwen3_06b_q8_0_gguf" | "gemma3_1b_it_q4_0_gguf";
-
-type VisionModelKey = "qwen3_vl_2b_q4_0_gguf";
-
-type ModelUsageKey = "minilm" | "qwen3" | "gemma3" | "qwen3Vision" | "other";
-
-const TEXT_MODEL_LABEL_BY_KEY: Record<TextModelKey, string> = {
-	minilm_l6_v2_gguf: "MiniLM V2",
-	qwen3_06b_q8_0_gguf: "Qwen 3",
-	gemma3_1b_it_q4_0_gguf: "Gemma 3",
-};
-
-const VISION_MODEL_LABEL_BY_KEY: Record<VisionModelKey, string> = {
-	qwen3_vl_2b_q4_0_gguf: "Qwen 3 Vision",
-};
+type ModelUsageKey = "lfm2" | "lfm2Thinking" | "lfm2Vision" | "lfm2Audio" | "other";
 
 const MODEL_USAGE_LABEL_BY_KEY: Record<ModelUsageKey, string> = {
-	minilm: "MiniLM V2",
-	qwen3: "Qwen 3",
-	gemma3: "Gemma 3",
-	qwen3Vision: "Qwen 3 Vision",
+	lfm2: "LFM 2.5",
+	lfm2Thinking: "LFM 2.5 Thinking",
+	lfm2Vision: "LFM 2.5 VL",
+	lfm2Audio: "LFM 2.5 Audio",
 	other: "Other / Fallback",
 };
 
+/**
+ * Buckets an assistant message's `modelUsed` into one of the five keys
+ * `KafelotUsage` renders.
+ *
+ * `modelUsed` is the display label the gateway echoes back, i.e. a value from
+ * `MODEL_LABEL_BY_KEY` ("LFM 2.5 230M", "LFM 2.5 1.2B Thinking", "LFM 2.5 VL
+ * 450M", "LFM 2.5 Audio 1.5B"). Order matters: the specific modalities are tested
+ * before the generic text bucket.
+ *
+ * The pre-LFM names are still recognised on purpose -- conversations saved before
+ * the model swap carry the old `modelUsed` strings, and without this they would
+ * all collapse into "Other".
+ */
 function detectModelUsageKey(rawModel?: string): ModelUsageKey {
 	const normalized = String(rawModel || "")
 		.trim()
 		.toLowerCase();
 
 	if (!normalized) return "other";
-	if (normalized.includes("vision")) return "qwen3Vision";
-	if (normalized.includes("gemma")) return "gemma3";
-	if (normalized.includes("qwen")) return "qwen3";
-	if (normalized.includes("minilm")) return "minilm";
+	if (normalized.includes("audio")) return "lfm2Audio";
+	if (normalized.includes("thinking") || normalized.includes("qwen 3 thinking")) return "lfm2Thinking";
+	if (normalized.includes("vl") || normalized.includes("vision")) return "lfm2Vision";
+	if (normalized.includes("lfm")) return "lfm2";
+	if (normalized.includes("qwen") || normalized.includes("gemma")) return "lfm2";
+	if (normalized.includes("minilm")) return "other";
 	return "other";
 }
 
@@ -174,88 +190,51 @@ function getStylizedModelInfo(rawModel?: string): StylizedModelInfo {
 	const source = String(rawModel || "").trim();
 	const normalized = source.toLowerCase();
 
-	if (normalized.includes("qwen 3 thinking")) {
-		return {
-			label: normalized.includes("unavailable") ? "Qwen 3 Thinking (Unavailable)" : "Qwen 3 Thinking",
-			accent: "qwen",
-		};
-	}
-	if (normalized.includes("qwen 3 vision")) {
-		return { label: normalized.includes("unavailable") ? "Qwen 3 Vision (Unavailable)" : "Qwen 3 Vision", accent: "clip" };
-	}
-	if (normalized.includes("gemma 3")) {
-		return { label: normalized.includes("unavailable") ? "Gemma 3 (Unavailable)" : "Gemma 3", accent: "qwen" };
-	}
-	if (normalized.includes("qwen 3")) {
-		return { label: normalized.includes("unavailable") ? "Qwen 3 (Unavailable)" : "Qwen 3", accent: "qwen" };
-	}
-	if (normalized.includes("minilm v2")) {
-		return { label: normalized.includes("fallback") ? "MiniLM V2 (Fallback)" : "MiniLM V2", accent: "minilm" };
-	}
-
-	if (normalized.includes("qwen3-vl-2b-q4_0.gguf")) {
-		return { label: "Qwen 3 Vision", accent: "clip" };
-	}
-	if (normalized.includes("locked-tier") && normalized.includes("vision")) {
-		return { label: "Qwen 3 Vision (Locked)", accent: "clip" };
-	}
-	if (normalized.includes("vision-unavailable") || (normalized.includes("vision") && normalized.includes("unavailable"))) {
-		return { label: "Qwen 3 Vision (Unavailable)", accent: "clip" };
-	}
-	if (normalized.includes("gemma3-1b-it-q4_0.gguf")) {
-		return { label: "Gemma 3", accent: "qwen" };
-	}
-	if (normalized.includes("qwen3-0.6b-q8_0.gguf") && normalized.includes("thinking")) {
-		return { label: "Qwen 3 Thinking", accent: "qwen" };
-	}
-	if (normalized.includes("qwen3-0.6b-q8_0.gguf")) {
-		return { label: "Qwen 3", accent: "qwen" };
-	}
-	if (normalized.includes("minilm-l6-v2.gguf")) {
-		if (normalized.includes("fallback")) {
-			return { label: "MiniLM V2 (Fallback)", accent: "minilm" };
-		}
-		return { label: "MiniLM V2", accent: "minilm" };
-	}
-	if (normalized.includes("clip") || normalized.includes("vision")) {
-		return { label: "Qwen 3 Vision", accent: "clip" };
-	}
-	if (normalized.includes("qwen3") && normalized.includes("unavailable")) {
-		return { label: "Qwen 3 (Unavailable)", accent: "qwen" };
-	}
-	if (normalized.includes("gemma") && normalized.includes("unavailable")) {
-		return { label: "Gemma 3 (Unavailable)", accent: "qwen" };
-	}
-	if (normalized.includes("llama.cpp") && normalized.includes("unavailable")) {
-		return { label: "llama.cpp (Unavailable)", accent: "qwen" };
-	}
-	if (normalized.includes("qwen3") && normalized.includes("unauthorized")) {
-		return { label: "Qwen 3 (Locked)", accent: "qwen" };
-	}
-	if (normalized.includes("llama.cpp") && normalized.includes("unauthorized")) {
-		return { label: "llama.cpp (Locked)", accent: "qwen" };
-	}
-	if (normalized.includes("qwen3-local") && normalized.includes("thinking")) {
-		return { label: "Qwen 3 Thinking", accent: "qwen" };
-	}
-	if (normalized.includes("llama.cpp-local") && normalized.includes("thinking")) {
-		return { label: "llama.cpp Thinking", accent: "qwen" };
-	}
-	if (normalized.includes("qwen3")) {
-		return { label: "Qwen 3", accent: "qwen" };
-	}
-	if (normalized.includes("llama.cpp")) {
-		return { label: "llama.cpp", accent: "qwen" };
+	// --- Current lineup: LFM 2.5 labels, i.e. MODEL_LABEL_BY_KEY values ---
+	// Handled first and derived from the model's own label so the size survives
+	// ("LFM 2.5 8B A1B" stays "LFM 2.5 8B A1B"). Only the availability marker is
+	// appended.
+	const suffix = normalized.includes("unavailable")
+		? " (Unavailable)"
+		: normalized.includes("locked") || normalized.includes("unauthorized")
+			? " (Locked)"
+			: "";
+	if (normalized.includes("lfm")) {
+		const base = source
+			.replace(/\s*\(?\s*(unavailable|locked|unauthorized)\s*\)?\s*$/i, "")
+			.trim();
+		const accent = normalized.includes(" vl") || normalized.includes("vision") ? "clip" : "lfm";
+		return { label: `${base || "LFM 2.5"}${suffix}`, accent };
 	}
 	if (normalized.includes("minilm")) {
-		if (normalized.includes("fallback")) {
-			return { label: "MiniLM V2 (Fallback)", accent: "minilm" };
-		}
-		return { label: "MiniLM V2", accent: "minilm" };
+		return {
+			label: normalized.includes("fallback") ? "MiniLM V2 (Fallback)" : "MiniLM V2",
+			accent: "minilm",
+		};
+	}
+	// Vision before the legacy text names, since "Qwen 3 Vision" contains "qwen 3".
+	if (normalized.includes("vision") || normalized.includes("clip")) {
+		return { label: `LFM 2.5 VL${suffix}`, accent: "clip" };
+	}
+
+	// --- Legacy names, retained so conversations saved before the LFM swap still
+	// render a sensible label instead of falling through to "Kafelot". ---
+	if (normalized.includes("thinking")) {
+		return { label: `Qwen 3 Thinking${suffix}`, accent: "lfm" };
+	}
+	if (normalized.includes("qwen")) {
+		return { label: `Qwen 3${suffix}`, accent: "lfm" };
+	}
+	if (normalized.includes("gemma")) {
+		return { label: `Gemma 3${suffix}`, accent: "lfm" };
+	}
+	if (normalized.includes("llama.cpp")) {
+		return { label: `llama.cpp${suffix}`, accent: "lfm" };
 	}
 
 	return { label: "Kafelot", accent: "minilm" };
 }
+
 
 type ChatHistory = {
 	id: string;
@@ -293,25 +272,14 @@ type UserSubscriptionTier = "none" | "free" | "basic" | "plus" | "pro" | "max" |
 
 const KNOWN_SUBSCRIPTION_TIERS = new Set<UserSubscriptionTier>(["none", "free", "basic", "plus", "pro", "max", "ultimate"]);
 
-const TEXT_MODELS_BY_TIER: Record<UserSubscriptionTier, TextModelKey[]> = {
-	none: ["minilm_l6_v2_gguf"],
-	free: ["minilm_l6_v2_gguf"],
-	basic: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf"],
-	plus: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf"],
-	pro: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf"],
-	max: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf"],
-	ultimate: ["minilm_l6_v2_gguf", "qwen3_06b_q8_0_gguf", "gemma3_1b_it_q4_0_gguf"],
-};
-
-const VISION_MODELS_BY_TIER: Record<UserSubscriptionTier, VisionModelKey[]> = {
-	none: [],
-	free: [],
-	basic: ["qwen3_vl_2b_q4_0_gguf"],
-	plus: ["qwen3_vl_2b_q4_0_gguf"],
-	pro: ["qwen3_vl_2b_q4_0_gguf"],
-	max: ["qwen3_vl_2b_q4_0_gguf"],
-	ultimate: ["qwen3_vl_2b_q4_0_gguf"],
-};
+/**
+ * Model entitlements come from `@/lib/modelAccess` (`allowedTextModelsForTier` /
+ * `allowedVisionModelsForTier`), not from a table local to this component.
+ *
+ * A local copy is exactly what drifted before: the plans page advertised the
+ * deleted Gemma 3 and promised vision on Basic while this file carried its own
+ * Qwen-era tier map. Deriving both from one table is the fix.
+ */
 
 const ALLOWED_VISION_UPLOAD_MIME_TYPES = new Set([
 	"image/webp",
@@ -685,8 +653,8 @@ export default React.memo(function CoffeeRecommender() {
 		molecule_helper: { chatId: null, messages: [] },
 	});
 	const [chatMode, setChatMode] = useState<"coffee" | "general">("coffee");
-	const [selectedModel, setSelectedModel] = useState<TextModelKey>("minilm_l6_v2_gguf");
-	const [selectedVisionModel, setSelectedVisionModel] = useState<VisionModelKey>("qwen3_vl_2b_q4_0_gguf");
+	const [selectedModel, setSelectedModel] = useState<TextModelKey>(TEXT_MODEL_230M);
+	const [selectedVisionModel, setSelectedVisionModel] = useState<VisionModelKey>(VISION_MODEL_450M);
 	const [chemistryMode, setChemistryMode] = useState(false);
 	const [thinkingEnabledByHelper, setThinkingEnabledByHelper] = useState<Record<HelperMode, boolean>>({
 		coffee_helper: false,
@@ -764,10 +732,10 @@ export default React.memo(function CoffeeRecommender() {
 	const stats = useMemo(() => {
 		const categoryCounts = { coffee: 0, chemistry: 0, general: 0 };
 		const modelPromptCounts: Record<ModelUsageKey, number> = {
-			minilm: 0,
-			qwen3: 0,
-			gemma3: 0,
-			qwen3Vision: 0,
+			lfm2: 0,
+			lfm2Thinking: 0,
+			lfm2Vision: 0,
+			lfm2Audio: 0,
 			other: 0,
 		};
 
@@ -793,7 +761,7 @@ export default React.memo(function CoffeeRecommender() {
 						: 0;
 				return acc;
 			},
-			{ minilm: 0, qwen3: 0, gemma3: 0, qwen3Vision: 0, other: 0 } as Record<ModelUsageKey, number>,
+			{ lfm2: 0, lfm2Thinking: 0, lfm2Vision: 0, lfm2Audio: 0, other: 0 } as Record<ModelUsageKey, number>,
 		);
 
 		const buildPromptScopeStats = (scope: PromptScope): PromptScopeStats => {
@@ -820,7 +788,7 @@ export default React.memo(function CoffeeRecommender() {
 			};
 		};
 
-		const hasMoleculeHelperAccess = (VISION_MODELS_BY_TIER[userSubscription] || []).length > 0;
+		const hasMoleculeHelperAccess = allowedVisionModelsForTier(userSubscription).length > 0;
 
 		const memoryLimit = CHAT_MEMORY_LIMIT_BY_TIER[userSubscription] ?? MAX_HISTORY;
 		const memoryUsed = chatHistory.length;
@@ -849,15 +817,18 @@ export default React.memo(function CoffeeRecommender() {
 		};
 	}, [chatHistory, promptUsageByScope, userSubscription, isLoggedIn]);
 
-	const allowedTextModels = useMemo(() => TEXT_MODELS_BY_TIER[userSubscription] || ["minilm_l6_v2_gguf"], [userSubscription]);
-	const allowedVisionModels = useMemo(() => VISION_MODELS_BY_TIER[userSubscription] || [], [userSubscription]);
+	const allowedTextModels = useMemo(() => allowedTextModelsForTier(userSubscription), [userSubscription]);
+	const allowedVisionModels = useMemo(() => allowedVisionModelsForTier(userSubscription), [userSubscription]);
 	const hasVisionAccess = allowedVisionModels.length > 0;
-	const hasQwenAccess = useMemo(() => allowedTextModels.includes("qwen3_06b_q8_0_gguf"), [allowedTextModels]);
-	const hasQwenThinkingAccess = useMemo(
-		() => userSubscription === "max" || userSubscription === "ultimate",
-		[userSubscription],
-	);
-	const hasGemmaAccess = useMemo(() => allowedTextModels.includes("gemma3_1b_it_q4_0_gguf"), [allowedTextModels]);
+	// Entitlement to the 1.2B Thinking model. This previously hardcoded
+	// `max || ultimate`, which contradicted the canonical table and denied Pro a
+	// model Pro is entitled to.
+	const hasThinkingAccess = useMemo(() => tierCanUseThinkingModel(userSubscription), [userSubscription]);
+	const has8BAccess = useMemo(() => allowedTextModels.includes(TEXT_MODEL_8B), [allowedTextModels]);
+	// Thinking is its own model in the LFM 2.5 lineup (1.2B Thinking), not a mode
+	// of the chat model. So the toggle is eligible for any entitled model except
+	// the thinking model itself, which already thinks.
+	const thinkingEligibleModel = hasThinkingAccess && selectedModel !== TEXT_MODEL_1_2B_THINKING;
 	const hasVisionAutoConvert = useMemo(() => canAutoConvertVisionUpload(userSubscription), [userSubscription]);
 	const maxImagesPerPrompt = useMemo(
 		() => (chemistryMode ? 1 : coffeeHelperImageLimitForTier(userSubscription)),
@@ -1012,7 +983,7 @@ export default React.memo(function CoffeeRecommender() {
 							clearAccountSession();
 							setIsLoggedIn(false);
 							setUserSubscription("none");
-							setSelectedModel("minilm_l6_v2_gguf");
+							setSelectedModel(TEXT_MODEL_230M);
 							fetchPromptStatus(undefined, "general");
 						};
 
@@ -1036,7 +1007,7 @@ export default React.memo(function CoffeeRecommender() {
 								}
 								setUserSubscription(tier);
 
-								setSelectedModel("minilm_l6_v2_gguf");
+								setSelectedModel(TEXT_MODEL_230M);
 							})
 							.catch((subscriptionError) => {
 								if ((subscriptionError as Error)?.message === "AUTH_EXPIRED") {
@@ -1066,7 +1037,7 @@ export default React.memo(function CoffeeRecommender() {
 											throw new Error("AUTH_ME_SUBSCRIPTION_MISSING");
 										}
 										setUserSubscription(sub);
-										setSelectedModel("minilm_l6_v2_gguf");
+										setSelectedModel(TEXT_MODEL_230M);
 									})
 									.catch((authError) => {
 										if ((authError as Error)?.message === "AUTH_EXPIRED") {
@@ -1075,7 +1046,7 @@ export default React.memo(function CoffeeRecommender() {
 										}
 										const sessionTier = normalizeUserSubscriptionTier(accountSession.subscription, "free");
 										setUserSubscription(sessionTier);
-										setSelectedModel("minilm_l6_v2_gguf");
+										setSelectedModel(TEXT_MODEL_230M);
 									});
 							});
 					}
@@ -1108,7 +1079,7 @@ export default React.memo(function CoffeeRecommender() {
 		const token = accountSession?.token ?? undefined;
 		const scope: PromptScope = chemistryMode ? "molecule_helper" : "general";
 		fetchPromptStatus(token, scope, true);
-		const hasMoleculeHelperAccess = (VISION_MODELS_BY_TIER[userSubscription] || []).length > 0;
+		const hasMoleculeHelperAccess = allowedVisionModelsForTier(userSubscription).length > 0;
 		if (hasMoleculeHelperAccess) {
 			const secondaryScope: PromptScope = scope === "general" ? "molecule_helper" : "general";
 			fetchPromptStatus(token, secondaryScope, false);
@@ -1137,10 +1108,10 @@ export default React.memo(function CoffeeRecommender() {
 	}, [allowedVisionModels, selectedVisionModel]);
 
 	useEffect(() => {
-		if (!hasQwenThinkingAccess) {
+		if (!hasThinkingAccess) {
 			setThinkingEnabledByHelper({ coffee_helper: false, molecule_helper: false });
 		}
-	}, [hasQwenThinkingAccess]);
+	}, [hasThinkingAccess]);
 
 	useEffect(() => {
 		// close on Escape
@@ -1281,12 +1252,12 @@ export default React.memo(function CoffeeRecommender() {
 	}, []);
 
 	const toggleThinkingForActiveHelper = useCallback(() => {
-		if (!hasQwenThinkingAccess) return;
+		if (!hasThinkingAccess) return;
 		setThinkingEnabledByHelper((prev) => ({
 			...prev,
 			[activeHelperMode]: !prev[activeHelperMode],
 		}));
-	}, [activeHelperMode, hasQwenThinkingAccess]);
+	}, [activeHelperMode, hasThinkingAccess]);
 
 	// Reset textarea height when input is cleared (after send)
 	useEffect(() => {
@@ -1769,10 +1740,9 @@ export default React.memo(function CoffeeRecommender() {
 			chemistryMode && (isMoleculeQuery(prompt) || /CHEMBL\d+/i.test(prompt) || !!extractMoleculeQuery(prompt));
 		const helperModeForPrompt: HelperMode = chemistryMode ? "molecule_helper" : "coffee_helper";
 		const thinkingToggleEnabled = thinkingEnabledByHelper[helperModeForPrompt];
-		const thinkingEligibleModel = selectedModel === "qwen3_06b_q8_0_gguf" && hasQwenThinkingAccess;
 		const enableThinking = shouldEnableThinkingForPrompt(prompt, thinkingEligibleModel, thinkingToggleEnabled);
-		const selectedTextModelLabel = TEXT_MODEL_LABEL_BY_KEY[selectedModel];
-		const selectedVisionModelLabel = VISION_MODEL_LABEL_BY_KEY[selectedVisionModel];
+		const selectedTextModelLabel = MODEL_LABEL_BY_KEY[selectedModel];
+		const selectedVisionModelLabel = MODEL_LABEL_BY_KEY[selectedVisionModel];
 
 		if (imageToSend && !hasVisionAccess) {
 			const lockedVisionMsg: Message = {
@@ -2122,7 +2092,7 @@ export default React.memo(function CoffeeRecommender() {
 		generateFallbackResponse,
 		smarterAIAvailable,
 		chemistryMode,
-		hasQwenThinkingAccess,
+		hasThinkingAccess,
 		selectedModel,
 		selectedVisionModel,
 		hasVisionAccess,
@@ -2649,24 +2619,15 @@ export default React.memo(function CoffeeRecommender() {
 										</div>
 										<div className="model-access-list">
 											{allowedTextModels.map((modelKey) => (
-												<span
-													key={modelKey}
-													className={`model-access-chip ${modelKey === "minilm_l6_v2_gguf" ? "minilm" : "qwen"}`}
-												>
-													{modelKey === "minilm_l6_v2_gguf" ? (
-														<BrandGeminiIcon size={13} />
-													) : modelKey === "gemma3_1b_it_q4_0_gguf" ? (
-														<BrandAnthropicIcon size={13} />
-													) : (
-														<BrandQwenIcon size={13} />
-													)}
-													{TEXT_MODEL_LABEL_BY_KEY[modelKey]}
+												<span key={modelKey} className="model-access-chip lfm">
+													<BrandLiquidIcon size={13} />
+													{MODEL_LABEL_BY_KEY[modelKey]}
 												</span>
 											))}
 											{hasVisionAccess ? (
 												allowedVisionModels.map((visionKey) => (
 													<span key={visionKey} className="model-access-chip clip">
-														<CameraIcon size={13} /> {VISION_MODEL_LABEL_BY_KEY[visionKey]}
+														<CameraIcon size={13} /> {MODEL_LABEL_BY_KEY[visionKey]}
 													</span>
 												))
 											) : (
@@ -2684,15 +2645,15 @@ export default React.memo(function CoffeeRecommender() {
 										>
 											{chemistryMode
 												? hasVisionAccess
-													? "Molecule Helper supports text chemistry plus Qwen 3 VL vision analysis."
-													: "Molecule Helper text chemistry is available. Vision uploads require BASIC or higher."
-												: hasGemmaAccess
-													? "ULTIMATE can choose MiniLM V2, Qwen 3, or Gemma 3."
-													: hasQwenThinkingAccess
-														? "MAX can choose MiniLM V2 or Qwen 3, and can enable Qwen 3 Thinking mode."
-														: hasQwenAccess
-															? "BASIC, PLUS, and PRO can choose MiniLM V2 or Qwen 3."
-															: "FREE uses MiniLM-L6-v2.gguf."}
+													? "Molecule Helper supports text chemistry plus LFM 2.5 VL vision analysis."
+													: "Molecule Helper text chemistry is available. Vision uploads require PLUS or higher."
+												: has8BAccess
+													? "ULTIMATE unlocks every LFM 2.5 model, including the 8B and Audio models."
+													: hasThinkingAccess
+														? "PRO can choose the 1.2B Thinking model and enable Thinking mode."
+														: hasVisionAccess
+															? "PLUS can choose the 1.2B Instruct model and LFM 2.5 VL vision."
+															: "FREE and BASIC use the fastest LFM 2.5 model."}
 										</p>
 										{!isLoggedIn && (
 											<p
@@ -2726,7 +2687,7 @@ export default React.memo(function CoffeeRecommender() {
 									>
 										{allowedTextModels.map((modelKey) => (
 											<option key={modelKey} value={modelKey}>
-												{TEXT_MODEL_LABEL_BY_KEY[modelKey]}
+												{MODEL_LABEL_BY_KEY[modelKey]}
 											</option>
 										))}
 									</select>
@@ -2750,9 +2711,9 @@ export default React.memo(function CoffeeRecommender() {
 											opacity: hasVisionAccess ? 1 : 0.6,
 										}}
 									>
-										{(hasVisionAccess ? allowedVisionModels : ["qwen3_vl_2b_q4_0_gguf"]).map((visionKey) => (
+										{(hasVisionAccess ? allowedVisionModels : [VISION_MODEL_450M]).map((visionKey) => (
 											<option key={visionKey} value={visionKey}>
-												{VISION_MODEL_LABEL_BY_KEY[visionKey as VisionModelKey]}
+												{MODEL_LABEL_BY_KEY[visionKey as VisionModelKey]}
 											</option>
 										))}
 									</select>
@@ -2766,17 +2727,17 @@ export default React.memo(function CoffeeRecommender() {
 									<button
 										className={thinkingEnabledForActiveHelper ? "active" : ""}
 										onClick={toggleThinkingForActiveHelper}
-										disabled={!hasQwenThinkingAccess || selectedModel !== "qwen3_06b_q8_0_gguf"}
+										disabled={!thinkingEligibleModel}
 										title={
-											hasQwenThinkingAccess
-												? selectedModel === "qwen3_06b_q8_0_gguf"
-													? "Enable or disable Qwen 3 Thinking for this helper."
-													: "Select Qwen 3 to enable this toggle."
-												: "Thinking mode requires MAX or ULTIMATE subscription."
+											hasThinkingAccess
+												? thinkingEligibleModel
+													? "Enable or disable Thinking for this helper."
+													: "The 1.2B Thinking model already thinks."
+												: "Thinking mode requires a PRO, MAX, or ULTIMATE subscription."
 										}
 									>
 										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-											<BrandQwenIcon size={16} />
+											<BrandLiquidIcon size={16} />
 										</span>
 										{thinkingEnabledForActiveHelper ? "Thinking ON" : "Thinking OFF"}
 									</button>
@@ -2788,11 +2749,11 @@ export default React.memo(function CoffeeRecommender() {
 										color: "rgba(250, 204, 144, 0.62)",
 									}}
 								>
-									{hasQwenThinkingAccess
-										? selectedModel === "qwen3_06b_q8_0_gguf"
+									{hasThinkingAccess
+										? thinkingEligibleModel
 											? "Thinking is saved separately for Coffee Helper and Molecule Helper. You can still use /think or /no_think per message."
-											: "Thinking toggle activates only when Qwen 3 is selected."
-										: "Thinking mode requires MAX or ULTIMATE subscription."}
+											: "The 1.2B Thinking model always thinks, so the toggle is not needed."
+										: "Thinking mode requires a PRO, MAX, or ULTIMATE subscription."}
 								</p>
 
 								{chemistryMode && (
@@ -2859,9 +2820,9 @@ export default React.memo(function CoffeeRecommender() {
 											<SparklesIcon size={16} /> Kafelot
 										</div>
 										<p>
-											Text model: {TEXT_MODEL_LABEL_BY_KEY[selectedModel]}. Vision model:{" "}
+											Text model: {MODEL_LABEL_BY_KEY[selectedModel]}. Vision model:{" "}
 											{hasVisionAccess
-												? VISION_MODEL_LABEL_BY_KEY[selectedVisionModel]
+												? MODEL_LABEL_BY_KEY[selectedVisionModel]
 												: "Locked on Free tier"}
 											.
 										</p>
@@ -3004,8 +2965,8 @@ export default React.memo(function CoffeeRecommender() {
 												{msg.role === "assistant" && msg.modelUsed && stylizedModel && (
 													<div className={`chat-model-used model-${stylizedModel.accent}`}>
 														<span className="chat-model-icon">
-															{stylizedModel.accent === "qwen" ? (
-																<BrandQwenIcon size={12} />
+															{stylizedModel.accent === "lfm" ? (
+																<BrandLiquidIcon size={12} />
 															) : stylizedModel.accent === "minilm" ? (
 																<BrandGeminiIcon size={12} />
 															) : stylizedModel.accent === "clip" ? (
