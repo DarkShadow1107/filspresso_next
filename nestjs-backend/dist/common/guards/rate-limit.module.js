@@ -13,6 +13,7 @@ const core_1 = require("@nestjs/core");
 const throttler_1 = require("@nestjs/throttler");
 const throttler_storage_redis_1 = require("@nest-lab/throttler-storage-redis");
 const redis_url_1 = require("../utils/redis-url");
+const resilient_throttler_storage_1 = require("./resilient-throttler.storage");
 const constants_1 = require("../../config/constants");
 /**
  * Global rate limiting (PLAN_NESTJS_SCALING.md section 6).
@@ -46,6 +47,10 @@ exports.RateLimitModule = RateLimitModule = __decorate([
                 inject: [config_1.ConfigService],
                 useFactory: (configService) => {
                     const redisUrl = (0, redis_url_1.resolveRedisUrl)();
+                    const storage = new resilient_throttler_storage_1.ResilientThrottlerStorage();
+                    if (redisUrl) {
+                        storage.useRedis(() => new throttler_storage_redis_1.ThrottlerStorageRedisService(redisUrl));
+                    }
                     return {
                         throttlers: [
                             {
@@ -56,7 +61,7 @@ exports.RateLimitModule = RateLimitModule = __decorate([
                                     constants_1.DEFAULT_API_RATE_LIMIT_MAX,
                             },
                         ],
-                        ...(redisUrl ? { storage: new throttler_storage_redis_1.ThrottlerStorageRedisService(redisUrl) } : {}),
+                        storage,
                     };
                 },
             }),

@@ -19,6 +19,14 @@ class DatabaseServiceMock {
 			error: this.isUp ? null : "db down",
 		};
 	}
+
+	/**
+	 * Phase 9 V3 added pool occupancy to the payload so the load test could assert on
+	 * `waiting`. Stubbed here because the real counters come from `pg`.
+	 */
+	getPoolStats(): { total: number; idle: number; waiting: number; max: number } {
+		return { total: 3, idle: 2, waiting: 0, max: 50 };
+	}
 }
 
 test("health liveness includes request id", () => {
@@ -49,6 +57,9 @@ test("services health summarizes up services", async () => {
 		assert.equal(result.summary.totalServices, 4);
 		assert.equal(result.summary.downServices, 0);
 		assert.equal(result.requestId, "req-abc");
+		// Phase 9 V3: the load test reads `waiting` from here to prove the pool is not
+		// a bottleneck. Counts only -- no DSN or credentials in the payload.
+		assert.deepEqual(result.pool, { total: 3, idle: 2, waiting: 0, max: 50 });
 	} finally {
 		globalThis.fetch = originalFetch;
 	}

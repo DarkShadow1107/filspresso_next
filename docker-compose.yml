@@ -111,12 +111,28 @@ services:
             # tail latency roughly flat. Must be set before node starts: it is
             # read once at startup, so setting it at runtime has no effect.
             UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE:-16}
-            # Pool sizing is now configuration. Keep DB_POOL_MAX at the historical
-            # 20 until Phase 0 data justifies a change: Postgres defaults to
-            # max_connections=100, so replicas x DB_POOL_MAX must stay under that.
-            DB_POOL_MAX: ${DB_POOL_MAX:-20}
+            # Pool sizing is now configuration, and Phase 9 finally supplied the data
+            # the old comment was waiting for. At DB_POOL_MAX=20 the 50-concurrent-user
+            # load test (V3) pinned the pool at 20/20 with up to 17 callers queued for a
+            # connection. That is structural, not a slow query: a request-scoped
+            # connection means zero queueing at N concurrent users needs N connections.
+            #
+            # Budget: max_connections=100, minus 3 superuser-reserved, minus the handful
+            # of admin/observability sessions, leaves ~90. One replica at 50 keeps ~40
+            # spare, so this still satisfies "replicas x DB_POOL_MAX < max_connections"
+            # with room for a second replica. Do not raise it without redoing that sum.
+            DB_POOL_MAX: ${DB_POOL_MAX:-50}
             DB_POOL_MIN: ${DB_POOL_MIN:-2}
             DB_POOL_IDLE_TIMEOUT_MS: ${DB_POOL_IDLE_TIMEOUT_MS:-30000}
+            # Phase 9. The per-IP rate limiter and the login-attempt lockout both key
+            # on req.ip. Without this, every request arrives from the Docker gateway
+            # and they all share ONE budget: the login limit is 10/15min, so the 11th
+            # user on the whole instance gets a 429 and a single abusive client can
+            # lock out everyone. `1` trusts exactly one hop, which is Caddy. The
+            # published 4000 port means a direct host caller can still set XFF, but
+            # that path is dev-only; remove the port mapping in production instead of
+            # setting this to 0, which would re-break Caddy.
+            TRUST_PROXY: ${TRUST_PROXY:-1}
             LOG_LEVEL: ${LOG_LEVEL:-log}
             JWT_SECRET: ${JWT_SECRET:-}
             JWT_SECRET_FILE: ${JWT_SECRET_FILE:-}

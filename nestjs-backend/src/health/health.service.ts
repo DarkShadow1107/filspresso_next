@@ -183,6 +183,9 @@ export class HealthService {
 				upServices: upCount,
 				downServices: Object.keys(services).length - upCount,
 			},
+			// Occupancy counts only -- no DSN, no credentials. `waiting` is the one
+			// worth alerting on: it means requests are queued for a connection.
+			pool: this.databaseService.getPoolStats(),
 			services,
 			requestId,
 		};

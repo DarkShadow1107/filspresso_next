@@ -8,7 +8,11 @@
 		"start": "node dist/main.js",
 		"start:dev": "tsx watch src/main.ts",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"test": "tsx --test test/**/*.test.ts"
+		"test": "tsx --test test/**/*.test.ts",
+		"test:load": "node scripts/load-test.mjs",
+		"test:drills": "node scripts/outage-drills.mjs",
+		"test:live": "node scripts/v1-live-checks.mjs",
+		"test:phase9": "npm run test:live && npm run test:load && npm run test:drills"
 	},
 	"dependencies": {
 		"@nest-lab/throttler-storage-redis": "^1.2.0",

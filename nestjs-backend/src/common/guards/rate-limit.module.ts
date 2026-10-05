@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { ThrottlerStorageRedisService } from "@nest-lab/throttler-storage-redis";
 
 import { resolveRedisUrl } from "../utils/redis-url";
+import { ResilientThrottlerStorage } from "./resilient-throttler.storage";
 import {
 	DEFAULT_API_RATE_LIMIT_MAX,
 	DEFAULT_API_RATE_LIMIT_WINDOW_MS,
@@ -37,21 +38,25 @@ import {
 			imports: [ConfigModule],
 			inject: [ConfigService],
 			useFactory: (configService: ConfigService) => {
-				const redisUrl = resolveRedisUrl();
-				return {
-					throttlers: [
-						{
-							name: "default",
-							ttl:
-								configService.get<number>("apiRateLimitWindowMs") ??
-								DEFAULT_API_RATE_LIMIT_WINDOW_MS,
-							limit:
-								configService.get<number>("apiRateLimitMax") ??
-								DEFAULT_API_RATE_LIMIT_MAX,
-						},
-					],
-					...(redisUrl ? { storage: new ThrottlerStorageRedisService(redisUrl) } : {}),
-				};
+					const redisUrl = resolveRedisUrl();
+					const storage = new ResilientThrottlerStorage();
+					if (redisUrl) {
+						storage.useRedis(() => new ThrottlerStorageRedisService(redisUrl));
+					}
+					return {
+						throttlers: [
+							{
+								name: "default",
+								ttl:
+									configService.get<number>("apiRateLimitWindowMs") ??
+									DEFAULT_API_RATE_LIMIT_WINDOW_MS,
+								limit:
+									configService.get<number>("apiRateLimitMax") ??
+									DEFAULT_API_RATE_LIMIT_MAX,
+							},
+						],
+						storage,
+					};
 			},
 		}),
 	],

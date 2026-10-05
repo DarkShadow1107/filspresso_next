@@ -773,38 +773,89 @@ quantity ordered; the persisted line carries the database name and price.
 
 ---
 
-## 11. Phase 9 — Verification
+## 11. Phase 9 — Verification (delivered)
 
-- **V1.** Backend tests stay green (`npm --prefix nestjs-backend run test`, currently
-  7/7). Add tests for: Redis session set/get/del and the Postgres fallback; logout
-  revokes immediately; throttler returns 429; order re-pricing rejects a tampered
-  `unitPrice` and insufficient stock; order-number uniqueness under concurrent inserts.
-- **V2.** Full repo gates: `npm run lint`, `npx tsc --noEmit`, `npm run build`,
-  backend `typecheck`/`build`/`test`.
-- **V3.** **Load test** — the point of the plan. Drive ≥50 concurrent authenticated
-  users through a mix of orders, subscriptions and cards. Assert: no pool exhaustion
-  (`waitingCount` stays near 0), login p95 under target, no 5xx, and correct
-  behaviour when Redis is killed mid-run (fall back to Postgres, never fail open).
-- **V4.** **Redis-outage drill:** stop Redis, confirm authenticated traffic still
-  works via the Postgres fallback and that logout still revokes.
-- **V5.** **Shutdown drill:** `docker compose stop backend` during active traffic;
-  confirm in-flight orders complete and `pool.end()` runs.
-- **V6.** `docker compose ps` — the backend should report **healthy**. It used to
-  report `unhealthy` while `/health` returned 200; both causes are now fixed (see
-  the correction note in §3) and it reports `running healthy` with
-  `RestartCount=0`. Keep this as a regression check: a bare `unhealthy` here with
-  a working `/health` means the healthcheck command regressed, not the service.
+Delivered in five commits. Everything below was measured against the running stack, not
+inferred from reading code.
 
----
+**V1 — tests.** Backend suite is 133 tests, all passing. The three behaviours that cannot
+be expressed hermetically now have committed live checks in
+`nestjs-backend/scripts/v1-live-checks.mjs` (`npm run test:live`), 16/16 green: the
+throttler really returns 429 once the budget is spent; logout revokes on the very next
+request and a replayed cookie stays rejected; a tampered `unitPrice` is ignored in favour
+of the catalogue price (155.00 subtotal against a submitted 0.01) and an over-quantity
+order is refused before insert; eight concurrent checkouts all succeed with eight distinct
+sequence-backed order numbers. Session set/get/del and the Postgres fallback stay in
+`session-store.test.ts`, and the order trust boundary in `order-pricing.test.ts`.
+
+**V2 — gates.** `npm run lint`, `npx tsc --noEmit`, `npm run build`, backend
+`typecheck`/`build`/`test`, 48 Python tests, 14 entitlements tests. All green.
+
+**V3 — load test.** `nestjs-backend/scripts/load-test.mjs` (`npm run test:load`).
+Fifty concurrent authenticated virtual users, each with its own client address, driving
+orders, cards, subscriptions, cart and favourites. 1350 requests, ~224/s, in 6.0s.
+Assertions: no user failed, every session authenticated, no 5xx, pool `waiting` stayed 0,
+login p95 1163 ms, 200 orders / 100 cards / 50 subscriptions actually created.
+
+It found four things. First, `GET /api/orders/popular` returned 500 for every caller:
+the move to the least-privilege `filspresso_backend_svc` role never granted it SELECT on
+`popular_products_cache`. An audit of every relation owned by `filspresso_user` found
+this was the only object missing a grant. Second, `TRUST_PROXY` was unset, so with Caddy
+in front the per-IP rate limiter and the login lockout both keyed on the Docker gateway
+address and shared one budget — the 11th user on the instance got a 429. Now
+`TRUST_PROXY=1`. Third, the pool was undersized: at `DB_POOL_MAX=20` the run pinned
+20/20 with 17 callers queued, which is structural rather than a slow query, because a
+request-scoped connection needs N connections for zero queueing at N users. Raised to 50
+against the `max_connections=100` budget; `waiting` then stayed 0 and login p95 improved
+to ~1.0–1.3s. Fourth, the test harness had been lying to itself three times over — no
+`Origin` so every write 403'd, a pre-stringified body double-encoded into 400s, and a
+hardcoded `product_id` that earlier runs had drained to zero stock.
+
+**V4 — Redis outage.** `nestjs-backend/scripts/outage-drills.mjs` (`npm run test:drills`).
+Stopping Redis exposed two production bugs. `HttpExceptionFilter` wrote a second response
+when a route had already replied, and that `ERR_HTTP_HEADERS_SENT` was thrown from inside
+the filter where nothing catches it — Node treated it as an unhandled rejection and killed
+the process, so a cache outage became a full outage (`RestartCount=1`). Worse,
+`@nestjs-lab/throttler-storage-redis` does not reject when Redis is unreachable, it parks
+commands on its offline queue, so the promise never settles: every authenticated route
+returned 503 `Request timed out` and the session store's Postgres fallback never got to
+run. `ResilientThrottlerStorage` now races the delegate against a 750 ms deadline and
+counts in-process when it loses, with a 10s cooldown so no request pays the deadline
+repeatedly. Degrading to per-replica counting is the same trade the module already
+documents for a missing `REDIS_URL`; degrading to *no limit* would be unacceptable, so the
+local counter still enforces the limit. The drill now passes 15/15: authenticated reads
+work with Redis down, logout revokes, the revoked session is rejected, and it is *still*
+rejected after Redis returns — the deny-list reached Postgres, so restarting the cache
+does not resurrect logged-out sessions.
+
+**V5 — shutdown.** Same drill. `docker compose stop backend` during active checkout
+traffic completes in ~1s, `pool.end()` runs ("PostgreSQL pool closed cleanly"), Nest logs
+its shutdown sequence, 20 in-flight orders complete, and after restart the session is
+still valid and all 20 orders are readable.
+
+**V6 — health.** `running healthy`, `RestartCount=0`.
+
+### Two caveats on the harnesses
+
+Run from the Windows host, a burst of ~50 *new* TCP connections to the published port has
+14 of them reset by Docker Desktop's port-forwarding proxy at exactly 30s with
+`ECONNRESET`; the identical burst from inside the Docker network is 50/50. The drills
+therefore use a keep-alive agent, and the load test is run against `http://backend:4000`
+from inside the network. This is an artefact of the host port proxy, not of the
+application, but it will bite anyone load-testing this from Windows.
+
+The load test creates real orders in the development database and consumes real catalogue
+stock (the SKU is resolved from `/api/products/coffee` at startup for exactly this
+reason). Do not point it at anything you care about.
 
 ## 12. Risks
 
 | Risk | Mitigation |
 | --- | --- |
-| Redis becomes a new hard dependency for auth | Postgres fallback + V4 outage drill |
+| Redis becomes a new hard dependency for auth | Postgres fallback for sessions; `ResilientThrottlerStorage` for counters; both covered by the V4 drill, which found neither worked |
 | Re-pricing breaks clients that send their own `unitPrice` | Return a clear 409 with the authoritative price; the frontend already reads prices from `/api/products` |
 | `UV_THREADPOOL_SIZE=16` raises peak RSS | ~19 MiB × 16 worst case; measure with V3 |
-| Pool resize could exhaust Postgres | Default stays 20, tune only from V3 data, document `replicas × pool < max_connections` |
+| Pool resize could exhaust Postgres | Sized to 50 from V3 data against `max_connections=100`; `replicas × pool` must stay under it |
 | Throttler misconfiguration locks out real users | Per-route limits rather than one tight global value; dry-run first |
 | Graceful-shutdown change alters restart behaviour | V5 drill before relying on it |
 | Instrumentation is itself expensive | Behind `LOG_REQUESTS`, off by default |

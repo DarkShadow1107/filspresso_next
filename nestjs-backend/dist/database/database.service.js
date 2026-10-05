@@ -90,6 +90,22 @@ let DatabaseService = DatabaseService_1 = class DatabaseService {
         return this.pool;
     }
     /**
+     * Current pool occupancy, for the saturation assertions in the load test.
+     *
+     * `waiting` is the number that matters: it counts callers queued for a connection,
+     * so a non-zero value is proof that the pool is a bottleneck rather than a guess
+     * from latency alone. `idleCount`/`totalCount` are `pg` counters and are already
+     * capped at `max`, so they cannot overflow.
+     */
+    getPoolStats() {
+        return {
+            total: this.pool.totalCount,
+            idle: this.pool.idleCount,
+            waiting: this.pool.waitingCount,
+            max: this.pool.options.max ?? 0,
+        };
+    }
+    /**
      * Closes every pooled connection.
      *
      * Called during graceful shutdown. `pool.end()` drains in-flight queries and
