@@ -128,12 +128,28 @@ test("the Playground is a MAX/ULTIMATE feature and is advertised exactly there",
 	// This is the copy the plans page was missing entirely.
 	assert.deepEqual([...PLAYGROUND_MINIMUM_TIER], ["max", "ultimate"]);
 	for (const tier of TIERS) {
-		const advertised = featureLinesForTier(tier).some((l) => l.includes("Model Playground"));
+		// Match on "Playground" alone. Pinning the full old label ("Model Playground")
+		// made this test fail on any rename, which is a nuisance rather than a guard.
+		const advertised = featureLinesForTier(tier).some((l) => l.includes("Playground"));
 		assert.equal(
 			advertised,
 			PLAYGROUND_MINIMUM_TIER.includes(tier),
 			`${tier}: advertised=${advertised} entitled=${PLAYGROUND_MINIMUM_TIER.includes(tier)}`,
 		);
+	}
+});
+
+test("the Playground line is named Spectre and uses the text-model icon", () => {
+	// Two specific requirements, so both are pinned rather than inferred. The icon must
+	// be the same glyph the MiniLM line uses (U+1F9E0), which is why the source reuses
+	// MODALITY_EMOJI.text instead of hardcoding a character -- a hardcoded emoji here is
+	// exactly how it drifted to a clapper board in the first place.
+	for (const tier of PLAYGROUND_MINIMUM_TIER) {
+		const line = featureLinesForTier(tier).find((l) => l.includes("Playground"));
+		assert.ok(line, `${tier}: expected a Playground line`);
+		assert.match(line, /Spectre/i, `${tier}: ${line} should name Spectre`);
+		assert.ok(!/Model Playground/.test(line), `${tier}: old label still present`);
+		assert.ok(line.startsWith("\u{1F9E0}"), `${tier}: expected the MiniLM icon, got ${line}`);
 	}
 });
 

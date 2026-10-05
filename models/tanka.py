@@ -112,6 +112,40 @@ def _model_unavailable_error(model_name: str, base_url: str, exc: Exception) -> 
     return exc
 
 
+def _read_usage(body: Any) -> dict[str, int]:
+    """Pull token counts out of an OpenAI-compatible completion body.
+
+    Returns zeroes when the block is absent or malformed rather than raising: the
+    generation already succeeded, and failing the request because the billing metadata
+    was missing would be a worse outcome than recording a zero.
+
+    A cached prompt is still billable input here, so `prompt_tokens_details.cached_tokens`
+    is folded in rather than discarded -- reading only the top-level count would
+    under-charge every cached turn.
+    """
+    zero = {"prompt_tokens": 0, "completion_tokens": 0}
+    if not isinstance(body, dict):
+        return zero
+    usage = body.get("usage")
+    if not isinstance(usage, dict):
+        return zero
+
+    def _count(value: Any) -> int:
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return 0
+        return n if n > 0 else 0
+
+    details = usage.get("prompt_tokens_details")
+    cached = _count(details.get("cached_tokens")) if isinstance(details, dict) else 0
+    prompt = _count(usage.get("prompt_tokens"))
+    if prompt == 0 and cached:
+        prompt = cached
+
+    return {"prompt_tokens": prompt, "completion_tokens": _count(usage.get("completion_tokens"))}
+
+
 class TankaModel:
     """
     Tanka runtime facade.
@@ -136,6 +170,14 @@ class TankaModel:
         self._last_coffee_text_model = "llama.cpp-fallback-coffee"
         self._last_qwen_generation_mode = "non-thinking"
         self._last_vision_model = ""
+
+        # Token counts for the most recent generation, for billing.
+        #
+        # llama.cpp returns a standard OpenAI-compatible `usage` block and it was being
+        # parsed and thrown away, so there was no way to meter a request even in
+        # principle. This is the only place the gateway learns what a generation cost, so
+        # it is cleared before every generation and set from that response.
+        self._last_usage = {"prompt_tokens": 0, "completion_tokens": 0}
 
         self._llama_base_url = (os.getenv("LLAMA_CPP_BASE_URL", "http://llama-cpp:8080") or "").strip()
         self._llama_timeout_seconds = max(15, int(os.getenv("LLAMA_CPP_TIMEOUT_SECONDS", "180") or 180))
@@ -274,6 +316,15 @@ class TankaModel:
         await self.residency.aclose()
         await self._client.aclose()
 
+    @property
+    def last_usage(self) -> dict[str, int]:
+        """Token counts for the most recent generation. Zeroes when unavailable.
+
+        Read immediately after a generate call. Reset per request, so a caller that
+        forgets to read it gets zeroes rather than someone else's numbers.
+        """
+        return dict(self._last_usage)
+
     def _llama_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self._llama_api_key:
@@ -389,6 +440,9 @@ class TankaModel:
         max_new_tokens: int,
         thinking_enabled: bool,
     ) -> str:
+        # Cleared before the call, so a failure leaves zeroes rather than the previous
+        # request's numbers -- which would bill the wrong exchange.
+        self._last_usage = {"prompt_tokens": 0, "completion_tokens": 0}
         payload = {
             "model": router_model_id(model_name),
             "messages": [
@@ -432,6 +486,7 @@ class TankaModel:
             response.raise_for_status()
 
         body: dict[str, Any] = response.json()
+        self._last_usage = _read_usage(body)
         choices = body.get("choices")
         if not choices:
             raise RuntimeError("llama.cpp returned no choices")
@@ -458,6 +513,8 @@ class TankaModel:
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         image_url = f"data:image/png;base64,{image_b64}"
 
+        # Same reason as the text path: zeroes on failure, never the previous request's.
+        self._last_usage = {"prompt_tokens": 0, "completion_tokens": 0}
         payload = {
             "model": router_model_id(model_name),
             "messages": [
@@ -503,6 +560,7 @@ class TankaModel:
             response.raise_for_status()
 
         body: dict[str, Any] = response.json()
+        self._last_usage = _read_usage(body)
         choices = body.get("choices")
         if not choices:
             raise RuntimeError("llama.cpp vision request returned no choices")

@@ -968,6 +968,11 @@ async def chat(request: Request):
             "text_model": text_model,
             "mode": mode_label,
             "request_id": request_id,
+            # Token counts for this exchange, so the caller can meter it. llama.cpp
+            # always returned a usage block; it was being discarded, which made billing
+            # impossible rather than merely unimplemented. Zeros when the response came
+            # from the lexical fallback, where no tokens were spent.
+            "usage": tanka.last_usage,
         }
         model_used_lower = str(model_used).lower()
         if "thinking" in model_used_lower:

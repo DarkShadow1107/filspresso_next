@@ -672,6 +672,80 @@ async def test_second_request_to_same_model_queues_then_gets_429(tanka_stub):
     assert ok.status_code == 200
 
 
+async def test_chat_reports_token_usage_for_metering(tanka_stub, fake_db):
+    """
+    Token metering depends on this block existing.
+
+    llama.cpp always returned an OpenAI-compatible `usage`; the gateway parsed it and
+    dropped it, so there was no way to bill a request at all. The Next layer reads these
+    two numbers to compute a charge, so their absence is a billing bug, not a cosmetic
+    one.
+    """
+    tanka_stub.last_usage = {"prompt_tokens": 298, "completion_tokens": 20}
+    async with await _asgi_client() as ac:
+        response = await ac.post(
+            "/api/chat",
+            json={"message": "what is an espresso", "text_model": "LFM2.5-230M-Q4_K_M.gguf"},
+        )
+
+    assert response.status_code == 200
+    usage = response.json()["usage"]
+    assert usage["prompt_tokens"] == 298, "input tokens must reach the caller unmangled"
+    assert usage["completion_tokens"] == 20, "output tokens must reach the caller unmangled"
+
+
+async def test_chat_reports_zero_usage_when_the_fallback_serves_the_request(tanka_stub, fake_db):
+    """
+    A degraded request spent no tokens, so it must report zeroes.
+
+    Not null and not absent: a missing block is indistinguishable from "free" at the
+    call site that bills it, which would make an outage look like a windfall.
+    """
+    tanka_stub.last_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+    async with await _asgi_client() as ac:
+        response = await ac.post(
+            "/api/chat",
+            json={"message": "what is an espresso", "text_model": "LFM2.5-230M-Q4_K_M.gguf"},
+        )
+
+    usage = response.json()["usage"]
+    assert usage == {"prompt_tokens": 0, "completion_tokens": 0}
+
+
+def test_read_usage_never_raises_on_a_malformed_block():
+    """
+    The generation already succeeded; failing the request over missing billing metadata
+    would be strictly worse than recording a zero.
+    """
+    from models.tanka import _read_usage
+
+    assert _read_usage(None) == {"prompt_tokens": 0, "completion_tokens": 0}
+    assert _read_usage({}) == {"prompt_tokens": 0, "completion_tokens": 0}
+    assert _read_usage({"usage": "nope"}) == {"prompt_tokens": 0, "completion_tokens": 0}
+    # Negative and non-numeric counts are not credits.
+    assert _read_usage({"usage": {"prompt_tokens": -5, "completion_tokens": "x"}}) == {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+    }
+
+
+def test_read_usage_keeps_cached_prompt_tokens():
+    """
+    A cached prompt is still billable input. Reading only the top-level count would
+    under-charge every cached turn, so the cached portion is folded in.
+    """
+    from models.tanka import _read_usage
+
+    assert _read_usage(
+        {"usage": {"prompt_tokens": 100, "prompt_tokens_details": {"cached_tokens": 80}}}
+    ) == {"prompt_tokens": 100, "completion_tokens": 0}
+    # Some builds report only the cached split.
+    assert _read_usage({"usage": {"prompt_tokens_details": {"cached_tokens": 80}}}) == {
+        "prompt_tokens": 80,
+        "completion_tokens": 0,
+    }
+
+
 async def test_chat_degrades_soft_200_when_model_is_busy(tanka_stub, fake_db):
     """
     D3: /api/chat has no useful 429 path, so saturation must degrade through the

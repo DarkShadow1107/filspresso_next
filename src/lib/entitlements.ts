@@ -225,7 +225,10 @@ export function featureLinesForTier(tier: UserSubscriptionTier | string): string
 	const lines: string[] = [];
 
 	if (tierCanUsePlayground(value)) {
-		lines.push("\u{1F3A8} Model Playground access");
+		// The text-modality icon, so this reads the same as the MiniLM line rather than
+		// carrying its own glyph. It used to be a clapper board, which was the only
+		// benefit line with an icon unrelated to what the feature actually is.
+		lines.push(`${MODALITY_EMOJI.text} Spectre Playground access`);
 	}
 	if (tierCanUseMoleculeHelper(value)) {
 		lines.push("\u{1F9EC} Molecule Helper - 200 prompts/month (LFM 2.5 VL)");

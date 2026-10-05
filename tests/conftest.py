@@ -161,6 +161,10 @@ class FakeTanka:
             "LFM2.5-2.6B-Q4_0.gguf": "llama-lfm-2-6b:8080",
         }
         self.vision_services = {"LFM2.5-VL-450M-Q4_K_M.gguf": "llama-lfm-vl-450m:8080"}
+        # Token counts for the most recent generation. app.py reads this to build the
+        # `usage` block it returns, so without it every chat test raised
+        # AttributeError and the endpoint 500'd. Set per-test to assert on metering.
+        self.last_usage = {"prompt_tokens": 0, "completion_tokens": 0}
 
     def service_key(self, model_name, vision: bool = False):
         """Mirror of TankaModel.service_key.
