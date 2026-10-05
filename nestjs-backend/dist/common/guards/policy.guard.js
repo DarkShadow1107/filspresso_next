@@ -14,11 +14,18 @@ const common_1 = require("@nestjs/common");
 const core_1 = require("@nestjs/core");
 const policy_decorator_1 = require("../decorators/policy.decorator");
 const opa_policy_service_1 = require("../../security/policy/opa-policy.service");
+const client_ip_1 = require("../utils/client-ip");
 function getRequestIp(req) {
-    const forwarded = String(req.headers["x-forwarded-for"] || "")
-        .split(",")[0]
-        .trim();
-    return forwarded || String(req.headers["x-real-ip"] || "").trim() || req.ip || req.socket?.remoteAddress || null;
+    // Phase 10 review. This used to read `x-forwarded-for` and `x-real-ip` directly, so
+    // the value sent to OPA as an identity input was whatever the caller asserted.
+    //
+    // Checked before changing it: `security/opa/policies/filspresso-authz.rego` never
+    // references an ip field. Every rule keys on `input.resource`, `input.path` and
+    // `input.identity.{actor_type,role,username}`. So this is an audit field only and the
+    // change is behaviourally inert -- which is why it can be made without a policy
+    // review, and why it should not have been left trusting a header in the meantime.
+    const resolved = (0, client_ip_1.resolveClientIp)(req);
+    return resolved || null;
 }
 function normalizePath(req) {
     const raw = String(req.originalUrl || req.url || "");

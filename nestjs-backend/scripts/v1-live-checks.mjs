@@ -29,6 +29,10 @@ const CONCURRENT_CHECKOUTS = Number(argOf("concurrency", 8));
 const RUN = crypto.randomBytes(2).toString("hex");
 
 const agent = new http.Agent({ keepAlive: true, maxSockets: 64 });
+// The local Caddy listener uses a mkcert certificate that Node does not trust by
+// default. This drill is against localhost, so verification is turned off for it
+// rather than shipping NODE_EXTRA_CA_CERTS into the repo.
+const insecureAgent = new https.Agent({ keepAlive: true, maxSockets: 64, rejectUnauthorized: false });
 const checks = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -37,16 +41,16 @@ function check(name, ok, detail) {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${name.padEnd(52)} ${detail ?? ""}`);
 }
 
-function rawRequest(path, { method = "GET", headers = {}, body } = {}) {
+function rawRequest(path, { method = "GET", headers = {}, body, insecure = false, base = BASE } = {}) {
   return new Promise((resolve) => {
-    const url = new URL(BASE + path);
+    const url = new URL(base + path);
     const mod = url.protocol === "https:" ? https : http;
     const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
     const finalHeaders = { ...headers };
     if (payload) finalHeaders["content-length"] = String(payload.length);
     const req = mod.request(
       {
-        agent,
+        agent: insecure ? insecureAgent : agent,
         protocol: url.protocol,
         hostname: url.hostname,
         port: url.port || (url.protocol === "https:" ? 443 : 80),
@@ -75,11 +79,11 @@ async function makeUser(tag, ip) {
   const password = "LoadTest!2026x";
   const jar = new Map();
 
-  const send = async (path, { method = "GET", body, auth = true, overrideIp } = {}) => {
+  const send = async (path, { method = "GET", body, auth = true, overrideIp, insecure = false } = {}) => {
     const headers = { accept: "application/json", origin: ORIGIN, "x-forwarded-for": overrideIp || ip };
     if (body !== undefined) headers["content-type"] = "application/json";
     if (auth && jar.size) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
-    const res = await rawRequest(path, { method, headers, body });
+    const res = await rawRequest(path, { method, headers, body, insecure });
     for (const c of res.setCookies) {
       const [pair] = c.split(";");
       const idx = pair.indexOf("=");
@@ -205,6 +209,81 @@ async function rePricingRejectsTampering() {
   );
 }
 
+/* ------------------------------- lockout vs a rotating header */
+const CADDY_BASE = argOf("caddy-base", process.env.CADDY_BASE_URL || "https://localhost:8443");
+
+async function lockoutSurvivesRotatingHeader() {
+  // The security property behind the x-forwarded-for fix, checked against the running
+  // service. The lockout key is sha256(username|ip), so while `getClientIp` preferred
+  // the header a caller could rotate it and land in a fresh bucket on every attempt --
+  // the brute-force control and the spoofable header defeated each other.
+  //
+  // Run through Caddy, not the published port, and the difference is the whole point:
+  //
+  //   via Caddy   Caddy appends the address it saw, so Express's right-to-left walk
+  //                returns the real client and a forged prefix is ignored.
+  //   via :4000   the peer is Docker's gateway, which is a trusted unique-local address,
+  //                so `trust proxy: 1` legitimately believes the single forged entry.
+  //                Verified: 13 attempts over :4000 produced 13 login_keys of
+  //                failed_attempts=1 each. The same attempts over Caddy produce one key
+  //                that accumulates -- which is why production must not publish 4000.
+  const base = CADDY_BASE.replace(/\/+$/, "");
+  const insecure = base.startsWith("https");
+  const post = async (path, body, ip) =>
+    rawRequest(path, {
+      method: "POST",
+      insecure,
+      base,
+      headers: {
+        "content-type": "application/json",
+        origin: base,
+        "x-forwarded-for": ip,
+      },
+      body,
+    });
+
+  const uniq = `lock${RUN}${crypto.randomBytes(3).toString("hex")}`;
+  const email = `${uniq}@v1.test`;
+
+  const reg = await post("/api/auth/register", { username: uniq, email, password: "LoadTest!2026x" }, "203.0.113.200");
+  if (reg.status !== 201) {
+    check("can register through the trusted proxy path", false, `HTTP ${reg.status} ${reg.text.slice(0, 110)}`);
+    return;
+  }
+  check("can register through the trusted proxy path", true, `${base}`);
+
+  // AUTH_LOCK_THRESHOLD is max(8, AUTH_LOCK_THRESHOLD) with a default of 10, so fewer
+  // than 11 attempts cannot trip it.
+  const ATTEMPTS = 13;
+  const statuses = [];
+  let lockedAt = null;
+  let control = null;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    // A different forged source address every single time.
+    const forged = `198.51.100.${(attempt % 250) + 1}`;
+    const res = await post("/api/auth/login", { email, password: "WrongPassword!2026" }, forged);
+    statuses.push(res.status);
+    if (res.status === 423 || res.status === 429 || /locked|too many attempts|try again in/i.test(res.text)) {
+      lockedAt = attempt + 1;
+      // Name which control fired. Both prove the same property -- one bucket, not one per
+      // forged header -- but the per-IP throttle (429, 10/15min) usually gets there
+      // before the per-username lockout (threshold 10).
+      const which = res.status === 429 ? "per-IP throttle" : "per-username lockout";
+      control = which;
+      console.log(`        ${which} engaged on attempt ${lockedAt}: HTTP ${res.status} ${(res.text || "").slice(0, 80)}`);
+      break;
+    }
+  }
+
+  check(
+    "login lockout engages despite a rotating x-forwarded-for",
+    lockedAt !== null,
+    lockedAt !== null
+      ? `${control} engaged at attempt ${lockedAt} of ${ATTEMPTS}`
+      : `statuses ${statuses.join(",")} -- never locked`,
+  );
+}
+
 /* ------------------------------- order numbers under concurrent inserts */
 async function orderNumbersUniqueUnderConcurrency() {
   const users = [];
@@ -255,6 +334,7 @@ async function orderNumbersUniqueUnderConcurrency() {
     ["throttler 429", throttlerReturns429],
     ["logout revokes immediately", logoutRevokesImmediately],
     ["re-pricing rejects tampering", rePricingRejectsTampering],
+    ["lockout vs rotating header", lockoutSurvivesRotatingHeader],
     ["order numbers under concurrency", orderNumbersUniqueUnderConcurrency],
   ]) {
     console.log(`=== ${name} ===`);

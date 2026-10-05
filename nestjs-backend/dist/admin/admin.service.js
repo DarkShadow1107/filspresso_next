@@ -46,6 +46,7 @@ exports.AdminService = void 0;
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
 const session_store_service_1 = require("../common/guards/session-store.service");
+const client_ip_1 = require("../common/utils/client-ip");
 const crypto = __importStar(require("crypto"));
 const path = __importStar(require("path"));
 const passwords = __importStar(require("../common/utils/passwords"));
@@ -148,9 +149,11 @@ let AdminService = class AdminService {
         return clean;
     }
     getRequestIp(req) {
-        const forwarded = req.headers["x-forwarded-for"];
-        const source = Array.isArray(forwarded) ? forwarded[0] : forwarded || req.ip || req.socket?.remoteAddress || "";
-        return this.normalizeIp(source);
+        // Phase 10 review. This used to read `x-forwarded-for` first, which made the
+        // ADMIN_IP_ALLOWLIST below bypassable by any caller that set the header -- the one
+        // control whose entire job is to decide who may reach admin at all. Now resolved
+        // through Express, which honours the configured `trust proxy`.
+        return (0, client_ip_1.resolveClientIp)(req);
     }
     isIpAllowed(ip) {
         if (ADMIN_IP_ALLOWLIST.length === 0)

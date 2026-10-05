@@ -848,6 +848,44 @@ The load test creates real orders in the development database and consumes real 
 stock (the SKU is resolved from `/api/products/coffee` at startup for exactly this
 reason). Do not point it at anything you care about.
 
+## 11a. Client IP trust (delivered)
+
+Phase 9 V4 set `TRUST_PROXY=1` and the load test needed distinct client addresses, which
+made it obvious that four modules were resolving "the client's IP" independently -- and
+each one preferred `x-forwarded-for` over the socket. There is now one helper,
+`common/utils/client-ip.ts`, and `req.ip` is the only source.
+
+What each site was worth:
+
+| Site | Consequence of trusting the header |
+| --- | --- |
+| `admin/admin.service.ts` | `ADMIN_IP_ALLOWLIST` was bypassable by any caller. The control whose entire job is deciding who may reach admin. Latent only because the variable is unset today, which is worse: it looks armed. |
+| `auth/auth-complex.service.ts` | The lockout key is `sha256(username\|ip)`, so rotating the header produced a fresh bucket per attempt and the escalating lockout never engaged. |
+| `common/guards/policy.guard.ts` | The IP is an input to OPA. Checked before changing: `filspresso-authz.rego` never references an ip field, so this is an audit value and the change is behaviourally inert. |
+| `kafelot/kafelot.controller.ts` | Usage attribution, and any scope or quota keyed off it, was assignable by the caller. |
+
+The admin allowlist was the one to lead with, and it is worth being precise about why it
+was not exploitable today: `ADMIN_IP_ALLOWLIST` is empty, and an empty allowlist returns
+true for everyone. So no live exposure -- but the first person to set that variable to
+restrict admin access would have gotten a restriction that any caller could step around.
+
+### Verified, including the part that is still true
+
+`test:live` drives 13 logins with a different forged `x-forwarded-for` on every one. Over
+the published port that produced **13 distinct `login_key` rows of `failed_attempts = 1`
+each** -- the bypass, reproduced. The same attempts through Caddy produce **one key that
+accumulates**, and a control engages at attempt 8.
+
+The published port is still spoofable and that is not fixable in application code.
+Docker's gateway is `172.20.0.1`, a unique-local address, which Express's default trust
+function treats as a proxy, so `trust proxy: 1` legitimately walks one hop into the
+header. Caddy is different: it appends the address it saw, so the walk returns the real
+client and the forged prefix is ignored. **Production must not publish 4000.** Removing
+the port mapping is the fix; `TRUST_PROXY=0` is not, because it would re-break Caddy and
+with it the per-IP rate limiter and the lockout.
+
+Backend suite is 151 tests.
+
 ## 12. Risks
 
 | Risk | Mitigation |

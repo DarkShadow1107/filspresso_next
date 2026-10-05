@@ -1,6 +1,7 @@
 import { Injectable, HttpException, BadRequestException, NotFoundException, ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { SessionStoreService } from "../common/guards/session-store.service";
+import { resolveClientIp } from "../common/utils/client-ip";
 import * as crypto from "crypto";
 import * as path from "path";
 import type { Request, Response } from "express";
@@ -106,9 +107,11 @@ export class AdminService {
   }
 
   private getRequestIp(req: Request) {
-    const forwarded = req.headers["x-forwarded-for"];
-    const source = Array.isArray(forwarded) ? forwarded[0] : forwarded || req.ip || req.socket?.remoteAddress || "";
-    return this.normalizeIp(source);
+    // Phase 10 review. This used to read `x-forwarded-for` first, which made the
+    // ADMIN_IP_ALLOWLIST below bypassable by any caller that set the header -- the one
+    // control whose entire job is to decide who may reach admin at all. Now resolved
+    // through Express, which honours the configured `trust proxy`.
+    return resolveClientIp(req);
   }
 
   private isIpAllowed(ip: string) {

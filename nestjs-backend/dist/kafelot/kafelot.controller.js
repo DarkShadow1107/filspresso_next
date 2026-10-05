@@ -72,11 +72,16 @@ function normalizeClientIp(value) {
     return null;
 }
 function getClientIp(req) {
-    return normalizeClientIp(req.headers["cf-connecting-ip"]) ||
+    // Phase 10 review. This preferred four client-supplied headers over the socket, so
+    // usage attribution -- and any scope or quota keyed off it -- was assignable by the
+    // caller. Express resolves `req.ip` against the configured `trust proxy`, which is
+    // the decision worth honouring; the header forms stay only as a fallback for a
+    // deployment that terminates TLS somewhere this process cannot see.
+    return normalizeClientIp(req.ip) ||
+        normalizeClientIp(req.socket?.remoteAddress) ||
+        normalizeClientIp(req.headers["cf-connecting-ip"]) ||
         normalizeClientIp(req.headers["x-real-ip"]) ||
-        normalizeClientIp(req.headers["x-forwarded-for"]) ||
-        normalizeClientIp(req.ip) ||
-        normalizeClientIp(req.socket?.remoteAddress) || null;
+        normalizeClientIp(req.headers["x-forwarded-for"]) || null;
 }
 function resolveUsageScope(req) {
     const bodyScope = req.body && typeof req.body === "object" ? req.body.scope : undefined;

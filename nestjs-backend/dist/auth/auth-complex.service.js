@@ -45,6 +45,7 @@ var AuthComplexService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthComplexService = void 0;
 const httpClient_1 = require("../common/utils/httpClient");
+const client_ip_1 = require("../common/utils/client-ip");
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
 const session_store_service_1 = require("../common/guards/session-store.service");
@@ -90,10 +91,12 @@ let AuthComplexService = AuthComplexService_1 = class AuthComplexService {
         return typeof password === "string" && password.length >= 8 && password.length <= 128;
     }
     getClientIp(req) {
-        const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
-        const realIp = String(req.headers["x-real-ip"] || "").trim();
-        const candidate = forwarded || realIp || req.ip || req.socket?.remoteAddress || "";
-        return String(candidate).slice(0, 64) || null;
+        // Phase 10 review. This used to prefer `x-forwarded-for`, and it feeds
+        // `computeLoginAttemptKey`, which is `sha256(username|ip)`. A caller who rotated the
+        // header got a fresh lockout key on every attempt, so the escalating lockout never
+        // engaged -- the brute-force control and the spoofable header defeated each other.
+        // Resolved through Express now, which honours the configured `trust proxy`.
+        return (0, client_ip_1.resolveClientIp)(req) || null;
     }
     normalizeLoginKey(loginField) {
         return this.normalizeCredentialField(loginField, 254).toLowerCase();
