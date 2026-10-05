@@ -36,47 +36,63 @@ export class ProductsService {
   }
 
   /**
-   * `basename.ext` -> extension, for every file under the public images tree.
+   * Relative image path (`Capsules/Vertuo/Espressos/Altissio.webp`) -> extension, for
+   * every file under the public images tree.
    *
    * Phase 8.6. `resolveImageExtension` used to call `fs.existsSync` up to six times per
    * product row, so listing 100 capsules performed several hundred synchronous stat
    * calls on the event loop. The set of filenames does not change while the process is
    * running, so it is read once.
    *
+   * Keyed by full relative path, not bare filename. The first version keyed on
+   * `basename.ext` and ignored the subPath it was handed, which is only correct as long
+   * as no two products in different collections share a filename -- and then it fails
+   * silently, reporting an image that does not exist rather than falling back. The
+   * catalogue reuses names across collections ("Signature", "Il caffè"), so this was a
+   * live hazard, not a theoretical one.
+   *
    * Built lazily rather than in the constructor because the images directory may be a
    * bind mount that is not populated yet at boot; a missing directory yields an empty
-   * set, and `resolveImageExtension` falls back to the preferred extension exactly as
+   * map, and `resolveImageExtension` falls back to the preferred extension exactly as
    * before.
    */
-  private static imageBasenames: Set<string> | null = null;
+  private static imageBasenames: Map<string, string> | null = null;
 
-  private loadImageBasenames(): Set<string> {
+  /** Posix-style key so lookups do not depend on the host path separator. */
+  private static imageKey(subPath: string, filename: string): string {
+    const dir = String(subPath || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    const base = String(filename || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    return dir ? `${dir}/${base}` : base;
+  }
+
+  private loadImageBasenames(): Map<string, string> {
     if (ProductsService.imageBasenames) return ProductsService.imageBasenames;
-    const found = new Set<string>();
+    const found = new Map<string, string>();
     try {
       for (const dir of fs.readdirSync(PUBLIC_IMAGES_PATH, { withFileTypes: true })) {
-        const walk = (current: string, depth: number) => {
+        const walk = (current: string, relative: string, depth: number) => {
           if (depth > 6) return;
           for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
             const full = path.join(current, entry.name);
+            const rel = relative ? `${relative}/${entry.name}` : entry.name;
             if (entry.isDirectory()) {
-              walk(full, depth + 1);
+              walk(full, rel, depth + 1);
             } else if (entry.isFile()) {
               const ext = path.extname(entry.name).replace(/^\./, "").toLowerCase();
               if (!ext || !VALID_IMAGE_EXTENSIONS.has(ext)) continue;
-              found.add(`${path.basename(entry.name, path.extname(entry.name))}.${ext}`);
+              found.set(rel, ext);
             }
           }
         };
         const root = path.join(PUBLIC_IMAGES_PATH, dir.name);
-        if (dir.isDirectory()) walk(root, 1);
+        if (dir.isDirectory()) walk(root, dir.name, 1);
         else if (dir.isFile()) {
           const ext = path.extname(dir.name).replace(/^\./, "").toLowerCase();
-          if (ext && VALID_IMAGE_EXTENSIONS.has(ext)) found.add(dir.name);
+          if (ext && VALID_IMAGE_EXTENSIONS.has(ext)) found.set(dir.name, ext);
         }
       }
     } catch {
-      // No images directory, or it is unreadable. An empty set makes every lookup fall
+      // No images directory, or it is unreadable. An empty map makes every lookup fall
       // through to the preferred extension, which is the pre-existing behaviour when a
       // file is not found.
     }
@@ -84,16 +100,44 @@ export class ProductsService {
     return found;
   }
 
-  private resolveImageExtension(subPath: string, filename: string, preferredExt: string): string {
-    const preferred = (preferredExt || "").toLowerCase();
-    const available = this.loadImageBasenames();
-    if (preferred && VALID_IMAGE_EXTENSIONS.has(preferred)) {
-      if (available.has(`${filename}.${preferred}`)) return preferred;
+  /**
+   * Locate a product's image and return its path relative to `public/images`, or null.
+   *
+   * Returns the location rather than only the extension because the catalogue's
+   * `category` values do not always match the folder names on disk -- `Barista
+   * Creations` against a `Barista Creation` folder, `Tasse` against `Mug`. A
+   * subPath-derived URL is therefore wrong for 14 of the 100 capsules, and an
+   * extension-only lookup made that invisible: it found `Bianco Doppio.webp` in the
+   * correct folder, reported `webp`, and the caller then rebuilt the wrong directory
+   * from `category` anyway. So the extension was right and the path was broken, which is
+   * the worst combination -- it looks verified.
+   *
+   * So: prefer the exact subPath, then fall back to a filename match anywhere under the
+   * capsule or machine tree, and only report null when the file is genuinely absent.
+   */
+  private findImage(subPath: string, filename: string, preferredExt: string): string | null {    const preferred = (preferredExt || "").toLowerCase();
+    const index = this.loadImageBasenames();
+    const stem = String(filename || "").trim();
+    if (!stem) return null;
+
+    const order = [
+      ...(preferred && VALID_IMAGE_EXTENSIONS.has(preferred) ? [preferred] : []),
+      ...["avif", "webp", "png", "jpg", "jpeg"].filter((e) => e !== preferred),
+    ];
+
+    for (const ext of order) {
+      const key = ProductsService.imageKey(subPath, `${stem}.${ext}`);
+      if (index.has(key)) return key;
     }
-    for (const ext of ["avif", "webp", "png", "jpg", "jpeg"]) {
-      if (available.has(`${filename}.${ext}`)) return ext;
+
+    // Same collection, any folder: the subPath is a hint, not the source of truth.
+    for (const ext of order) {
+      const suffix = `/${stem}.${ext}`;
+      for (const key of index.keys()) {
+        if (key.endsWith(suffix)) return key;
+      }
     }
-    return preferred && VALID_IMAGE_EXTENSIONS.has(preferred) ? preferred : "avif";
+    return null;
   }
 
   private mapCoffeeRow(row: ProductRow): Record<string, unknown> {
@@ -107,8 +151,14 @@ export class ProductsService {
     const typeDir = this.resolveTypeDir(String(row["product_type"] || ""), "Original");
     const category = String(row["category"] || "Master Origins");
     const subPath = path.join("Capsules", typeDir, category);
-    const extension = this.resolveImageExtension(subPath, filename, String(row["image_extension"] || ""));
-    const imageUrl = `/images/Capsules/${typeDir}/${category}/${filename}.${extension}`;
+    const preferredExt = String(row["image_extension"] || "");
+    // Where the file actually is, not where `category` says it should be. See
+    // `findImage`: 14 capsules have a category that does not match the folder name.
+    const relative = this.findImage(subPath, filename, preferredExt);
+    const extension = relative
+      ? ProductsService.imageBasenames!.get(relative)!
+      : (VALID_IMAGE_EXTENSIONS.has(preferredExt.toLowerCase()) ? preferredExt.toLowerCase() : "avif");
+    const imageUrl = relative ? `/images/${relative}` : `/images/Capsules/${typeDir}/${category}/${filename}.${extension}`;
 
     const parseArr = (v: unknown): unknown[] => {
       if (Array.isArray(v)) return v;
@@ -165,11 +215,15 @@ export class ProductsService {
     const category = String(row["category"] || "Espresso Machines");
     const filename = String(row["name"] || "");
     const subPath = path.join("Machines", typeDir, category);
-    const extension = this.resolveImageExtension(subPath, filename, String(row["image_extension"] || "avif"));
+    const preferredExt = String(row["image_extension"] || "avif");
+    const relative = this.findImage(subPath, filename, preferredExt);
+    const extension = relative
+      ? ProductsService.imageBasenames!.get(relative)!
+      : (VALID_IMAGE_EXTENSIONS.has(preferredExt.toLowerCase()) ? preferredExt.toLowerCase() : "avif");
     return {
       productId: row["product_id"], productType: row["product_type"], category: row["category"],
       name: row["name"], description: row["description"], notes: parseArr(row["notes"]),
-      image: `/images/Machines/${typeDir}/${category}/${filename}.${extension}`,
+      image: relative ? `/images/${relative}` : `/images/Machines/${typeDir}/${category}/${filename}.${extension}`,
       boxClass: row["box_class"] || null, wrapperClass: row["wrapper_class"] || null,
       unitLabel: row["unit_label"] || null, priceClass: row["price_class"] || null,
       priceText: row["price_text"] || null, extraClass: parseArr(row["extra_class"]),

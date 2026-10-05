@@ -21,8 +21,16 @@ let WeatherController = class WeatherController {
         this.weatherService = weatherService;
     }
     getWeather(lat, lon, req) {
-        const rawIp = req.headers["x-forwarded-for"] || req.ip || "";
-        const clientIp = (Array.isArray(rawIp) ? rawIp[0] : String(rawIp).split(",")[0]).trim();
+        // `req.ip`, not the raw header. Express resolves it according to the configured
+        // `trust proxy` (TRUST_PROXY, set to 1 for Caddy), so this route can no longer be
+        // handed an arbitrary address by a caller that sets x-forwarded-for itself.
+        // Reading the header directly -- which is what this did -- bypassed that decision
+        // entirely: the header was trusted whatever trust proxy said.
+        //
+        // Only the displayed city/country depends on this. The forecast comes from the
+        // lat/lon query parameters, and a private or absent address simply yields no
+        // location rather than an error.
+        const clientIp = String(req.ip || "").trim();
         return this.weatherService.getWeather(parseFloat(lat), parseFloat(lon), clientIp);
     }
     getRecommendation(lat, lon) {

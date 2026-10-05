@@ -153,28 +153,42 @@ describe("Phase 8.6: image lookups are not per-row stat calls", () => {
   const svc = code("products/products.service.ts");
 
   it("no longer stats per row", () => {
-    const resolveStart = svc.indexOf("private resolveImageExtension");
-    assert.ok(resolveStart !== -1, "resolveImageExtension not found");
-    const body = svc.slice(resolveStart, resolveStart + 900);
+    // `findImage` replaced `resolveImageExtension`: it returns the file's real path
+    // under public/images, because the catalogue's category does not always match the
+    // folder name (Barista Creations vs Barista Creation, Tasse vs Mug), and an
+    // extension-only lookup hid that -- right extension, wrong directory.
+    const resolveStart = svc.indexOf("private findImage");
+    assert.ok(resolveStart !== -1, "findImage not found");
+    const body = svc.slice(resolveStart, resolveStart + 1200);
     assert.doesNotMatch(body, /existsSync/, "still calling existsSync per product");
   });
 
-  it("builds one set of basenames instead", () => {
+  it("builds one index of relative paths instead", () => {
     assert.match(svc, /loadImageBasenames/);
     assert.match(svc, /imageBasenames/);
+    // Keyed by the full relative path, so a same-named file in another collection
+    // cannot satisfy the lookup.
+    assert.match(svc, /imageKey/);
   });
 
   it("assigns the cache even when the walk throws", () => {
-    // Structural: a missing bind mount must still leave a usable (empty) set rather
+    // Structural: a missing bind mount must still leave a usable (empty) index rather
     // than propagating and breaking product listing.
     const start = svc.indexOf("private loadImageBasenames");
     assert.ok(start !== -1, "loadImageBasenames not found");
-    const body = svc.slice(start, svc.indexOf("private resolveImageExtension", start));
+    const body = svc.slice(start, svc.indexOf("private findImage", start));
     const tryIdx = body.indexOf("try {");
     const catchIdx = body.indexOf("catch");
     assert.ok(tryIdx !== -1 && catchIdx > tryIdx, "the directory walk must be inside a try/catch");
     // The assignment sits after the catch, so it runs on both paths.
     const assign = body.indexOf("imageBasenames = found");
     assert.ok(assign > catchIdx, "the cache must be assigned after the catch, so a throw still caches");
+  });
+
+  it("serves the located path, not one rebuilt from category", () => {
+    // The bug this replaced: a correct extension inside a wrong directory reads as
+    // verified, because the extension check passes.
+    assert.match(svc, /imageUrl = relative \? `\/images\/\$\{relative\}`/);
+    assert.match(svc, /image: relative \? `\/images\/\$\{relative\}`/);
   });
 });

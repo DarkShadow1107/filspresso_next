@@ -769,6 +769,15 @@ export default React.memo(function CoffeeRecommender() {
 		[],
 	);
 
+	// Molecule Helper (chemistry) is ULTIMATE-only. Distinct from vision access:
+	// the helper's text mode used to be available on every plan.
+	//
+	// Declared here rather than beside the other entitlement flags further down: the
+	// `stats` memo below reads it, and a `const` is in its temporal dead zone until
+	// its own statement runs. Reading it from a memo that executes earlier threw
+	// "Cannot access 'hasMoleculeHelperAccess' before initialization" on every render.
+	const hasMoleculeHelperAccess = tierCanUseMoleculeHelper(userSubscription);
+
 	const stats = useMemo(() => {
 		const categoryCounts = { coffee: 0, chemistry: 0, general: 0 };
 		const modelPromptCounts: Record<ModelUsageKey, number> = {
@@ -854,7 +863,7 @@ export default React.memo(function CoffeeRecommender() {
 				usagePercent: memoryUsagePercent,
 			},
 		};
-	}, [chatHistory, promptUsageByScope, userSubscription, isLoggedIn]);
+	}, [chatHistory, promptUsageByScope, userSubscription, isLoggedIn, hasMoleculeHelperAccess]);
 
 	const allowedTextModels = useMemo(() => allowedTextModelsForTier(userSubscription), [userSubscription]);
 	const allowedVisionModels = useMemo(() => allowedVisionModelsForTier(userSubscription), [userSubscription]);
@@ -898,9 +907,6 @@ export default React.memo(function CoffeeRecommender() {
 	// of the chat model. So the toggle is eligible for any entitled model except
 	// the thinking model itself, which already thinks.
 	const thinkingEligibleModel = hasThinkingAccess && selectedModel !== TEXT_MODEL_1_2B_THINKING;
-	// Molecule Helper (chemistry) is ULTIMATE-only. Distinct from vision access:
-	// the helper's text mode used to be available on every plan.
-	const hasMoleculeHelperAccess = tierCanUseMoleculeHelper(userSubscription);
 	const hasVisionAutoConvert = useMemo(() => tierCanAutoConvertVisionImage(userSubscription), [userSubscription]);
 	const maxImagesPerPrompt = useMemo(
 		() => (chemistryMode ? 1 : coffeeHelperImageLimitForTier(userSubscription)),
