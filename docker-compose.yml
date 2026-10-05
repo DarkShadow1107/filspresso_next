@@ -245,7 +245,22 @@ services:
             - ./public/images:/public/images
             - ./secrets:/app/secrets:ro
         ports:
-            - "4000:4000"
+            # Loopback only, not 0.0.0.0.
+            #
+            # TRUST_PROXY=1 means Express believes one hop of x-forwarded-for. Caddy is
+            # that hop, and Caddy *appends* the address it saw, so a client-supplied
+            # prefix is ignored -- correct. But a direct caller on the published port is
+            # also "one hop", so it can set the header and be believed. Measured: 13
+            # logins with a different forged address each produced 13 distinct
+            # auth_login_attempts rows, defeating the escalating login lockout; the same
+            # 13 through Caddy produced one row that accumulated.
+            #
+            # So this port must never be reachable off-host. Caddy reaches the backend
+            # over the compose network by service name and does not need this mapping
+            # at all -- in production, delete these two lines. Do NOT set TRUST_PROXY=0
+            # instead: that re-breaks Caddy, and with it the per-IP rate limiter and the
+            # login lockout.
+            - "${BACKEND_BIND_HOST:-127.0.0.1}:4000:4000"
         healthcheck:
             # Must call process.exit() explicitly. The previous form relied on the
             # event loop draining to end the process, so a keep-alive socket could

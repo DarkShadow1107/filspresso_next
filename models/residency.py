@@ -53,6 +53,26 @@ def router_model_id(model_name: str) -> str:
     return name
 
 
+def _is_already_running(response) -> bool:
+    """True when the router refused a load because the model is already up.
+
+    Matched on the message rather than the bare 400: a 400 can also mean a genuinely
+    bad request (an unknown model name returns 404, but a malformed one returns 400), and
+    only this specific message means "your view of the world is stale".
+    """
+    try:
+        payload = response.json()
+    except Exception:
+        return "already running" in (response.text or "").lower()
+    error = payload.get("error") if isinstance(payload, dict) else None
+    message = ""
+    if isinstance(error, dict):
+        message = str(error.get("message") or "")
+    elif isinstance(error, str):
+        message = error
+    return "already running" in message.lower()
+
+
 @dataclass
 class GateSlot:
     """A held admission slot, plus how long acquiring it actually took."""
@@ -272,6 +292,28 @@ class ModelResidencyCoordinator:
                         json={"model": router_model_id(target)},
                         timeout=15.0,
                     )
+                    # "model is already running" is success, not failure.
+                    #
+                    # The router answers 400 {"message":"model is already running"} when
+                    # the model is loaded but this coordinator's view is stale. Treating
+                    # that as an error was a hard deadlock: `resident` is only refreshed
+                    # by /api/model-status polling and after a *successful* load, so a
+                    # stale view made every request call request_load(), the worker got
+                    # 400, marked the model failed, and never refreshed -- leaving
+                    # `resident` permanently empty. Observed as the 230M reporting
+                    # "busy for 20.0s (limit 4)" forever while the router had it loaded.
+                    if response.status_code == 400 and _is_already_running(response):
+                        logger.info(
+                            "%s is already resident at the router; adopting that view",
+                            target,
+                        )
+                        await self.refresh_residency()
+                        async with self._cond:
+                            self.loading.pop(target, None)
+                            self.active_model = target
+                            self.failed.pop(target, None)
+                            self._cond.notify_all()
+                        break
                     response.raise_for_status()
                 except Exception as exc:
                     async with self._cond:

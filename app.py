@@ -375,6 +375,12 @@ def _vision_model_tag(model_name: str) -> str:
 
 # Columns the molecule lookup path depends on. `molecule mol` and its GIST index
 # come from the rdkit extension and are declared in nestjs-backend/data/schema.sql.
+# How long /api/health will wait for the llama.cpp router before reporting it busy.
+# Must stay comfortably under the compose healthcheck timeout (10s) so a busy router
+# can never accumulate into a container restart.
+HEALTH_ROUTER_WAIT_SECONDS = float(os.getenv("HEALTH_ROUTER_WAIT_SECONDS", "2.0"))
+
+
 MOLECULES_REQUIRED_COLUMNS = (
     "id",
     "name",
@@ -1897,7 +1903,32 @@ async def model_status(request: Request):
 
 @app.get("/api/health")
 async def health(request: Request):
-    qwen_meta = await tanka.qwen_status()
+    # Bounded hard, because this URL is the container healthcheck
+    # (`wget -qO- http://localhost:5000/api/health`, timeout 10s, retries 5) and it is
+    # also where the gate's own observability lives.
+    #
+    # `qwen_status()` awaits the llama.cpp router's /models endpoint over the *shared*
+    # httpx pool. When four generations are in flight that pool is busy, the router is
+    # busy, and the call can sit far past its own 8s timeout. Measured: with six
+    # concurrent chat requests, 71 of 71 health probes timed out client-side after 15s.
+    # Two consequences, both bad. Docker eventually marks the container unhealthy and
+    # restarts it mid-generation; and `gates.llama.in_flight` is unreadable exactly
+    # while it would be interesting, so a saturated model is indistinguishable from an
+    # idle one.
+    #
+    # So the router is asked with a short leash and is allowed to fail. A busy router is
+    # not an unhealthy service -- it is a service doing its job -- and the gate snapshot
+    # below is served either way.
+    try:
+        qwen_meta = await asyncio.wait_for(tanka.qwen_status(), timeout=HEALTH_ROUTER_WAIT_SECONDS)
+    except asyncio.TimeoutError:
+        qwen_meta = {
+            "status": "busy",
+            "error": f"llama.cpp router did not answer within {HEALTH_ROUTER_WAIT_SECONDS}s",
+        }
+    except Exception as exc:  # a broken router must not fail liveness either
+        qwen_meta = {"status": "unavailable", "error": str(exc)}
+
     return json_response({
         "status": "ok",
         "model": "Kafelot",

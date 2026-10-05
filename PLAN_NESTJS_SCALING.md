@@ -886,6 +886,66 @@ with it the per-IP rate limiter and the lockout.
 
 Backend suite is 151 tests.
 
+## 11b. AI generation concurrency for the 230M (delivered)
+
+PLAN §13 deferred this. Requested scope: four concurrent generations for LFM2.5-230M,
+with a queue and a bounded wait beyond that.
+
+**Most of it already existed, and none of it worked.** `llama_lfm` already runs `-np 4`,
+`residency.concurrency_for_model()` already returned 4 for the 230M and 1 for everything
+else, and `AI_QUEUE_WAIT_SECONDS` already bounded the wait. The limiter was configured
+correctly and still refused every request:
+
+```
+Coffee text rejected: model LFM2.5-230M-Q4_K_M.gguf was busy for 20.0s (limit 4)
+```
+
+Six concurrent requests all failed after exactly the 20s queue budget, and
+`gates.llama.in_flight` stayed empty -- nothing was ever admitted.
+
+### The deadlock
+
+`refresh_residency()` had exactly two callers: the UI's `/api/model-status` poll, and the
+swap worker *after a successful load*. So when the coordinator's view went stale, nothing
+could correct it:
+
+1. Router has the 230M loaded; coordinator thinks `resident` is empty.
+2. A request calls `acquire()`, sees it absent, calls `request_load()`.
+3. The worker POSTs `/models/load`; the router answers **400 "model is already running"**.
+4. `raise_for_status()` treats that as a hard failure, marks the model failed, and never
+   refreshes -- so `resident` stays empty and the next request repeats the cycle.
+
+A stale view was therefore permanent. "Already running" is now recognised explicitly
+(matched on the message, not the bare 400, since a 400 can also mean a genuinely bad
+request) and the worker adopts the router's view. A 404 for the filename form is left as a
+real failure, because that one *is* one.
+
+Verified with `scripts/ai-concurrency-check.py`, which fires simultaneous requests and
+samples the gate rather than inferring concurrency from latency:
+
+| requests | before | after |
+| --- | --- | --- |
+| 6 | all 503/timeout at 20.0s, peak in_flight 0 | all 200 in 0.5-1.9s, **peak in_flight 4** |
+| 8 | -- | all 200, peak 4, wall clock 0.7s, slowest 719ms |
+
+### The health endpoint was unusable exactly when it mattered
+
+`/api/health` awaited `tanka.qwen_status()`, which calls the llama.cpp router over the
+*shared* httpx pool. With four generations in flight that pool is saturated, so health
+timed out: 71 of 71 probes failed client-side after 15s. Two consequences. Docker uses
+that URL as the container healthcheck (10s timeout, 5 retries), so sustained load could
+restart the container mid-generation; and `in_flight` was unreadable precisely while it
+would be interesting, so a saturated model was indistinguishable from an idle one.
+
+The router is now asked with a 2s leash and is allowed to fail -- a busy router is a
+service doing its job, not an unhealthy one. Measured after: 7-18ms.
+
+### A measurement trap worth recording
+
+`/api/chat` reads `text_model`, not `model`. The first run of the probe sent `model`, which
+is silently ignored, so every request fell back to `TEXT_MODEL_MINILM` and reported a peak
+of 0 -- which reads exactly like a broken limiter. The committed script notes this inline.
+
 ## 12. Risks
 
 | Risk | Mitigation |
