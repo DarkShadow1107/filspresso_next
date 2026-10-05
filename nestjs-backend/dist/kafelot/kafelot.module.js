@@ -20,5 +20,10 @@ exports.KafelotModule = KafelotModule = __decorate([
         imports: [database_module_1.DatabaseModule],
         controllers: [kafelot_controller_1.KafelotController],
         providers: [kafelot_service_1.KafelotService, model_usage_service_1.ModelUsageService],
+        // BillingModule resolves a subscription tier through this service to decide which
+        // price list a caller sees. Importing the module is not enough on its own -- Nest
+        // needs the provider exported, or the container fails to resolve it and the process
+        // crash-loops at boot.
+        exports: [kafelot_service_1.KafelotService],
     })
 ], KafelotModule);

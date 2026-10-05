@@ -37,6 +37,7 @@ const weather_module_1 = require("./weather/weather.module");
 const repairs_module_1 = require("./repairs/repairs.module");
 const subscriptions_engine_module_1 = require("./subscriptions-engine/subscriptions-engine.module");
 const kafelot_module_1 = require("./kafelot/kafelot.module");
+const billing_controller_1 = require("./billing/billing.controller");
 const auth_guard_module_1 = require("./common/guards/auth-guard.module");
 const rate_limit_module_1 = require("./common/guards/rate-limit.module");
 let AppModule = class AppModule {
@@ -73,6 +74,7 @@ exports.AppModule = AppModule = __decorate([
             repairs_module_1.RepairsModule,
             subscriptions_engine_module_1.SubscriptionsEngineModule,
             kafelot_module_1.KafelotModule,
+            billing_controller_1.BillingModule,
             auth_guard_module_1.AuthGuardModule,
         ],
         controllers: [app_controller_1.AppController],

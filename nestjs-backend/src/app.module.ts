@@ -25,6 +25,7 @@ import { WeatherModule } from "./weather/weather.module";
 import { RepairsModule } from "./repairs/repairs.module";
 import { SubscriptionsEngineModule } from "./subscriptions-engine/subscriptions-engine.module";
 import { KafelotModule } from "./kafelot/kafelot.module";
+import { BillingModule } from "./billing/billing.controller";
 import { AuthGuardModule } from "./common/guards/auth-guard.module";
 import { RateLimitModule } from "./common/guards/rate-limit.module";
 
@@ -58,6 +59,7 @@ import { RateLimitModule } from "./common/guards/rate-limit.module";
 		RepairsModule,
 		SubscriptionsEngineModule,
 		KafelotModule,
+		BillingModule,
 		AuthGuardModule,
 	],
 	controllers: [AppController],

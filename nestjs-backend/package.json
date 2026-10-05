@@ -12,6 +12,7 @@
 		"test:load": "node scripts/load-test.mjs",
 		"test:drills": "node scripts/outage-drills.mjs",
 		"test:live": "node scripts/v1-live-checks.mjs",
+		"test:billing": "python scripts/billing-check.py",
 		"test:phase9": "npm run test:live && npm run test:load && npm run test:drills"
 	},
 	"dependencies": {
