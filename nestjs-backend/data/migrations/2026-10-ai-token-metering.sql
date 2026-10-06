@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS ai_token_usage (
     output_price_per1m   NUMERIC(18, 8) NOT NULL,
     subscriber_discount  SMALLINT NOT NULL DEFAULT 0,
     cost_ron         NUMERIC(18, 8) NOT NULL,
+    -- How this charge was split between the plan allowance and the card-funded wallet.
+    -- Kept on the row so "why is my balance X" and "why is my allowance Y" are both
+    -- answerable from one table rather than by reconstructing a second ledger.
+    allowance_applied_ron NUMERIC(18, 8) NOT NULL DEFAULT 0,
     -- False when the request was served by a fallback (no tokens spent) or when the
     -- upstream omitted usage. Kept so "we could not meter this" is visible rather than
     -- looking like a free request.
@@ -47,6 +51,12 @@ CREATE TABLE IF NOT EXISTS ai_token_usage (
     balance_after    NUMERIC(18, 8),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Added after the table shipped, so it needs its own statement. A column added only to
+-- the CREATE TABLE above is skipped entirely on a database where the table already exists
+-- -- `CREATE TABLE IF NOT EXISTS` is a no-op, and the INSERT then fails on a missing column.
+ALTER TABLE ai_token_usage
+    ADD COLUMN IF NOT EXISTS allowance_applied_ron NUMERIC(18, 8) NOT NULL DEFAULT 0;
 
 -- The account+time read that the account page and any reconciliation job do.
 CREATE INDEX IF NOT EXISTS idx_ai_token_usage_account_created

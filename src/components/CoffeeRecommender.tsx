@@ -3410,10 +3410,17 @@ export default React.memo(function CoffeeRecommender() {
 								}}
 							/>
 						</div>
-						<div className="recommender-cta">
-							<button onClick={startNewChat}>
-								<RefreshIcon size={16} className="inline mr-1" /> New Chat
-							</button>
+					<div className="recommender-cta">
+						{/* An anchor, not a button: this navigates and opens a new tab, which is
+						    what <a target="_blank" rel="noopener noreferrer"> does correctly for
+						    keyboard and screen-reader users. window.open() from a button would
+						    lose the link role and the destination. */}
+						<a href="/playground" target="_blank" rel="noopener noreferrer">
+							Spectre Playground
+						</a>
+						<button onClick={startNewChat}>
+							<RefreshIcon size={16} className="inline mr-1" /> New Chat
+						</button>
 							<button
 								onClick={() => {
 									saveCurrentChat();

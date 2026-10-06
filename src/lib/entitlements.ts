@@ -46,7 +46,7 @@ const CHAT_MEMORY_LIMIT_BY_TIER: Record<string, number> = {
  */
 
 /**
- * Plans that may send messages from the Model Playground.
+ * Plans that may send messages from the Spectre Playground.
  *
  * Enforced at `api/playground/chat` and `api/playground/prewarm`. Note the gate is
  * about *sending*, not viewing: the page and its model lineup are public so a

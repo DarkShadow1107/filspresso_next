@@ -22,8 +22,7 @@ const kafelot_module_1 = require("../kafelot/kafelot.module");
 const kafelot_service_1 = require("../kafelot/kafelot.service");
 const billing_service_1 = require("./billing.service");
 const model_pricing_1 = require("./model-pricing");
-/** Tiers that get the subscriber rate. `none` and `free` pay list price. */
-const FREE_TIERS = new Set(["", "none", "free"]);
+const tier_allowance_1 = require("./tier-allowance");
 let BillingController = class BillingController {
     billing;
     kafelot;
@@ -38,29 +37,40 @@ let BillingController = class BillingController {
      * signed in. A subscriber is sent exactly one price -- theirs. Sending both and letting
      * the client choose would hand the list price to precisely the accounts least entitled
      * to see it, and would make the displayed number a client-side decision about money.
+     *
+     * `?audience=api` returns the undiscounted list price to anyone, including subscribers.
+     * That is the one deliberate exception, for the Spectre Playground, which is presented
+     * as an API console: it shows what each model costs at list so a user can reason about
+     * their own spend, and the *charge* against their funded balance still uses the
+     * subscriber rate. Displaying a price is not the same as being billed it, and conflating
+     * them would mean the console could only ever show one of the two numbers.
      */
     async getPricing(req) {
+        const wantsApiPrices = String(req.query?.audience ?? "") === "api";
         const tier = await this.resolveTier(req);
-        const subscriber = !FREE_TIERS.has(tier);
+        const subscriber = (0, tier_allowance_1.isPaidTier)(tier);
         const table = (0, model_pricing_1.pricingTable)();
+        const showApi = wantsApiPrices || !subscriber;
         return {
             currency: table.currency,
             unit: table.unit,
             outputMultiplier: table.outputMultiplier,
             subscriber,
-            models: table.models.map((m) => subscriber
+            /** True when these are list prices, i.e. not what this caller is charged. */
+            listPrice: showApi,
+            models: table.models.map((m) => showApi
                 ? {
+                    modelKey: m.modelKey,
+                    label: m.label,
+                    inputPer1M: m.apiInputPer1M,
+                    outputPer1M: m.apiOutputPer1M,
+                }
+                : {
                     modelKey: m.modelKey,
                     label: m.label,
                     inputPer1M: m.subscriberInputPer1M,
                     outputPer1M: m.subscriberOutputPer1M,
                     subscriberDiscountPercent: m.subscriberDiscountPercent,
-                }
-                : {
-                    modelKey: m.modelKey,
-                    label: m.label,
-                    inputPer1M: m.apiInputPer1M,
-                    outputPer1M: m.apiOutputPer1M,
                 }),
         };
     }
@@ -68,7 +78,14 @@ let BillingController = class BillingController {
     async getBalance(req) {
         const accountId = this.requireAccountId(req);
         const balance = await this.billing.getBalance(accountId);
-        return { ...balance, recent: await this.billing.recentUsage(accountId, 20) };
+        const tier = await this.resolveTier(req);
+        return {
+            ...balance,
+            autoRefillTargetRon: billing_service_1.AUTO_REFILL_TARGET_RON,
+            maxBalanceRon: billing_service_1.MAX_FUNDED_BALANCE_RON,
+            allowance: await this.billing.getAllowance(accountId, tier),
+            recent: await this.billing.recentUsage(accountId, 20),
+        };
     }
     /** Whether this account may start another generation. Checked before the model runs. */
     async canGenerate(req, modelKey) {
@@ -97,7 +114,7 @@ let BillingController = class BillingController {
         const modelKey = String(body?.modelKey ?? "").trim();
         if (!modelKey)
             throw new common_1.BadRequestException("modelKey is required");
-        const subscriber = !FREE_TIERS.has(await this.resolveTier(req));
+        const subscriber = (0, tier_allowance_1.isPaidTier)(await this.resolveTier(req));
         const price = (0, model_pricing_1.resolveTokenPrice)(modelKey, subscriber);
         if (!price.known) {
             // Rejected, not charged zero. An unpriced model is a bug, and a zero-cost row
@@ -108,12 +125,62 @@ let BillingController = class BillingController {
             accountId,
             modelKey,
             subscriber,
+            tier: await this.resolveTier(req),
             requestId: body?.requestId ? String(body.requestId) : null,
             usage: {
                 inputTokens: Number(body?.inputTokens ?? 0),
                 outputTokens: Number(body?.outputTokens ?? 0),
             },
         });
+    }
+    /**
+     * This month's plan allowance: granted, spent, remaining, and when it resets.
+     *
+     * The number the Kafelot window shows alongside prompts/month. Both are shown because
+     * they answer different questions: prompts/month is a per-model entitlement, this is
+     * money that works across every model.
+     */
+    async getAllowance(req) {
+        const accountId = this.requireAccountId(req);
+        const tier = await this.resolveTier(req);
+        return this.billing.getAllowance(accountId, tier);
+    }
+    /**
+     * Add money to the funded wallet with the default card.
+     *
+     * No payment provider: the charge is recorded, not settled. The response says how much
+     * was actually added, which can be less than asked for once the 1000 RON ceiling is in
+     * view -- taking the full amount anyway would leave a balance the customer cannot
+     * explain.
+     */
+    async fund(req, body) {
+        const accountId = this.requireAccountId(req);
+        const amount = Number(body?.amountRon);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            throw new common_1.BadRequestException("amountRon must be a positive number");
+        }
+        const cardId = await this.billing.defaultCardId(accountId);
+        if (!cardId) {
+            // Falling back to "no card" would mean silently minting money with nothing to
+            // charge, so an account with no default card cannot fund.
+            throw new common_1.BadRequestException("add a default card before funding the playground");
+        }
+        const result = await this.billing.fund(accountId, amount, cardId, "user", body?.requestId ? String(body.requestId) : null);
+        return {
+            ...result,
+            autoRefillTargetRon: billing_service_1.AUTO_REFILL_TARGET_RON,
+            maxBalanceRon: billing_service_1.MAX_FUNDED_BALANCE_RON,
+        };
+    }
+    /** The customer's own floor: 0 never goes negative, negative allows an overdraft. */
+    async setMinBalance(req, body) {
+        const accountId = this.requireAccountId(req);
+        try {
+            return await this.billing.setMinBalance(accountId, Number(body?.floorRon));
+        }
+        catch (err) {
+            throw new common_1.BadRequestException(err instanceof Error ? err.message : "invalid floor");
+        }
     }
     requireAccountId(req) {
         const id = Number(req.user?.id);
@@ -170,6 +237,32 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], BillingController.prototype, "recordUsage", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)("allowance"),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], BillingController.prototype, "getAllowance", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Post)("fund"),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], BillingController.prototype, "fund", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Patch)("min-balance"),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], BillingController.prototype, "setMinBalance", null);
 exports.BillingController = BillingController = __decorate([
     (0, common_1.Controller)("api/billing"),
     __metadata("design:paramtypes", [billing_service_1.BillingService,

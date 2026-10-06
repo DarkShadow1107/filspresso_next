@@ -4,6 +4,7 @@ import {
 	Controller,
 	Get,
 	Module,
+	Patch,
 	Post,
 	Query,
 	Req,
@@ -17,15 +18,18 @@ import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { OptionalJwtAuthGuard } from "../common/guards/optional-jwt-auth.guard";
 import { KafelotModule } from "../kafelot/kafelot.module";
 import { KafelotService } from "../kafelot/kafelot.service";
-import { BillingService, MIN_BALANCE_RON } from "./billing.service";
+import {
+	AUTO_REFILL_TARGET_RON,
+	BillingService,
+	MAX_FUNDED_BALANCE_RON,
+	MIN_BALANCE_RON,
+} from "./billing.service";
 import { pricingTable, resolveTokenPrice } from "./model-pricing";
+import { isPaidTier } from "./tier-allowance";
 
 interface BillingRequest {
 	user?: { id?: number | string } | undefined;
 }
-
-/** Tiers that get the subscriber rate. `none` and `free` pay list price. */
-const FREE_TIERS = new Set(["", "none", "free"]);
 
 @Controller("api/billing")
 export class BillingController {
@@ -41,33 +45,44 @@ export class BillingController {
 	 * signed in. A subscriber is sent exactly one price -- theirs. Sending both and letting
 	 * the client choose would hand the list price to precisely the accounts least entitled
 	 * to see it, and would make the displayed number a client-side decision about money.
+	 *
+	 * `?audience=api` returns the undiscounted list price to anyone, including subscribers.
+	 * That is the one deliberate exception, for the Spectre Playground, which is presented
+	 * as an API console: it shows what each model costs at list so a user can reason about
+	 * their own spend, and the *charge* against their funded balance still uses the
+	 * subscriber rate. Displaying a price is not the same as being billed it, and conflating
+	 * them would mean the console could only ever show one of the two numbers.
 	 */
 	@UseGuards(OptionalJwtAuthGuard)
 	@Get("pricing")
-	async getPricing(@Req() req: BillingRequest) {
+	async getPricing(@Req() req: BillingRequest & { query?: Record<string, unknown> }) {
+		const wantsApiPrices = String(req.query?.audience ?? "") === "api";
 		const tier = await this.resolveTier(req);
-		const subscriber = !FREE_TIERS.has(tier);
+		const subscriber = isPaidTier(tier);
 		const table = pricingTable();
+		const showApi = wantsApiPrices || !subscriber;
 
 		return {
 			currency: table.currency,
 			unit: table.unit,
 			outputMultiplier: table.outputMultiplier,
 			subscriber,
+			/** True when these are list prices, i.e. not what this caller is charged. */
+			listPrice: showApi,
 			models: table.models.map((m) =>
-				subscriber
+				showApi
 					? {
+						modelKey: m.modelKey,
+						label: m.label,
+						inputPer1M: m.apiInputPer1M,
+						outputPer1M: m.apiOutputPer1M,
+					}
+					: {
 						modelKey: m.modelKey,
 						label: m.label,
 						inputPer1M: m.subscriberInputPer1M,
 						outputPer1M: m.subscriberOutputPer1M,
 						subscriberDiscountPercent: m.subscriberDiscountPercent,
-					}
-					: {
-						modelKey: m.modelKey,
-						label: m.label,
-						inputPer1M: m.apiInputPer1M,
-						outputPer1M: m.apiOutputPer1M,
 					},
 			),
 		};
@@ -79,7 +94,14 @@ export class BillingController {
 	async getBalance(@Req() req: BillingRequest) {
 		const accountId = this.requireAccountId(req);
 		const balance = await this.billing.getBalance(accountId);
-		return { ...balance, recent: await this.billing.recentUsage(accountId, 20) };
+		const tier = await this.resolveTier(req);
+		return {
+			...balance,
+			autoRefillTargetRon: AUTO_REFILL_TARGET_RON,
+			maxBalanceRon: MAX_FUNDED_BALANCE_RON,
+			allowance: await this.billing.getAllowance(accountId, tier),
+			recent: await this.billing.recentUsage(accountId, 20),
+		};
 	}
 
 	/** Whether this account may start another generation. Checked before the model runs. */
@@ -114,7 +136,7 @@ export class BillingController {
 		const modelKey = String(body?.modelKey ?? "").trim();
 		if (!modelKey) throw new BadRequestException("modelKey is required");
 
-		const subscriber = !FREE_TIERS.has(await this.resolveTier(req));
+		const subscriber = isPaidTier(await this.resolveTier(req));
 		const price = resolveTokenPrice(modelKey, subscriber);
 		if (!price.known) {
 			// Rejected, not charged zero. An unpriced model is a bug, and a zero-cost row
@@ -126,12 +148,70 @@ export class BillingController {
 			accountId,
 			modelKey,
 			subscriber,
+			tier: await this.resolveTier(req),
 			requestId: body?.requestId ? String(body.requestId) : null,
 			usage: {
 				inputTokens: Number(body?.inputTokens ?? 0),
 				outputTokens: Number(body?.outputTokens ?? 0),
 			},
 		});
+	}
+
+	/**
+	 * This month's plan allowance: granted, spent, remaining, and when it resets.
+	 *
+	 * The number the Kafelot window shows alongside prompts/month. Both are shown because
+	 * they answer different questions: prompts/month is a per-model entitlement, this is
+	 * money that works across every model.
+	 */
+	@UseGuards(JwtAuthGuard)
+	@Get("allowance")
+	async getAllowance(@Req() req: BillingRequest) {
+		const accountId = this.requireAccountId(req);
+		const tier = await this.resolveTier(req);
+		return this.billing.getAllowance(accountId, tier);
+	}
+
+	/**
+	 * Add money to the funded wallet with the default card.
+	 *
+	 * No payment provider: the charge is recorded, not settled. The response says how much
+	 * was actually added, which can be less than asked for once the 1000 RON ceiling is in
+	 * view -- taking the full amount anyway would leave a balance the customer cannot
+	 * explain.
+	 */
+	@UseGuards(JwtAuthGuard)
+	@Post("fund")
+	async fund(@Req() req: BillingRequest, @Body() body: Record<string, unknown>) {
+		const accountId = this.requireAccountId(req);
+		const amount = Number(body?.amountRon);
+		if (!Number.isFinite(amount) || amount <= 0) {
+			throw new BadRequestException("amountRon must be a positive number");
+		}
+		const cardId = await this.billing.defaultCardId(accountId);
+		if (!cardId) {
+			// Falling back to "no card" would mean silently minting money with nothing to
+			// charge, so an account with no default card cannot fund.
+			throw new BadRequestException("add a default card before funding the playground");
+		}
+		const result = await this.billing.fund(accountId, amount, cardId, "user", body?.requestId ? String(body.requestId) : null);
+		return {
+			...result,
+			autoRefillTargetRon: AUTO_REFILL_TARGET_RON,
+			maxBalanceRon: MAX_FUNDED_BALANCE_RON,
+		};
+	}
+
+	/** The customer's own floor: 0 never goes negative, negative allows an overdraft. */
+	@UseGuards(JwtAuthGuard)
+	@Patch("min-balance")
+	async setMinBalance(@Req() req: BillingRequest, @Body() body: Record<string, unknown>) {
+		const accountId = this.requireAccountId(req);
+		try {
+			return await this.billing.setMinBalance(accountId, Number(body?.floorRon));
+		} catch (err) {
+			throw new BadRequestException(err instanceof Error ? err.message : "invalid floor");
+		}
 	}
 
 	private requireAccountId(req: BillingRequest): number {

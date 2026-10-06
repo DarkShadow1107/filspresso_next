@@ -1151,7 +1151,11 @@ body.recommender-open {
 	gap: 10px;
 	width: 100%;
 }
-.recommender-cta button {
+/* Anchors share the button styling so the Spectre Playground link is keyboard- and
+   screen-reader-correct: it navigates and opens a new tab, so <a target="_blank"> is
+   the right element rather than a button calling window.open. */
+.recommender-cta button,
+.recommender-cta a {
 	flex: 1;
 	display: inline-flex;
 	align-items: center;
@@ -1178,14 +1182,18 @@ body.recommender-open {
 	vertical-align: middle;
 }
 .recommender-cta button svg,
-.recommender-cta button img {
+.recommender-cta a svg,
+.recommender-cta button img,
+.recommender-cta a img {
 	display: block;
 }
-.recommender-cta button:hover {
+.recommender-cta button:hover,
+.recommender-cta a:hover {
 	transform: translateY(-1px);
 	box-shadow: 0 6px 18px rgba(255, 219, 168, 0.25);
 }
-.recommender-cta button:active {
+.recommender-cta button:active,
+.recommender-cta a:active {
 	transform: translateY(0);
 }
 
@@ -4217,7 +4225,7 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 
 
 /* ---------------------------------------------------------------------------
-   Model Playground (/playground)
+   Spectre Playground (/playground)
 
    Deliberately reuses the Kafelot window palette (near-black surfaces, warm
    apricot text) rather than the sentinel playground's indigo theme.

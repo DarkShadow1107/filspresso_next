@@ -326,7 +326,7 @@ try {
 		return (
 			<main className="playground-page">
 				<section className="playgate-card">
-					<h1>Model Playground</h1>
+					<h1>Spectre Playground</h1>
 					<p>Sign in to use the Playground.</p>
 					<Link className="playground-cta" href={buildPageHref("account")}>
 						Go to account
@@ -344,7 +344,7 @@ try {
 			<main className="playground-page">
 				<section className="playgate-card">
 					<SparklesIcon size={22} />
-					<h1>Model Playground</h1>
+					<h1>Spectre Playground</h1>
 					<p>
 						The Playground is included with <strong>MAX</strong> and <strong>ULTIMATE</strong> plans. Upgrade to chat
 						directly with the GGUF models, tune temperature and system prompts, and stream tokens.
@@ -363,7 +363,7 @@ try {
 		<main className="playground-page">
 			<header className="playground-header">
 				<div>
-					<h1>Model Playground</h1>
+					<h1>Spectre Playground</h1>
 					<p className="playground-subtitle">
 						Direct access to the GGUF models. No retrieval layer, no fallbacks.
 					</p>

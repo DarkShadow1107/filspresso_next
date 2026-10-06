@@ -40,7 +40,7 @@ export const revalidate = 0;
 
 const PLAYGROUND_LOCKED = {
 	status: "forbidden",
-	error: "Model Playground requires a MAX or ULTIMATE subscription",
+	error: "Spectre Playground requires a MAX or ULTIMATE subscription",
 } as const;
 
 /** Returns an error payload when the caller may not use the Playground. */
