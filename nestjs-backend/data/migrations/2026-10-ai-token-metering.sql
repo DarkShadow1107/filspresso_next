@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS account_balances (
 
 CREATE TABLE IF NOT EXISTS ai_token_usage (
     id               BIGSERIAL PRIMARY KEY,
-    account_id       INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    -- NULL for an anonymous visitor, metered against their fingerprint allowance
+    -- instead. An anonymous caller has no account row to reference.
+    account_id       INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
     -- The canonical model key (lfm2_5_230m_q4_k_m, ...). NOT NULL so a row can never be
     -- unpriced: an unknown key is rejected by the service before it gets here, and a NULL
     -- would be a silent hole in the audit trail.
@@ -52,11 +54,21 @@ CREATE TABLE IF NOT EXISTS ai_token_usage (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Added after the table shipped, so it needs its own statement. A column added only to
--- the CREATE TABLE above is skipped entirely on a database where the table already exists
--- -- `CREATE TABLE IF NOT EXISTS` is a no-op, and the INSERT then fails on a missing column.
+-- ---------------------------------------------------------------------------------------
+-- Changes made after this table first shipped. Each needs its own statement, because
+-- `CREATE TABLE IF NOT EXISTS` is a no-op on a database where the table already exists --
+-- anything added only to the CREATE above is silently skipped there, and the INSERT then
+-- fails on a missing column. That bit twice while building this: once for a missing column,
+-- once for a NOT NULL that had to be dropped.
+-- ---------------------------------------------------------------------------------------
+
 ALTER TABLE ai_token_usage
     ADD COLUMN IF NOT EXISTS allowance_applied_ron NUMERIC(18, 8) NOT NULL DEFAULT 0;
+
+-- Anonymous visitors have no account row, so their usage is metered against the
+-- fingerprint allowance and account_id must be nullable.
+ALTER TABLE ai_token_usage
+    ALTER COLUMN account_id DROP NOT NULL;
 
 -- The account+time read that the account page and any reconciliation job do.
 CREATE INDEX IF NOT EXISTS idx_ai_token_usage_account_created

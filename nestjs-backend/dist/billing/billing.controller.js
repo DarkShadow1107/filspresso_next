@@ -23,6 +23,37 @@ const kafelot_service_1 = require("../kafelot/kafelot.service");
 const billing_service_1 = require("./billing.service");
 const model_pricing_1 = require("./model-pricing");
 const tier_allowance_1 = require("./tier-allowance");
+/**
+ * The anonymous visitor's identifier: a client-supplied cookie value.
+ *
+ * Over-long values are truncated to 64 rather than refused, because that is exactly what
+ * `kafelot_anonymous_users.fingerprint` already does -- its column is VARCHAR(64) and the
+ * pre-flight path truncates into it. Refusing here while that path accepts would mean the
+ * two halves of anonymous metering disagreed about what a fingerprint is, which is how this
+ * kind of limit drifts in the first place. Real fingerprints are a `crypto.randomUUID()`,
+ * 36 characters, so nothing legitimate is ever near the limit.
+ *
+ * Truncation does mean two over-long values sharing a 64-character prefix share a budget.
+ * That is acceptable here precisely because this is not identity: it is a courtesy budget
+ * to slow casual scraping, and sharing one costs a few hundredths of a RON.
+ */
+function fingerprintOf(req) {
+    const raw = String(req.headers?.["x-kafelot-fingerprint"] ?? "");
+    const value = raw.trim().slice(0, 64);
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(value)) {
+        throw new common_1.UnauthorizedException("a valid x-kafelot-fingerprint is required");
+    }
+    return value;
+}
+function isFingerprint(req) {
+    try {
+        fingerprintOf(req);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 let BillingController = class BillingController {
     billing;
     kafelot;
@@ -90,11 +121,15 @@ let BillingController = class BillingController {
     /** Whether this account may start another generation. Checked before the model runs. */
     async canGenerate(req, modelKey) {
         const accountId = this.requireAccountId(req);
-        const balance = await this.billing.getBalance(accountId);
+        const tier = await this.resolveTier(req);
+        // One rule, in the service, covering both pots. This endpoint used to decide from the
+        // wallet alone while *reporting* the hardcoded floor, so it contradicted itself --
+        // and it refused accounts holding plenty of included allowance and no card balance.
+        const state = await this.billing.canGenerate(accountId, tier);
         return {
-            canGenerate: balance.canGenerate,
-            balanceRon: balance.balanceRon,
-            minBalanceRon: billing_service_1.MIN_BALANCE_RON,
+            ...state,
+            // Echoed so a caller can say which model it asked about. Not a gate: every model
+            // on the plan draws on the same money.
             modelKey: String(modelKey ?? ""),
         };
     }
@@ -106,14 +141,34 @@ let BillingController = class BillingController {
      * An endpoint that accepted a client-supplied `cost_ron` would be an endpoint that
      * accepts a client-supplied zero.
      *
+     * Anonymous callers are metered too, by fingerprint, against their own 3 RON allowance.
+     * The fingerprint is a client-supplied cookie and is treated as a courtesy budget, never
+     * as identity: it grants no access and buys nothing. Absent both a session and a
+     * fingerprint the request is refused rather than served free -- an unmetered caller
+     * would be an unlimited one.
+     *
      * `requestId` makes this idempotent, because it runs after work already paid for in GPU
      * time, which may legitimately be retried.
      */
     async recordUsage(req, body) {
-        const accountId = this.requireAccountId(req);
         const modelKey = String(body?.modelKey ?? "").trim();
         if (!modelKey)
             throw new common_1.BadRequestException("modelKey is required");
+        const accountId = req.user?.id ? Number(req.user.id) : 0;
+        if (!accountId && !isFingerprint(req)) {
+            throw new common_1.UnauthorizedException("a session or a fingerprint is required to meter usage");
+        }
+        const inputTokens = Number(body?.inputTokens ?? 0);
+        const outputTokens = Number(body?.outputTokens ?? 0);
+        const requestId = body?.requestId ? String(body.requestId) : null;
+        if (!accountId) {
+            return this.billing.recordAnonymousUsage({
+                fingerprint: fingerprintOf(req),
+                modelKey,
+                usage: { inputTokens, outputTokens },
+                requestId,
+            });
+        }
         const subscriber = (0, tier_allowance_1.isPaidTier)(await this.resolveTier(req));
         const price = (0, model_pricing_1.resolveTokenPrice)(modelKey, subscriber);
         if (!price.known) {
@@ -126,19 +181,22 @@ let BillingController = class BillingController {
             modelKey,
             subscriber,
             tier: await this.resolveTier(req),
-            requestId: body?.requestId ? String(body.requestId) : null,
-            usage: {
-                inputTokens: Number(body?.inputTokens ?? 0),
-                outputTokens: Number(body?.outputTokens ?? 0),
-            },
+            requestId,
+            usage: { inputTokens, outputTokens },
         });
+    }
+    /** An anonymous visitor's remaining allowance, for the window that shows it. */
+    async getAnonymousAllowance(req) {
+        if (!isFingerprint(req)) {
+            throw new common_1.UnauthorizedException("a fingerprint is required");
+        }
+        return this.billing.getAnonymousAllowance(fingerprintOf(req));
     }
     /**
      * This month's plan allowance: granted, spent, remaining, and when it resets.
      *
-     * The number the Kafelot window shows alongside prompts/month. Both are shown because
-     * they answer different questions: prompts/month is a per-model entitlement, this is
-     * money that works across every model.
+     * The number the Kafelot window shows. It replaced the prompt counter: this is money
+     * that works across every model, whereas a prompt count only ever described one.
      */
     async getAllowance(req) {
         const accountId = this.requireAccountId(req);
@@ -229,7 +287,6 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], BillingController.prototype, "canGenerate", null);
 __decorate([
-    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Post)("usage"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Body)()),
@@ -237,6 +294,13 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], BillingController.prototype, "recordUsage", null);
+__decorate([
+    (0, common_1.Get)("allowance/anonymous"),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], BillingController.prototype, "getAnonymousAllowance", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Get)("allowance"),

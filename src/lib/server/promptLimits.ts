@@ -312,3 +312,47 @@ export async function readCallerTier(request: Request): Promise<UserSubscription
 		return null;
 	}
 }
+
+/**
+ * The money gate, checked before any GPU work.
+ *
+ * Replaces the prompt-quota check the Playground used to make. That check asked
+ * "PROMPT_LIMIT_REACHED", which the backend no longer returns for an authenticated
+ * caller, so it had become a no-op that still looked like a control. The real budget is
+ * money, and it lives at /api/billing/can-generate.
+ *
+ * Deliberately *fails open* when the backend cannot be reached. The two failure modes are
+ * not symmetric: refusing every prompt because a status endpoint timed out is a total
+ * outage, while serving one unmetered prompt is a lost fraction of a penny. The
+ * post-generation usage report is what actually bills, and it will still run.
+ */
+export async function checkCanGenerate(request: Request): Promise<{
+	allowed: boolean;
+	reason?: string;
+	allowanceRemainingRon?: number;
+	balanceRon?: number;
+}> {
+	try {
+		const url = new URL("/api/billing/can-generate", resolveSelfCallOrigin()).toString();
+		const cookie = buildForwardedCookieHeader(request.headers.get("cookie"));
+		if (!cookie) return { allowed: true, reason: "anonymous" };
+
+		const res = await fetch(url, { headers: { cookie }, cache: "no-store" });
+		// A 401 here means the session is gone, which is the playground's own gate to catch.
+		if (res.status === 401) return { allowed: true, reason: "session_gone" };
+		if (!res.ok) return { allowed: true, reason: `status_${res.status}` };
+
+		const data = (await res.json()) as {
+			canGenerate?: boolean;
+			allowanceRemainingRon?: number;
+			balanceRon?: number;
+		};
+		// Echoed back on the stream headers, replacing a prompts-remaining pair that
+		// described a quota which no longer exists.
+		const state = { allowanceRemainingRon: data.allowanceRemainingRon, balanceRon: data.balanceRon };
+		if (data.canGenerate === false) return { allowed: false, reason: "no_balance", ...state };
+		return { allowed: true, ...state };
+	} catch {
+		return { allowed: true, reason: "unreachable" };
+	}
+}

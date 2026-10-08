@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { resolveAiHost } from "@/lib/server/aiHost";
-import { checkPromptLimit, readCallerTier } from "@/lib/server/promptLimits";
+import { checkCanGenerate, readCallerTier } from "@/lib/server/promptLimits";
 import {
 	MODEL_FILE_BY_KEY,
 	MODEL_LABEL_BY_KEY,
@@ -97,11 +97,19 @@ export async function POST(request: NextRequest) {
 	const enableThinking = thinkingRequested && tierCanUseThinkingModel(tier);
 	const modelKey = resolveRequestedModel(tier, body.model);
 
-	// Meter before doing any GPU work so an over-quota caller cannot make the
-	// model load for nothing.
-	const limitCheck = await checkPromptLimit(request, false, "general");
-	if (!limitCheck.allowed) {
-		return limitCheck.errorResponse ?? jsonError("PROMPT_LIMIT_REACHED", "Prompt allowance exhausted.", 429);
+	// Money gate, before any GPU work: a caller with no allowance and no wallet must not
+	// be able to make the model load for nothing.
+	//
+	// This replaced a check on PROMPT_LIMIT_REACHED, which the backend stopped returning
+	// when the prompt quota was dropped -- so it had become a no-op that still read like a
+	// control. The budget is money now, and this asks about money.
+	const moneyGate = await checkCanGenerate(request);
+	if (!moneyGate.allowed) {
+		return jsonError(
+			"INSUFFICIENT_BALANCE",
+			"Your monthly allowance and playground balance are both spent.",
+			402,
+		);
 	}
 
 	const aiHost = await resolveAiHost();
@@ -204,8 +212,13 @@ export async function POST(request: NextRequest) {
 			"X-Accel-Buffering": "no",
 			"x-filspresso-model": modelKey,
 			"x-filspresso-model-label": modelLabel,
-			"x-filspresso-prompts-remaining": String(limitCheck.prompts_remaining ?? ""),
-			"x-filspresso-prompts-limit": String(limitCheck.prompts_limit ?? ""),
+			// Money, not prompts. The old x-filspresso-prompts-remaining / -limit pair was
+			// carried by this response and read by nothing: the prompt quota they described
+			// is gone, and a header nobody reads is a header nobody maintains.
+			"x-filspresso-allowance-remaining-ron": moneyGate.allowanceRemainingRon != null
+				? String(moneyGate.allowanceRemainingRon)
+				: "",
+			"x-filspresso-wallet-ron": moneyGate.balanceRon != null ? String(moneyGate.balanceRon) : "",
 		},
 	});
 }

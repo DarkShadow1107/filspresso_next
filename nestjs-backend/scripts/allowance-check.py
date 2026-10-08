@@ -5,12 +5,19 @@ split the way it should be: allowance first, wallet second, and the two never bo
 for the same tokens.
 """
 import json
+import os
 import secrets
 import urllib.error
 import urllib.request
 
 BASE = "http://localhost:4000"
 ORIGIN = "http://localhost:3000"
+# A per-run client address. Register is budgeted 5/hour per IP, so repeated
+# runs from one host address 429 on their own setup and every later check
+# cascades as 401. Each run claims its own address.
+# Random, not pid-derived: two runs started in the same second landed on the
+# same address and one of them 429'd the other.
+CLIENT_IP = f"198.51.100.{secrets.randbelow(250) + 1}"
 checks = []
 
 
@@ -20,7 +27,7 @@ def check(name, ok, detail=""):
 
 
 def req(path, method="GET", body=None, cookie=None):
-    headers = {"accept": "application/json", "origin": ORIGIN}
+    headers = {"accept": "application/json", "origin": ORIGIN, "x-forwarded-for": CLIENT_IP}
     data = None
     if body is not None:
         headers["content-type"] = "application/json"

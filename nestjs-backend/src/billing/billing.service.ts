@@ -9,7 +9,7 @@ import {
 	type ResolvedTokenPrice,
 	type TokenUsage,
 } from "./model-pricing";
-import { allowanceRon, monthKey, nextReset } from "./tier-allowance";
+import { ANONYMOUS_ALLOWANCE_RON, allowanceRon, monthKey, nextReset } from "./tier-allowance";
 
 /**
  * Hard backstop for the funded wallet.
@@ -249,17 +249,43 @@ export class BillingService {
 	}
 
 	/**
+	 * May this account start another generation?
+	 *
+	 * Both pots, because with allowance-first spending they are interchangeable while the
+	 * allowance lasts: an account with 4.20 RON of included usage and a zero wallet can
+	 * still generate, and one with 0 allowance and 3 RON on the card can too. Looking only
+	 * at the wallet refused the first case outright, which is the common one -- most accounts
+	 * never fund a card at all.
+	 */
+	async canGenerate(accountId: number, tier: string): Promise<{
+		canGenerate: boolean;
+		balanceRon: number;
+		minBalanceRon: number;
+		allowanceRemainingRon: number;
+	}> {
+		const balance = await this.getBalance(accountId);
+		const allowance = await this.getAllowance(accountId, tier);
+		return {
+			canGenerate: allowance.remainingRon > 0 || balance.canGenerate,
+			balanceRon: balance.balanceRon,
+			// The floor this account actually uses, not the hardcoded backstop. Reporting the
+			// constant here while deciding on the stored one made the endpoint contradict itself.
+			minBalanceRon: balance.minBalanceRon,
+			allowanceRemainingRon: allowance.remainingRon,
+		};
+	}
+
+	/**
 	 * Throw if the account may not start another generation.
 	 *
 	 * Checked *before* the model runs, not after: refusing afterwards means serving a
 	 * request and then complaining about it. `requiredRon` is the expected cost of the
 	 * request being attempted, used only for the message.
 	 */
-	async assertCanGenerate(accountId: number, modelKey: string, subscriber: boolean): Promise<void> {
-		const balance = await this.getBalance(accountId);
-		if (balance.canGenerate) return;
-		const estimate = costRon(modelKey, { inputTokens: 1000, outputTokens: 1000 }, subscriber);
-		throw new InsufficientBalanceError(balance.balanceRon, estimate);
+	async assertCanGenerate(accountId: number, modelKey: string, tier: string): Promise<void> {
+		const state = await this.canGenerate(accountId, tier);
+		if (state.canGenerate) return;
+		throw new InsufficientBalanceError(state.balanceRon, 0);
 	}
 
 	/**
@@ -355,6 +381,153 @@ export class BillingService {
 			    SET spent_ron = spent_ron + $3, updated_at = NOW()
 			  WHERE account_id = $1 AND month_key = $2`,
 			[accountId, month, drawn],
+		);
+		return drawn;
+	}
+
+	/**
+	 * Anonymous allowance for this month, created on first read.
+	 *
+	 * Keyed by fingerprint rather than account, because an anonymous visitor has no
+	 * account. Granted the anonymous figure and always consumed at *list* price: there is
+	 * no subscription, so there is no discount to apply.
+	 */
+	async getAnonymousAllowance(fingerprint: string): Promise<AllowanceView> {
+		const pool = this.db.getPool();
+		const month = monthKey();
+		const result = await pool.query(
+			`INSERT INTO ai_anonymous_allowance (fingerprint, month_key, granted_ron)
+			 VALUES ($1, $2, $3)
+			 ON CONFLICT (fingerprint, month_key) DO UPDATE
+			   SET fingerprint = EXCLUDED.fingerprint
+			 RETURNING granted_ron, spent_ron`,
+			[fingerprint, month, ANONYMOUS_ALLOWANCE_RON],
+		);
+		const row = result.rows[0];
+		const spent = Number(row.spent_ron);
+		return {
+			accountId: 0,
+			month,
+			tier: "anonymous",
+			grantedRon: Number(row.granted_ron),
+			spentRon: spent,
+			remainingRon: roundMoney(Math.max(0, Number(row.granted_ron) - spent)),
+			resetAt: nextReset().toISOString(),
+		};
+	}
+
+	/**
+	 * Record an anonymous generation against the fingerprint's allowance.
+	 *
+	 * Same shape as `recordUsage` and deliberately *not* an overload of it: an anonymous
+	 * caller has no wallet, no tier and no card, so there is exactly one pot to draw on and
+	 * nothing to fall back to. If the allowance is spent the cost is still recorded, so the
+	 * audit trail shows what the visit actually cost rather than stopping at the limit.
+	 */
+	async recordAnonymousUsage(params: {
+		fingerprint: string;
+		modelKey: string;
+		usage: TokenUsage;
+		requestId?: string | null;
+	}): Promise<{ recorded: boolean; costRon: number; allowanceAppliedRon: number; remainingRon: number }> {
+		const { fingerprint, modelKey } = params;
+		const requestId = params.requestId ? String(params.requestId).slice(0, 128) : null;
+		const price = resolveTokenPrice(modelKey, false);
+		const inputTokens = clampTokens(params.usage?.inputTokens);
+		const outputTokens = clampTokens(params.usage?.outputTokens);
+		const metered = price.known && inputTokens + outputTokens > 0;
+		const cost = metered ? costRon(modelKey, { inputTokens, outputTokens }, false) : 0;
+
+		const pool = this.db.getPool();
+		const client = await pool.connect();
+		try {
+			await client.query("BEGIN");
+			try {
+				if (requestId) {
+					const existing = await client.query(
+						`SELECT cost_ron FROM ai_token_usage WHERE request_id = $1 LIMIT 1`,
+						[requestId],
+					);
+					if (existing.rows.length > 0) {
+						await client.query("ROLLBACK");
+						const state = await this.getAnonymousAllowance(fingerprint);
+						return {
+							recorded: false,
+							costRon: Number(existing.rows[0].cost_ron),
+							allowanceAppliedRon: Number(existing.rows[0].cost_ron),
+							remainingRon: state.remainingRon,
+						};
+					}
+				}
+
+				const month = monthKey();
+				const drawn = await this.drawAnonymousAllowanceTx(client, fingerprint, cost);
+				const before = await client.query(
+					`INSERT INTO ai_anonymous_allowance (fingerprint, month_key, granted_ron)
+					 VALUES ($1, $2, $3)
+					 ON CONFLICT (fingerprint, month_key) DO UPDATE
+					SET fingerprint = EXCLUDED.fingerprint
+					 RETURNING granted_ron, spent_ron`,
+					[fingerprint, month, ANONYMOUS_ALLOWANCE_RON],
+				);
+				const remaining = roundMoney(
+					Math.max(0, Number(before.rows[0].granted_ron) - Number(before.rows[0].spent_ron)),
+				);
+
+				await client.query(
+					`INSERT INTO ai_token_usage
+					   (account_id, model_key, input_tokens, output_tokens,
+					    input_price_per1m, output_price_per1m, subscriber_discount,
+					    cost_ron, allowance_applied_ron, metered, request_id, balance_after)
+					 VALUES (NULL, $1, $2, $3, $4, $5, 0, $6, $7, $8, $9, NULL)`,
+					[
+						modelKey,
+						inputTokens,
+						outputTokens,
+						price.apiInputPer1M,
+						price.apiOutputPer1M,
+						cost,
+						drawn,
+						metered,
+						requestId,
+					],
+				);
+				await client.query("COMMIT");
+				return { recorded: true, costRon: cost, allowanceAppliedRon: drawn, remainingRon: remaining };
+			} catch (err) {
+				await client.query("ROLLBACK");
+				throw err;
+			}
+		} finally {
+			client.release();
+		}
+	}
+
+	/** Anonymous draw on the caller's transaction, capped at what is left. */
+	private async drawAnonymousAllowanceTx(
+		client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
+		fingerprint: string,
+		cost: number,
+	): Promise<number> {
+		if (!(cost > 0)) return 0;
+		const month = monthKey();
+		const inserted = await client.query(
+			`INSERT INTO ai_anonymous_allowance (fingerprint, month_key, granted_ron, spent_ron)
+			 VALUES ($1, $2, $3, 0)
+			 ON CONFLICT (fingerprint, month_key) DO UPDATE
+			SET fingerprint = EXCLUDED.fingerprint
+			 RETURNING granted_ron, spent_ron`,
+			[fingerprint, month, ANONYMOUS_ALLOWANCE_RON],
+		);
+		const row = inserted.rows[0];
+		const remaining = Math.max(0, Number(row.granted_ron) - Number(row.spent_ron));
+		const drawn = roundMoney(Math.min(cost, remaining));
+		if (drawn <= 0) return 0;
+		await client.query(
+			`UPDATE ai_anonymous_allowance
+			    SET spent_ron = spent_ron + $3, updated_at = NOW()
+			  WHERE fingerprint = $1 AND month_key = $2`,
+			[fingerprint, month, drawn],
 		);
 		return drawn;
 	}

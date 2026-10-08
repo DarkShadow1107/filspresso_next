@@ -14,6 +14,7 @@
 		"test:live": "node scripts/v1-live-checks.mjs",
 		"test:billing": "python scripts/billing-check.py",
 		"test:allowance": "python scripts/allowance-check.py",
+		"test:anonymous": "python scripts/anonymous-allowance-check.py",
 		"test:phase9": "npm run test:live && npm run test:load && npm run test:drills"
 	},
 	"dependencies": {

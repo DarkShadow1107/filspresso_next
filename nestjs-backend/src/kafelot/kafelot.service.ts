@@ -312,22 +312,29 @@ export class KafelotService {
         };
       } else {
         if (!params.fingerprint) {
-          const anonLimit = scopeLimits(params.usageScope)["anonymous"] ?? GENERAL_PROMPT_LIMITS["anonymous"];
+          // No fingerprint means nothing to meter against -- not even a courtesy budget.
+          // There is no cookie and no address worth trusting, so this stays open and the
+          // per-IP rate limiter is the only guard. Quoting a prompt limit here would be
+          // inventing a number we cannot enforce.
           await client.query("ROLLBACK");
-          return { status: 200, data: { allowed: true, prompts_remaining: anonLimit, prompts_limit: anonLimit, scope: params.usageScope } };
+          return { status: 200, data: { allowed: true, tier: "anonymous", scope: params.usageScope, billing: "unmetered" } };
         }
         const row = await this.getOrCreateAnonymous(client, params.fingerprint, params.ip, params.userAgent, params.systemInfo, params.usageScope);
-        if (row.prompts_used >= row.prompts_limit) {
-          await client.query("ROLLBACK");
-          return { status: 429, data: { error: "PROMPT_LIMIT_REACHED", prompts_remaining: 0, prompts_limit: row.prompts_limit, reset_date: row.reset_date, tier: "anonymous", scope: params.usageScope } };
-        }
+        // No prompt limit for anonymous any more. They used to be refused here with
+        // PROMPT_LIMIT_REACHED on a prompt *count*, which contradicted the RON allowance
+        // they actually have: a visitor holding all 3 RON of it could be cut off for
+        // "prompts". The prompt counter is still maintained, as a usage figure.
+        //
+        // The money gate lives in billing, metered by fingerprint after the generation
+        // runs -- see BillingService.recordAnonymousUsage. This check stays open so the
+        // pre-flight never refuses work that has not been billed yet.
         if (params.dryRun) {
           await client.query("COMMIT");
-          return { status: 200, data: { allowed: true, prompts_remaining: row.prompts_limit - row.prompts_used, prompts_limit: row.prompts_limit, reset_date: row.reset_date, tier: "anonymous", scope: params.usageScope } };
+          return { status: 200, data: { allowed: true, tier: "anonymous", scope: params.usageScope, prompts_used: row.prompts_used, billing: "metered_after_generation" } };
         }
         await client.query("UPDATE kafelot_anonymous_users SET prompts_used = prompts_used + 1, updated_at = CURRENT_TIMESTAMP WHERE fingerprint = $1", [params.fingerprint]);
         await client.query("COMMIT");
-        return { status: 200, data: { allowed: true, prompts_remaining: row.prompts_limit - row.prompts_used - 1, prompts_limit: row.prompts_limit, reset_date: row.reset_date, tier: "anonymous", scope: params.usageScope } };
+        return { status: 200, data: { allowed: true, tier: "anonymous", scope: params.usageScope, prompts_used: row.prompts_used + 1, billing: "metered_after_generation" } };
       }
     } catch (err) {
       await client.query("ROLLBACK").catch(() => undefined);

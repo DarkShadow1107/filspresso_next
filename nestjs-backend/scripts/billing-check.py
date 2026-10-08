@@ -5,6 +5,7 @@ to be wrong are the ones only the database can answer: the grants, the numeric r
 through NUMERIC(18,8), and whether a repeated report really does not double-charge.
 """
 import json
+import os
 import secrets
 import ssl
 import urllib.error
@@ -112,8 +113,12 @@ def main():
     check("usage accepted", status in (200, 201), f"HTTP {status}")
     check("cost matches the list price (1M in + 1M out)",
           abs(res.get("costRon", 0) - 1.80) < 1e-9, f"{res.get('costRon')} RON")
-    check("balance debited", abs(res.get("balanceRon", 0) - (start_balance - 1.8)) < 1e-9,
-          f"{start_balance} -> {res.get('balanceRon')}")
+    # The free allowance absorbs this, so the wallet must NOT move. Written before
+    # allowance-first existed, when the wallet absorbed everything.
+    check("wallet untouched: the allowance covered it",
+          abs(res.get("balanceRon", 0) - start_balance) < 1e-9
+          and abs(res.get("allowanceAppliedRon", 0) - 1.8) < 1e-9,
+          f"wallet {start_balance} -> {res.get('balanceRon')}, allowance {res.get('allowanceAppliedRon')}")
 
     status2, res2, _ = post("/api/billing/usage",
                             {"modelKey": "lfm2_5_230m_q4_k_m", "inputTokens": 1000000,
@@ -134,18 +139,23 @@ def main():
                          {"modelKey": "lfm2_5_230m_q4_k_m", "inputTokens": 1, "outputTokens": 1})
     check("usage without a session is refused", status5 == 401, f"HTTP {status5}")
 
-    # The real invariant, not "true": this run deliberately spent 1.8 RON, which drives
-    # the balance below the floor, so canGenerate must be false. Asserting the
-    # relationship means the check holds whether the account is funded or overdrawn.
+    # Both pots, because they are interchangeable while the allowance lasts. An account
+    # holding included allowance and no card money can still generate -- which is most of
+    # them, since few people fund a card. Deciding from the wallet alone refused exactly
+    # that case. Written before allowance-first existed, when the wallet absorbed the 1.8.
     status6, cg, _ = get("/api/billing/can-generate", cookie)
     floor = cg.get("minBalanceRon")
-    expected_can = cg.get("balanceRon", 0) > floor
-    check("can-generate tracks the balance against the floor",
+    expected_can = cg.get("allowanceRemainingRon", 0) > 0 or cg.get("balanceRon", 0) > floor
+    check("can-generate tracks allowance OR wallet",
           status6 == 200 and cg.get("canGenerate") is expected_can,
-          f"balance={cg.get('balanceRon')} floor={floor} -> canGenerate={cg.get('canGenerate')}")
-    check("overdrawn account is correctly blocked from generating",
-          cg.get("balanceRon", 0) <= floor or cg.get("canGenerate") is True,
-          "floor is not enforced")
+          f"allowance={cg.get('allowanceRemainingRon')} wallet={cg.get('balanceRon')} "
+          f"floor={floor} -> {cg.get('canGenerate')}")
+    check("the reported floor is the account's own, not the hardcoded backstop",
+          isinstance(floor, (int, float)) and floor != -0.5,
+          f"floor={floor}")
+    check("an account with allowance and a zero wallet is not refused",
+          cg.get("balanceRon") == 0 and cg.get("allowanceRemainingRon", 0) > 0,
+          "would be wrongly blocked")
 
     status7, bal2, _ = get("/api/billing/balance", cookie)
     check("recent spend is listed", status7 == 200 and len(bal2.get("recent", [])) >= 1,
