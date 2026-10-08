@@ -78,20 +78,31 @@ test("every entitled model is advertised (no silent omission)", () => {
 	}
 });
 
-test("every advertised model line carries a real allowance", () => {
+test("no advertised line carries a prompt count", () => {
+	// The prompt quota is gone: usage is metered in RON across every model. A line
+	// reading "120 prompts/month" would advertise a budget nothing enforces, and would
+	// contradict the allowance shown beside it.
+	for (const tier of TIERS) {
+		for (const line of [...modelAccessLinesForTier(tier), ...featureLinesForTier(tier)]) {
+			assert.doesNotMatch(line, /prompts\/month/, `${tier}: "${line}" still quotes a quota`);
+		}
+	}
+});
+
+test("every advertised model line is a model the plan is actually entitled to", () => {
+	// The parity that used to be checked here -- advertised count == enforced count --
+	// is now just membership, because there is no count left to disagree about.
 	for (const tier of TIERS) {
 		for (const line of modelAccessLinesForTier(tier)) {
-			// Strip the leading modality emoji the plans page keys its icons off.
-			const match = /^(.*) - (\d+) prompts\/month$/.exec(line.replace(/^\S+\s+/, ""));
-			assert.ok(match, `${tier}: "${line}" has no allowance`);
+			const label = line.replace(/^\S+\s+/, "");
 			const key = (Object.keys(MODEL_LABEL_BY_KEY) as ModelKey[]).find(
-				(k) => MODEL_LABEL_BY_KEY[k] === match[1],
+				(k) => MODEL_LABEL_BY_KEY[k] === label,
 			);
-			assert.ok(key, `${tier}: no model key for parsed label ${JSON.stringify(match[1])}`);
+			assert.ok(key, `${tier}: no model key for label ${JSON.stringify(label)}`);
 			assert.equal(
-				Number(match[2]),
-				monthlyLimitForModelTier(tier, key),
-				`${tier}/${key} advertises ${match[2]} but the allowance is ${monthlyLimitForModelTier(tier, key)}`,
+				tierAllowsModel(tier, key as ModelKey),
+				true,
+				`${tier} advertises ${label} without being entitled to it`,
 			);
 		}
 	}
@@ -100,8 +111,8 @@ test("every advertised model line carries a real allowance", () => {
 test("feature lines never claim something the predicates deny", () => {
 	for (const tier of TIERS) {
 		const lines = featureLinesForTier(tier).join(" | ");
-		if (lines.includes("Model Playground")) {
-			assert.ok(tierCanUsePlayground(tier), `${tier} advertises the Playground without access`);
+		if (lines.includes("Spectre Playground")) {
+			assert.ok(tierCanUsePlayground(tier), `${tier} advertises Spectre Playground without access`);
 		}
 		if (lines.includes("Molecule Helper")) {
 			assert.ok(tierCanUseMoleculeHelper(tier), `${tier} advertises Molecule Helper`);

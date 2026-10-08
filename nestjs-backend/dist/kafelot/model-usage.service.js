@@ -9,9 +9,9 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.USAGE_SCOPES = exports.ModelUsageService = exports.MODEL_MONTHLY_LIMITS = void 0;
+exports.USAGE_SCOPES = exports.ModelUsageService = exports.MODEL_TIER_ACCESS = void 0;
 exports.isMeteredModel = isMeteredModel;
-exports.modelLimitForTier = modelLimitForTier;
+exports.tierAllowsModel = tierAllowsModel;
 exports.currentMonthYear = currentMonthYear;
 exports.nextMonthReset = nextMonthReset;
 const common_1 = require("@nestjs/common");
@@ -19,41 +19,48 @@ const database_service_1 = require("../database/database.service");
 const kafelot_service_1 = require("./kafelot.service");
 Object.defineProperty(exports, "USAGE_SCOPES", { enumerable: true, get: function () { return kafelot_service_1.USAGE_SCOPES; } });
 /**
- * Per-model monthly allowances, mirroring `MODEL_MONTHLY_LIMITS` in
- * `src/lib/modelAccess.ts`.
+ * Which plans may use which model.
  *
- * The two must agree, because the plans page renders the TypeScript copy to
- * customers while this one decides what is actually enforced. A cross-runtime
- * import is not possible, so `test/model-limits.test.ts` parses the TypeScript
- * source and fails if the tables drift.
+ * This used to be a quota table -- `{ model: { tier: prompts-per-month } }` -- and the
+ * numbers are gone. Usage is now metered in RON (`billing/tier-allowance.ts`), so a prompt
+ * count would be a second, contradictory budget: a customer entitled to 15 RON of 230M
+ * could be refused mid-conversation for "prompts" while holding most of that 15 RON
+ * unspent. One budget, one meter.
  *
- * A value of 0 means "not entitled on this plan", which is distinct from
- * "entitled but exhausted" and must be reported differently so the UI can grey the
- * model out rather than showing a used-up quota.
+ * Entitlement survives the change, and has to: it is the only thing stopping a free
+ * account from reaching the 8B A1B. So this is a membership matrix, not a quota.
+ *
+ * It lives in the backend and is fetched, not copied into `src/lib/modelAccess.ts` --
+ * see `billing/model-pricing.ts` for why a duplicated money table is worse than a
+ * duplicated prompt limit.
  */
-exports.MODEL_MONTHLY_LIMITS = {
-    // prettier-ignore
-    lfm2_5_230m_q4_k_m: { free: 15, basic: 50, plus: 100, pro: 150, max: 300, ultimate: 1000 },
-    lfm2_5_350m_q8_0: { basic: 40, plus: 80, pro: 120, max: 240, ultimate: 800 },
-    lfm2_5_1_2b_instruct_q4_k_m: { plus: 60, pro: 90, max: 180, ultimate: 600 },
-    lfm2_5_1_2b_thinking_q4_k_m: { pro: 60, max: 120, ultimate: 400 },
-    lfm2_5_2_6b_q4_0: { max: 90, ultimate: 300 },
-    lfm2_5_8b_a1b_q4_k_m: { ultimate: 120 },
-    lfm2_5_vl_450m_q4_k_m: { plus: 50, pro: 70, max: 140, ultimate: 450 },
-    lfm2_5_vl_3b_q4_k_m: { max: 70, ultimate: 220 },
-    lfm2_5_audio_1_5b_q4_0: { ultimate: 150 },
+// prettier-ignore
+exports.MODEL_TIER_ACCESS = {
+    lfm2_5_230m_q4_k_m: { free: true, basic: true, plus: true, pro: true, max: true, ultimate: true },
+    lfm2_5_350m_q8_0: { basic: true, plus: true, pro: true, max: true, ultimate: true },
+    lfm2_5_1_2b_instruct_q4_k_m: { plus: true, pro: true, max: true, ultimate: true },
+    lfm2_5_1_2b_thinking_q4_k_m: { pro: true, max: true, ultimate: true },
+    lfm2_5_2_6b_q4_0: { max: true, ultimate: true },
+    lfm2_5_8b_a1b_q4_k_m: { ultimate: true },
+    lfm2_5_vl_450m_q4_k_m: { plus: true, pro: true, max: true, ultimate: true },
+    lfm2_5_vl_3b_q4_k_m: { max: true, ultimate: true },
+    lfm2_5_audio_1_5b_q4_0: { ultimate: true },
 };
-/** True when the model key is one we meter. Unknown keys are rejected, not ignored. */
+/** True when the model is one we meter. Unknown keys are rejected, not ignored. */
 function isMeteredModel(modelKey) {
-    return Object.prototype.hasOwnProperty.call(exports.MODEL_MONTHLY_LIMITS, modelKey);
+    return Object.prototype.hasOwnProperty.call(exports.MODEL_TIER_ACCESS, modelKey);
 }
-/** Monthly allowance for one model on one plan; 0 means not entitled. */
-function modelLimitForTier(modelKey, tier) {
+/**
+ * Whether this plan may use this model at all.
+ *
+ * Membership is tested explicitly. An unrecognised tier returns false, because defaulting
+ * it to true would hand a new or misspelled plan every model in the lineup.
+ */
+function tierAllowsModel(modelKey, tier) {
     if (!isMeteredModel(modelKey))
-        return 0;
-    const row = exports.MODEL_MONTHLY_LIMITS[modelKey];
-    const key = String(tier || "free").trim().toLowerCase();
-    return row[key] ?? 0;
+        return false;
+    const row = exports.MODEL_TIER_ACCESS[modelKey];
+    return row[String(tier || "free").trim().toLowerCase()] === true;
 }
 let ModelUsageService = class ModelUsageService {
     db;
@@ -75,15 +82,13 @@ let ModelUsageService = class ModelUsageService {
             String(r.model_key),
             Number(r.prompts_used) || 0,
         ]));
-        return Object.keys(exports.MODEL_MONTHLY_LIMITS).map((modelKey) => {
-            const limit = modelLimitForTier(modelKey, tier);
-            const used = usedByModel.get(modelKey) ?? 0;
+        return Object.keys(exports.MODEL_TIER_ACCESS).map((modelKey) => {
+            const allowed = tierAllowsModel(modelKey, tier);
             return {
                 modelKey,
-                limit,
-                used,
-                remaining: Math.max(0, limit - used),
-                notEntitled: limit <= 0,
+                allowed,
+                used: usedByModel.get(modelKey) ?? 0,
+                notEntitled: !allowed,
             };
         });
     }
@@ -94,23 +99,17 @@ let ModelUsageService = class ModelUsageService {
      * without consuming anything.
      */
     async checkModelAllowance(accountId, tier, usageScope, modelKey) {
-        const limit = modelLimitForTier(modelKey, tier);
+        const allowed = tierAllowsModel(modelKey, tier);
         const scope = (0, kafelot_service_1.normalizeUsageScope)(usageScope);
         const pool = this.db.getPool();
         const { rows } = await pool.query(`SELECT prompts_used FROM kafelot_prompt_usage
 			 WHERE account_id = $1 AND month_year = $2 AND usage_scope = $3 AND model_key = $4`, [accountId, currentMonthYear(), scope, modelKey]);
         const used = Number(rows[0]?.prompts_used) || 0;
-        const allowance = {
-            modelKey,
-            limit,
-            used,
-            remaining: Math.max(0, limit - used),
-            notEntitled: limit <= 0,
-        };
-        if (limit <= 0)
+        const allowance = { modelKey, allowed, used, notEntitled: !allowed };
+        // One refusal reason now. "allowance exhausted" was the prompt quota, which no
+        // longer exists; the RON balance is the budget and is enforced by billing.
+        if (!allowed)
             return { allowed: false, reason: "model_not_in_plan", allowance };
-        if (used >= limit)
-            return { allowed: false, reason: "model_allowance_exhausted", allowance };
         return { allowed: true, allowance };
     }
     /** Increment a model's sub-count. Called inside the same transaction as the scope total. */

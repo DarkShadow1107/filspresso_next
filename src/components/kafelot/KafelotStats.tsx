@@ -77,7 +77,7 @@ export default function KafelotStats({ stats }: KafelotStatsProps) {
 					<div className="resource-meter">
 						<div className="resource-fill prompts" style={{ width: `${stats.prompts.general.usagePercent}%` }} />
 					</div>
-					<div className="resource-meta">{stats.prompts.general.remaining} prompts remaining</div>
+					<div className="resource-meta">{stats.prompts.general.remaining} prompts sent this month</div>
 				</div>
 
 				{stats.prompts.moleculeHelper && (
@@ -96,7 +96,7 @@ export default function KafelotStats({ stats }: KafelotStatsProps) {
 								style={{ width: `${stats.prompts.moleculeHelper.usagePercent}%` }}
 							/>
 						</div>
-						<div className="resource-meta">{stats.prompts.moleculeHelper.remaining} prompts remaining</div>
+						<div className="resource-meta">{stats.prompts.moleculeHelper.remaining} prompts sent this month</div>
 					</div>
 				)}
 

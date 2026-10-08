@@ -3,7 +3,6 @@ import {
 	MODEL_LABEL_BY_KEY,
 	MODEL_MODALITY_BY_KEY,
 	MODEL_TIERS,
-	monthlyLimitForModelTier,
 	allowedVisionModelsForTier,
 	tierAllowsModel,
 	tierCanUseThinkingModel,
@@ -212,11 +211,12 @@ const MODEL_DISPLAY_ORDER: ModelKey[] = [
 /** Models a plan includes, as ready-to-render benefit lines. */
 export function modelAccessLinesForTier(tier: UserSubscriptionTier | string): string[] {
 	const value = normalize(tier) as UserSubscriptionTier;
-	return MODEL_DISPLAY_ORDER.filter((key) => tierAllowsModel(value, key)).map((key) => {
-		const limit = monthlyLimitForModelTier(value, key);
-		const suffix = limit > 0 ? ` - ${limit} prompts/month` : "";
-		return `${MODALITY_EMOJI[MODEL_MODALITY_BY_KEY[key]]} ${MODEL_LABEL_BY_KEY[key]}${suffix}`;
-	});
+	// No per-model prompt count: the plan's included usage is a RON allowance that works
+	// across every model, so a "120 prompts/month" suffix on each line would advertise a
+	// budget nothing enforces.
+	return MODEL_DISPLAY_ORDER.filter((key) => tierAllowsModel(value, key)).map((key) =>
+		`${MODALITY_EMOJI[MODEL_MODALITY_BY_KEY[key]]} ${MODEL_LABEL_BY_KEY[key]}`,
+	);
 }
 
 /** Feature (non-model) lines a plan includes, in display order. */
@@ -231,7 +231,7 @@ export function featureLinesForTier(tier: UserSubscriptionTier | string): string
 		lines.push(`${MODALITY_EMOJI.text} Spectre Playground access`);
 	}
 	if (tierCanUseMoleculeHelper(value)) {
-		lines.push("\u{1F9EC} Molecule Helper - 200 prompts/month (LFM 2.5 VL)");
+		lines.push("\u{1F9EC} Molecule Helper (LFM 2.5 VL)");
 	}
 	if (tierCanEditPrompt(value)) {
 		lines.push("\u{270F}\u{FE0F} Edit prompt feature");

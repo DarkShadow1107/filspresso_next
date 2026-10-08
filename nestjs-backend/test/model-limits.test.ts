@@ -4,120 +4,141 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import { MODEL_TIER_ACCESS, isMeteredModel, tierAllowsModel } from "../src/kafelot/model-usage.service";
+
 const { describe, it } = test;
 
-import { MODEL_MONTHLY_LIMITS, isMeteredModel, modelLimitForTier } from "../src/kafelot/model-usage.service";
+const FRONTEND = readFileSync(
+	path.resolve(__dirname, "..", "..", "src", "lib", "modelAccess.ts"),
+	"utf8",
+);
 
 /**
- * The Nest table decides what is enforced; the TypeScript table in
- * `src/lib/modelAccess.ts` is what the plans page shows customers. A mismatch means
- * either users are promised prompts they cannot use, or they are sold a smaller
- * allowance than advertised. A cross-runtime import is impossible, so the canonical
- * source is parsed and compared here.
+ * Entitlement parity between the backend and the plans page.
+ *
+ * This file used to assert that two *quota* tables agreed. The quotas are gone -- usage is
+ * metered in RON now -- but the parity check is still the valuable part, because the
+ * frontend copy decides which models are *shown* while the backend copy decides which are
+ * *allowed*. A model shown but refused is the bug this catches.
  */
-const MODEL_ACCESS_PATH = path.resolve(__dirname, "..", "..", "src", "lib", "modelAccess.ts");
+describe("the backend knows exactly the models that are metered", () => {
+	it("meters nine models", () => {
+		assert.equal(Object.keys(MODEL_TIER_ACCESS).length, 9);
+	});
 
-const TIERS = ["free", "basic", "plus", "pro", "max", "ultimate"] as const;
+	it("rejects an unknown model key rather than allowing it unmetered", () => {
+		assert.equal(isMeteredModel("not_a_real_model"), false);
+		assert.equal(tierAllowsModel("not_a_real_model", "ultimate"), false);
+	});
 
-/** Pull the `MODEL_MONTHLY_LIMITS` literal out of the TypeScript source. */
-function parseCanonicalLimits(): Record<string, Record<string, number>> {
-  const src = readFileSync(MODEL_ACCESS_PATH, "utf8");
-  const start = src.indexOf("MODEL_MONTHLY_LIMITS");
-  assert.notEqual(start, -1, "MODEL_MONTHLY_LIMITS not found in src/lib/modelAccess.ts");
+	it("never lets a key reach into Object.prototype", () => {
+		// A bare `row[tier] === true` on an object literal would find inherited members.
+		for (const key of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+			assert.equal(tierAllowsModel(key, "ultimate"), false, key);
+			assert.equal(isMeteredModel(key), false, key);
+		}
+	});
 
-  const open = src.indexOf("{", start);
-  let depth = 0;
-  let close = -1;
-  for (let i = open; i < src.length; i += 1) {
-    if (src[i] === "{") depth += 1;
-    else if (src[i] === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        close = i;
-        break;
-      }
-    }
-  }
-  assert.notEqual(close, -1, "MODEL_MONTHLY_LIMITS literal is not closed");
+	it("never lets a tier reach into Object.prototype either", () => {
+		assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", "constructor"), false);
+		assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", "toString"), false);
+	});
 
-  // The table is keyed by the model-key constants (`[TEXT_MODEL_230M]: {...}`), so
-  // resolve those from the same file rather than duplicating the strings here.
-  const consts: Record<string, string> = {};
-  for (const m of src.matchAll(/export const (\w+)\s*=\s*"([^"]*)"/g)) {
-    consts[m[1]] = m[2];
-  }
-  const missing = [...src.slice(open, close).matchAll(/\[([A-Z_0-9]+)\]/g)]
-    .map((m) => m[1])
-    .filter((name) => consts[name] === undefined);
-  assert.deepEqual([...new Set(missing)], [], "unresolved model-key constants in the canonical table");
+	it("refuses an unknown tier rather than defaulting it in", () => {
+		// The bug that started this: membership written as "not empty, not none, not free"
+		// returns true for any unrecognised string, handing a new or misspelled plan every
+		// model in the lineup.
+		for (const tier of ["enterprise", "admin", "platinum", "vip"]) {
+			assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", tier), false, tier);
+			assert.equal(tierAllowsModel("lfm2_5_230m_q4_k_m", tier), false, tier);
+		}
+	});
 
-  // Evaluate the literal in isolation with those constants in scope. It is plain data
-  // with no other external references, so this is safer than a regex over the nested
-  // braces, which is what makes drift detectable at all.
-  // eslint-disable-next-line no-new-func
-  const literal = src.slice(open, close + 1).replace(/\/\/[^\n]*/g, "");
-  return new Function(...Object.keys(consts), `return ${literal};`)(
-    ...Object.values(consts),
-  ) as Record<string, Record<string, number>>;
-}
+	it("is case- and whitespace-insensitive about the tier", () => {
+		assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", "  ULTIMATE "), true);
+		assert.equal(tierAllowsModel("lfm2_5_230m_q4_k_m", "Free"), true);
+	});
+});
 
-describe("MODEL_MONTHLY_LIMITS parity with src/lib/modelAccess.ts", () => {
-  const canonical = parseCanonicalLimits();
+describe("the entitlement matrix is sane", () => {
+	it("keeps the 8B A1B ULTIMATE-only", () => {
+		// The most expensive model, so the one where a mistake costs the most.
+		for (const tier of ["free", "basic", "plus", "pro", "max"]) {
+			assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", tier), false, tier);
+		}
+		assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", "ultimate"), true);
+	});
 
-  it("parses the canonical table", () => {
-    assert.ok(Object.keys(canonical).length > 0, "canonical table parsed empty");
-  });
+	it("never narrows access as the plan rises", () => {
+		// A plans page advertising a downgrade is the failure this catches. Every tier's
+		// access set must be a superset of the tier below it.
+		const order = ["free", "basic", "plus", "pro", "max", "ultimate"];
+		for (let i = 1; i < order.length; i++) {
+			const lower = order[i - 1];
+			const higher = order[i];
+			for (const modelKey of Object.keys(MODEL_TIER_ACCESS)) {
+				if (tierAllowsModel(modelKey, lower)) {
+					assert.equal(
+						tierAllowsModel(modelKey, higher),
+						true,
+						`${modelKey} is allowed on ${lower} but not ${higher}`,
+					);
+				}
+			}
+		}
+	});
 
-  it("meters exactly the same model keys", () => {
-    assert.deepEqual(
-      Object.keys(MODEL_MONTHLY_LIMITS).sort(),
-      Object.keys(canonical).sort(),
-      "model keys drifted between the Nest and Next tables",
-    );
-  });
+	it("gives every model at least one tier", () => {
+		for (const [modelKey, row] of Object.entries(MODEL_TIER_ACCESS)) {
+			assert.ok(
+				Object.values(row).some(Boolean),
+				`${modelKey} is not reachable on any plan`,
+			);
+		}
+	});
 
-  it("gives every model the same limit on every tier", () => {
-    const drift: string[] = [];
-    for (const modelKey of Object.keys(canonical)) {
-      for (const tier of TIERS) {
-        const expected = canonical[modelKey]?.[tier] ?? 0;
-        const actual = modelLimitForTier(modelKey, tier);
-        if (expected !== actual) drift.push(`${modelKey}/${tier}: plans=${expected} nest=${actual}`);
-      }
-    }
-    assert.deepEqual(drift, [], "per-tier limits drifted");
-  });
+	it("uses booleans, never a leftover prompt count", () => {
+		// A numeric value here would be a quota that survived the rename.
+		for (const [modelKey, row] of Object.entries(MODEL_TIER_ACCESS)) {
+			for (const [tier, value] of Object.entries(row)) {
+				assert.equal(typeof value, "boolean", `${modelKey}.${tier} is not a boolean`);
+			}
+		}
+	});
+});
 
-  it("treats an absent tier as 0, never as unlimited", () => {
-    // The 8B is ULTIMATE-only. Anyone reading a missing key as "no limit" would hand
-    // every lower tier infinite 8B usage.
-    assert.equal(modelLimitForTier("lfm2_5_8b_a1b_q4_k_m", "free"), 0);
-    assert.equal(modelLimitForTier("lfm2_5_8b_a1b_q4_k_m", "pro"), 0);
-    assert.equal(modelLimitForTier("lfm2_5_8b_a1b_q4_k_m", "ultimate"), 120);
-  });
+describe("parity with the plans page", () => {
+	it("the frontend no longer carries a prompt quota", () => {
+		// The copy that rendered "120 prompts/month" is gone. If this fails, the plans page
+		// is still advertising a budget that nothing enforces.
+		assert.doesNotMatch(FRONTEND, /MODEL_MONTHLY_LIMITS/);
+		assert.doesNotMatch(FRONTEND, /prompts\/month/);
+		assert.doesNotMatch(FRONTEND, /monthlyLimitForModelTier/);
+	});
 
-  it("rejects unknown model keys rather than allowing them unmetered", () => {
-    assert.equal(isMeteredModel("not_a_real_model"), false);
-    assert.equal(modelLimitForTier("not_a_real_model", "ultimate"), 0);
-  });
+	it("the frontend carries the same entitlement matrix", () => {
+		assert.match(FRONTEND, /MODEL_TIER_ACCESS/);
+		assert.match(FRONTEND, /tierAllowsModel/);
+	});
 
-  it("never lets a key reach into Object.prototype", () => {
-    assert.equal(isMeteredModel("constructor"), false);
-    assert.equal(isMeteredModel("__proto__"), false);
-    assert.equal(modelLimitForTier("constructor", "ultimate"), 0);
-  });
-
-  it("keeps the largest allowance on the largest plan", () => {
-    // A sanity check on the data itself, not the plumbing: limits must not invert as
-    // the tier rises, or the plans page would advertise a downgrade.
-    for (const [modelKey, row] of Object.entries(MODEL_MONTHLY_LIMITS)) {
-      const ordered = TIERS.map((t) => row[t] ?? 0);
-      for (let i = 1; i < ordered.length; i += 1) {
-        assert.ok(
-          ordered[i] >= ordered[i - 1],
-          `${modelKey}: limit decreases from ${TIERS[i - 1]} to ${TIERS[i]} (${ordered[i - 1]} -> ${ordered[i]})`,
-        );
-      }
-    }
-  });
+	it("meters the same model keys on both sides", () => {
+		// The frontend keys the matrix by its own constants (`[TEXT_MODEL_230M]: {...}`),
+		// so resolve those to their string values rather than grepping for raw keys.
+		const constants = new Map(
+			[...FRONTEND.matchAll(/export const (\w+) = "(lfm2_5_\w+)"/g)].map((m) => [m[1], m[2]]),
+		);
+		assert.ok(constants.size >= 9, `only found ${constants.size} model key constants`);
+		// Scope to the matrix literal. Scanning the whole file also matches the
+		// hand-maintained tables further up, which is how "parsed 54 matrix rows" happened.
+		const start = FRONTEND.indexOf("export const MODEL_TIER_ACCESS");
+		assert.notEqual(start, -1, "MODEL_TIER_ACCESS not found in modelAccess.ts");
+		const end = FRONTEND.indexOf("\n};", start);
+		assert.notEqual(end, -1, "MODEL_TIER_ACCESS literal is not closed");
+		const literal = FRONTEND.slice(start, end);
+		const keys = [...literal.matchAll(/^\t\[(\w+)\]:/gm)]
+			.map((m) => constants.get(m[1]))
+			.filter((v): v is string => Boolean(v));
+		assert.equal(keys.length, 9, `parsed ${keys.length} matrix rows`);
+		assert.deepEqual(keys.sort(), Object.keys(MODEL_TIER_ACCESS).sort());
+	});
 });

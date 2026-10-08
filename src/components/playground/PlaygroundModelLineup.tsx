@@ -2,7 +2,6 @@ import {
 	MODEL_DESCRIPTION_BY_KEY,
 	MODEL_LABEL_BY_KEY,
 	MODEL_MODALITY_BY_KEY,
-	monthlyLimitForModelTier,
 	tierAllowsModel,
 	normalizeModelTier,
 	type ModelKey,
@@ -77,7 +76,6 @@ export default function PlaygroundModelLineup({
 			<ul className="pgm-lineup-list">
 				{rows.map((key) => {
 					const included = tierAllowsModel(resolved, key);
-					const limit = monthlyLimitForModelTier(resolved, key);
 					const from = lowestTierFor(key);
 					return (
 						<li
@@ -102,7 +100,10 @@ export default function PlaygroundModelLineup({
 								</span>
 								{included ? (
 									<span className="pgm-lineup-state pgm-lineup-state-in">
-										{limit > 0 ? `${limit}/mo` : "Included"}
+										{/* No per-model quota any more. Spend is metered in RON against the
+										    plan's monthly allowance, which works across every model, so
+										    "120/mo" here would advertise a budget nothing enforces. */}
+										Included
 									</span>
 								) : (
 									<span className="pgm-lineup-state pgm-lineup-state-out">

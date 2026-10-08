@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
-import { modelLimitForTier } from "./model-usage.service";
+import { tierAllowsModel } from "./model-usage.service";
 
 export const USAGE_SCOPES = { GENERAL: "general", MOLECULE_HELPER: "molecule_helper" } as const;
 export type UsageScope = typeof USAGE_SCOPES[keyof typeof USAGE_SCOPES];
@@ -235,32 +235,27 @@ export class KafelotService {
       if (params.accountId) {
         const tier = await this.fetchUserTier(client, params.accountId);
         const row = await this.getOrCreateUserUsage(client, params.accountId, tier, params.usageScope);
-        if (row.prompts_used >= row.prompts_limit) {
-          await client.query("ROLLBACK");
-          return { status: 429, data: { error: "PROMPT_LIMIT_REACHED", prompts_remaining: 0, prompts_limit: row.prompts_limit, reset_date: row.reset_date, tier, scope: params.usageScope } };
-        }
+        // No PROMPT_LIMIT_REACHED here any more. The prompt quota is gone: usage is
+        // metered in RON by billing/tier-allowance.ts, and a second budget in prompts
+        // would refuse a request while most of the customer's included money sat
+        // unspent. `row` is still fetched, and its counter still incremented, because the
+        // prompt count is still worth showing as a usage figure.
 
-        // Per-model allowance. Checked after the scope total and inside the same
-        // transaction, so the two cannot disagree: a request must satisfy both.
+        // Model entitlement is the one gate that remains on which model you may pick.
+        // It is not a quota: it answers "does this plan include the 8B A1B", never "have
+        // you used it up".
         let modelAllowance: Record<string, unknown> | null = null;
         if (params.modelKey) {
-          const limit = modelLimitForTier(params.modelKey, tier);
-          const modelRow = await this.getOrCreateModelUsage(client, params.accountId, params.usageScope, params.modelKey, limit);
+          const allowed = tierAllowsModel(params.modelKey, tier);
+          const modelRow = await this.getOrCreateModelUsage(client, params.accountId, params.usageScope, params.modelKey, 0);
           modelAllowance = {
             model_key: params.modelKey,
-            prompts_limit: modelRow.prompts_limit,
+            allowed,
             prompts_used: modelRow.prompts_used,
-            prompts_remaining: Math.max(0, modelRow.prompts_limit - modelRow.prompts_used),
           };
-          if (modelRow.prompts_limit <= 0) {
+          if (!allowed) {
             await client.query("ROLLBACK");
             return { status: 403, data: { error: "MODEL_NOT_IN_PLAN", model_key: params.modelKey, tier, scope: params.usageScope, ...modelAllowance } };
-          }
-          if (modelRow.prompts_used >= modelRow.prompts_limit) {
-            await client.query("ROLLBACK");
-            // Distinct from PROMPT_LIMIT_REACHED so the UI can grey the model out and
-            // let the user pick another, rather than implying the whole plan is spent.
-            return { status: 429, data: { error: "MODEL_ALLOWANCE_EXHAUSTED", model_key: params.modelKey, reset_date: row.reset_date, tier, scope: params.usageScope, ...modelAllowance } };
           }
         }
         if (params.dryRun) {

@@ -712,6 +712,11 @@ export default React.memo(function CoffeeRecommender() {
 	// Prompt limit tracking
 	const [promptsRemaining, setPromptsRemaining] = useState<number | null>(null);
 	const [promptsLimit, setPromptsLimit] = useState<number | null>(null);
+	// What the user actually has left, in money. The prompt counters above are retained
+	// only as a usage figure now that the quota is gone.
+	const [allowanceRemaining, setAllowanceRemaining] = useState<number | null>(null);
+	const [allowanceResetAt, setAllowanceResetAt] = useState<string | null>(null);
+	const [walletBalance, setWalletBalance] = useState<number | null>(null);
 	const [promptResetDate, setPromptResetDate] = useState<string | null>(null);
 	const [promptUsageByScope, setPromptUsageByScope] = useState<Record<PromptScope, PromptScopeState>>({
 		general: {
@@ -951,6 +956,34 @@ export default React.memo(function CoffeeRecommender() {
 
 	// No token argument: the session lives in an httpOnly cookie, so a same-origin
 	// fetch is authenticated automatically and there is nothing to read in JS.
+	/**
+	 * The plan's money allowance and the funded wallet.
+	 *
+	 * Two numbers, because they answer different questions and reset differently: the
+	 * allowance is included with the plan and resets on the 1st, the wallet is money the
+	 * customer put on a card and does not reset at all.
+	 */
+	async function fetchBillingStatus() {
+		try {
+			const API_BASE =
+				typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
+			// 401 just means signed out; the anonymous allowance is not shown here.
+			const res = await fetch(`${API_BASE}/api/billing/balance`, { credentials: "same-origin" });
+			if (!res.ok) return;
+			const data = (await res.json()) as {
+				balanceRon?: number;
+				allowance?: { remainingRon?: number; resetAt?: string };
+			};
+			if (typeof data.allowance?.remainingRon === "number") {
+				setAllowanceRemaining(data.allowance.remainingRon);
+				setAllowanceResetAt(data.allowance.resetAt ?? null);
+			}
+			if (typeof data.balanceRon === "number") setWalletBalance(data.balanceRon);
+		} catch {
+			// Leave the counters empty rather than showing a wrong number.
+		}
+	}
+
 	async function fetchPromptStatus(scope: PromptScope = "general", updateDisplay = true) {
 		try {
 			const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
@@ -1193,6 +1226,10 @@ export default React.memo(function CoffeeRecommender() {
 			const secondaryScope: PromptScope = scope === "general" ? "molecule_helper" : "general";
 			fetchPromptStatus(secondaryScope, false);
 		}
+		// The allowance and the wallet, alongside the prompt counts. Same trigger: the
+		// allowance is set by the tier, so a tier change has to refetch it.
+		// eslint-disable-next-line react-hooks/set-state-in-effect
+		fetchBillingStatus();
 	}, [chemistryMode, isLoggedIn, userSubscription]);
 
 	useEffect(() => {
@@ -1970,7 +2007,9 @@ export default React.memo(function CoffeeRecommender() {
 					setChatMessages((m) => [...m, authMsg]);
 					return;
 				}
-				// A model's own allowance ran out. Distinct from PROMPT_LIMIT_REACHED,
+				// MODEL_NOT_IN_PLAN. There is no longer a per-model quota to run out --
+				// MODEL_ALLOWANCE_EXHAUSTED is gone with it -- so this is the only model
+				// refusal left. (Legacy: distinct from PROMPT_LIMIT_REACHED,
 				// which means the whole plan is spent and the user must stop entirely.
 				if (errorData.error === "MODEL_ALLOWANCE_EXHAUSTED" || errorData.error === "MODEL_NOT_IN_PLAN") {
 					const spentKey = typeof errorData.model_key === "string" ? errorData.model_key : nextMeteredModelKey;
@@ -3432,45 +3471,37 @@ export default React.memo(function CoffeeRecommender() {
 							<button onClick={() => setStep("greeting")}>Back</button>
 						</div>
 
-						{/* Prompt usage counter */}
-						{promptsLimit !== null && (
+						{/* Monthly allowance. Replaces the prompt counter: usage is metered in RON
+						    across every model, so one number answers "what have I got left" where
+						    the prompt count only ever described one model. */}
+						{allowanceRemaining !== null && (
 							<div className="kafelot-prompt-counter">
-								{promptsRemaining !== null && promptsRemaining > 0 ? (
+								{allowanceRemaining > 0 ? (
 									<span>
-										{promptsRemaining} / {promptsLimit}{" "}
-										{chemistryMode ? "Molecule Helper prompts" : "prompts"} remaining this month
+										{allowanceRemaining.toFixed(2)} RON left this month
 									</span>
 								) : (
 									<span className="limit-hit">
-										{chemistryMode ? "Molecule Helper prompt limit reached" : "Prompt limit reached"} — resets{" "}
-										{promptResetDate
-											? new Date(promptResetDate).toLocaleDateString("en-US", {
-													month: "long",
-													day: "numeric",
-												})
-											: "next month"}
+										Monthly allowance used
+										{allowanceResetAt
+											? ` — resets ${new Date(allowanceResetAt).toLocaleDateString("en-US", {
+												month: "long",
+												day: "numeric",
+											})}`
+											: ""}
 									</span>
 								)}
 							</div>
 						)}
 
-						{/* Per-model allowance, shown next to the plan counter.
-						    The plan total and the per-model limit are independent: an ULTIMATE
-						    user has 1000 general prompts but only 120 on the 8B, so the model
-						    line is the one that can run out first. */}
-						{nextModelAllowance && nextModelAllowance.limit > 0 && !chemistryMode && (
+						{/* Wallet, for an account that funds the playground with a card. Separate
+						    from the allowance because it is money the customer owns and it does not
+						    reset monthly. */}
+						{walletBalance !== null && walletBalance < 0 && (
 							<div className="kafelot-prompt-counter">
-								{nextModelExhausted ? (
-									<span className="limit-hit">
-										{MODEL_LABEL_BY_KEY[selectedModel]} allowance used ({nextModelAllowance.limit}/
-										{nextModelAllowance.limit}) — pick another model
-									</span>
-								) : (
-									<span>
-										{nextModelAllowance.remaining} / {nextModelAllowance.limit} {MODEL_LABEL_BY_KEY[selectedModel]} prompts remaining
-										this month
-									</span>
-								)}
+								<span className="limit-hit">
+									Wallet {walletBalance.toFixed(2)} RON — top up in your account
+								</span>
 							</div>
 						)}
 

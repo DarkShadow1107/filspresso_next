@@ -160,9 +160,8 @@ export class BillingController {
 	/**
 	 * This month's plan allowance: granted, spent, remaining, and when it resets.
 	 *
-	 * The number the Kafelot window shows alongside prompts/month. Both are shown because
-	 * they answer different questions: prompts/month is a per-model entitlement, this is
-	 * money that works across every model.
+	 * The number the Kafelot window shows. It replaced the prompt counter: this is money
+	 * that works across every model, whereas a prompt count only ever described one.
 	 */
 	@UseGuards(JwtAuthGuard)
 	@Get("allowance")

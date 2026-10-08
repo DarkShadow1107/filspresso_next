@@ -203,23 +203,29 @@ export function tierCanUseThinkingModel(tier: UserSubscriptionTier): boolean {
  * `0` means "not entitled on this plan" and is rendered as unavailable rather
  * than as an exhausted quota, so it cannot be confused with a used-up limit.
  */
-export const MODEL_MONTHLY_LIMITS: Record<ModelKey, Record<string, number>> = {
-	[TEXT_MODEL_230M]: { free: 15, basic: 50, plus: 100, pro: 150, max: 300, ultimate: 1000 },
-	[TEXT_MODEL_350M]: { basic: 40, plus: 80, pro: 120, max: 240, ultimate: 800 },
-	[TEXT_MODEL_1_2B_INSTRUCT]: { plus: 60, pro: 90, max: 180, ultimate: 600 },
-	[TEXT_MODEL_1_2B_THINKING]: { pro: 60, max: 120, ultimate: 400 },
-	[TEXT_MODEL_2_6B]: { max: 90, ultimate: 300 },
-	[TEXT_MODEL_8B]: { ultimate: 120 },
-	[VISION_MODEL_450M]: { plus: 50, pro: 70, max: 140, ultimate: 450 },
-	[VISION_MODEL_3B]: { max: 70, ultimate: 220 },
-	[AUDIO_MODEL_1_5B]: { ultimate: 150 },
+/**
+ * Which plans include which model.
+ *
+ * This used to be a quota table of prompts-per-month and the numbers are gone: usage is
+ * metered in RON now (`nestjs-backend/src/billing/tier-allowance.ts`), so a prompt count
+ * here would advertise a second, contradictory budget. Entitlement survives, because it is
+ * the only thing stopping a free account from reaching the 8B A1B.
+ *
+ * The backend enforces this matrix; this copy decides which models are *shown*. The two
+ * are checked against each other by `nestjs-backend/test/model-limits.test.ts`, because a
+ * model shown but refused is the bug that matters.
+ */
+export const MODEL_TIER_ACCESS: Record<ModelKey, Record<string, boolean>> = {
+	[TEXT_MODEL_230M]: { free: true, basic: true, plus: true, pro: true, max: true, ultimate: true },
+	[TEXT_MODEL_350M]: { basic: true, plus: true, pro: true, max: true, ultimate: true },
+	[TEXT_MODEL_1_2B_INSTRUCT]: { plus: true, pro: true, max: true, ultimate: true },
+	[TEXT_MODEL_1_2B_THINKING]: { pro: true, max: true, ultimate: true },
+	[TEXT_MODEL_2_6B]: { max: true, ultimate: true },
+	[TEXT_MODEL_8B]: { ultimate: true },
+	[VISION_MODEL_450M]: { plus: true, pro: true, max: true, ultimate: true },
+	[VISION_MODEL_3B]: { max: true, ultimate: true },
+	[AUDIO_MODEL_1_5B]: { ultimate: true },
 };
-
-/** Monthly allowance for one model on one plan, or 0 when not entitled. */
-export function monthlyLimitForModelTier(tier: UserSubscriptionTier, modelKey: ModelKey): number {
-	if (!tierAllowsModel(tier, modelKey)) return 0;
-	return MODEL_MONTHLY_LIMITS[modelKey]?.[tier] ?? 0;
-}
 
 /**
  * Emoji prefixes the marketing pages key their icons off.
@@ -248,20 +254,16 @@ const MODEL_DISPLAY_ORDER: ModelKey[] = [
 ];
 
 /**
- * The models a plan includes, as ready-to-render benefit lines.
+ * The models a plan includes, as benefit lines.
  *
- * Derived from `tierAllowsModel` and `MODEL_MONTHLY_LIMITS` rather than
- * hand-written, because the hand-written lists drifted away from what is actually
- * enforced: they still advertised the deleted Gemma 3, and promised vision access
- * on Basic, which the entitlement matrix does not grant. Deriving the copy makes
- * that class of bug impossible.
+ * No prompt count. The plan's included usage is a RON allowance that works across every
+ * model, so appending a per-model prompt count to each line would advertise a
+ * budget nothing enforces and contradict the allowance shown next to it.
  */
 export function modelAccessLinesForTier(tier: UserSubscriptionTier): string[] {
 	return MODEL_DISPLAY_ORDER.filter((key) => tierAllowsModel(tier, key)).map((key) => {
-		const limit = monthlyLimitForModelTier(tier, key);
 		const label = MODEL_LABEL_BY_KEY[key];
-		const suffix = limit > 0 ? ` - ${limit} prompts/month` : "";
-		return `${MODALITY_EMOJI[MODEL_MODALITY_BY_KEY[key]]} ${label}${suffix}`;
+		return `${MODALITY_EMOJI[MODEL_MODALITY_BY_KEY[key]]} ${label}`;
 	});
 }
 
