@@ -95,7 +95,7 @@ export function buildForwardedCookieHeader(cookieHeader: string | null): string 
 	return forwarded.join("; ");
 }
 
-export function copyRequestHeaders(request: NextRequest) {
+export function copyRequestHeaders(request: Request) {
 	const headers = new Headers();
 
 	for (const name of FORWARDED_REQUEST_HEADERS) {

@@ -14,6 +14,7 @@ import useCart from "@/hooks/useCart";
 import type { CoffeeProduct } from "@/data/coffee";
 import { useCoffeeCollections } from "@/hooks/useCoffeeCollections";
 import { readSnapshot } from "@/lib/clientSnapshotCache";
+import { getOrCreateFingerprint } from "@/lib/fingerprint";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import { smartSearchMolecule, isMoleculeQuery, extractMoleculeQuery } from "@/lib/moleculeSearch";

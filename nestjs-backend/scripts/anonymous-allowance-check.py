@@ -6,6 +6,7 @@ allowance, consumed at list price (no subscription, so no discount).
 """
 import json
 import secrets
+import uuid
 import urllib.error
 import urllib.request
 
@@ -42,7 +43,10 @@ def req(path, method="GET", body=None, fingerprint=None):
 
 
 def main():
-    fp = "anon" + secrets.token_hex(8)
+    # A real UUID v4. The fingerprint is validated, not sanitised: "anon" + 16 hex
+    # characters is no longer an acceptable identity, and asking for one would only
+    # test the parser.
+    fp = str(uuid.uuid4())
 
     print("=== the anonymous allowance ===")
     status, alw = req("/api/billing/allowance/anonymous", fingerprint=fp)
@@ -96,25 +100,36 @@ def main():
     status, _ = req("/api/billing/allowance/anonymous")
     check("allowance without a fingerprint refused", status == 401, f"HTTP {status}")
 
-    print("\n=== a malformed fingerprint is refused, a long one is truncated ===")
-    # Rejected: too short to be a fingerprint, or carrying characters that are not
-    # url-safe. These are refused rather than sanitised, so a caller cannot have their
-    # budget silently keyed to something else.
-    for bad in ["short", "has spaces here", "semi;colon", "quote\"inside", "slash/here"]:
+    print("\n=== a malformed fingerprint is refused, never repaired ===")
+    # Every one of these is a 400, not a 401: the caller did present an identity, and it
+    # was not one this system accepts. The distinction matters because it is the difference
+    # between "sign in" and "you sent something malformed", and because a 401 would invite
+    # a client to retry the same broken value forever.
+    for bad in ["short", "has spaces here", "semi;colon", "quote\"inside", "slash/here",
+                "no-dashes-but-32-chars-long-abc", "A" * 8 + "-" + "B" * 4 + "-4" + "C" * 3
+                + "-8" + "D" * 3 + "-E" * 12, "a" * 200, "fp-" + secrets.token_hex(8)]:
         status, _ = req("/api/billing/allowance/anonymous", fingerprint=bad)
-        check(f"rejected: {bad[:20]!r}", status == 401, f"HTTP {status}")
+        check(f"refused 400: {bad[:22]!r}", status == 400, f"HTTP {status}")
 
-    # Accepted and truncated to 64, matching kafelot_anonymous_users.fingerprint which is
-    # VARCHAR(64). Refusing here while the pre-flight path accepts would mean the two
-    # halves of anonymous metering disagreed about what a fingerprint is.
-    long_fp = "a" * 200
-    status, truncated = req("/api/billing/allowance/anonymous", fingerprint=long_fp)
-    check("over-long fingerprint truncated to 64, not refused", status == 200, f"HTTP {status}")
-    # And it must be the SAME budget as its own 64-char prefix, which is the consequence.
-    status2, same = req("/api/billing/allowance/anonymous", fingerprint="a" * 64)
-    check("shares a budget with its 64-char prefix (the documented trade)",
-          status2 == 200 and truncated.get("grantedRon") == same.get("grantedRon"),
-          "truncation is consistent")
+    print("\n=== an over-long value is refused, not truncated onto a shared budget ===")
+    # This used to be truncated to 64 characters to fit the column, on the argument that
+    # refusing here while the pre-flight path accepted would let the two halves of anonymous
+    # metering disagree. The opposite turned out to be true: truncation let two unrelated
+    # visitors collapse onto one budget, because everything past the 64th character was
+    # silently discarded. Both layers now validate, and both refuse.
+    long_status, _ = req("/api/billing/allowance/anonymous", fingerprint="a" * 200)
+    check("over-long fingerprint refused, not truncated", long_status == 400, f"HTTP {long_status}")
+
+    # And the value that is exactly one character too long must not land on the budget of
+    # the valid UUID that is its own prefix.
+    valid = str(uuid.uuid4())
+    over = valid + "0"
+    s_valid, valid_alw = req("/api/billing/allowance/anonymous", fingerprint=valid)
+    s_over, _ = req("/api/billing/allowance/anonymous", fingerprint=over)
+    check("a valid UUID is accepted", s_valid == 200 and valid_alw.get("grantedRon") == 3,
+          f"HTTP {s_valid}, {valid_alw.get('grantedRon')} RON")
+    check("37 characters refused rather than folded onto the 36-character budget",
+          s_over == 400, f"HTTP {s_over}")
 
     failed = [c for c in checks if not c[1]]
     print(f"\n  {len(checks) - len(failed)}/{len(checks)} checks passed")

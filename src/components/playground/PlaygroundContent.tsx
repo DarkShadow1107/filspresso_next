@@ -22,6 +22,7 @@ import {
 } from "@/lib/modelAccess";
 import { ArrowNarrowDownIcon, SparklesIcon } from "@/icons";
 import { tierCanUsePlayground } from "@/lib/entitlements";
+import { getOrCreateFingerprint } from "@/lib/fingerprint";
 
 type ChatMessage = {
 	id: string;
@@ -37,21 +38,6 @@ const MAX_TEMPERATURE = 2;
 const MAX_TOKENS_CEILING = 2048;
 
 
-function getOrCreateFingerprint(): string {
-	if (typeof window === "undefined") return "";
-	const KEY = "kafelot_fp";
-	try {
-		const existing = window.localStorage.getItem(KEY);
-		if (existing) return existing;
-		const bytes = new Uint8Array(16);
-		crypto.getRandomValues(bytes);
-		const generated = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-		window.localStorage.setItem(KEY, generated);
-		return generated;
-	} catch {
-		return "";
-	}
-}
 
 export default function PlaygroundContent() {
 	const isLoggedIn = useSyncExternalStore(subscribeAuthState, isSignedIn, () => false);

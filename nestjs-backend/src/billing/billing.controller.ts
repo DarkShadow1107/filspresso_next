@@ -25,6 +25,7 @@ import {
 } from "./billing.service";
 import { pricingTable, resolveTokenPrice } from "./model-pricing";
 import { isPaidTier } from "./tier-allowance";
+import { FINGERPRINT_HEADER, parseFingerprint } from "../common/utils/fingerprint";
 
 interface BillingRequest {
 	user?: { id?: number | string } | undefined;
@@ -32,35 +33,18 @@ interface BillingRequest {
 }
 
 /**
- * The anonymous visitor's identifier: a client-supplied cookie value.
+ * The caller's fingerprint, validated strictly.
  *
- * Over-long values are truncated to 64 rather than refused, because that is exactly what
- * `kafelot_anonymous_users.fingerprint` already does -- its column is VARCHAR(64) and the
- * pre-flight path truncates into it. Refusing here while that path accepts would mean the
- * two halves of anonymous metering disagreed about what a fingerprint is, which is how this
- * kind of limit drifts in the first place. Real fingerprints are a `crypto.randomUUID()`,
- * 36 characters, so nothing legitimate is ever near the limit.
- *
- * Truncation does mean two over-long values sharing a 64-character prefix share a budget.
- * That is acceptable here precisely because this is not identity: it is a courtesy budget
- * to slow casual scraping, and sharing one costs a few hundredths of a RON.
+ * Absent entirely is a 401: there is nothing to meter against, and an unmetered caller is
+ * an unlimited one. Present but malformed is a 400 from `parseFingerprint` -- never a
+ * truncation, never a repair.
  */
-function fingerprintOf(req: { headers?: Record<string, unknown> }): string {
-	const raw = String(req.headers?.["x-kafelot-fingerprint"] ?? "");
-	const value = raw.trim().slice(0, 64);
-	if (!/^[A-Za-z0-9_-]{8,64}$/.test(value)) {
-		throw new UnauthorizedException("a valid x-kafelot-fingerprint is required");
+function requireFingerprint(req: { headers?: Record<string, unknown> }): string {
+	const raw = req.headers?.[FINGERPRINT_HEADER];
+	if (raw === undefined || raw === null || raw === "") {
+		throw new UnauthorizedException("a session or a fingerprint is required");
 	}
-	return value;
-}
-
-function isFingerprint(req: { headers?: Record<string, unknown> }): boolean {
-	try {
-		fingerprintOf(req);
-		return true;
-	} catch {
-		return false;
-	}
+	return parseFingerprint(raw);
 }
 
 @Controller("api/billing")
@@ -171,7 +155,12 @@ export class BillingController {
 	 * `requestId` makes this idempotent, because it runs after work already paid for in GPU
 	 * time, which may legitimately be retried.
 	 */
+	// Optional, not absent: the guard always allows and only populates req.user when a live
+	// session is presented, from either a Bearer token or the session cookie Next forwards.
+	// Dropping it did not merely skip authentication -- it silently emptied req.user, so
+	// every cookie-authenticated report fell through to the anonymous branch and 401'd.
 	@Post("usage")
+	@UseGuards(OptionalJwtAuthGuard)
 	async recordUsage(
 		@Req() req: BillingRequest & { headers?: Record<string, unknown> },
 		@Body() body: Record<string, unknown>,
@@ -180,17 +169,18 @@ export class BillingController {
 		if (!modelKey) throw new BadRequestException("modelKey is required");
 
 		const accountId = req.user?.id ? Number(req.user.id) : 0;
-		if (!accountId && !isFingerprint(req)) {
-			throw new UnauthorizedException("a session or a fingerprint is required to meter usage");
-		}
+		// Resolved once, and only when it is actually needed. Absent is a 401 -- an
+		// unmetered caller is an unlimited one. Present but malformed is a 400 from
+		// parseFingerprint, never a silent repair.
+		const fingerprint = accountId ? null : requireFingerprint(req);
 
 		const inputTokens = Number(body?.inputTokens ?? 0);
 		const outputTokens = Number(body?.outputTokens ?? 0);
 		const requestId = body?.requestId ? String(body.requestId) : null;
 
-		if (!accountId) {
+		if (!accountId && fingerprint) {
 			return this.billing.recordAnonymousUsage({
-				fingerprint: fingerprintOf(req),
+				fingerprint,
 				modelKey,
 				usage: { inputTokens, outputTokens },
 				requestId,
@@ -218,10 +208,7 @@ export class BillingController {
 	/** An anonymous visitor's remaining allowance, for the window that shows it. */
 	@Get("allowance/anonymous")
 	async getAnonymousAllowance(@Req() req: BillingRequest & { headers?: Record<string, unknown> }) {
-		if (!isFingerprint(req)) {
-			throw new UnauthorizedException("a fingerprint is required");
-		}
-		return this.billing.getAnonymousAllowance(fingerprintOf(req));
+		return this.billing.getAnonymousAllowance(requireFingerprint(req));
 	}
 
 	/**

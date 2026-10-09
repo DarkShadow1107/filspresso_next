@@ -42,7 +42,16 @@ async function ensureAppSchema(pool) {
         await client.query(`UPDATE kafelot_prompt_usage SET usage_scope = 'general' WHERE usage_scope IS NULL OR usage_scope = ''`);
         await client.query(`ALTER TABLE kafelot_prompt_usage ALTER COLUMN usage_scope SET NOT NULL`);
         await client.query(`ALTER TABLE kafelot_prompt_usage DROP CONSTRAINT IF EXISTS kafelot_prompt_usage_account_id_month_year_key`);
-        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_kafelot_prompt_usage_account_month_scope ON kafelot_prompt_usage(account_id, month_year, usage_scope)`);
+        // No unique index is created here on purpose.
+        //
+        // A three-column unique index over (account_id, month_year, usage_scope) was created
+        // at this point in the sequence and then dropped further down, once model_key had been
+        // added to the key. That only ever worked by accident: the first boot created it, and
+        // every boot after that skipped it with IF NOT EXISTS while line 70 quietly dropped
+        // it. So the index never existed again -- and the first boot that did try to create it
+        // failed with "could not create unique index", because per-model rows are *expected* to
+        // share an account, a month and a scope. It cannot be created at all; only the
+        // four-column index below, which includes model_key, is consistent with the data.
         // ---- Per-model metering (see data/migrations/2026-10-kafelot-model-key.sql) ----
         //
         // Two granularities in one table: `model_key = ''` is the scope total that every

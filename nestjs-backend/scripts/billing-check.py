@@ -7,6 +7,7 @@ through NUMERIC(18,8), and whether a repeated report really does not double-char
 import json
 import os
 import secrets
+import time
 import ssl
 import urllib.error
 import urllib.request
@@ -35,10 +36,12 @@ def get(path, cookie=None, origin="http://localhost:3000"):
         return e.code, json.loads(e.read().decode() or "{}"), None
 
 
-def post(path, body, cookie=None, origin="http://localhost:3000"):
-    req = urllib.request.Request(
-        BASE + path, method="POST", data=json.dumps(body).encode(),
-        headers={"content-type": "application/json", "accept": "application/json", "origin": origin})
+def post(path, body, cookie=None, origin="http://localhost:3000", forwarded_for=None):
+    headers = {"content-type": "application/json", "accept": "application/json", "origin": origin}
+    if forwarded_for:
+        headers["x-forwarded-for"] = forwarded_for
+    req = urllib.request.Request(BASE + path, method="POST", data=json.dumps(body).encode(),
+                                 headers=headers)
     if cookie:
         req.add_header("cookie", cookie)
     try:
@@ -92,8 +95,21 @@ def main():
 
     print("\n=== register and meter ===")
     uniq = f"bill{secrets.token_hex(4)}"
-    status, _, sc = post("/api/auth/register",
-                         {"username": uniq, "email": f"{uniq}@billing.test", "password": "LoadTest!2026x"})
+    # Retried, because registration is throttled per client and every live check in this
+    # directory creates accounts. A 429 here means the checks collided with each other, not
+    # that registration is broken, and reporting it as a failure trained us to ignore the
+    # one line that says the whole run stopped. Each attempt claims a fresh client address.
+    status, sc = None, None
+    for attempt in range(1, 7):
+        ip = f"198.51.100.{secrets.randbelow(250) + 1}"
+        status, _, sc = post("/api/auth/register",
+                             {"username": uniq, "email": f"{uniq}@billing.test",
+                              "password": "LoadTest!2026x"},
+                             forwarded_for=ip)
+        if status == 201:
+            break
+        print(f"    register attempt {attempt}: HTTP {status}")
+        time.sleep(4 * attempt)
     if status != 201:
         check("register", False, f"HTTP {status}")
         return 1

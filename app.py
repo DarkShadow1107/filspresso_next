@@ -842,9 +842,18 @@ async def chat(request: Request):
             - no image + chemistry            →  selected text model chemistry helper
     """
     try:
-        # Support both JSON and multipart form-data
-        image_file = (await read_files(request)).get("image")
-        if image_file:
+        # Branch on the declared content type, not on whether an image happens to be
+        # attached.
+        #
+        # Keying off the image meant every text-only multipart chat -- which is exactly
+        # what Next sends, with or without a picture -- fell through to the JSON reader.
+        # `request.json()` cannot parse a multipart body, `read_json` swallows the error
+        # and returns {}, and the customer was told "No data provided". The image path
+        # worked, which is why this survived: only the text-only case was broken.
+        content_type = (request.headers.get("content-type") or "").lower()
+        is_form = "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type
+
+        if is_form:
             form = await request.form()
             message = form.get("message", "")
             mode = form.get("mode", "natural_language")
@@ -852,10 +861,13 @@ async def chat(request: Request):
             enable_thinking = _parse_optional_bool(form.get("enable_thinking"))
             text_model = (form.get("text_model") or TEXT_MODEL_MINILM).strip()
             vision_model = (form.get("vision_model") or VISION_MODEL_450M).strip()
+            # Only the entries carrying a filename are uploads; plain fields are strings.
+            image_file = next((value for _key, value in form.multi_items() if hasattr(value, "filename")), None)
         else:
             data = await read_json(request)
             if not data:
                 return json_response({"error": "No data provided"}, 400)
+            image_file = None
             message = data.get("message", "")
             mode = data.get("mode", "natural_language")
             request_id = data.get("request_id", "none")

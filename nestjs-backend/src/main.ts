@@ -220,7 +220,15 @@ app.use(json({ limit: `${MAX_JSON_BODY_BYTES}b`, strict: true }));
 }
 
 bootstrap().catch((error) => {
-	const detail = error instanceof Error ? error.message : String(error);
-	logger.error(`Failed to start NestJS backend: ${detail}`);
+	const detail = error instanceof Error ? error.stack || error.message : String(error);
+	// Written straight to stderr, not only through the logger. A bootstrap failure that
+	// exits 1 without saying why is the hardest kind of outage to diagnose, and buffered
+	// stdout is exactly what gets lost when the process dies immediately afterwards.
+	try {
+		process.stderr.write(`Failed to start NestJS backend: ${detail}\n`);
+	} catch {
+		// A failed stderr write leaves nothing more to try.
+	}
+	logger.error(`Failed to start NestJS backend: ${error instanceof Error ? error.message : String(error)}`);
 	process.exit(1);
 });

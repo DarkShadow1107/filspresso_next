@@ -10,6 +10,12 @@ fastapi==0.140.13
 uvicorn[standard]==0.34.0
 httpx==0.28.1
 
+# Required by Starlette for any `await request.form()`. Without it every multipart
+# request -- and that is every chat, since Next always sends multipart -- raised
+# "python-multipart must be installed", and read_files swallowed it into an empty
+# dict, which is how image upload broke without ever logging an error.
+python-multipart==0.0.20
+
 psycopg2-binary
 python-dotenv==1.0.0
 

@@ -33,6 +33,8 @@ import {
 	type PromptLimitCheck,
 	type PromptScope,
 } from "@/lib/server/promptLimits";
+import { readUsageBlock, reportUsage } from "@/lib/server/billing/reportUsage";
+import { getOrCreateFingerprint } from "@/lib/fingerprint";
 
 export const runtime = "nodejs";
 
@@ -633,6 +635,23 @@ export async function POST(request: Request) {
 
 		if (json.cancelled) {
 			return NextResponse.json({ cancelled: true, request_id: requestId }, { status: 200 });
+		}
+
+		// Bill the generation, now that we know what it cost. This is the step that makes
+		// the price table, the allowance and the balance move; without it they are all
+		// correct and permanently zero.
+		//
+		// Not awaited on the response path: the answer is already produced and the customer
+		// is waiting. The requestId makes a late retry idempotent.
+		const usage = readUsageBlock(json.usage);
+		if (usage) {
+			void reportUsage(request, {
+				modelKey: meteredModelKey,
+				inputTokens: usage.inputTokens,
+				outputTokens: usage.outputTokens,
+				requestId,
+				fingerprint: getOrCreateFingerprint(),
+			}).catch(() => null);
 		}
 
 		const consumed = isChemistryUnavailableFromBackend ? limitCheck : await checkPromptLimit(request, false, promptScope, meteredModelKey);

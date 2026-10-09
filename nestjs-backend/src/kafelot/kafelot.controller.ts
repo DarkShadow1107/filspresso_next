@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Param, Query, Req, Res, UseGuards, ParseInt
 import { Request, Response } from "express";
 import { KafelotService, normalizeUsageScope, USAGE_SCOPES } from "./kafelot.service";
 import { ModelUsageService, isMeteredModel } from "./model-usage.service";
+import { FINGERPRINT_HEADER, parseFingerprint } from "../common/utils/fingerprint";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { OptionalJwtAuthGuard } from "../common/guards/optional-jwt-auth.guard";
 import * as net from "net";
@@ -61,6 +62,23 @@ const MOLECULE_HELPER_TIER = "ultimate";
  * sending a typo, so it is dropped and the request is metered on the scope total
  * alone, which is the correct, if less specific, fallback.
  */
+/**
+ * The anonymous fingerprint, validated by the same rule as the billing endpoint.
+ *
+ * These two read the same header and key the same budget, so they must agree about what a
+ * fingerprint is. They previously did not: the pre-flight path truncated an over-long value
+ * to fit VARCHAR(64) while the metering endpoint accepted whatever it was given, which meant
+ * a caller could hold two different budgets at once.
+ *
+ * Absent is null -- an anonymous caller may legitimately send none, and the per-IP rate
+ * limiter is the guard there. Present but malformed throws a 400 rather than being repaired.
+ */
+function readFingerprint(req: { headers: Record<string, unknown> }): string | null {
+	const raw = req.headers[FINGERPRINT_HEADER];
+	if (raw === undefined || raw === null || raw === "") return null;
+	return parseFingerprint(raw);
+}
+
 function normalizeModelKey(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const key = raw.trim();
@@ -78,7 +96,7 @@ export class KafelotController {
   @UseGuards(OptionalJwtAuthGuard)
   @Post("check-and-use")
   async checkAndUse(@Req() req: AuthenticatedRequest, @Res() res: Response) {
-    const fingerprint = req.headers["x-kafelot-fingerprint"] as string | undefined;
+    const fingerprint = readFingerprint(req);
     const hasBearerToken = typeof req.headers.authorization === "string" && req.headers.authorization.startsWith("Bearer ");
     const ip = getClientIp(req);
     const userAgent = (req.headers["user-agent"] as string) || "";
@@ -116,7 +134,7 @@ export class KafelotController {
   @UseGuards(OptionalJwtAuthGuard)
   @Get("status")
   async getStatus(@Req() req: AuthenticatedRequest, @Res() res: Response) {
-    const fingerprint = req.headers["x-kafelot-fingerprint"] as string | undefined;
+    const fingerprint = readFingerprint(req);
     const hasBearerToken = typeof req.headers.authorization === "string" && req.headers.authorization.startsWith("Bearer ");
     const ip = getClientIp(req);
     const userAgent = (req.headers["user-agent"] as string) || "";
