@@ -106,11 +106,23 @@ def main():
     from_wallet = usage2.get("walletChargedRon", 0)
     check("allowance covers only what is left of it",
           abs(from_allowance - 4.70) < 1e-6, f"allowance {from_allowance} (had 4.70 left)")
-    check("the remainder came from the wallet", abs(from_wallet - 37.30) < 1e-6,
+    # The wallet holds 0 and its floor is 0, so there is nothing to draw and the 37.30 the
+    # allowance could not cover is reported as uncovered rather than turned into debt.
+    #
+    # This used to assert the opposite -- that the balance went to -37.30 -- because that
+    # is what the service did: canGenerate stopped the *next* request, but nothing bounded
+    # *this* one, so a single generation larger than the wallet could push the balance
+    # arbitrarily negative and it stayed there.
+    check("the wallet is drawn only down to its floor", abs(from_wallet) < 1e-6,
           f"wallet {from_wallet}")
-    check("the two parts sum to the cost", abs((from_allowance + from_wallet) - 42.0) < 1e-6,
-          f"{from_allowance} + {from_wallet} = {from_allowance + from_wallet}")
-    check("wallet is now overdrawn", usage2.get("balanceRon", 0) < 0, f"balance {usage2.get('balanceRon')}")
+    uncovered = usage2.get("uncoveredRon", 0)
+    check("what the wallet could not cover is reported, not absorbed",
+          abs(uncovered - 37.30) < 1e-6, f"uncovered {uncovered}")
+    check("the parts still add up to the cost",
+          abs((from_allowance + from_wallet + uncovered) - 42.0) < 1e-6,
+          f"{from_allowance} + {from_wallet} + {uncovered} = {from_allowance + from_wallet + uncovered}")
+    check("the balance stops at the floor", usage2.get("balanceRon", 0) == 0,
+          f"balance {usage2.get('balanceRon')}")
 
     status, alw3, _ = req("/api/billing/allowance", cookie=cookie)
     check("allowance is exhausted, never negative",

@@ -17,6 +17,7 @@
 		"test:anonymous": "python scripts/anonymous-allowance-check.py",
 		"test:fingerprint": "python scripts/fingerprint-check.py",
 		"test:chat-billing": "python scripts/chat-billing-check.py",
+		"test:playground-billing": "python scripts/playground-billing-check.py",
 		"test:phase9": "npm run test:live && npm run test:load && npm run test:drills"
 	},
 	"dependencies": {

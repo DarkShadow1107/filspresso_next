@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { resolveAiHost } from "@/lib/server/aiHost";
 import { checkCanGenerate, readCallerTier } from "@/lib/server/promptLimits";
+import { readUsageBlock, reportUsage } from "@/lib/server/billing/reportUsage";
+import { getOrCreateFingerprint } from "@/lib/fingerprint";
 import {
 	MODEL_FILE_BY_KEY,
 	MODEL_LABEL_BY_KEY,
@@ -105,6 +107,17 @@ export async function POST(request: NextRequest) {
 	// control. The budget is money now, and this asks about money.
 	const moneyGate = await checkCanGenerate(request);
 	if (!moneyGate.allowed) {
+		// Two different refusals, and they must not look alike. "You have no money" and
+		// "we could not find out whether you have money" both stop the generation, but only
+		// one of them is the customer's fault, and answering 402 to a billing outage would
+		// tell paying customers to go and top up a wallet that is not the problem.
+		if (moneyGate.reason !== "no_balance") {
+			return jsonError(
+				"BILLING_UNAVAILABLE",
+				"We could not check your balance right now. Please try again in a moment.",
+				503,
+			);
+		}
 		return jsonError(
 			"INSUFFICIENT_BALANCE",
 			"Your monthly allowance and playground balance are both spent.",
@@ -169,14 +182,54 @@ export async function POST(request: NextRequest) {
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
 			const reader = upstream.body!.getReader();
+			const decoder = new TextDecoder();
+			// A generation has no single response object to hang a report off, so the
+			// token counts are read out of the SSE itself. `pending` holds a partial line
+			// between chunks, because a frame can straddle two TCP reads and a missed
+			// done frame means a completed generation that nobody is charged for.
+			let pending = "";
+
+			const billIfDone = (line: string) => {
+				const trimmed = line.trim();
+				if (!trimmed.startsWith("data:")) return;
+				const payload = trimmed.slice(5).trim();
+				if (!payload || payload === "[DONE]") return;
+				let event: { done?: boolean; usage?: unknown };
+				try {
+					event = JSON.parse(payload) as { done?: boolean; usage?: unknown };
+				} catch {
+					return;
+				}
+				if (!event.done) return;
+				const usage = readUsageBlock(event.usage);
+				if (!usage) return;
+				void reportUsage(request, {
+					modelKey,
+					inputTokens: usage.inputTokens,
+					outputTokens: usage.outputTokens,
+					// One report per stream. The gateway request id is not threaded through
+					// this route, so idempotency rests on the stream firing once; a duplicate
+					// would need a second report to exist in the first place.
+					requestId: null,
+					fingerprint: getOrCreateFingerprint(),
+				}).catch(() => null);
+			};
 
 			const pump = async () => {
 				try {
 					for (;;) {
 						const { done, value } = await reader.read();
 						if (done) break;
-						if (value) controller.enqueue(value);
+						if (value) {
+							// Bytes go through untouched; only a copy is inspected.
+							controller.enqueue(value);
+							pending += decoder.decode(value, { stream: true });
+							const lines = pending.split("\n");
+							pending = lines.pop() ?? "";
+							for (const line of lines) billIfDone(line);
+						}
 					}
+					billIfDone(pending);
 					controller.close();
 				} catch (err) {
 					try {

@@ -1629,8 +1629,14 @@ async def sse_event_stream(chunks, enable_thinking: bool, model_name: str):
     """
     content_chunks = 0
     reasoning_chunks = 0
+    usage: dict | None = None
     try:
         async for channel, text in chunks:
+            # Token counts ride the same stream rather than a shared attribute, so two
+            # concurrent Playground generations cannot overwrite each other's bill.
+            if channel == "usage":
+                usage = text
+                continue
             # LFM 2.5 emits thinking into `reasoning_content` regardless of the
             # reasoning switch, so hide it unless thinking was requested.
             if channel == "reasoning":
@@ -1643,6 +1649,13 @@ async def sse_event_stream(chunks, enable_thinking: bool, model_name: str):
             yield f"data: {json.dumps({'delta': text})}\n\n"
 
         done: dict = {"done": True, "model": model_name}
+        # Only when the runtime actually reported it. An absent block and a zero-token
+        # generation are different facts, and inventing zeros would bill a fallback.
+        if usage:
+            done["usage"] = {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+            }
         if content_chunks == 0:
             if reasoning_chunks:
                 done["notice"] = (

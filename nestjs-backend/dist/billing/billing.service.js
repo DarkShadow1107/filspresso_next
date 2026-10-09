@@ -115,9 +115,22 @@ let BillingService = BillingService_1 = class BillingService {
                 const bal = await client.query(`INSERT INTO account_balances (account_id, balance_ron)
 					 VALUES ($1, 0)
 					 ON CONFLICT (account_id) DO UPDATE SET account_id = EXCLUDED.account_id
-					 RETURNING balance_ron, lifetime_spent`, [accountId]);
+					 RETURNING balance_ron, lifetime_spent, min_balance_ron`, [accountId]);
                 const before = Number(bal.rows[0].balance_ron);
-                const after = (0, model_pricing_1.roundMoney)(before - fromWallet);
+                // The floor is enforced here, not only in canGenerate.
+                //
+                // canGenerate stops the *next* request, which is not the same thing as
+                // bounding this one. A single generation can cost more than the whole
+                // remaining wallet: a 150 RON request against a 0 RON balance used to take
+                // the balance to -150, and since nothing capped it, the debt grew with every
+                // request. The floor exists precisely to stop that, so it is applied to the
+                // draw, and whatever it cannot cover is reported instead of charged.
+                const storedFloor = Number(bal.rows[0].min_balance_ron);
+                const floor = Number.isFinite(storedFloor) ? storedFloor : exports.MIN_BALANCE_RON;
+                const drawable = Math.max(0, before - floor);
+                const charged = (0, model_pricing_1.roundMoney)(Math.min(fromWallet, drawable));
+                const uncovered = (0, model_pricing_1.roundMoney)(fromWallet - charged);
+                const after = (0, model_pricing_1.roundMoney)(before - charged);
                 const updated = await client.query(`UPDATE account_balances
 					    SET balance_ron = $2,
 					        lifetime_spent = lifetime_spent + $3,
@@ -147,7 +160,8 @@ let BillingService = BillingService_1 = class BillingService {
                     recorded: true,
                     costRon: cost,
                     allowanceAppliedRon: allowanceApplied,
-                    walletChargedRon: fromWallet,
+                    walletChargedRon: charged,
+                    uncoveredRon: uncovered,
                     balanceRon: Number(updated.rows[0].balance_ron),
                     price,
                 };

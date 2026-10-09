@@ -613,6 +613,10 @@ class TankaModel:
             "temperature": max(0.0, min(float(temperature), 2.0)),
             "top_p": max(0.0, min(float(top_p), 1.0)),
             "stream": True,
+            # Ask for the usage block on the final frame. Without this a streamed
+            # generation reports no token counts at all, so the Playground could not be
+            # billed for work it had already done -- the buffered path had exactly this bug.
+            "stream_options": {"include_usage": True},
             # Without this LFM 2.5 spends the whole budget thinking and emits an
             # empty content stream; `reasoning: off` is the working per-request
             # switch (chat_template_kwargs.enable_thinking does not work here).
@@ -657,6 +661,17 @@ class TankaModel:
                         event = json.loads(data)
                     except ValueError:
                         continue
+
+                    # The usage frame arrives last and carries no choices, so it has to be
+                    # read before the choices check below would discard it. Yielded as its
+                    # own channel rather than stashed on self: the buffered path keeps
+                    # `last_usage` as instance state, which is fine for one request at a
+                    # time but wrong the moment two streams interleave, and streams are
+                    # exactly where that happens.
+                    if isinstance(event.get("usage"), dict):
+                        usage = _read_usage(event)
+                        if usage["prompt_tokens"] or usage["completion_tokens"]:
+                            yield ("usage", usage)
 
                     choices = event.get("choices") or []
                     if not choices:

@@ -72,6 +72,14 @@ export type RecordUsageResult = {
 	allowanceAppliedRon: number;
 	/** Portion taken from the card-funded wallet. */
 	walletChargedRon: number;
+	/**
+	 * Portion the wallet could not cover because the account's floor was reached.
+	 *
+	 * The work was done and has a real cost, so it cannot be un-spent; what must not happen
+	 * is that it silently becomes an unbounded debt. Reported rather than swallowed so the
+	 * ledger shows the gap between what a generation cost and what was collected.
+	 */
+	uncoveredRon?: number;
 	balanceRon: number;
 	price: ResolvedTokenPrice;
 };
@@ -166,11 +174,24 @@ export class BillingService {
 					`INSERT INTO account_balances (account_id, balance_ron)
 					 VALUES ($1, 0)
 					 ON CONFLICT (account_id) DO UPDATE SET account_id = EXCLUDED.account_id
-					 RETURNING balance_ron, lifetime_spent`,
+					 RETURNING balance_ron, lifetime_spent, min_balance_ron`,
 					[accountId],
 				);
 				const before = Number(bal.rows[0].balance_ron);
-				const after = roundMoney(before - fromWallet);
+				// The floor is enforced here, not only in canGenerate.
+				//
+				// canGenerate stops the *next* request, which is not the same thing as
+				// bounding this one. A single generation can cost more than the whole
+				// remaining wallet: a 150 RON request against a 0 RON balance used to take
+				// the balance to -150, and since nothing capped it, the debt grew with every
+				// request. The floor exists precisely to stop that, so it is applied to the
+				// draw, and whatever it cannot cover is reported instead of charged.
+				const storedFloor = Number(bal.rows[0].min_balance_ron);
+				const floor = Number.isFinite(storedFloor) ? storedFloor : MIN_BALANCE_RON;
+				const drawable = Math.max(0, before - floor);
+				const charged = roundMoney(Math.min(fromWallet, drawable));
+				const uncovered = roundMoney(fromWallet - charged);
+				const after = roundMoney(before - charged);
 
 				const updated = await client.query(
 					`UPDATE account_balances
@@ -209,7 +230,8 @@ export class BillingService {
 					recorded: true,
 					costRon: cost,
 					allowanceAppliedRon: allowanceApplied,
-					walletChargedRon: fromWallet,
+					walletChargedRon: charged,
+					uncoveredRon: uncovered,
 					balanceRon: Number(updated.rows[0].balance_ron),
 					price,
 				};

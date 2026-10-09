@@ -1,4 +1,4 @@
-import { buildForwardedCookieHeader } from "@/lib/server/backend";
+import { buildBackendUrl, buildForwardedCookieHeader } from "@/lib/server/backend";
 import { normalizeModelTier, type UserSubscriptionTier } from "@/lib/modelAccess";
 
 /**
@@ -332,15 +332,29 @@ export async function checkCanGenerate(request: Request): Promise<{
 	allowanceRemainingRon?: number;
 	balanceRon?: number;
 }> {
-	try {
-		const url = new URL("/api/billing/can-generate", resolveSelfCallOrigin()).toString();
-		const cookie = buildForwardedCookieHeader(request.headers.get("cookie"));
-		if (!cookie) return { allowed: true, reason: "anonymous" };
+	const cookie = buildForwardedCookieHeader(request.headers.get("cookie"));
+	// Anonymous callers are not gated here. They spend a fingerprint-keyed allowance that
+	// the billing service enforces on the report itself, and there is no session to ask
+	// about. A subscriber is the case that matters: it is the one that can spend a wallet.
+	if (!cookie) return { allowed: true, reason: "anonymous" };
 
-		const res = await fetch(url, { headers: { cookie }, cache: "no-store" });
-		// A 401 here means the session is gone, which is the playground's own gate to catch.
-		if (res.status === 401) return { allowed: true, reason: "session_gone" };
-		if (!res.ok) return { allowed: true, reason: `status_${res.status}` };
+	// Called directly on the backend, not through a Next route of the same path.
+	//
+	// There is no /api/billing/can-generate route in this app, so the self-call 404'd, the
+	// `!res.ok` branch below returned `allowed: true`, and the money gate was a no-op that
+	// still read like a control. It failed open on every single request.
+	//
+	// An outage must not read as "free", so an unreachable backend denies. The caller
+	// distinguishes the two refusals and answers 503 rather than 402, because telling a
+	// paying customer they have no money when the billing service is simply down is its own
+	// kind of wrong.
+	try {
+		const res = await fetch(buildBackendUrl("/api/billing/can-generate"), {
+			headers: { cookie, accept: "application/json" },
+			cache: "no-store",
+		});
+		if (res.status === 401) return { allowed: false, reason: "session_gone" };
+		if (!res.ok) return { allowed: false, reason: `status_${res.status}` };
 
 		const data = (await res.json()) as {
 			canGenerate?: boolean;
@@ -353,6 +367,6 @@ export async function checkCanGenerate(request: Request): Promise<{
 		if (data.canGenerate === false) return { allowed: false, reason: "no_balance", ...state };
 		return { allowed: true, ...state };
 	} catch {
-		return { allowed: true, reason: "unreachable" };
+		return { allowed: false, reason: "unreachable" };
 	}
 }
