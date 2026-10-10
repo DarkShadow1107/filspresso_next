@@ -85,6 +85,7 @@ let BillingService = BillingService_1 = class BillingService {
         const cost = metered ? (0, model_pricing_1.costRon)(modelKey, { inputTokens, outputTokens }, subscriber) : 0;
         const pool = this.db.getPool();
         const client = await pool.connect();
+        let result;
         try {
             await client.query("BEGIN");
             try {
@@ -156,7 +157,7 @@ let BillingService = BillingService_1 = class BillingService {
                     updated.rows[0].balance_ron,
                 ]);
                 await client.query("COMMIT");
-                return {
+                result = {
                     recorded: true,
                     costRon: cost,
                     allowanceAppliedRon: allowanceApplied,
@@ -174,6 +175,55 @@ let BillingService = BillingService_1 = class BillingService {
         finally {
             client.release();
         }
+        // Only now that the charge is committed and the row lock is released.
+        //
+        // A refill inside the transaction would write a second row while holding the first,
+        // and a top-up that failed would roll back a charge for work already done: the
+        // customer would be billed nothing and the usage row would vanish with it. The
+        // refill is a separate decision made after the fact, so it gets its own transaction.
+        await this.maybeAutoRefill(accountId);
+        return result;
+    }
+    /**
+     * Refill the wallet to the target if it has fallen to its floor.
+     *
+     * `autoRefillTargetRon` has been reported to every customer by /api/billing/balance
+     * since the wallet shipped, and nothing ever acted on it. This is the thing that acts on
+     * it.
+     *
+     * Refill is deliberately *not* once per day. That was the earlier design, and it is
+     * wrong for a prepaid meter: a customer who burns through 30 RON in an afternoon would
+     * be cut off until midnight. The honest rule is the one the name implies -- refill
+     * whenever the balance reaches the floor -- and the duplication worry is answered by the
+     * floor check inside `fund()` under a row lock, not by rationing the customer.
+     */
+    async maybeAutoRefill(accountId) {
+        try {
+            const balance = await this.getBalance(accountId);
+            if (balance.autoRefill.lastTopUpAt) {
+                const last = Date.parse(balance.autoRefill.lastTopUpAt);
+                const minutesSince = (Date.now() - last) / 60_000;
+                // A circuit breaker, not the rule. It only engages when a wallet is emptying
+                // far faster than any single top-up can explain, where the customer is far
+                // better served by a 402 than by a card charged dozens of times in a loop.
+                if (minutesSince < 1)
+                    return;
+            }
+            const cardId = await this.defaultCardId(accountId);
+            // No card is not an error. Most accounts never fund one, and throwing here would
+            // turn an ordinary generation into a 500 for every subscriber without a card.
+            if (cardId == null)
+                return;
+            await this.fund(accountId, exports.AUTO_REFILL_TARGET_RON, cardId, "auto", null, 
+            // The atomic guard. Without it this method is a read-then-write race.
+            true);
+        }
+        catch (err) {
+            // A refill that fails must not fail the charge that triggered it. The customer
+            // was billed correctly; the top-up is a separate promise and is visible as
+            // missing on /balance rather than as a broken request.
+            console.warn(`[billing] auto-refill skipped for account ${accountId}: ${err instanceof Error ? err.message : String(err)}`);
+        }
     }
     async getBalance(accountId) {
         const pool = this.db.getPool();
@@ -187,6 +237,20 @@ let BillingService = BillingService_1 = class BillingService {
         // A NULL or absurd floor would either block everything or permit unlimited
         // overdraft, so it falls back to the backstop rather than being trusted.
         const floor = Number.isFinite(stored) ? stored : exports.MIN_BALANCE_RON;
+        // Read after the balance row is guaranteed to exist. Two small queries rather than a
+        // join, because the row this depends on may have been created by the line above.
+        const [hasCard, lastAuto] = await Promise.all([
+            this.defaultCardId(accountId),
+            pool.query(`SELECT created_at, amount_ron FROM billing_topups
+				  WHERE account_id = $1 AND source = 'auto'
+				  ORDER BY created_at DESC LIMIT 1`, [accountId]),
+        ]);
+        const lastRow = lastAuto.rows[0];
+        // Enabled means "this would run if the balance fell to its floor", not "it has run".
+        // Without a default card there is nothing to charge, so the honest answer is no --
+        // and the reason says so, rather than leaving a customer to discover it by hitting a
+        // floor and watching nothing happen.
+        const enabled = hasCard != null;
         return {
             accountId,
             balanceRon,
@@ -195,6 +259,13 @@ let BillingService = BillingService_1 = class BillingService {
             canGenerate: balanceRon > floor,
             minBalanceRon: floor,
             minBalanceIsCustom: Number.isFinite(stored) && stored !== exports.MIN_BALANCE_RON,
+            autoRefill: {
+                enabled,
+                targetRon: exports.AUTO_REFILL_TARGET_RON,
+                lastTopUpAt: lastRow ? new Date(lastRow.created_at).toISOString() : null,
+                lastAmountRon: lastRow ? Number(lastRow.amount_ron) : null,
+                reason: enabled ? null : "no_default_card",
+            },
         };
     }
     /**
@@ -447,7 +518,7 @@ let BillingService = BillingService_1 = class BillingService {
      * would be passed -- the alternative, silently taking the full amount, would leave the
      * customer holding a balance they cannot explain.
      */
-    async fund(accountId, amountRon, cardId, source = "user", idempotencyKey) {
+    async fund(accountId, amountRon, cardId, source = "user", idempotencyKey, onlyBelowFloor = false) {
         const amount = (0, model_pricing_1.roundMoney)(Number(amountRon));
         if (!Number.isFinite(amount) || amount <= 0) {
             throw new Error(`top-up amount must be positive, got ${amountRon}`);
@@ -469,8 +540,22 @@ let BillingService = BillingService_1 = class BillingService {
             }
             await client.query(`INSERT INTO account_balances (account_id) VALUES ($1)
 				 ON CONFLICT (account_id) DO UPDATE SET account_id = EXCLUDED.account_id`, [accountId]);
-            const before = Number((await client.query(`SELECT balance_ron FROM account_balances WHERE account_id = $1`, [accountId]))
-                .rows[0].balance_ron);
+            const balRow = (await client.query(`SELECT balance_ron, min_balance_ron FROM account_balances WHERE account_id = $1 FOR UPDATE`, [accountId])).rows[0];
+            const before = Number(balRow.balance_ron);
+            // The refill guard, inside the transaction and under a row lock.
+            //
+            // Checked here rather than by the caller because the caller cannot see it: two
+            // concurrent requests both observe a low balance, and both conclude a refill is
+            // due. Reading the balance under FOR UPDATE is what makes the second one find a
+            // balance that is no longer at the floor.
+            if (onlyBelowFloor) {
+                const storedFloor = Number(balRow.min_balance_ron);
+                const floor = Number.isFinite(storedFloor) ? storedFloor : exports.MIN_BALANCE_RON;
+                if (before > floor) {
+                    await client.query("ROLLBACK");
+                    return { addedRon: 0, balanceRon: before, capped: false, skipped: true };
+                }
+            }
             const room = Math.max(0, (0, model_pricing_1.roundMoney)(exports.MAX_FUNDED_BALANCE_RON - before));
             const added = (0, model_pricing_1.roundMoney)(Math.min(amount, room));
             if (added <= 0) {
