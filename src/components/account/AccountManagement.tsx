@@ -20,6 +20,7 @@ import {
 	MachinesSection,
 	PaymentsSection,
 	ChatHistorySection,
+	BillingSection,
 	RepairPopup,
 	MaintenancePopup,
 } from "./sections";
@@ -89,7 +90,7 @@ export default function AccountManagement() {
 	const { notify } = useNotifications();
 	const [account, setAccount] = useState<AccountData | null>(null);
 	const [accountId, setAccountId] = useState<number | null>(null);
-	const [activeTab, setActiveTab] = useState<"profile" | "status" | "subscriptions" | "machines" | "payments" | "history">(
+	const [activeTab, setActiveTab] = useState<"profile" | "status" | "subscriptions" | "billing" | "machines" | "payments" | "history">(
 		"profile",
 	);
 
@@ -917,6 +918,9 @@ export default function AccountManagement() {
 				<button className={activeTab === "subscriptions" ? "active" : ""} onClick={() => setActiveTab("subscriptions")}>
 					<SubscriptionIcon size={18} /> Subscription
 				</button>
+				<button className={activeTab === "billing" ? "active" : ""} onClick={() => setActiveTab("billing")}>
+					<CreditCardIcon size={18} /> Usage &amp; Wallet
+				</button>
 				<button className={activeTab === "machines" ? "active" : ""} onClick={() => setActiveTab("machines")}>
 					<CoffeeIcon size={18} /> Machines
 				</button>
@@ -971,6 +975,8 @@ export default function AccountManagement() {
 				{activeTab === "subscriptions" && (
 					<SubscriptionSection subscription={subscription} subscriptionData={subscriptionData} />
 				)}
+
+				{activeTab === "billing" && <BillingSection />}
 
 				{activeTab === "machines" && (
 					<MachinesSection

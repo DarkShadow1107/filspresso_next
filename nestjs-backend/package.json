@@ -19,6 +19,7 @@
 		"test:chat-billing": "python scripts/chat-billing-check.py",
 		"test:playground-billing": "python scripts/playground-billing-check.py",
 		"test:auto-refill": "python scripts/auto-refill-check.py",
+		"test:account-billing": "python scripts/account-billing-check.py",
 		"test:phase9": "npm run test:live && npm run test:load && npm run test:drills"
 	},
 	"dependencies": {

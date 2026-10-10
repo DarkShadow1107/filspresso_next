@@ -223,8 +223,8 @@ export class BillingService {
 					`INSERT INTO ai_token_usage
 					   (account_id, model_key, input_tokens, output_tokens,
 					    input_price_per1m, output_price_per1m, subscriber_discount,
-					    cost_ron, allowance_applied_ron, metered, request_id, balance_after)
-					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+					    cost_ron, allowance_applied_ron, uncovered_ron, metered, request_id, balance_after)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 					[
 						accountId,
 						modelKey,
@@ -235,6 +235,7 @@ export class BillingService {
 						price.subscriberDiscountPercent,
 						cost,
 						allowanceApplied,
+						uncovered,
 						metered,
 						requestId,
 						updated.rows[0].balance_ron,
@@ -802,21 +803,32 @@ export class BillingService {
 		const capped = Math.min(Math.max(Number(limit) || 20, 1), 100);
 		const pool = this.db.getPool();
 		const result = await pool.query(
-			`SELECT model_key, input_tokens, output_tokens, cost_ron, metered, created_at
+			`SELECT model_key, input_tokens, output_tokens, cost_ron, allowance_applied_ron,
+			        uncovered_ron, metered, created_at
 			   FROM ai_token_usage
 			  WHERE account_id = $1
 			  ORDER BY created_at DESC, id DESC
 			  LIMIT $2`,
 			[accountId, capped],
 		);
-		return result.rows.map((r) => ({
-			modelKey: r.model_key,
-			inputTokens: Number(r.input_tokens),
-			outputTokens: Number(r.output_tokens),
-			costRon: Number(r.cost_ron),
-			metered: Boolean(r.metered),
-			createdAt: r.created_at,
-		}));
+		return result.rows.map((r) => {
+			// The label the customer recognises, resolved from the same table that priced the
+			// row. A ledger of `lfm2_5_2_6b_q4_0` is technically correct and unreadable.
+			const price = resolveTokenPrice(String(r.model_key), false);
+			return {
+				modelKey: r.model_key,
+				label: price.label || String(r.model_key),
+				inputTokens: Number(r.input_tokens),
+				outputTokens: Number(r.output_tokens),
+				costRon: Number(r.cost_ron),
+				allowanceAppliedRon: Number(r.allowance_applied_ron),
+				// Surfaced rather than folded away: a cost the wallet could not take is the
+				// one number a customer cannot reconcile on their own.
+				uncoveredRon: Number(r.uncovered_ron ?? 0),
+				metered: Boolean(r.metered),
+				createdAt: r.created_at,
+			};
+		});
 	}
 }
 
