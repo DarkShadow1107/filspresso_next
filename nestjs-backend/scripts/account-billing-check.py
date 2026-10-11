@@ -192,6 +192,31 @@ def main():
     check("each price row carries a readable label",
           all(priced[k].get("label") for k in lineup if k in priced))
 
+    print("\n=== the admin pricing view sees both columns ===")
+    r = requests.get(f"{WEB}/api/billing/pricing?audience=all", timeout=60,
+                     headers={"cookie": cookie, "origin": WEB})
+    check("audience=all is served", r.status_code == 200, f"HTTP {r.status_code}")
+    allrows = r.json().get("models") or []
+    check("each row carries list and plan prices and the discount",
+          all(all(k in m for k in ("apiInputPer1M", "apiOutputPer1M",
+                                   "subscriberInputPer1M", "subscriberOutputPer1M",
+                                   "subscriberDiscountPercent")) for m in allrows),
+          f"{len(allrows)} rows")
+    bad_discount = [m["modelKey"] for m in allrows
+                    if m["subscriberDiscountPercent"] <= 0 or m["subscriberDiscountPercent"] >= 100]
+    check("every discount is a real percentage", not bad_discount, f"bad: {bad_discount}")
+    inconsistent = [m["modelKey"] for m in allrows
+                    if m["apiInputPer1M"] > 0 and m["subscriberInputPer1M"] > m["apiInputPer1M"]]
+    check("a subscriber never pays more than the list price", not inconsistent, f"bad: {inconsistent}")
+
+    print("\n=== the discount is not exposed to ordinary callers ===")
+    for audience in ("", "api"):
+        url = f"{WEB}/api/billing/pricing" + (f"?audience={audience}" if audience else "")
+        rr = requests.get(url, timeout=60, headers={"cookie": cookie, "origin": WEB})
+        body = rr.json() if rr.status_code == 200 else {}
+        leaked = [m for m in (body.get("models") or []) if "subscriberDiscountPercent" in m]
+        check(f"no discount leaks with audience={audience or 'none'}", not leaked, f"{len(leaked)} leaked")
+
     print("\n=== an anonymous visitor is not shown anybody's money ===")
     r = requests.get(f"{WEB}/api/billing/balance", timeout=60)
     check("no session is refused", r.status_code in (401, 403), f"HTTP {r.status_code}")

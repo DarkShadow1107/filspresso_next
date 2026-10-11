@@ -72,10 +72,34 @@ export class BillingController {
 	@UseGuards(OptionalJwtAuthGuard)
 	@Get("pricing")
 	async getPricing(@Req() req: BillingRequest & { query?: Record<string, unknown> }) {
-		const wantsApiPrices = String(req.query?.audience ?? "") === "api";
+		const audience = String(req.query?.audience ?? "");
 		const tier = await this.resolveTier(req);
 		const subscriber = isPaidTier(tier);
 		const table = pricingTable();
+
+		// `audience=all` is for the admin pricing table, the only surface that needs both
+		// numbers side by side: what an API caller pays, and what a subscriber pays after the
+		// discount. It is the only response that states the percentage outright.
+		if (audience === "all") {
+			return {
+				currency: table.currency,
+				unit: table.unit,
+				outputMultiplier: table.outputMultiplier,
+				subscriber: false,
+				listPrice: true,
+				models: table.models.map((m) => ({
+					modelKey: m.modelKey,
+					label: m.label,
+					apiInputPer1M: m.apiInputPer1M,
+					apiOutputPer1M: m.apiOutputPer1M,
+					subscriberInputPer1M: m.subscriberInputPer1M,
+					subscriberOutputPer1M: m.subscriberOutputPer1M,
+					subscriberDiscountPercent: m.subscriberDiscountPercent,
+				})),
+			};
+		}
+
+		const wantsApiPrices = audience === "api";
 		const showApi = wantsApiPrices || !subscriber;
 
 		return {
@@ -93,13 +117,19 @@ export class BillingController {
 						inputPer1M: m.apiInputPer1M,
 						outputPer1M: m.apiOutputPer1M,
 					}
-					: {
-						modelKey: m.modelKey,
-						label: m.label,
-						inputPer1M: m.subscriberInputPer1M,
-						outputPer1M: m.subscriberOutputPer1M,
-						subscriberDiscountPercent: m.subscriberDiscountPercent,
-					},
+: {
+							modelKey: m.modelKey,
+							label: m.label,
+							inputPer1M: m.subscriberInputPer1M,
+							outputPer1M: m.subscriberOutputPer1M,
+							// No discount percentage here, and deliberately so. The rate is already
+							// what this caller pays, which is all any customer surface needs, and
+							// stating the policy invites a client to depend on it. It is worth being
+							// honest that this is tidiness rather than secrecy: anyone holding a
+							// subscriber rate can divide it by the list rate and recover the
+							// percentage exactly. The only audience that wants the figure stated is
+							// the admin table, which asks for both columns at once.
+						},
 			),
 		};
 	}

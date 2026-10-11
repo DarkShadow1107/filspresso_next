@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import "../../styles/admin.css";
+import AdminPricingPanel from "@/components/admin/AdminPricingPanel";
 import {
 	ArrowBigLeftDashIcon,
 	ArrowBigLeftIcon,
@@ -52,6 +53,9 @@ type Pagination = {
 	total: number;
 	totalPages: number;
 };
+
+/** Selects the pricing view rather than a database table. */
+const PRICING_VIEW = "__pricing__";
 
 const SENSITIVE_TABLE_NAMES = new Set([
 	"auth_login_attempts",
@@ -366,7 +370,7 @@ export default function AdminPage() {
 
 	// Fetch table data when table is selected
 	useEffect(() => {
-		if (selectedTable && adminToken) {
+		if (selectedTable && selectedTable !== PRICING_VIEW && adminToken) {
 			fetchTableInfo(selectedTable);
 			fetchTableData(selectedTable);
 		}
@@ -1246,6 +1250,17 @@ export default function AdminPage() {
 						{!sensitiveModeEnabled && <p>Enable sensitive mode to inspect privileged tables and hidden fields.</p>}
 					</div>
 					<ul className="table-list">
+						<li
+							className={`table-item ${selectedTable === PRICING_VIEW ? "active" : ""}`}
+							onClick={() => {
+								setSelectedTable(PRICING_VIEW);
+								setPagination((p) => ({ ...p, page: 1 }));
+								setSearchQuery("");
+							}}
+						>
+							<span className="table-name">Model pricing</span>
+							<span className="table-count">RON</span>
+						</li>
 						{visibleTables.map((table) => (
 							<li
 								key={table.name}
@@ -1294,7 +1309,9 @@ export default function AdminPage() {
 
 				{/* Main Content */}
 				<main className="admin-content">
-					{!selectedTable ? (
+					{selectedTable === PRICING_VIEW ? (
+						<AdminPricingPanel />
+					) : !selectedTable ? (
 						<div className="no-table-selected">
 							<div className="empty-state">
 								<span className="empty-kicker">Database overview</span>
