@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import {
 	MODEL_DESCRIPTION_BY_KEY,
 	MODEL_LABEL_BY_KEY,
@@ -17,7 +20,14 @@ import LockIcon from "@/icons/lock-icon";
  * is correct but gives a locked or lower-tier visitor no way to see what exists or
  * what an upgrade would add. This derives every row from the entitlement matrix so
  * the marketing surface cannot drift from what `/api/playground/chat` enforces.
+ *
+ * Prices are the public API list price, and they are labelled as such. A paying plan is
+ * charged less, so presenting these numbers as what the visitor will pay would be a lie
+ * told to exactly the people who would notice; the plan's own money is shown on the
+ * account page, where it belongs.
  */
+
+type Price = { inputPer1M: number; outputPer1M: number };
 
 /** Cheapest first, so the list reads as a ladder. */
 const LINEUP: ModelKey[] = [
@@ -67,6 +77,30 @@ export default function PlaygroundModelLineup({
 		(key) => !textOnly || MODEL_MODALITY_BY_KEY[key] === "text",
 	);
 
+	// Absent prices are simply not shown. A placeholder like "--" next to every row would be
+	// worse than a missing number: it reads as a price nobody has set yet.
+	const [prices, setPrices] = useState<Record<string, Price>>({});
+	useEffect(() => {
+		let cancelled = false;
+		fetch("/api/billing/pricing?audience=api", { credentials: "include", cache: "no-store" })
+			.then((res) => (res.ok ? res.json() : null))
+			.then((body: { models?: Array<{ modelKey: string } & Price> } | null) => {
+				if (cancelled || !body?.models) return;
+				const next: Record<string, Price> = {};
+				for (const m of body.models) {
+					next[m.modelKey] = { inputPer1M: m.inputPer1M, outputPer1M: m.outputPer1M };
+				}
+				setPrices(next);
+			})
+			.catch(() => {
+				// The lineup is still useful without prices, so a failure here is silent by
+				// design. It is not a money path: nothing is charged from these numbers.
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	return (
 		<section
 			className={`pgm-lineup${compact ? " pgm-lineup-compact" : ""}`}
@@ -98,6 +132,15 @@ export default function PlaygroundModelLineup({
 								<span className="pgm-lineup-modality">
 									{MODALITY_LABEL[MODEL_MODALITY_BY_KEY[key]] ?? key}
 								</span>
+								{prices[key] && (
+									<span
+										className="pgm-lineup-price"
+										title="Public API list price per million tokens. A paid plan is charged less; your own spend is on the account page."
+									>
+										{prices[key].inputPer1M.toFixed(2)} / {prices[key].outputPer1M.toFixed(2)} RON
+										<em>per 1M in / out</em>
+									</span>
+								)}
 								{included ? (
 									<span className="pgm-lineup-state pgm-lineup-state-in">
 										{/* No per-model quota any more. Spend is metered in RON against the

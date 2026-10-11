@@ -163,6 +163,35 @@ def main():
     r = requests.get(f"{WEB}/api/pages/account", timeout=60, headers={"cookie": cookie})
     check("the account page loads", r.status_code == 200, f"HTTP {r.status_code}")
 
+    print("\n=== the Playground lineup is priced, with no gaps ===")
+    # The lineup a customer sees, in the order the component renders it.
+    lineup = [
+        "lfm2_5_230m_q4_k_m",
+        "lfm2_5_350m_q8_0",
+        "lfm2_5_1_2b_instruct_q4_k_m",
+        "lfm2_5_1_2b_thinking_q4_k_m",
+        "lfm2_5_2_6b_q4_0",
+        "lfm2_5_8b_a1b_q4_k_m",
+    ]
+    r = requests.get(f"{WEB}/api/billing/pricing?audience=api", timeout=60,
+                     headers={"cookie": cookie, "origin": WEB})
+    check("the pricing route is reachable", r.status_code == 200, f"HTTP {r.status_code}")
+    pricing = r.json()
+    check("it is the list price, flagged as such", pricing.get("listPrice") is True,
+          f"listPrice={pricing.get('listPrice')}")
+    check("a paying plan still gets list prices with audience=api",
+          pricing.get("subscriber") is True or pricing.get("subscriber") is False,
+          f"subscriber={pricing.get('subscriber')}")
+    priced = {m["modelKey"]: m for m in pricing.get("models", [])}
+    missing = [k for k in lineup if k not in priced]
+    check("every model the Playground offers has a price", not missing, f"missing: {missing}")
+    zero = [k for k in lineup if k in priced and not (priced[k]["inputPer1M"] > 0 and priced[k]["outputPer1M"] > 0)]
+    check("no listed model is priced at zero", not zero, f"zero-priced: {zero}")
+    check("output is priced above input everywhere (generation is the cost)",
+          all(priced[k]["outputPer1M"] > priced[k]["inputPer1M"] for k in lineup if k in priced))
+    check("each price row carries a readable label",
+          all(priced[k].get("label") for k in lineup if k in priced))
+
     print("\n=== an anonymous visitor is not shown anybody's money ===")
     r = requests.get(f"{WEB}/api/billing/balance", timeout=60)
     check("no session is refused", r.status_code in (401, 403), f"HTTP {r.status_code}")

@@ -4761,3 +4761,24 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
+
+/* Public API list price, per model row. Labelled as list price on hover and with an
+   explicit "per 1M in / out" caption: a paying plan is charged less, and a bare number
+   here would be read as a quote. */
+.pgm-lineup-price {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 1px;
+	font-size: 0.74rem;
+	color: #fcd34d;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.pgm-lineup-price em {
+	font-style: normal;
+	font-size: 0.62rem;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: rgba(255, 255, 255, 0.4);
+}
