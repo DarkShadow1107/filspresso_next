@@ -1,5 +1,6 @@
 "use client";
 
+import SubscriptionPayments from "./SubscriptionPayments";
 import Image from "next/image";
 import { useState } from "react";
 import { Order, SavedCard, Repair, gradientTextStyle, getCardTypeImage } from "./types";
@@ -339,6 +340,8 @@ export function PaymentsSection({
 					</button>
 				</div>
 			</div>
+
+			<SubscriptionPayments className="subscription-payments" />
 
 			<OrderHistory
 				orders={paginatedOrders}

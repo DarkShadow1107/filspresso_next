@@ -17,6 +17,11 @@ export class SubscriptionsController {
     return this.subscriptionsService.getSubscription(Number(req.user?.id));
   }
 
+  @UseGuards(JwtAuthGuard) @Get("payments")
+  paymentHistory(@Req() req: AuthenticatedRequest) {
+    return this.subscriptionsService.paymentHistory(Number(req.user?.id));
+  }
+
   @UseGuards(JwtAuthGuard) @Post() @HttpCode(HttpStatus.CREATED)
   createSubscription(@Req() req: AuthenticatedRequest) {
     return this.subscriptionsService.createSubscription(Number(req.user?.id), req.body as Record<string, unknown>).then((s) => ({ message: "Subscription created successfully", subscription: s }));

@@ -564,3 +564,67 @@
 	font-size: 0.72rem;
 	color: #fbbf24;
 }
+
+.billing-card__title-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-bottom: 1rem;
+}
+.billing-card__title-row .billing-card__title {
+	margin: 0;
+}
+.billing-refresh {
+	background: transparent;
+	border: 1px solid rgba(255, 255, 255, 0.15);
+	border-radius: 8px;
+	color: rgba(255, 255, 255, 0.7);
+	padding: 5px;
+	display: inline-flex;
+	cursor: pointer;
+}
+.billing-refresh:hover:not(:disabled) {
+	border-color: #c4a77d;
+	color: #ffdba8;
+}
+.billing-refresh:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+.subscription-payments {
+	margin-bottom: 1.5rem;
+}
+
+.billing-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	padding: 3px 9px;
+	border-radius: 999px;
+	font-size: 0.74rem;
+	text-transform: capitalize;
+	white-space: nowrap;
+}
+.pay-ok {
+	background: rgba(16, 185, 129, 0.14);
+	color: #6ee7b7;
+}
+.pay-warn {
+	background: rgba(245, 158, 11, 0.14);
+	color: #fcd34d;
+}
+.pay-bad {
+	background: rgba(239, 68, 68, 0.14);
+	color: #fca5a5;
+}
+.pay-muted {
+	background: rgba(255, 255, 255, 0.08);
+	color: rgba(255, 255, 255, 0.6);
+}
+.billing-cell-sub {
+	display: block;
+	font-style: normal;
+	font-size: 0.72rem;
+	color: rgba(255, 255, 255, 0.4);
+}

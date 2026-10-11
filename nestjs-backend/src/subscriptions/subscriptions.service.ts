@@ -113,6 +113,34 @@ export class SubscriptionsService {
         [accountId, tier, billingCycle || "monthly", price, startDate, renewalDate, tier !== "free", cardId || null],
       );
       await client.query("UPDATE accounts SET subscription = $1 WHERE id = $2", [tier.charAt(0).toUpperCase() + tier.slice(1), accountId]);
+
+      // The payment record goes in the same transaction as the subscription itself.
+      //
+      // Written separately it could drift: a crash between the two leaves a customer who has
+      // been charged with no history showing it, or a history row for a plan that was never
+      // granted. Neither is reconcilable from the customer's side, which is the only side
+      // that matters here.
+      //
+      // Nothing is recorded for the free tier, because nothing was charged. A "payment" of
+      // 0.00 would be a fiction.
+      if (price > 0) {
+        await client.query(
+          `INSERT INTO subscription_payments
+             (account_id, tier, billing_cycle, amount_ron, currency, card_id,
+              payment_status, fulfilment_status, reference, idempotency_key)
+           VALUES ($1, $2, $3, $4, 'RON', $5, 'paid', 'delivered', $6, $7)
+           ON CONFLICT (account_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
+          [
+            accountId,
+            tier,
+            billingCycle || "monthly",
+            price,
+            cardId || null,
+            body["reference"] ? String(body["reference"]).slice(0, 64) : null,
+            body["idempotencyKey"] ? String(body["idempotencyKey"]).slice(0, 128) : null,
+          ],
+        );
+      }
       await client.query("COMMIT");
       return { id: Number(result.rows[0].id), tier, billing_cycle: billingCycle, price_ron: price, start_date: startDate, renewal_date: renewalDate, is_active: true, auto_renew: tier !== "free", status: "active" };
     } catch (e) { await client.query("ROLLBACK").catch(() => undefined); throw e; } finally { client.release(); }
@@ -185,5 +213,40 @@ export class SubscriptionsService {
       await client.query("UPDATE user_subscriptions SET auto_renew=$1, updated_at=NOW() WHERE id=$2", [newAutoRenew, result.rows[0].id]);
       return { message: newAutoRenew ? "Auto-renewal enabled" : "Auto-renewal disabled", auto_renew: newAutoRenew };
     } finally { client.release(); }
+  }
+
+  /**
+   * What this account has paid for, newest first.
+   *
+   * Reports both halves of each purchase: whether the charge completed, and whether access
+   * was granted. They are separate columns for a reason -- a row where the money is paid and
+   * the plan was never delivered is the state a customer would call us about, and it cannot
+   * exist if both facts are collapsed into one status.
+   */
+  async paymentHistory(accountId: number): Promise<Array<Record<string, unknown>>> {
+    const pool = this.db.getPool();
+    const result = await pool.query(
+      `SELECT p.id, p.tier, p.billing_cycle, p.amount_ron, p.currency, p.payment_status,
+              p.fulfilment_status, p.reference, p.created_at, c.card_last_four
+         FROM subscription_payments p
+         LEFT JOIN user_cards c ON c.id = p.card_id
+        WHERE p.account_id = $1
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT 100`,
+      [accountId],
+    );
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      tier: row.tier,
+      billingCycle: row.billing_cycle,
+      amountRon: Number(row.amount_ron),
+      currency: row.currency,
+      // Last four only, the same as the subscription card view. Never the number itself.
+      cardLastFour: row.card_last_four ?? null,
+      paymentStatus: row.payment_status,
+      fulfilmentStatus: row.fulfilment_status,
+      reference: row.reference,
+      createdAt: row.created_at,
+    }));
   }
 }

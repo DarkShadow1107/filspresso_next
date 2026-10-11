@@ -24,6 +24,9 @@ let SubscriptionsController = class SubscriptionsController {
     getSubscription(req) {
         return this.subscriptionsService.getSubscription(Number(req.user?.id));
     }
+    paymentHistory(req) {
+        return this.subscriptionsService.paymentHistory(Number(req.user?.id));
+    }
     createSubscription(req) {
         return this.subscriptionsService.createSubscription(Number(req.user?.id), req.body).then((s) => ({ message: "Subscription created successfully", subscription: s }));
     }
@@ -50,6 +53,14 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], SubscriptionsController.prototype, "getSubscription", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)("payments"),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], SubscriptionsController.prototype, "paymentHistory", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Post)(),
