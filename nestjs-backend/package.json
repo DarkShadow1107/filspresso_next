@@ -21,6 +21,7 @@
 		"test:auto-refill": "python scripts/auto-refill-check.py",
 		"test:account-billing": "python scripts/account-billing-check.py",
 		"test:subscription-payments": "python scripts/subscription-payments-check.py",
+		"test:allowance-enforcement": "python scripts/allowance-enforcement-check.py",
 		"test:phase9": "npm run test:live && npm run test:load && npm run test:drills"
 	},
 	"dependencies": {

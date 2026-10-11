@@ -12,12 +12,16 @@ const kafelot_controller_1 = require("./kafelot.controller");
 const kafelot_service_1 = require("./kafelot.service");
 const model_usage_service_1 = require("./model-usage.service");
 const database_module_1 = require("../database/database.module");
+const billing_controller_1 = require("../billing/billing.controller");
 let KafelotModule = class KafelotModule {
 };
 exports.KafelotModule = KafelotModule;
 exports.KafelotModule = KafelotModule = __decorate([
     (0, common_1.Module)({
-        imports: [database_module_1.DatabaseModule],
+        // BillingModule resolves a tier through KafelotService, so importing it back is a
+        // cycle. forwardRef on both sides is what lets the container build the graph;
+        // without it the process crash-loops at boot rather than failing at compile time.
+        imports: [database_module_1.DatabaseModule, (0, common_1.forwardRef)(() => billing_controller_1.BillingModule)],
         controllers: [kafelot_controller_1.KafelotController],
         providers: [kafelot_service_1.KafelotService, model_usage_service_1.ModelUsageService],
         // BillingModule resolves a subscription tier through this service to decide which

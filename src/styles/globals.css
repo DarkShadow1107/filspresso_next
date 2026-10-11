@@ -4782,3 +4782,28 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 	text-transform: uppercase;
 	color: rgba(255, 255, 255, 0.4);
 }
+
+/* "API price" tag on a lineup row. Labelled rather than bare, because a two-number ratio
+   with no label reads as a discount, which is the opposite of what a list price is. */
+.pgm-lineup-price {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 1px;
+	font-size: 0.62rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: rgba(255, 255, 255, 0.4);
+	white-space: nowrap;
+}
+.pgm-lineup-price b {
+	font-size: 0.78rem;
+	font-weight: 600;
+	text-transform: none;
+	letter-spacing: 0;
+	color: #fcd34d;
+	font-variant-numeric: tabular-nums;
+}
+.pgm-lineup-price em {
+	display: none;
+}

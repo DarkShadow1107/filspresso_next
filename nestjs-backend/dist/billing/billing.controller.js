@@ -18,6 +18,7 @@ const config_1 = require("@nestjs/config");
 const database_module_1 = require("../database/database.module");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const optional_jwt_auth_guard_1 = require("../common/guards/optional-jwt-auth.guard");
+const common_2 = require("@nestjs/common");
 const kafelot_module_1 = require("../kafelot/kafelot.module");
 const kafelot_service_1 = require("../kafelot/kafelot.service");
 const billing_service_1 = require("./billing.service");
@@ -115,6 +116,23 @@ let BillingController = class BillingController {
                     // percentage exactly. The only audience that wants the figure stated is
                     // the admin table, which asks for both columns at once.
                 }),
+        };
+    }
+    /**
+ * What every plan includes per month, in RON.
+ *
+ * Public, because the plans page has to show what a plan is worth before anyone signs up
+ * for one, and because it is the same number the backend charges against. Serving it from
+ * the one table that does the charging is the point: the previous arrangement had the
+ * allowance written out again on the subscription page, where it drifted and kept
+ * advertising a prompt quota that had been deleted months earlier.
+ */
+    async getAllowances() {
+        return {
+            currency: "RON",
+            per: "month",
+            anonymousRon: tier_allowance_1.ANONYMOUS_ALLOWANCE_RON,
+            tiers: Object.entries(tier_allowance_1.TIER_ALLOWANCE_RON).map(([tier, ron]) => ({ tier, allowanceRon: ron })),
         };
     }
     /** The signed-in account's balance and recent spend. */
@@ -220,6 +238,14 @@ let BillingController = class BillingController {
     /**
      * Add money to the funded wallet with the default card.
      *
+     * Spectre plans only (MAX and above). The wallet exists to extend the AI allowance, and
+     * the Playground that spends it is a MAX feature, so on any lower plan a top-up buys
+     * capacity for a product the account cannot reach. Allowing it would take a customer's
+     * money for something they cannot use, and the ceiling test would still pass.
+     *
+     * Refused with a 403 rather than a 400: nothing about the request is malformed, the
+     * account is simply not entitled to the thing being asked for.
+     *
      * No payment provider: the charge is recorded, not settled. The response says how much
      * was actually added, which can be less than asked for once the 1000 RON ceiling is in
      * view -- taking the full amount anyway would leave a balance the customer cannot
@@ -227,6 +253,15 @@ let BillingController = class BillingController {
      */
     async fund(req, body) {
         const accountId = this.requireAccountId(req);
+        const tier = await this.resolveTier(req);
+        if (!(0, tier_allowance_1.canUseSpectre)(tier)) {
+            throw new common_1.ForbiddenException({
+                error: "WALLET_REQUIRES_SPECTRE",
+                message: `The AI wallet is part of the Spectre plan. Upgrade to MAX or ULTIMATE to add funds.`,
+                currentTier: tier,
+                requiredTiers: tier_allowance_1.SPECTRE_TIERS_ALLOWED,
+            });
+        }
         const amount = Number(body?.amountRon);
         if (!Number.isFinite(amount) || amount <= 0) {
             throw new common_1.BadRequestException("amountRon must be a positive number");
@@ -283,6 +318,12 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], BillingController.prototype, "getPricing", null);
+__decorate([
+    (0, common_1.Get)("allowances"),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], BillingController.prototype, "getAllowances", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Get)("balance"),
@@ -352,7 +393,7 @@ let BillingModule = class BillingModule {
 exports.BillingModule = BillingModule;
 exports.BillingModule = BillingModule = __decorate([
     (0, common_1.Module)({
-        imports: [config_1.ConfigModule, database_module_1.DatabaseModule, kafelot_module_1.KafelotModule],
+        imports: [config_1.ConfigModule, database_module_1.DatabaseModule, (0, common_2.forwardRef)(() => kafelot_module_1.KafelotModule)],
         controllers: [BillingController],
         providers: [billing_service_1.BillingService],
         exports: [billing_service_1.BillingService],

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CreditCard, RefreshIcon, TriangleAlertIcon } from "@/icons";
+import { tierCanUsePlayground } from "@/lib/entitlements";
 
 /**
  * The customer's money: what the plan included, what the card wallet holds, and what each
@@ -230,6 +231,9 @@ export function BillingSection() {
 	const allowance = balance.allowance;
 	const refill = balance.autoRefill;
 	const recent = balance.recent ?? [];
+	// The funded wallet is a Spectre feature. The backend refuses a top-up below MAX, so the
+	// form is hidden rather than shown to produce a 403 on submit.
+	const spectre = tierCanUsePlayground(allowance?.tier ?? null);
 	// A fifth of the way through is the point where "you are nearly out" is more useful than
 	// "you have some". Deliberately not zero: a meter that only alarms at empty is an outage
 	// with a progress bar.
@@ -324,20 +328,36 @@ export function BillingSection() {
 
 					<div className="billing-topup">
 						<label htmlFor="billing-topup-amount">Add funds (RON)</label>
-						<div className="billing-topup__row">
-							<input
-								id="billing-topup-amount"
-								type="number"
-								min="1"
-								step="1"
-								value={topUp}
-								onChange={(e) => setTopUp(e.target.value)}
-								disabled={busy}
-							/>
-							<button className="btn-primary" onClick={() => void submitTopUp()} disabled={busy}>
-								{busy ? "Adding…" : "Add funds"}
-							</button>
-						</div>
+						{spectre ? (
+							<>
+								<div className="billing-topup__row">
+									<input
+										id="billing-topup-amount"
+										type="number"
+										min="1"
+										step="1"
+										value={topUp}
+										onChange={(e) => setTopUp(e.target.value)}
+										disabled={busy}
+									/>
+									<button className="btn-primary" onClick={() => void submitTopUp()} disabled={busy}>
+										{busy ? "Adding…" : "Add funds"}
+									</button>
+								</div>
+								<p className="billing-muted">
+									Refills automatically to {ron(balance.autoRefill.targetRon)} whenever the balance
+									reaches {ron(balance.minBalanceRon)}.
+								</p>
+							</>
+						) : (
+							/* Hidden rather than shown-and-refused. The form would only exist to
+							   produce a 403 on submit, and offering a purchase the account cannot
+							   make is worse than not offering it. The wallet is a Spectre feature. */
+							<p className="billing-muted">
+								The AI wallet comes with the Spectre plan. Upgrade to Max or Ultimate to add
+								funds and have them refill automatically.
+							</p>
+						)}
 					</div>
 				</div>
 			</Card>

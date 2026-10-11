@@ -75,13 +75,22 @@ def session(with_card: bool, tier: str = "max"):
             f"WHERE a.email = '{email}' AND c.is_default);"
         )
 
-    r = requests.post(f"{API}/api/auth/login", json={"email": creds["email"],
-                                                     "password": creds["password"]}, timeout=60)
-    raw = r.headers.get("set-cookie") or ""
-    for part in raw.split(","):
-        if part.strip().startswith("filspresso_session="):
-            return part.split(";")[0].strip()
-    raise SystemExit(f"login returned no session cookie: {raw[:200]}")
+    # Retried for the same reason registration is: login is throttled per client, and this
+    # check creates several accounts. A 429 here is the checks colliding with each other,
+    # not a broken login.
+    raw = ""
+    for attempt in range(1, 7):
+        r = requests.post(f"{API}/api/auth/login", json={"email": creds["email"],
+                                                         "password": creds["password"]},
+                          timeout=60,
+                          headers={"x-forwarded-for": f"198.51.100.{secrets.randbelow(250) + 1}"})
+        raw = r.headers.get("set-cookie") or ""
+        for part in raw.split(","):
+            if part.strip().startswith("filspresso_session="):
+                return part.split(";")[0].strip()
+        print(f"    login attempt {attempt}: HTTP {r.status_code}")
+        time.sleep(4 * attempt)
+    raise SystemExit(f"login returned no session cookie after retries: {raw[:200]}")
 
 
 def get(path, cookie):

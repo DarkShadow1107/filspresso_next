@@ -159,29 +159,44 @@ const plans = [
 	},
 ] as const;
 
+/** Per-plan monthly AI allowance, in RON, as served by /api/billing/allowances. */
+type AllowanceTable = {
+	anonymousRon: number;
+	byTier: Record<string, number>;
+};
+
 /**
  * Compose the benefit list a plan card renders.
  *
- * Hardware, capsules, memory and the Kafelot allowance stay hand-written because
- * they are commercial terms. Model access is **derived** from the entitlement
- * matrix and inserted after the MiniLM line, so the page can only ever advertise
- * what `/api/chat` and the Playground will actually allow.
+ * Hardware, capsules and memory stay hand-written because they are commercial terms.
+ * Model access is **derived** from the entitlement matrix, and the AI allowance is
+ * **fetched** from the same table the backend charges against.
+ *
+ * The allowance used to be written out by hand here, and the copy went stale badly enough
+ * to keep advertising a prompt quota that had been deleted from the product months
+ * earlier. A number that is duplicated is a number that will be wrong.
  */
 function benefitsForPlan(
 	planId: string,
 	baseBenefits: readonly string[],
+	allowances: AllowanceTable | null,
 ): string[] {
 	const tier = normalizeModelTier(planId);
-	// Models first, then the non-model features. Both derived, so a plan card can
-	// never advertise something the API refuses.
+	const ron = allowances?.byTier?.[tier] ?? 0;
+	// An allowance line is only stated when the number is actually known. Better a card
+	// missing one line than a card quoting a figure the backend would not honour.
+	const allowanceLine = allowances
+		? `🤖 Kafelot AI — ${formatRon(ron)} included each month`
+		: null;
 	const derived = [...modelAccessLinesForTier(tier), ...featureLinesForTier(tier)];
-	const insertAt = baseBenefits.findIndex((b) => b.includes("MiniLM"));
-	if (insertAt === -1) return [...baseBenefits, ...derived];
-	return [
-		...baseBenefits.slice(0, insertAt + 1),
-		...derived,
-		...baseBenefits.slice(insertAt + 1),
-	];
+
+	// Build the base list with the allowance line in place of any stale prompt line.
+	const cleaned = baseBenefits.filter((b) => !/prompts?\s*\/\s*month/i.test(b));
+	const base = allowanceLine ? [allowanceLine, ...cleaned] : cleaned;
+
+	const insertAt = base.findIndex((b) => b.includes("MiniLM"));
+	if (insertAt === -1) return [...base, ...derived];
+	return [...base.slice(0, insertAt + 1), ...derived, ...base.slice(insertAt + 1)];
 }
 
 function formatRon(value: number) {
@@ -199,6 +214,32 @@ export default function SubscriptionPageContent() {
 	const [showConfirmModal, setShowConfirmModal] = useState(false);
 	const [pendingPlan, setPendingPlan] = useState<(typeof plans)[number] | null>(null);
 	const [hoveredManageBtn, setHoveredManageBtn] = useState(false);
+	const [allowances, setAllowances] = useState<AllowanceTable | null>(null);
+
+	// The per-plan AI allowance, fetched from the same table the backend charges against.
+	// Null until it arrives, and null for good if it fails: the plan cards then simply omit
+	// the allowance line rather than quoting a number this page made up.
+	useEffect(() => {
+		let cancelled = false;
+		fetch(`${API_BASE}/api/billing/allowances`, {
+			credentials: "same-origin" as const,
+			headers: { accept: "application/json" },
+		})
+			.then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+			.then((body: { anonymousRon: number; tiers?: Array<{ tier: string; allowanceRon: number }> }) => {
+				if (cancelled) return;
+				const byTier: Record<string, number> = {};
+				for (const row of body.tiers ?? []) byTier[row.tier] = row.allowanceRon;
+				setAllowances({ anonymousRon: Number(body.anonymousRon ?? 0), byTier });
+			})
+			.catch(() => {
+				// Deliberately silent. This is a pricing page that must render even when the
+				// billing service is unreachable; the cards degrade to omitting one line.
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	const { notify } = useNotifications();
 
@@ -732,18 +773,21 @@ export default function SubscriptionPageContent() {
 										<p className="card_price-breakdown">{formatRon(currentPrice / 12)}/month</p>
 									)}
 									<ul className="card_bullets" style={{ padding: 0, listStyle: "none" }}>
-										{(plan.id === "free"
-												? benefitsForPlan(plan.id, [
-														"Kafelot - 5 prompts/month (anonymous)",
-														"Kafelot - 15 prompts/month (with account)",
-														"MiniLM V2 access",
-														"Default for all accounts",
-													])
-												: benefitsForPlan(
-														plan.id,
-														plan.benefits as readonly string[],
-													)
-											).map((benefit) => {
+{(plan.id === "free"
+										? benefitsForPlan(
+												plan.id,
+												[
+													"MiniLM V2 access",
+													"Default for all accounts",
+												],
+												allowances,
+											)
+										: benefitsForPlan(
+												plan.id,
+												plan.benefits as readonly string[],
+												allowances,
+											)
+										).map((benefit) => {
 											const getIcon = () => {
 												const iconSize = 20;
 												const iconColor = "#ae8966";

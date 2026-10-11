@@ -10,6 +10,7 @@ import {
 	type ModelKey,
 	type UserSubscriptionTier,
 } from "@/lib/modelAccess";
+import { tierCanUsePlayground } from "@/lib/entitlements";
 import BrandLiquidIcon from "@/icons/brand-liquid-icon";
 import LockIcon from "@/icons/lock-icon";
 
@@ -109,7 +110,13 @@ export default function PlaygroundModelLineup({
 			{!compact ? <h2 className="pgm-lineup-title">Model lineup</h2> : null}
 			<ul className="pgm-lineup-list">
 				{rows.map((key) => {
-					const included = tierAllowsModel(resolved, key);
+					// The Playground is a Max-and-up feature, so access to the Playground is the
+					// first question, not access to this model. A visitor below Max cannot send
+					// anything here at all, so showing the 230M as "Included" on the strength of
+					// MODEL_TIER_ACCESS -- which is about Kafelot generally, not this page --
+					// advertised something the route would refuse.
+					const canUsePlayground = tierCanUsePlayground(resolved);
+					const included = canUsePlayground && tierAllowsModel(resolved, key);
 					const from = lowestTierFor(key);
 					return (
 						<li
@@ -135,23 +142,22 @@ export default function PlaygroundModelLineup({
 								{prices[key] && (
 									<span
 										className="pgm-lineup-price"
-										title="Public API list price per million tokens. A paid plan is charged less; your own spend is on the account page."
+										title={`Public API list price: ${prices[key].inputPer1M.toFixed(2)} RON per 1M input tokens, ${prices[key].outputPer1M.toFixed(2)} RON per 1M output tokens. A paid plan is charged less; your own spend is on the account page.`}
 									>
-										{prices[key].inputPer1M.toFixed(2)} / {prices[key].outputPer1M.toFixed(2)} RON
-										<em>per 1M in / out</em>
+										API price
+										<b>
+											{prices[key].inputPer1M.toFixed(2)} / {prices[key].outputPer1M.toFixed(2)} RON
+										</b>
 									</span>
 								)}
 								{included ? (
 									<span className="pgm-lineup-state pgm-lineup-state-in">
-										{/* No per-model quota any more. Spend is metered in RON against the
-										    plan's monthly allowance, which works across every model, so
-										    "120/mo" here would advertise a budget nothing enforces. */}
 										Included
 									</span>
 								) : (
 									<span className="pgm-lineup-state pgm-lineup-state-out">
 										<LockIcon size={13} />
-										{from ? `from ${from}` : "locked"}
+										{!canUsePlayground ? "from Max" : from ? `from ${from}` : "locked"}
 									</span>
 								)}
 							</span>

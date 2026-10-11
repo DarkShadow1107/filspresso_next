@@ -1,5 +1,6 @@
 import {
 	BadRequestException,
+	ForbiddenException,
 	Body,
 	Controller,
 	Get,
@@ -16,6 +17,7 @@ import { ConfigModule } from "@nestjs/config";
 import { DatabaseModule } from "../database/database.module";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { OptionalJwtAuthGuard } from "../common/guards/optional-jwt-auth.guard";
+import { forwardRef } from "@nestjs/common";
 import { KafelotModule } from "../kafelot/kafelot.module";
 import { KafelotService } from "../kafelot/kafelot.service";
 import {
@@ -24,7 +26,13 @@ import {
 	MAX_FUNDED_BALANCE_RON,
 } from "./billing.service";
 import { pricingTable, resolveTokenPrice } from "./model-pricing";
-import { isPaidTier } from "./tier-allowance";
+import {
+	isPaidTier,
+	canUseSpectre,
+	SPECTRE_TIERS_ALLOWED,
+	ANONYMOUS_ALLOWANCE_RON,
+	TIER_ALLOWANCE_RON,
+} from "./tier-allowance";
 import { FINGERPRINT_HEADER, parseFingerprint } from "../common/utils/fingerprint";
 
 interface BillingRequest {
@@ -134,7 +142,26 @@ export class BillingController {
 		};
 	}
 
-	/** The signed-in account's balance and recent spend. */
+	/**
+ * What every plan includes per month, in RON.
+ *
+ * Public, because the plans page has to show what a plan is worth before anyone signs up
+ * for one, and because it is the same number the backend charges against. Serving it from
+ * the one table that does the charging is the point: the previous arrangement had the
+ * allowance written out again on the subscription page, where it drifted and kept
+ * advertising a prompt quota that had been deleted months earlier.
+ */
+@Get("allowances")
+async getAllowances() {
+	return {
+		currency: "RON",
+		per: "month",
+		anonymousRon: ANONYMOUS_ALLOWANCE_RON,
+		tiers: Object.entries(TIER_ALLOWANCE_RON).map(([tier, ron]) => ({ tier, allowanceRon: ron })),
+	};
+}
+
+/** The signed-in account's balance and recent spend. */
 	@UseGuards(JwtAuthGuard)
 	@Get("balance")
 	async getBalance(@Req() req: BillingRequest) {
@@ -258,6 +285,14 @@ export class BillingController {
 	/**
 	 * Add money to the funded wallet with the default card.
 	 *
+	 * Spectre plans only (MAX and above). The wallet exists to extend the AI allowance, and
+	 * the Playground that spends it is a MAX feature, so on any lower plan a top-up buys
+	 * capacity for a product the account cannot reach. Allowing it would take a customer's
+	 * money for something they cannot use, and the ceiling test would still pass.
+	 *
+	 * Refused with a 403 rather than a 400: nothing about the request is malformed, the
+	 * account is simply not entitled to the thing being asked for.
+	 *
 	 * No payment provider: the charge is recorded, not settled. The response says how much
 	 * was actually added, which can be less than asked for once the 1000 RON ceiling is in
 	 * view -- taking the full amount anyway would leave a balance the customer cannot
@@ -267,6 +302,15 @@ export class BillingController {
 	@Post("fund")
 	async fund(@Req() req: BillingRequest, @Body() body: Record<string, unknown>) {
 		const accountId = this.requireAccountId(req);
+		const tier = await this.resolveTier(req);
+		if (!canUseSpectre(tier)) {
+			throw new ForbiddenException({
+				error: "WALLET_REQUIRES_SPECTRE",
+				message: `The AI wallet is part of the Spectre plan. Upgrade to MAX or ULTIMATE to add funds.`,
+				currentTier: tier,
+				requiredTiers: SPECTRE_TIERS_ALLOWED,
+			});
+		}
 		const amount = Number(body?.amountRon);
 		if (!Number.isFinite(amount) || amount <= 0) {
 			throw new BadRequestException("amountRon must be a positive number");
@@ -318,7 +362,7 @@ export class BillingController {
 }
 
 @Module({
-	imports: [ConfigModule, DatabaseModule, KafelotModule],
+	imports: [ConfigModule, DatabaseModule, forwardRef(() => KafelotModule)],
 	controllers: [BillingController],
 	providers: [BillingService],
 	exports: [BillingService],

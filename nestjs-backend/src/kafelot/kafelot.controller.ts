@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Param, Query, Req, Res, UseGuards, ParseInt
 import { Request, Response } from "express";
 import { KafelotService, normalizeUsageScope, USAGE_SCOPES } from "./kafelot.service";
 import { ModelUsageService, isMeteredModel } from "./model-usage.service";
+import { BillingService } from "../billing/billing.service";
 import { FINGERPRINT_HEADER, parseFingerprint } from "../common/utils/fingerprint";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { OptionalJwtAuthGuard } from "../common/guards/optional-jwt-auth.guard";
@@ -91,7 +92,68 @@ export class KafelotController {
   constructor(
     private readonly kafelotService: KafelotService,
     private readonly modelUsage: ModelUsageService,
+    private readonly billing: BillingService,
   ) {}
+
+  /**
+   * May this caller afford one more generation?
+   *
+   * Signed-in callers are judged on allowance-or-wallet by the billing service, which owns
+   * both numbers. Anonymous callers have no wallet, so their fingerprint-keyed allowance is
+   * the whole answer.
+   *
+   * Fails closed, and that is a deliberate choice: a billing lookup that errors must not
+   * read as "free", which is exactly what a no-op gate does. An account in this state gets
+   * a 402 they can act on rather than a generation they cannot afford.
+   */
+  private async resolveMoneyState(
+    req: AuthenticatedRequest,
+    fingerprint: string | null,
+  ): Promise<{
+    canGenerate: boolean;
+    message: string;
+    allowanceRemainingRon: number | null;
+    balanceRon: number | null;
+  }> {
+    const accountId = req.user?.id ? Number(req.user.id) : 0;
+    try {
+      if (Number.isInteger(accountId) && accountId > 0) {
+        const tier = await this.kafelotService.resolveTier(accountId);
+        const state = await this.billing.canGenerate(accountId, tier);
+        return {
+          canGenerate: state.canGenerate,
+          message: "Your monthly AI allowance and playground balance are both spent.",
+          allowanceRemainingRon: state.allowanceRemainingRon,
+          balanceRon: state.balanceRon,
+        };
+      }
+      if (fingerprint) {
+        const allowance = await this.billing.getAnonymousAllowance(fingerprint);
+        return {
+          canGenerate: allowance.remainingRon > 0,
+          message: "Your free AI allowance for this month is used up.",
+          allowanceRemainingRon: allowance.remainingRon,
+          balanceRon: null,
+        };
+      }
+      // No account and no fingerprint: nothing to meter against. The per-IP rate limiter is
+      // the guard for this caller, so the money gate has nothing to say and does not refuse
+      // a path that is deliberately open.
+      return {
+        canGenerate: true,
+        message: "",
+        allowanceRemainingRon: null,
+        balanceRon: null,
+      };
+    } catch (err) {
+      return {
+        canGenerate: false,
+        message: `We could not check your AI balance right now (${err instanceof Error ? err.message : "unknown"}).`,
+        allowanceRemainingRon: null,
+        balanceRon: null,
+      };
+    }
+  }
 
   @UseGuards(OptionalJwtAuthGuard)
   @Post("check-and-use")
@@ -121,6 +183,31 @@ export class KafelotController {
           message: "Molecule Helper is available on the ULTIMATE plan.",
         });
       }
+    }
+
+    // The money gate, at the authoritative choke point.
+    //
+    // The RON allowance was only enforced after the fact, when the usage report arrived. That
+    // is not enforcement: it means every generation runs at full cost and the balance is told
+    // afterwards. A customer with nothing left was served first and billed second, which is
+    // the same shape as no gate at all, only with a ledger attached.
+    //
+    // Checked here because this controller already is the one place a direct API call cannot
+    // get past -- the Next route also gates, but there is no Next middleware, so this is the
+    // boundary that holds when someone calls the backend directly.
+    //
+    // Both pots, for the same reason the Playground does: included allowance and card wallet
+    // are interchangeable while either has money in it.
+    const money = await this.resolveMoneyState(req, fingerprint);
+    if (!money.canGenerate) {
+      return res.status(HttpStatus.PAYMENT_REQUIRED).json({
+        error: "INSUFFICIENT_BALANCE",
+        message: money.message,
+        allowance_remaining_ron: money.allowanceRemainingRon,
+        balance_ron: money.balanceRon,
+        // Distinguishable from a chemistry refusal, which is a 403.
+        billing: "exhausted",
+      });
     }
 
     const result = await this.kafelotService.checkAndUse({

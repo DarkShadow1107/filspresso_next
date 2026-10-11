@@ -79,13 +79,61 @@ npm run dev
 
 ### 5) Open the app
 
-- Frontend: http://localhost:3000
+- Frontend over HTTPS: **https://localhost:8443** (recommended — see below)
+- Frontend over plain HTTP: http://localhost:3000
 - NestJS API health: http://localhost:4000/health
 - Python AI health: http://localhost:5000/api/health
 - Java Invoice health: http://localhost:8082/api/invoices/health
 - Go Ops health: http://localhost:8083/health
 - Kotlin Subscriptions health: http://localhost:8084/api/subscriptions/health
 - Rust Crypto health: http://localhost:8090/health
+
+### 5a) Accessing the app over HTTPS
+
+Caddy terminates TLS in front of Next and re-applies the security headers, so the
+app is already served on **https://localhost:8443** by the `caddy` container. No
+extra setup is needed once `docker compose ps` shows `caddy` as healthy.
+
+The certificate is a local one from **mkcert**, whose root CA is installed in your
+operating system's trust store, so the browser shows a normal padlock with no
+interstitial.
+
+```bash
+# Verify the container is serving TLS
+curl --ssl-no-revoke https://localhost:8443/
+
+# Expect: HTTP 200, ssl_verify_result 0
+```
+
+`--ssl-no-revoke` is only needed for `curl` on Windows. Windows schannel fails a
+private root with `CRYPT_E_NO_REVOCATION_CHECK (0x80092012)` because a local root
+publishes neither a CRL nor an OCSP responder. That is a revocation-check failure,
+not a trust failure — browsers do not check revocation this way.
+
+**If the certificate is missing**, generate one once:
+
+```bash
+mkcert -install
+mkcert -cert-file secrets/tls/filspresso.pem -key-file secrets/tls/filspresso-key.pem \
+       localhost 127.0.0.1 ::1 127.0.1
+docker compose up -d --force-recreate caddy
+```
+
+**Why not Let's Encrypt?** It issues only for publicly resolvable domain names and
+not for IP addresses at all, so `localhost` and `127.0.0.1` are permanently out of
+reach — as is every other address in `127.0.0.0/8`, which is not routable off the
+machine. mkcert is the tool for a locally trusted certificate.
+
+**For a real deployment**, switch to the ACME Caddyfile, which requests a publicly
+trusted certificate against your own domain:
+
+```bash
+CADDYFILE=./Caddyfile.acme docker compose up -d --force-recreate caddy
+```
+
+You will also need to point that domain at the host and update `NEXT_UPSTREAM` if
+Next is not running on the host. See `Caddyfile` for the details and the gotchas
+around `NEXT_UPSTREAM` needing to be a bare `host:port`.
 
 ### Quick verification checklist
 

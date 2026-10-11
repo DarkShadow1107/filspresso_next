@@ -64,6 +64,31 @@ export function isPaidTier(tier: string): boolean {
 	return PAID_TIERS.has(String(tier || "").trim().toLowerCase());
 }
 
+/**
+ * Plans that may send messages from the Spectre Playground, and therefore may fund the
+ * wallet that pays for them.
+ *
+ * Must agree with PLAYGROUND_MINIMUM_TIER in src/lib/entitlements.ts. The two are checked
+ * against each other by `test:playground-billing`, which subscribes at each tier and
+ * asserts the gate here and the route there agree -- a drift between them would mean
+ * either charging for a product the route refuses, or refusing to charge for one it allows.
+ *
+ * Listed explicitly rather than as "paid and above", because the boundary is a product
+ * decision: MAX and ULTIMATE get the Playground, and that happens to be the top two plans.
+ * Deriving it from price would quietly change the moment a tier is repriced.
+ */
+export const SPECTRE_MINIMUM_TIER = "max";
+
+const SPECTRE_TIERS = new Set([SPECTRE_MINIMUM_TIER, "ultimate"]);
+
+/** True for plans entitled to the Spectre Playground and its funded wallet. */
+export function canUseSpectre(tier: string): boolean {
+	return SPECTRE_TIERS.has(String(tier || "").trim().toLowerCase());
+}
+
+/** The tiers a caller may fund from, for an error message that says what would work. */
+export const SPECTRE_TIERS_ALLOWED: readonly string[] = [...SPECTRE_TIERS];
+
 /** ISO-ish `YYYY-MM` for a date, in UTC so the reset instant does not drift by timezone. */
 export function monthKey(date: Date = new Date()): string {
 	return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;

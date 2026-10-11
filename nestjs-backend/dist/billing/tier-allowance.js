@@ -21,9 +21,10 @@
  * That is why `allowanceRon` takes `hasAccount` rather than keying off the tier alone.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TIER_ALLOWANCE_RON = exports.FREE_ALLOWANCE_RON = exports.ANONYMOUS_ALLOWANCE_RON = void 0;
+exports.SPECTRE_TIERS_ALLOWED = exports.SPECTRE_MINIMUM_TIER = exports.TIER_ALLOWANCE_RON = exports.FREE_ALLOWANCE_RON = exports.ANONYMOUS_ALLOWANCE_RON = void 0;
 exports.allowanceRon = allowanceRon;
 exports.isPaidTier = isPaidTier;
+exports.canUseSpectre = canUseSpectre;
 exports.monthKey = monthKey;
 exports.nextReset = nextReset;
 /** Anonymous visitors, no account. */
@@ -67,6 +68,27 @@ const PAID_TIERS = new Set(["basic", "plus", "pro", "max", "ultimate"]);
 function isPaidTier(tier) {
     return PAID_TIERS.has(String(tier || "").trim().toLowerCase());
 }
+/**
+ * Plans that may send messages from the Spectre Playground, and therefore may fund the
+ * wallet that pays for them.
+ *
+ * Must agree with PLAYGROUND_MINIMUM_TIER in src/lib/entitlements.ts. The two are checked
+ * against each other by `test:playground-billing`, which subscribes at each tier and
+ * asserts the gate here and the route there agree -- a drift between them would mean
+ * either charging for a product the route refuses, or refusing to charge for one it allows.
+ *
+ * Listed explicitly rather than as "paid and above", because the boundary is a product
+ * decision: MAX and ULTIMATE get the Playground, and that happens to be the top two plans.
+ * Deriving it from price would quietly change the moment a tier is repriced.
+ */
+exports.SPECTRE_MINIMUM_TIER = "max";
+const SPECTRE_TIERS = new Set([exports.SPECTRE_MINIMUM_TIER, "ultimate"]);
+/** True for plans entitled to the Spectre Playground and its funded wallet. */
+function canUseSpectre(tier) {
+    return SPECTRE_TIERS.has(String(tier || "").trim().toLowerCase());
+}
+/** The tiers a caller may fund from, for an error message that says what would work. */
+exports.SPECTRE_TIERS_ALLOWED = [...SPECTRE_TIERS];
 /** ISO-ish `YYYY-MM` for a date, in UTC so the reset instant does not drift by timezone. */
 function monthKey(date = new Date()) {
     return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;

@@ -7,6 +7,7 @@ for the same tokens.
 import json
 import os
 import secrets
+import subprocess
 import urllib.error
 import urllib.request
 
@@ -54,6 +55,39 @@ def cookie_of(sc):
         if part.strip().startswith("filspresso_session="):
             return part.split(";")[0].strip()
     return None
+
+
+def psql(sql):
+    """Fixture-only escape hatch.
+
+    This check drives the product through HTTP, but promoting an account to a paid tier is
+    not something a customer can do to themselves, and doing it through the subscription
+    endpoint would also write a payment row -- noise in a check about allowances.
+    """
+    r = subprocess.run(
+        ["docker", "compose", "exec", "-T", "postgres", "psql", "-U", "filspresso_user",
+         "-d", "filspresso", "-v", "ON_ERROR_STOP=1", "-c", sql],
+        capture_output=True, text=True, timeout=120,
+    )
+    if r.returncode != 0:
+        raise SystemExit(f"psql failed: {r.stderr.strip()[:300]}")
+
+
+def spectre_account():
+    """A signed-in MAX account with no default card.
+
+    Separate from the main fixture because this check needs to prove the card refusal is
+    reachable -- which means passing the plan check first.
+    """
+    uniq = f"alwsp{secrets.token_hex(4)}"
+    email = f"{uniq}@billing.test"
+    status, _, sc = req("/api/auth/register",
+                        "POST", {"username": uniq, "email": email, "password": "LoadTest!2026x"})
+    if status != 201:
+        return None
+    psql(f"UPDATE accounts SET subscription = 'max' WHERE email = '{email}';")
+    status, _, sc2 = req("/api/auth/login", "POST", {"email": email, "password": "LoadTest!2026x"})
+    return cookie_of(sc2)
 
 
 def main():
@@ -138,9 +172,22 @@ def main():
     status, mb3, _ = req("/api/billing/min-balance", "PATCH", {"floorRon": 0}, cookie)
     check("floor of 0 accepted (never negative)", status == 200 and mb3.get("minBalanceRon") == 0, str(mb3.get("minBalanceRon")))
 
-    print("\n=== funding and the ceiling ===")
-    status, nofund, _ = req("/api/billing/fund", "POST", {"amountRon": 50}, cookie)
-    check("cannot fund without a default card", status == 400, f"HTTP {status} {str(nofund.get('error'))[:60]}")
+    print("\n=== funding requires both a Spectre plan and a default card ===")
+    # Two distinct refusals, and the order matters: the account below is a free tier, so it
+    # is refused for its plan before its missing card is ever considered. Testing them in the
+    # other order would assert the card message on an account that never reaches that check.
+    status, nospectre, _ = req("/api/billing/fund", "POST", {"amountRon": 50}, cookie)
+    check("a free account cannot fund the wallet at all", status == 403,
+          f"HTTP {status} {str(nospectre.get('error'))[:50]}")
+    check("the refusal names the plan that would work",
+          "SPECTRE" in str(nospectre).upper(), str(nospectre)[:90])
+
+    # Now a Spectre account with no card: the plan check passes and the card is the blocker.
+    spectre_cookie = spectre_account()
+    status, nocard, _ = req("/api/billing/fund", "POST", {"amountRon": 50}, spectre_cookie)
+    check("a Spectre account without a default card is refused for the card", status == 400,
+          f"HTTP {status} {str(nocard.get('error'))[:50]}")
+    check("the refusal mentions the missing card", "card" in str(nocard).lower(), str(nocard)[:90])
 
     print("\n=== the balance endpoint carries the wallet rules ===")
     status, bal, _ = req("/api/billing/balance", cookie=cookie)

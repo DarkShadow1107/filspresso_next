@@ -18,6 +18,7 @@ import { getOrCreateFingerprint } from "@/lib/fingerprint";
 import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import { smartSearchMolecule, isMoleculeQuery, extractMoleculeQuery } from "@/lib/moleculeSearch";
+import { buildPageHref } from "@/lib/pages";
 import { clearAccountSession, readAccountSession } from "@/lib/accountSession";
 import KafelotStats from "./kafelot/KafelotStats";
 import KafelotUsage from "./kafelot/KafelotUsage";
@@ -3451,11 +3452,20 @@ export default React.memo(function CoffeeRecommender() {
 							/>
 						</div>
 					<div className="recommender-cta">
-						{/* An anchor, not a button: this navigates and opens a new tab, which is
+{/* An anchor, not a button: this navigates and opens a new tab, which is
 						    what <a target="_blank" rel="noopener noreferrer"> does correctly for
 						    keyboard and screen-reader users. window.open() from a button would
-						    lose the link role and the destination. */}
-						<a href="/playground" target="_blank" rel="noopener noreferrer">
+						    lose the link role and the destination.
+
+						    The href comes from the canonical page helper because the Playground is a
+						    page slug, not a route: the app serves these from one route keyed by
+						    ?page=, so a hand-written "/playground" 404s -- and would keep 404ing
+						    unnoticed, since the link still looks right in the markup. */}
+						<a
+							href={buildPageHref("playground")}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
 							Spectre Playground
 						</a>
 						<button onClick={startNewChat}>
