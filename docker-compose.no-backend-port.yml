@@ -1,0 +1,40 @@
+# Removes the backend's published port entirely.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.no-backend-port.yml up -d
+#
+# Why this exists
+# ---------------
+# The backend publishes port 4000 so a Next server running on the host can reach it, which is
+# this deployment's shape: Caddy proxies to host.docker.internal:3000, so Next is not in
+# the compose network and localhost:4000 is its only route to the API.
+#
+# That mapping is the weakest link in the chain. `TRUST_PROXY=1` makes Express believe the
+# hop before it is trustworthy, and Docker's bridge gateway (172.20.0.1) is that hop for
+# anything arriving through a published port. So a client that reaches port 4000 directly --
+# rather than through Caddy, which rewrites X-Forwarded-For itself -- can present a forged
+# address and be believed. The loopback default narrows that to processes on the host, but
+# "narrowed to local" is not "closed", and a public binding is reachable by any container.
+#
+# With this override nothing is published, so there is no second, unguarded entrance to the
+# API and no trusted gateway hop to forge.
+#
+# Before using it
+# ---------------
+# Point Next at the backend over the compose network instead, e.g. in .env:
+#
+#   NEXT_PUBLIC_API_URL=http://backend:4000
+#   BACKEND_API_URL=http://backend:4000
+#
+# and confirm every host-side call site still resolves. The server-side helpers in
+# src/lib/server/backend.ts already probe http://backend:4000 and http://nestjs-backend:4000,
+# but any process left on the host calling http://localhost:4000 will start failing, and the
+# live checks in nestjs-backend/scripts all target the host port.
+#
+# Apply it with the test suite, not on faith: npm --prefix nestjs-backend run test:allowance
+# and test:chat-billing both drive real requests through Next.
+
+services:
+  backend:
+    # `!override` replaces the list outright. `!reset` would also work, but `!override` says
+    # plainly that this file means to take the ports away rather than append to them.
+    ports: !override []

@@ -260,6 +260,16 @@ services:
             # at all -- in production, delete these two lines. Do NOT set TRUST_PROXY=0
             # instead: that re-breaks Caddy, and with it the per-IP rate limiter and the
             # login lockout.
+            # Loopback by default. This is still a published port, and a published port is
+            # a second entrance to the API that does not go through Caddy -- which means a
+            # client reaching it directly is believed when it forges X-Forwarded-For, because
+            # TRUST_PROXY=1 trusts the Docker gateway hop in front of it. Narrowed to the
+            # host, not closed.
+            #
+            # To close it, use docker-compose.no-backend-port.yml, which removes the mapping
+            # entirely. That needs Next to reach the backend over the compose network, which
+            # means running Next in a container rather than on the host as Caddy is
+            # configured here.
             - "${BACKEND_BIND_HOST:-127.0.0.1}:4000:4000"
         healthcheck:
             # Must call process.exit() explicitly. The previous form relied on the
