@@ -23,6 +23,7 @@ const kafelot_module_1 = require("../kafelot/kafelot.module");
 const kafelot_service_1 = require("../kafelot/kafelot.service");
 const billing_service_1 = require("./billing.service");
 const model_pricing_1 = require("./model-pricing");
+const charge_provider_1 = require("./charge-provider");
 const tier_allowance_1 = require("./tier-allowance");
 const fingerprint_1 = require("../common/utils/fingerprint");
 /**
@@ -272,7 +273,26 @@ let BillingController = class BillingController {
             // charge, so an account with no default card cannot fund.
             throw new common_1.BadRequestException("add a default card before funding the playground");
         }
-        const result = await this.billing.fund(accountId, amount, cardId, "user", body?.requestId ? String(body.requestId) : null);
+        let result;
+        try {
+            result = await this.billing.fund(accountId, amount, cardId, "user", body?.requestId ? String(body.requestId) : null);
+        }
+        catch (err) {
+            // A refused charge is a payment outcome, not a server fault.
+            //
+            // Letting it surface as a 500 told the customer the site was broken when in fact
+            // their card was declined, and told the monitoring that money was failing when it
+            // was a decline doing exactly what declines do. The account page shows the
+            // provider's own message either way, so nothing is lost.
+            const code = err?.code;
+            const retryable = err?.retryable === true;
+            throw new common_1.HttpException({
+                error: code === "card_declined" ? "CARD_DECLINED" : "CHARGE_FAILED",
+                message: err instanceof Error ? err.message : "The charge was not accepted.",
+                retryable,
+                balanceRon: (await this.billing.getBalance(accountId)).balanceRon,
+            }, retryable ? common_1.HttpStatus.BAD_GATEWAY : common_1.HttpStatus.PAYMENT_REQUIRED);
+        }
         return {
             ...result,
             autoRefillTargetRon: billing_service_1.AUTO_REFILL_TARGET_RON,
@@ -395,7 +415,16 @@ exports.BillingModule = BillingModule = __decorate([
     (0, common_1.Module)({
         imports: [config_1.ConfigModule, database_module_1.DatabaseModule, (0, common_2.forwardRef)(() => kafelot_module_1.KafelotModule)],
         controllers: [BillingController],
-        providers: [billing_service_1.BillingService],
-        exports: [billing_service_1.BillingService],
+        providers: [
+            billing_service_1.BillingService,
+            // The single seam where money would leave the building. Swapping this binding for a
+            // real provider is the whole of the future payment work -- every caller already
+            // depends on the interface and already handles a failed charge.
+            { provide: charge_provider_1.ChargeProvider, useClass: charge_provider_1.SimulatedChargeProvider },
+        ],
+        // The charge seam is exported so the subscriptions module can renew and refund through
+        // the same provider the wallet uses. Without that, renewals would need a second, parallel
+        // payment path -- which is the duplication this binding exists to prevent.
+        exports: [billing_service_1.BillingService, charge_provider_1.ChargeProvider],
     })
 ], BillingModule);

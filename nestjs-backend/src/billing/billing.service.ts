@@ -9,6 +9,7 @@ import {
 	type ResolvedTokenPrice,
 	type TokenUsage,
 } from "./model-pricing";
+import { ChargeProvider, autoRefillEnabled } from "./charge-provider";
 import { ANONYMOUS_ALLOWANCE_RON, allowanceRon, monthKey, nextReset } from "./tier-allowance";
 
 /**
@@ -28,6 +29,17 @@ export const MIN_BALANCE_RON = -0.5;
  * for it and no new instrument is introduced at the moment of spending.
  */
 export const AUTO_REFILL_TARGET_RON = 30;
+
+/**
+ * How hard to try before giving up on a refill.
+ *
+ * Three attempts with a growing delay, because the failure being defended against is a
+ * provider blip rather than a decline -- declines are detected as non-retryable and are not
+ * retried at all. The total wait is under a second, which is invisible to the request that
+ * triggered it because the refill runs after the charge has already committed.
+ */
+const AUTO_REFILL_MAX_ATTEMPTS = 3;
+const AUTO_REFILL_RETRY_DELAY_MS = 250;
 
 /**
  * Ceiling on the funded balance.
@@ -56,14 +68,16 @@ export type BalanceView = {
 	 * promise the customer cannot inspect is the kind that turns out never to have been
 	 * implemented -- which is exactly what `autoRefillTargetRon` was for months.
 	 */
-	autoRefill: {
-		enabled: boolean;
-		targetRon: number;
-		lastTopUpAt: string | null;
-		lastAmountRon: number | null;
-		/** Why it has not run, when it has not. */
-		reason: string | null;
-	};
+autoRefill: {
+			enabled: boolean;
+			targetRon: number;
+			lastTopUpAt: string | null;
+			lastAmountRon: number | null;
+			/** Why it has not run, when it has not. */
+			reason: string | null;
+			/** Most recent refused attempt, when the last one was refused. */
+			lastFailure: { code: string; amountRon: number; createdAt: string } | null;
+		};
 };
 
 export type AllowanceView = {
@@ -122,7 +136,10 @@ export class InsufficientBalanceError extends Error {
 export class BillingService {
 	private readonly logger = new Logger(BillingService.name);
 
-	constructor(private readonly db: DatabaseService) {}
+	constructor(
+		private readonly db: DatabaseService,
+		private readonly charges: ChargeProvider,
+	) {}
 
 	/**
 	 * Record one generation and debit its cost. Idempotent per `requestId`.
@@ -285,6 +302,15 @@ export class BillingService {
 	 * floor check inside `fund()` under a row lock, not by rationing the customer.
 	 */
 	private async maybeAutoRefill(accountId: number): Promise<void> {
+		// The kill switch, checked first and before anything is read.
+		//
+		// This is the switch to reach for the moment a real provider goes live. Everything
+		// below is written as though the charge can fail -- because it can, and because until
+		// a provider exists the only failure path ever exercised is this simulation. Leaving
+		// it on against a live provider before real decline handling has been seen is how a
+		// card gets charged in a loop nobody is watching.
+		if (!autoRefillEnabled()) return;
+
 		try {
 			const balance = await this.getBalance(accountId);
 			if (balance.autoRefill.lastTopUpAt) {
@@ -301,15 +327,39 @@ export class BillingService {
 			// turn an ordinary generation into a 500 for every subscriber without a card.
 			if (cardId == null) return;
 
-			await this.fund(
-				accountId,
-				AUTO_REFILL_TARGET_RON,
-				cardId,
-				"auto",
-				null,
-				// The atomic guard. Without it this method is a read-then-write race.
-				true,
-			);
+			// Retried a few times before giving up.
+			//
+			// A refill is a convenience: if the wallet is empty the customer simply cannot
+			// generate, which is a clear and honest state. A blip from the provider should not
+			// leave them stuck at the floor for a whole month because the one attempt that
+			// happened to land during a network blip was the only one.
+			//
+			// Non-retryable failures -- a declined card, no card -- are not retried, because
+			// trying again cannot change the answer and would charge the customer for the
+			// privilege of being told twice.
+			let lastError: unknown = null;
+			for (let attempt = 0; attempt < AUTO_REFILL_MAX_ATTEMPTS; attempt += 1) {
+				try {
+					await this.fund(
+						accountId,
+						AUTO_REFILL_TARGET_RON,
+						cardId,
+						"auto",
+						// One reference for the whole burst, so a retry after a partial
+						// failure cannot become a second charge for one refill.
+						`auto-${accountId}-${Date.now()}`,
+						// The atomic guard. Without it this method is a read-then-write race.
+						true,
+					);
+					return;
+				} catch (err) {
+					lastError = err;
+					const retryable = (err as { retryable?: boolean } | null)?.retryable === true;
+					if (!retryable || attempt === AUTO_REFILL_MAX_ATTEMPTS - 1) break;
+					await new Promise((resolve) => setTimeout(resolve, AUTO_REFILL_RETRY_DELAY_MS * (attempt + 1)));
+				}
+			}
+			throw lastError;
 		} catch (err) {
 			// A refill that fails must not fail the charge that triggered it. The customer
 			// was billed correctly; the top-up is a separate promise and is visible as
@@ -335,7 +385,7 @@ export class BillingService {
 		const floor = Number.isFinite(stored) ? stored : MIN_BALANCE_RON;
 		// Read after the balance row is guaranteed to exist. Two small queries rather than a
 		// join, because the row this depends on may have been created by the line above.
-		const [hasCard, lastAuto] = await Promise.all([
+		const [hasCard, lastAuto, lastFailure] = await Promise.all([
 			this.defaultCardId(accountId),
 			pool.query(
 				`SELECT created_at, amount_ron FROM billing_topups
@@ -343,8 +393,15 @@ export class BillingService {
 				  ORDER BY created_at DESC LIMIT 1`,
 				[accountId],
 			),
+			pool.query(
+				`SELECT created_at, amount_ron, failure_code FROM billing_topup_failures
+				  WHERE account_id = $1
+				  ORDER BY created_at DESC LIMIT 1`,
+				[accountId],
+			),
 		]);
 		const lastRow = lastAuto.rows[0];
+		const lastFailureRow = lastFailure.rows[0];
 		// Enabled means "this would run if the balance fell to its floor", not "it has run".
 		// Without a default card there is nothing to charge, so the honest answer is no --
 		// and the reason says so, rather than leaving a customer to discover it by hitting a
@@ -364,6 +421,16 @@ export class BillingService {
 				lastTopUpAt: lastRow ? new Date(lastRow.created_at).toISOString() : null,
 				lastAmountRon: lastRow ? Number(lastRow.amount_ron) : null,
 				reason: enabled ? null : "no_default_card",
+				// A refill that keeps failing is the reason a balance stops moving, and the
+				// customer is the one who can act on it -- by replacing a declined card. Saying
+				// so beats a balance that quietly stays at zero.
+				lastFailure: lastFailureRow
+					? {
+							code: String(lastFailureRow.failure_code),
+							amountRon: Number(lastFailureRow.amount_ron),
+							createdAt: new Date(lastFailureRow.created_at).toISOString(),
+						}
+					: null,
 			},
 		};
 	}
@@ -690,6 +757,33 @@ export class BillingService {
 		if (!Number.isFinite(amount) || amount <= 0) {
 			throw new Error(`top-up amount must be positive, got ${amountRon}`);
 		}
+
+		// The charge happens first, and the balance only moves once it has succeeded.
+		//
+		// This used to credit the wallet and then record the top-up as though the card had
+		// been charged: a ledger that agrees with itself and with no card. With a real
+		// provider that ordering is how a customer is given money nobody paid for, and
+		// afterwards nothing can tell that balance from an honestly paid one. Charging first
+		// makes the worst case a charge that succeeded and a write that failed, which the
+		// provider reference can repair. The reverse is not repairable at all.
+		const charge = await this.charges.charge({
+			cardId,
+			amountRon: amount,
+			currency: "RON",
+			// Stable across retries of the same purchase, so a retry cannot charge twice.
+			reference: idempotencyKey ?? `fund-${accountId}-${roundMoney(amount)}`,
+			description: source === "auto" ? "Spectre wallet automatic refill" : "Spectre wallet top-up",
+		});
+		if (charge.ok === false) {
+			// Recorded rather than swallowed: a refill that silently stopped leaves the
+			// balance pinned at the floor and the customer with no idea why generation ended.
+			await this.recordTopupFailure(accountId, amount, cardId, source, charge.code);
+			const error = new Error(charge.message) as Error & { code?: string; retryable?: boolean };
+			error.code = charge.code;
+			error.retryable = charge.retryable;
+			throw error;
+		}
+
 		const pool = this.db.getPool();
 		const client = await pool.connect();
 		try {
@@ -765,6 +859,59 @@ export class BillingService {
 		} finally {
 			client.release();
 		}
+	}
+
+	/**
+	 * A top-up that was attempted and refused.
+	 *
+	 * Stored in its own table rather than as a zero row in `billing_topups`, because
+	 * `amount_ron` there is constrained to be positive and, more to the point, a failed
+	 * attempt is not a top-up -- folding the two together would make the top-up history
+	 * claim money arrived when none did.
+	 *
+	 * Best-effort: this is written *because* something already went wrong, so it must not
+	 * be the thing that turns one failure into two.
+	 */
+	private async recordTopupFailure(
+		accountId: number,
+		amountRon: number,
+		cardId: number | null,
+		source: "user" | "auto",
+		code: string,
+	): Promise<void> {
+		try {
+			await this.db.getPool().query(
+				`INSERT INTO billing_topup_failures (account_id, amount_ron, source, card_id, failure_code)
+				 VALUES ($1, $2, $3, $4, $5)`,
+				[accountId, amountRon, source, cardId, code],
+			);
+		} catch {
+			// Swallowed deliberately, as above.
+		}
+	}
+
+	/**
+	 * The last few refused top-ups, newest first.
+	 *
+	 * Exposed so a customer whose refill stopped can see that it stopped and why, instead of
+	 * inferring it from a balance that has quietly stopped moving.
+	 */
+	async recentTopupFailures(accountId: number, limit = 5): Promise<Array<Record<string, unknown>>> {
+		const capped = Math.min(Math.max(Number(limit) || 5, 1), 50);
+		const result = await this.db.getPool().query(
+			`SELECT amount_ron, source, failure_code, created_at
+			   FROM billing_topup_failures
+			  WHERE account_id = $1
+			  ORDER BY created_at DESC, id DESC
+			  LIMIT $2`,
+			[accountId, capped],
+		);
+		return result.rows.map((r) => ({
+			amountRon: Number(r.amount_ron),
+			source: r.source,
+			code: r.failure_code,
+			createdAt: r.created_at,
+		}));
 	}
 
 	/** The default card, which is the one the Playground subscription used. */

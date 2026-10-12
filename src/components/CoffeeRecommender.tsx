@@ -19,6 +19,7 @@ import { useNotifications } from "@/components/NotificationsProvider";
 import AddCapsulesPopup from "@/components/AddCapsulesPopup";
 import { smartSearchMolecule, isMoleculeQuery, extractMoleculeQuery } from "@/lib/moleculeSearch";
 import { buildPageHref } from "@/lib/pages";
+import { AiBalanceExhausted, readBalanceGate, type BalanceGate } from "@/components/ai/AiBalanceExhausted";
 import { clearAccountSession, readAccountSession } from "@/lib/accountSession";
 import KafelotStats from "./kafelot/KafelotStats";
 import KafelotUsage from "./kafelot/KafelotUsage";
@@ -674,6 +675,7 @@ export default React.memo(function CoffeeRecommender() {
 	const [collectionFilter, setCollectionFilter] = useState<"all" | "original" | "vertuo">("all");
 	const [popupOpen, setPopupOpen] = useState(false);
 	const [selectedProduct, setSelectedProduct] = useState<CoffeeProduct | null>(null);
+	const [balanceGate, setBalanceGate] = useState<BalanceGate | null>(null);
 	const [chatMessages, setChatMessages] = useState<Message[]>([]);
 	const [chatInput, setChatInput] = useState("");
 	const [currentChatId, setCurrentChatId] = useState<string | null>(null);
@@ -2013,6 +2015,31 @@ export default React.memo(function CoffeeRecommender() {
 				// MODEL_ALLOWANCE_EXHAUSTED is gone with it -- so this is the only model
 				// refusal left. (Legacy: distinct from PROMPT_LIMIT_REACHED,
 				// which means the whole plan is spent and the user must stop entirely.
+				// Out of allowance and wallet.
+				//
+				// This is the meter reading zero, not a failure, and it needs its own words:
+				// the prompt-limit branch below told customers they had "used all prompts",
+				// which describes a quota that no longer exists and would have left a paying
+				// customer with no way to know that topping up is possible.
+				if (errorData.error === "INSUFFICIENT_BALANCE") {
+					const gate = readBalanceGate(errorData);
+					setBalanceGate(gate);
+					// Counters refreshed, so the usage meter in the window shows zero left
+					// rather than the figure it was holding from before this request.
+					void fetchPromptStatus(chemistryMode ? "molecule_helper" : "general");
+					setChatMessages((m) => [
+						...m,
+						{
+							role: "assistant",
+							content:
+								errorData.message ||
+								"You have used all your AI usage for this month.",
+						},
+					]);
+					return;
+				}
+				setBalanceGate(null);
+
 				if (errorData.error === "MODEL_ALLOWANCE_EXHAUSTED" || errorData.error === "MODEL_NOT_IN_PLAN") {
 					const spentKey = typeof errorData.model_key === "string" ? errorData.model_key : nextMeteredModelKey;
 					setModelAllowances((prev) => {
@@ -3451,8 +3478,9 @@ export default React.memo(function CoffeeRecommender() {
 								}}
 							/>
 						</div>
+{balanceGate ? <AiBalanceExhausted gate={balanceGate} /> : null}
 					<div className="recommender-cta">
-{/* An anchor, not a button: this navigates and opens a new tab, which is
+						{/* An anchor, not a button: this navigates and opens a new tab, which is
 						    what <a target="_blank" rel="noopener noreferrer"> does correctly for
 						    keyboard and screen-reader users. window.open() from a button would
 						    lose the link role and the destination.

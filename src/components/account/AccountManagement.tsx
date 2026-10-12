@@ -91,8 +91,35 @@ export default function AccountManagement() {
 	const [account, setAccount] = useState<AccountData | null>(null);
 	const [accountId, setAccountId] = useState<number | null>(null);
 	const [activeTab, setActiveTab] = useState<"profile" | "status" | "subscriptions" | "billing" | "machines" | "payments" | "history">(
+
 		"profile",
 	);
+
+	// Tab selection is mirrored into the URL.
+	//
+	// Without this the account page has no address for anything but its default tab, so a
+	// "manage your AI balance" button cannot send anyone to the balance -- it would have to
+	// dump them on the profile and hope they find the right tab.
+	const selectTab = useCallback((next: typeof activeTab) => {
+		setActiveTab(next);
+		const url = new URL(window.location.href);
+		if (next === "profile") url.searchParams.delete("tab");
+		else url.searchParams.set("tab", next);
+		window.history.replaceState(null, "", url.toString());
+	}, []);
+
+	// Deep link: /?tab=billing, used by the out-of-allowance prompt.
+	useEffect(() => {
+		const requested = new URLSearchParams(window.location.search).get("tab");
+		if (!requested) return;
+		const known: Array<typeof activeTab> = [
+			"profile", "status", "subscriptions", "billing", "machines", "payments", "history",
+		];
+		if (known.includes(requested as typeof activeTab)) {
+			// eslint-disable-next-line react-hooks/set-state-in-effect
+			setActiveTab(requested as typeof activeTab);
+		}
+	}, []);
 
 	// Profile State
 	const [isEditing, setIsEditing] = useState(false);
@@ -909,25 +936,25 @@ export default function AccountManagement() {
 			</div>
 
 			<div className="account-tabs">
-				<button className={activeTab === "profile" ? "active" : ""} onClick={() => setActiveTab("profile")}>
+				<button className={activeTab === "profile" ? "active" : ""} onClick={() => selectTab("profile")}>
 					<UserIcon size={18} /> Profile
 				</button>
-				<button className={activeTab === "status" ? "active" : ""} onClick={() => setActiveTab("status")}>
+				<button className={activeTab === "status" ? "active" : ""} onClick={() => selectTab("status")}>
 					<StatusIcon size={18} /> Member Status
 				</button>
-				<button className={activeTab === "subscriptions" ? "active" : ""} onClick={() => setActiveTab("subscriptions")}>
+				<button className={activeTab === "subscriptions" ? "active" : ""} onClick={() => selectTab("subscriptions")}>
 					<SubscriptionIcon size={18} /> Subscription
 				</button>
-				<button className={activeTab === "billing" ? "active" : ""} onClick={() => setActiveTab("billing")}>
+				<button className={activeTab === "billing" ? "active" : ""} onClick={() => selectTab("billing")}>
 					<CreditCardIcon size={18} /> Usage &amp; Wallet
 				</button>
-				<button className={activeTab === "machines" ? "active" : ""} onClick={() => setActiveTab("machines")}>
+				<button className={activeTab === "machines" ? "active" : ""} onClick={() => selectTab("machines")}>
 					<CoffeeIcon size={18} /> Machines
 				</button>
-				<button className={activeTab === "payments" ? "active" : ""} onClick={() => setActiveTab("payments")}>
+				<button className={activeTab === "payments" ? "active" : ""} onClick={() => selectTab("payments")}>
 					<CreditCardIcon size={18} /> Payments
 				</button>
-				<button className={activeTab === "history" ? "active" : ""} onClick={() => setActiveTab("history")}>
+				<button className={activeTab === "history" ? "active" : ""} onClick={() => selectTab("history")}>
 					<HistoryIcon size={18} /> Chat History
 				</button>
 			</div>

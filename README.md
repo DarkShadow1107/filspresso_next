@@ -221,6 +221,48 @@ Expected result: `403` with reason indicating missing Origin/Referer.
 
 ---
 
+## ⚠ No payment provider is connected
+
+**Nothing in this application takes real money.** There is no Stripe, no PayPal, no Adyen,
+no PSP of any kind, and none is configured. Read this section before trusting any figure the
+app shows you about payments.
+
+What exists today:
+
+| Thing | What it actually is |
+|---|---|
+| Subscription checkout | Writes a row in `subscription_payments` marked `paid`. No money moves. |
+| Subscription renewals | The renewal job records a payment row. No card is charged. |
+| Wallet top-up (`POST /api/billing/fund`) | Credits `account_balances` and records a `billing_topups` row. No card is charged. |
+| Automatic refill to 30 RON | Runs for real against that ledger. No card is charged. |
+| Refunds on cancellation | Writes a `refunded` row. Nothing is returned to a card. |
+
+So a `paid` status means **"recorded in our ledger"**, not **"settled with a bank"**. The
+application is otherwise fully wired around that ledger: allowances, floors, ceilings,
+idempotency and concurrency control are real, and they will keep working unchanged once a
+provider is added. What is missing is only the hop that leaves the building.
+
+**This is deliberate for now and is handled later.** When a provider is connected, the work
+is confined to one seam:
+
+- `nestjs-backend/src/billing/charge-provider.ts` — the `ChargeProvider` interface and the
+  `SimulatedChargeProvider` that currently stands in. Swap the binding, implement `charge`
+  and `refund` against the provider's SDK, and leave the callers alone.
+- Every caller already treats a charge as fallible: `maybeAutoRefill` retries with backoff
+  and gives up into a recorded failure, and the renewal job downgrades an account whose
+  charge failed rather than pretending it renewed. Those paths were built for this seam and
+  will be exercised for the first time by a real provider.
+
+**Things that must be revisited before a provider is connected**, because they are wrong
+without one and silently so:
+
+- `AUTO_REFILL_ENABLED` (default `true`) exists as a kill switch. Turn it off the moment a
+  provider is live until real charge-failure handling has been exercised in anger.
+- The refund window and the renewal grace period are currently policy constants in
+  `subscriptions.service.ts`. They are guesses, not commercial terms.
+- Nothing currently dunning. A failed renewal downgrades the account; a real provider will
+  want retries, then a dunning email, then suspension.
+
 ## Table Of Contents
 
 - [0. Architecture Decision Snapshot](#0-architecture-decision-snapshot)

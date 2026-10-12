@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
+import { ChargeProvider } from "../billing/charge-provider";
 
 const SUBSCRIPTION_PRICES: Record<string, Record<string, number>> = {
   free: { monthly: 0, annual: 0 },
@@ -31,9 +32,24 @@ function calculateRenewalDate(billingCycle: string, from = new Date()): string {
   return d.toISOString().split("T")[0];
 }
 
+/**
+ * Days after purchase within which cancelling is refunded.
+ *
+ * A guess, not a commercial term. A window shorter than the shortest billing period is the
+ * safer default: someone cancelling in the first fortnight of a month is usually having
+ * second thoughts about a purchase rather than changing their mind after using it. Set
+ * SUBSCRIPTION_REFUND_WINDOW_DAYS to change it, and replace it with the real policy before a
+ * payment provider is connected.
+ */
+const REFUND_WINDOW_DAYS = Math.max(
+  0,
+  Number(process.env.SUBSCRIPTION_REFUND_WINDOW_DAYS ?? "") || 14,
+);
+
 @Injectable()
 export class SubscriptionsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(  private readonly chargeProvider: ChargeProvider,
+    private readonly db: DatabaseService) {}
 
   async getSubscription(accountId: number) {
     const pool = this.db.getPool();
@@ -183,12 +199,191 @@ export class SubscriptionsService {
     const pool = this.db.getPool();
     const client = await pool.connect();
     try {
-      const result = await client.query("SELECT id FROM user_subscriptions WHERE account_id=$1 AND is_active=TRUE", [accountId]);
-      if (!result.rows[0]) throw new NotFoundException({ error: "No active subscription found" });
-      await client.query("UPDATE user_subscriptions SET auto_renew=FALSE, updated_at=NOW() WHERE id=$1", [result.rows[0].id]);
-      await client.query("UPDATE accounts SET subscription='Free' WHERE id=$1", [accountId]);
-      return { message: "Subscription cancelled. Access continues until renewal date." };
+      await client.query("BEGIN");
+      const result = await client.query(
+        "SELECT id, subscription_tier, billing_cycle, price_ron, start_date, renewal_date FROM user_subscriptions WHERE account_id=$1 AND is_active=TRUE",
+        [accountId],
+      );
+      if (!result.rows[0]) {
+        await client.query("ROLLBACK");
+        throw new NotFoundException({ error: "No active subscription found" });
+      }
+      const sub = result.rows[0];
+
+      // Access is *kept* until the renewal date, which is what the message has always
+      // promised. The previous version dropped `accounts.subscription` to Free in the same
+      // breath, so the customer kept a MAX badge and lost AI access on the spot -- and, worse,
+      // the two halves disagreed with each other: the subscription row said active while the
+      // authoritative tier column said free.
+      await client.query("UPDATE user_subscriptions SET auto_renew=FALSE, updated_at=NOW() WHERE id=$1", [sub.id]);
+
+      // A refund, where the commercial terms allow one. Recorded as a row so it appears in
+      // the customer's payment history; see `REFUND_WINDOW_DAYS` for why it is a guess.
+      const paid = await client.query(
+        `SELECT id, amount_ron, created_at FROM subscription_payments
+          WHERE account_id = $1 AND tier = $2 AND payment_status = 'paid'
+            AND fulfilment_status = 'delivered'
+          ORDER BY created_at DESC LIMIT 1`,
+        [accountId, sub.subscription_tier],
+      );
+      let refund = null;
+      if (paid.rows[0] && this.withinRefundWindow(paid.rows[0].created_at)) {
+        const result2 = await this.chargeProvider.refund({
+          providerReference: `sim_${paid.rows[0].id}`,
+          amountRon: Number(paid.rows[0].amount_ron),
+          reason: `Cancelled within ${REFUND_WINDOW_DAYS} days of purchase`,
+        });
+        if (result2.ok) {
+          await client.query(
+            `INSERT INTO subscription_payments
+               (account_id, tier, billing_cycle, amount_ron, currency, card_id,
+                payment_status, fulfilment_status, reference, refund_of)
+             VALUES ($1, $2, $3, -($4)::numeric, 'RON', (SELECT card_id FROM user_subscriptions WHERE id=$5),
+                     'refunded', 'revoked', $6, $7::bigint)`,
+            [accountId, sub.subscription_tier, sub.billing_cycle, paid.rows[0].amount_ron,
+             sub.id, result2.providerReference, paid.rows[0].id],
+          );
+          refund = { amountRon: Number(paid.rows[0].amount_ron), providerReference: result2.providerReference };
+        }
+      }
+
+      await client.query("COMMIT");
+      return {
+        message: refund
+          ? `Subscription cancelled and refunded ${refund.amountRon} RON. Access continues until the renewal date.`
+          : "Subscription cancelled. Access continues until the renewal date.",
+        accessUntil: sub.renewal_date,
+        refunded: refund?.amountRon ?? 0,
+      };
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw e;
     } finally { client.release(); }
+  }
+
+  /** Days after purchase within which a cancellation is refunded. */
+  private withinRefundWindow(purchasedAt: Date | string): boolean {
+    const then = new Date(purchasedAt).getTime();
+    if (!Number.isFinite(then)) return false;
+    return Date.now() - then <= REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  }
+
+  /**
+   * Renew every subscription whose period has ended.
+   *
+   * Two rules make this safe to run repeatedly, which it will be -- on every instance, on
+   * every interval, and once more on boot:
+   *
+   *  * Rows are claimed with `FOR UPDATE SKIP LOCKED`, so two instances working the same
+   *    table take different rows rather than contending for the same one.
+   *  * The renewal date is advanced by the period *before* the payment row is written, so a
+   *    crash in between leaves the subscription looking renewed and the payment unwritten --
+   *    which reconciliation can spot and repair. The opposite order would leave a customer
+   *    charged twice over with no trace of the first.
+   *
+   * A renewal whose charge fails is left alone: the renewal date does not move, and the
+   * account is downgraded to free by `retireLapsedSubscriptions` on a later pass, once the
+   * grace period has passed. That is a real consequence for the customer, so the grace
+   * period exists -- and it is a guess, not a commercial term. See the README.
+   */
+  async renewDueSubscriptions(): Promise<number> {
+    const pool = this.db.getPool();
+    const client = await pool.connect();
+    let renewed = 0;
+    try {
+      await client.query("BEGIN");
+      const due = await client.query(
+        `SELECT id, account_id, subscription_tier, billing_cycle, price_ron,
+                renewal_date, card_id
+           FROM user_subscriptions
+          WHERE is_active = TRUE
+            AND auto_renew = TRUE
+            AND status = 'active'
+            AND price_ron > 0
+            AND renewal_date IS NOT NULL
+            AND renewal_date <= CURRENT_DATE
+          ORDER BY renewal_date ASC
+          LIMIT 200
+          FOR UPDATE SKIP LOCKED`,
+      );
+
+      for (const row of due.rows) {
+        const price = Number(row.price_ron);
+        const cardId = row.card_id as number | null;
+
+        // Skipped, not attempted: retrying a missing card cannot change the answer, and the
+        // attempt would show up as a failure the customer cannot fix on their own.
+        if (cardId == null) continue;
+
+        const periodStart = new Date(row.renewal_date);
+        const nextRenewal = this.addPeriod(periodStart, String(row.billing_cycle));
+        const reference = `renew-${row.id}-${periodStart.toISOString().slice(0, 10)}`;
+
+        const charge = await this.chargeProvider.charge({
+          cardId,
+          amountRon: price,
+          currency: "RON",
+          reference,
+          description: `${row.subscription_tier} subscription renewal`,
+        });
+        if (charge.ok === false) continue;
+
+        await client.query("UPDATE user_subscriptions SET renewal_date = $1, start_date = $1, updated_at = NOW() WHERE id = $2", [
+          nextRenewal.toISOString().slice(0, 10),
+          row.id,
+        ]);
+        await client.query(
+          `INSERT INTO subscription_payments
+             (account_id, tier, billing_cycle, amount_ron, currency, card_id,
+              payment_status, fulfilment_status, reference, idempotency_key)
+           VALUES ($1, $2, $3, $4, 'RON', $5, 'paid', 'delivered', $6, $6)
+           ON CONFLICT (account_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
+          [row.account_id, row.subscription_tier, row.billing_cycle, price, cardId, reference],
+        );
+        renewed += 1;
+      }
+
+      await client.query("COMMIT");
+      return renewed;
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * End subscriptions that will not renew: cancelled ones past their end date, and
+   * auto-renewing ones whose charge kept failing.
+   *
+   * The grace period is what separates "the card bounced once" from "this customer is not
+   * paying". Without it a single network blip would downgrade a paying Max subscriber to
+   * free; with no limit at all a card that fails forever would keep their access.
+   */
+  async retireLapsedSubscriptions(): Promise<number> {
+    const graceDays = Math.max(0, Number(process.env.SUBSCRIPTION_RENEWAL_GRACE_DAYS ?? "") || 0);
+    const result = await this.db.getPool().query(
+      `WITH lapsed AS (
+         UPDATE user_subscriptions
+            SET is_active = FALSE, status = 'cancelled', updated_at = NOW()
+          WHERE is_active = TRUE
+            AND renewal_date IS NOT NULL
+            AND renewal_date <= CURRENT_DATE - ($1 || ' days')::interval
+          RETURNING account_id
+       )
+       UPDATE accounts a SET subscription = 'Free'
+        WHERE a.id IN (SELECT account_id FROM lapsed)`,
+      [graceDays],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  private addPeriod(from: Date, billingCycle: string): Date {
+    const next = new Date(from);
+    if (String(billingCycle) === "annual") next.setUTCFullYear(next.getUTCFullYear() + 1);
+    else next.setUTCMonth(next.getUTCMonth() + 1);
+    return next;
   }
 
   async updateCard(accountId: number, cardId: number) {

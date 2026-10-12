@@ -170,9 +170,13 @@ export async function checkPromptLimit(
 			};
 		}
 
-		if (res.status === 429 || res.status === 403) {
+		if (res.status === 429 || res.status === 403 || res.status === 402) {
 			const data = (await res.json()) as {
 				error?: string;
+				message?: string;
+				// Present only on a 402: the money picture, as opposed to the prompt counter.
+				allowance_remaining_ron?: number;
+				balance_ron?: number;
 				reset_date?: string;
 				prompts_limit?: number;
 				prompts_remaining?: number;
@@ -198,6 +202,33 @@ export async function checkPromptLimit(
 						status: data.error === "MODEL_NOT_IN_PLAN" ? 403 : 429,
 						headers: { "Cache-Control": "no-store" },
 					}),
+				};
+			}
+			if (res.status === 402) {
+				// Out of money, not out of prompts.
+				//
+				// Without this the 402 fell through to the generic quota branch below and was
+				// answered as a 429 "limit reached" -- telling a customer whose allowance and
+				// wallet are both empty that they had used a quota they never had. The two
+				// states need different words and different actions: one is fixed by
+				// upgrading or topping up, the other by waiting.
+				return {
+					allowed: false,
+					tier: data.tier,
+					errorResponse: Response.json(
+						{
+							error: "INSUFFICIENT_BALANCE",
+							message:
+								data.message ||
+								"Your monthly AI allowance and wallet are both spent for this month.",
+							allowance_remaining_ron: data.allowance_remaining_ron ?? 0,
+							balance_ron: data.balance_ron ?? 0,
+							// What the page should offer, decided server-side so the client is not
+							// guessing from a status code.
+							action: data.balance_ron === 0 ? "top_up_or_upgrade" : "top_up",
+						},
+						{ status: 402, headers: { "Cache-Control": "no-store" } },
+					),
 				};
 			}
 			if (res.status === 403) {

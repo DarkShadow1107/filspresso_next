@@ -2,6 +2,7 @@ import { Controller, Post, Get, Put, Delete, Req, Res, HttpStatus, UseIntercepto
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AdminService } from "./admin.service";
+import { SubscriptionRenewalScheduler } from "../subscriptions/subscriptions-renewal.scheduler";
 import * as path from "path";
 import { Throttle } from "@nestjs/throttler";
 import { ruleFor } from "../config/rate-limit.policy";
@@ -18,7 +19,10 @@ interface AuthenticatedRequest extends Request {
 
 @Controller("api/admin")
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly scheduler: SubscriptionRenewalScheduler,
+  ) {}
 
   @Throttle({ default: { limit: ruleFor("POST /api/admin/login").limit, ttl: ruleFor("POST /api/admin/login").ttlMs } })
   @Post("login")
@@ -72,6 +76,25 @@ export class AdminController {
     await this.adminService.authenticateAdmin(req, res);
     if (res.headersSent) return;
     const result = await this.adminService.sensitiveLock(req, res);
+    return res.status(HttpStatus.OK).json(result);
+  }
+
+  /**
+   * Run the subscription renewal pass now, instead of waiting for the timer.
+   *
+   * Admin-gated, because it moves real subscription dates and writes payment rows: this is
+   * not something a browser may trigger on its own. It exists because the timer is every
+   * five minutes, and "just renew the ones that are due" is a question an operator should be
+   * able to answer without waiting.
+   *
+   * Safe to call repeatedly. The pass takes the same advisory lock the timer does, so a
+   * manual run while the timer is mid-pass is refused rather than run twice.
+   */
+  @Post("renewals/run")
+  async runRenewals(@Req() req: AuthenticatedRequest, @Res() res: Response) {
+    await this.adminService.authenticateAdmin(req, res);
+    if (res.headersSent) return;
+    const result = await this.scheduler.runOnce("manual");
     return res.status(HttpStatus.OK).json(result);
   }
 

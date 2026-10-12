@@ -49,14 +49,17 @@ exports.AdminController = void 0;
 const common_1 = require("@nestjs/common");
 const platform_express_1 = require("@nestjs/platform-express");
 const admin_service_1 = require("./admin.service");
+const subscriptions_renewal_scheduler_1 = require("../subscriptions/subscriptions-renewal.scheduler");
 const path = __importStar(require("path"));
 const throttler_1 = require("@nestjs/throttler");
 const rate_limit_policy_1 = require("../config/rate-limit.policy");
 const { diskStorage } = require("multer");
 let AdminController = class AdminController {
     adminService;
-    constructor(adminService) {
+    scheduler;
+    constructor(adminService, scheduler) {
         this.adminService = adminService;
+        this.scheduler = scheduler;
     }
     async login(req, res) {
         const result = await this.adminService.login(req, res);
@@ -101,6 +104,24 @@ let AdminController = class AdminController {
         if (res.headersSent)
             return;
         const result = await this.adminService.sensitiveLock(req, res);
+        return res.status(common_1.HttpStatus.OK).json(result);
+    }
+    /**
+     * Run the subscription renewal pass now, instead of waiting for the timer.
+     *
+     * Admin-gated, because it moves real subscription dates and writes payment rows: this is
+     * not something a browser may trigger on its own. It exists because the timer is every
+     * five minutes, and "just renew the ones that are due" is a question an operator should be
+     * able to answer without waiting.
+     *
+     * Safe to call repeatedly. The pass takes the same advisory lock the timer does, so a
+     * manual run while the timer is mid-pass is refused rather than run twice.
+     */
+    async runRenewals(req, res) {
+        await this.adminService.authenticateAdmin(req, res);
+        if (res.headersSent)
+            return;
+        const result = await this.scheduler.runOnce("manual");
         return res.status(common_1.HttpStatus.OK).json(result);
     }
     async getTables(req, res) {
@@ -245,6 +266,14 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AdminController.prototype, "sensitiveLock", null);
 __decorate([
+    (0, common_1.Post)("renewals/run"),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AdminController.prototype, "runRenewals", null);
+__decorate([
     (0, common_1.Get)("tables"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
@@ -368,5 +397,6 @@ __decorate([
 ], AdminController.prototype, "uploadImage", null);
 exports.AdminController = AdminController = __decorate([
     (0, common_1.Controller)("api/admin"),
-    __metadata("design:paramtypes", [admin_service_1.AdminService])
+    __metadata("design:paramtypes", [admin_service_1.AdminService,
+        subscriptions_renewal_scheduler_1.SubscriptionRenewalScheduler])
 ], AdminController);

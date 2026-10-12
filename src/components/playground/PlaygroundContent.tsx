@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
 import Link from "next/link";
+import { AiBalanceExhausted, readBalanceGate, type BalanceGate } from "@/components/ai/AiBalanceExhausted";
 import { isSignedIn, subscribeAuthState } from "@/lib/authState";
 import { fetchCurrentAccount } from "@/lib/clientAuth";
 import { buildPageHref } from "@/lib/pages";
@@ -54,6 +55,7 @@ export default function PlaygroundContent() {
 	const [thinking, setThinking] = useState(false);
 
 	// Conversation
+	const [balanceGate, setBalanceGate] = useState<BalanceGate | null>(null);
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
 	const [input, setInput] = useState("");
 	const [streaming, setStreaming] = useState(false);
@@ -177,6 +179,26 @@ export default function PlaygroundContent() {
 
 			if (!response.ok) {
 				const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+				// Out of allowance and wallet is not a request failure -- it is the meter
+				// reading zero, and the useful thing to show is what the customer can do
+				// about it rather than the status code.
+				if (response.status === 402) {
+					const gate = readBalanceGate(payload);
+					setBalanceGate(gate);
+					setMessages((prev) =>
+						prev.map((m) =>
+							m.id === assistantId
+								? {
+										...m,
+										content: payload?.message || "You are out of AI usage for this month.",
+										failed: true,
+									}
+								: m,
+						),
+					);
+					return;
+				}
+				setBalanceGate(null);
 				setMessages((prev) =>
 					prev.map((m) =>
 						m.id === assistantId
@@ -474,6 +496,8 @@ try {
 					</article>
 				)}
 			</section>
+
+			{balanceGate ? <AiBalanceExhausted gate={balanceGate} /> : null}
 
 			<form
 				className="playground-composer"

@@ -1,6 +1,8 @@
 import {
 	BadRequestException,
 	ForbiddenException,
+	HttpException,
+	HttpStatus,
 	Body,
 	Controller,
 	Get,
@@ -26,6 +28,7 @@ import {
 	MAX_FUNDED_BALANCE_RON,
 } from "./billing.service";
 import { pricingTable, resolveTokenPrice } from "./model-pricing";
+import { ChargeProvider, SimulatedChargeProvider } from "./charge-provider";
 import {
 	isPaidTier,
 	canUseSpectre,
@@ -321,7 +324,28 @@ async getAllowances() {
 			// charge, so an account with no default card cannot fund.
 			throw new BadRequestException("add a default card before funding the playground");
 		}
-		const result = await this.billing.fund(accountId, amount, cardId, "user", body?.requestId ? String(body.requestId) : null);
+		let result: { addedRon: number; balanceRon: number; capped: boolean };
+		try {
+			result = await this.billing.fund(accountId, amount, cardId, "user", body?.requestId ? String(body.requestId) : null);
+		} catch (err) {
+			// A refused charge is a payment outcome, not a server fault.
+			//
+			// Letting it surface as a 500 told the customer the site was broken when in fact
+			// their card was declined, and told the monitoring that money was failing when it
+			// was a decline doing exactly what declines do. The account page shows the
+			// provider's own message either way, so nothing is lost.
+			const code = (err as { code?: string } | null)?.code;
+			const retryable = (err as { retryable?: boolean } | null)?.retryable === true;
+			throw new HttpException(
+				{
+					error: code === "card_declined" ? "CARD_DECLINED" : "CHARGE_FAILED",
+					message: err instanceof Error ? err.message : "The charge was not accepted.",
+					retryable,
+					balanceRon: (await this.billing.getBalance(accountId)).balanceRon,
+				},
+				retryable ? HttpStatus.BAD_GATEWAY : HttpStatus.PAYMENT_REQUIRED,
+			);
+		}
 		return {
 			...result,
 			autoRefillTargetRon: AUTO_REFILL_TARGET_RON,
@@ -364,7 +388,16 @@ async getAllowances() {
 @Module({
 	imports: [ConfigModule, DatabaseModule, forwardRef(() => KafelotModule)],
 	controllers: [BillingController],
-	providers: [BillingService],
-	exports: [BillingService],
+	providers: [
+		BillingService,
+		// The single seam where money would leave the building. Swapping this binding for a
+		// real provider is the whole of the future payment work -- every caller already
+		// depends on the interface and already handles a failed charge.
+		{ provide: ChargeProvider, useClass: SimulatedChargeProvider },
+	],
+	// The charge seam is exported so the subscriptions module can renew and refund through
+	// the same provider the wallet uses. Without that, renewals would need a second, parallel
+	// payment path -- which is the duplication this binding exists to prevent.
+	exports: [BillingService, ChargeProvider],
 })
 export class BillingModule {}

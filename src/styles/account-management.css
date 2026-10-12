@@ -628,3 +628,42 @@
 	font-size: 0.72rem;
 	color: rgba(255, 255, 255, 0.4);
 }
+
+/* The meter reading zero. Styled as a notice rather than an error: a spent prepaid
+   allowance is the product working, and dressing it in red teaches customers that
+   something is broken. */
+.ai-balance-gate {
+	display: flex;
+	gap: 0.9rem;
+	align-items: flex-start;
+	margin: 1rem 0;
+	padding: 1rem 1.15rem;
+	border-radius: 12px;
+	background: rgba(245, 158, 11, 0.09);
+	border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.ai-balance-gate__icon {
+	color: #fbbf24;
+	display: inline-flex;
+	padding-top: 2px;
+}
+.ai-balance-gate__body {
+	min-width: 0;
+}
+.ai-balance-gate__body strong {
+	display: block;
+	color: #fcd34d;
+	font-size: 0.95rem;
+	margin-bottom: 0.3rem;
+}
+.ai-balance-gate__body p {
+	margin: 0 0 0.8rem;
+	font-size: 0.85rem;
+	color: rgba(255, 255, 255, 0.65);
+	line-height: 1.5;
+}
+.ai-balance-gate__actions {
+	display: flex;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+}
