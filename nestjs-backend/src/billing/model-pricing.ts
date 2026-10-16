@@ -59,12 +59,37 @@ export type ResolvedTokenPrice = {
 	/** True when the price came from the table rather than being refused. */
 	known: boolean;
 	subscriber: boolean;
+	/** Which of the three rates below is the one actually charged. */
+	priceMode: PriceMode;
 	apiInputPer1M: number;
 	apiOutputPer1M: number;
 	subscriberInputPer1M: number;
 	subscriberOutputPer1M: number;
 	subscriberDiscountPercent: number;
+	/** The rate this call is actually charged, resolved once so nobody recomputes it. */
+	chargedInputPer1M: number;
+	chargedOutputPer1M: number;
 };
+
+/**
+ * Which price list a charge is drawn from.
+ *
+ * Three modes rather than a boolean, because "is this a subscriber" stopped being enough
+ * the moment the Spectre Playground arrived:
+ *
+ *  - `list`       an anonymous or free account: the published API rate.
+ *  - `subscriber` a paying tier *in Kafelot*: the discounted rate.
+ *  - `playground` any tier or add-on *in the Spectre Playground*: the published API rate,
+ *                 with no discount.
+ *
+ * The Playground is list-priced on purpose. A customer buying the 99.99 RON Spectre
+ * subscription is buying access to the product, not a discount on tokens -- usage is a
+ * separate meter. Keeping `subscriber` for Kafelot is what stops that change from silently
+ * repricing existing customers' coffee-chat usage.
+ */
+export type PriceMode = "list" | "subscriber" | "playground";
+
+export const PRICE_MODES: readonly PriceMode[] = ["list", "subscriber", "playground"];
 
 /**
  * The price actually charged for one model.
@@ -73,8 +98,13 @@ export type ResolvedTokenPrice = {
  * not be able to fail a request that has already been served by llama.cpp. The caller
  * decides what to do about a zero charge, and `known` is how it finds out.
  */
-export function resolveTokenPrice(modelKey: string, subscriber: boolean): ResolvedTokenPrice {
+export function resolveTokenPrice(modelKey: string, priceMode: PriceMode | boolean): ResolvedTokenPrice {
 	const key = String(modelKey || "").trim();
+	// A bare boolean still works, so every existing call site keeps its meaning. Converting
+	// them one at a time is how this becomes reviewable rather than one large diff.
+	const mode: PriceMode =
+		typeof priceMode === "boolean" ? (priceMode ? "subscriber" : "list") : priceMode;
+	const subscriber = mode === "subscriber";
 	const entry = Object.prototype.hasOwnProperty.call(MODEL_TOKEN_PRICING, key)
 		? MODEL_TOKEN_PRICING[key]
 		: null;
@@ -85,27 +115,38 @@ export function resolveTokenPrice(modelKey: string, subscriber: boolean): Resolv
 			label: key || "unknown",
 			known: false,
 			subscriber,
+			priceMode: mode,
 			apiInputPer1M: 0,
 			apiOutputPer1M: 0,
 			subscriberInputPer1M: 0,
 			subscriberOutputPer1M: 0,
 			subscriberDiscountPercent: 0,
+			chargedInputPer1M: 0,
+			chargedOutputPer1M: 0,
 		};
 	}
 
 	const apiOutputPer1M = roundMoney(entry.apiInputPer1M * OUTPUT_PRICE_MULTIPLIER);
 	const factor = 1 - entry.subscriberDiscountPercent / 100;
+	const apiInput = roundMoney(entry.apiInputPer1M);
+	const subscriberInputPer1M = roundMoney(entry.apiInputPer1M * factor);
+	const subscriberOutputPer1M = roundMoney(apiOutputPer1M * factor);
 
 	return {
 		modelKey: key,
 		label: entry.label,
 		known: true,
 		subscriber,
-		apiInputPer1M: roundMoney(entry.apiInputPer1M),
+		priceMode: mode,
+		apiInputPer1M: apiInput,
 		apiOutputPer1M,
-		subscriberInputPer1M: roundMoney(entry.apiInputPer1M * factor),
-		subscriberOutputPer1M: roundMoney(apiOutputPer1M * factor),
+		subscriberInputPer1M,
+		subscriberOutputPer1M,
 		subscriberDiscountPercent: entry.subscriberDiscountPercent,
+		// The Playground deliberately takes the list rate even for a paying tier, so this
+		// cannot be derived from `subscriber` alone any more.
+		chargedInputPer1M: subscriber ? subscriberInputPer1M : apiInput,
+		chargedOutputPer1M: subscriber ? subscriberOutputPer1M : apiOutputPer1M,
 	};
 }
 
@@ -133,13 +174,17 @@ export type TokenUsage = {
 };
 
 /**
- * Cost of one request in RON.
+ * Cost of one request in RON, at whichever rate list `priceMode` selects.
+ *
+ * Takes the mode rather than a bare boolean because this function used to recompute the price
+ * from `subscriber` alone, which silently ignored the Playground mode: a Max account was
+ * charged the subscriber rate there while the resolved price object beside it said list.
  *
  * Tokens are counted as non-negative integers; anything else is treated as zero so a
  * malformed usage block bills nothing rather than billing NaN.
  */
-export function costRon(modelKey: string, usage: TokenUsage, subscriber: boolean): number {
-	const price = resolveTokenPrice(modelKey, subscriber);
+export function costRon(modelKey: string, usage: TokenUsage, priceMode: PriceMode | boolean): number {
+	const price = resolveTokenPrice(modelKey, priceMode);
 	if (!price.known) return 0;
 	const rates = effectiveRates(price);
 	const inputTokens = clampTokens(usage?.inputTokens);

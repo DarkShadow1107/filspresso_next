@@ -14,6 +14,7 @@ exports.SubscriptionRenewalScheduler = void 0;
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
 const subscriptions_service_1 = require("../subscriptions/subscriptions.service");
+const addons_service_1 = require("../billing/addons.service");
 /**
  * Renews subscriptions whose period has ended, and retires the ones that will not renew.
  *
@@ -32,11 +33,13 @@ const subscriptions_service_1 = require("../subscriptions/subscriptions.service"
 let SubscriptionRenewalScheduler = SubscriptionRenewalScheduler_1 = class SubscriptionRenewalScheduler {
     db;
     subscriptions;
+    addons;
     logger = new common_1.Logger(SubscriptionRenewalScheduler_1.name);
     timer;
-    constructor(db, subscriptions) {
+    constructor(db, subscriptions, addons) {
         this.db = db;
         this.subscriptions = subscriptions;
+        this.addons = addons;
     }
     async onModuleInit() {
         // On boot, so a backend that was down across a renewal boundary does not leave the
@@ -72,21 +75,26 @@ let SubscriptionRenewalScheduler = SubscriptionRenewalScheduler_1 = class Subscr
             if (!lock.rows[0]?.locked) {
                 // Another instance is doing exactly this work right now. Not an error.
                 this.logger.log(`Renewal pass (${trigger}) skipped: another instance holds the lock`);
-                return { renewed: 0, retired: 0, skipped: true };
+                return { renewed: 0, retired: 0, addonsRenewed: 0, addonsRetired: 0, skipped: true };
             }
             locked = true;
             const renewed = await this.subscriptions.renewDueSubscriptions();
             const retired = await this.subscriptions.retireLapsedSubscriptions();
-            if (renewed > 0 || retired > 0) {
-                this.logger.log(`Renewal pass (${trigger}): ${renewed} renewed, ${retired} retired`);
+            // Add-ons ride in the same pass and under the same advisory lock. A separate timer
+            // would mean a second thing to remember to make concurrency-safe, for no gain.
+            const addonsRenewed = await this.addons.renewDue();
+            const addonsRetired = await this.addons.retireExpired();
+            if (renewed > 0 || retired > 0 || addonsRenewed > 0 || addonsRetired > 0) {
+                this.logger.log(`Renewal pass (${trigger}): ${renewed} tiers renewed, ${retired} retired, ` +
+                    `${addonsRenewed} add-ons renewed, ${addonsRetired} add-ons closed`);
             }
-            return { renewed, retired, skipped: false };
+            return { renewed, retired, addonsRenewed, addonsRetired, skipped: false };
         }
         catch (err) {
             // A failed pass must not kill the interval, or one transient error silently stops
             // every future renewal.
             this.logger.error(`Renewal pass (${trigger}) failed: ${err instanceof Error ? err.message : String(err)}`);
-            return { renewed: 0, retired: 0, skipped: false };
+            return { renewed: 0, retired: 0, addonsRenewed: 0, addonsRetired: 0, skipped: false };
         }
         finally {
             if (locked) {
@@ -100,7 +108,8 @@ exports.SubscriptionRenewalScheduler = SubscriptionRenewalScheduler;
 exports.SubscriptionRenewalScheduler = SubscriptionRenewalScheduler = SubscriptionRenewalScheduler_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [database_service_1.DatabaseService,
-        subscriptions_service_1.SubscriptionsService])
+        subscriptions_service_1.SubscriptionsService,
+        addons_service_1.AddonsService])
 ], SubscriptionRenewalScheduler);
 /**
  * Arbitrary but fixed key for the advisory lock.

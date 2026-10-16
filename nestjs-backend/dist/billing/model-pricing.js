@@ -29,7 +29,7 @@
  * them anywhere.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MODEL_TOKEN_PRICING = exports.OUTPUT_PRICE_MULTIPLIER = void 0;
+exports.PRICE_MODES = exports.MODEL_TOKEN_PRICING = exports.OUTPUT_PRICE_MULTIPLIER = void 0;
 exports.resolveTokenPrice = resolveTokenPrice;
 exports.effectiveRates = effectiveRates;
 exports.roundMoney = roundMoney;
@@ -49,6 +49,7 @@ exports.MODEL_TOKEN_PRICING = {
     lfm2_5_vl_3b_q4_k_m: { apiInputPer1M: 10.00, subscriberDiscountPercent: 25, label: "LFM 2.5 VL 3B" },
     lfm2_5_audio_1_5b_q4_0: { apiInputPer1M: 5.00, subscriberDiscountPercent: 25, label: "LFM 2.5 Audio 1.5B" },
 };
+exports.PRICE_MODES = ["list", "subscriber", "playground"];
 /**
  * The price actually charged for one model.
  *
@@ -56,8 +57,12 @@ exports.MODEL_TOKEN_PRICING = {
  * not be able to fail a request that has already been served by llama.cpp. The caller
  * decides what to do about a zero charge, and `known` is how it finds out.
  */
-function resolveTokenPrice(modelKey, subscriber) {
+function resolveTokenPrice(modelKey, priceMode) {
     const key = String(modelKey || "").trim();
+    // A bare boolean still works, so every existing call site keeps its meaning. Converting
+    // them one at a time is how this becomes reviewable rather than one large diff.
+    const mode = typeof priceMode === "boolean" ? (priceMode ? "subscriber" : "list") : priceMode;
+    const subscriber = mode === "subscriber";
     const entry = Object.prototype.hasOwnProperty.call(exports.MODEL_TOKEN_PRICING, key)
         ? exports.MODEL_TOKEN_PRICING[key]
         : null;
@@ -67,25 +72,36 @@ function resolveTokenPrice(modelKey, subscriber) {
             label: key || "unknown",
             known: false,
             subscriber,
+            priceMode: mode,
             apiInputPer1M: 0,
             apiOutputPer1M: 0,
             subscriberInputPer1M: 0,
             subscriberOutputPer1M: 0,
             subscriberDiscountPercent: 0,
+            chargedInputPer1M: 0,
+            chargedOutputPer1M: 0,
         };
     }
     const apiOutputPer1M = roundMoney(entry.apiInputPer1M * exports.OUTPUT_PRICE_MULTIPLIER);
     const factor = 1 - entry.subscriberDiscountPercent / 100;
+    const apiInput = roundMoney(entry.apiInputPer1M);
+    const subscriberInputPer1M = roundMoney(entry.apiInputPer1M * factor);
+    const subscriberOutputPer1M = roundMoney(apiOutputPer1M * factor);
     return {
         modelKey: key,
         label: entry.label,
         known: true,
         subscriber,
-        apiInputPer1M: roundMoney(entry.apiInputPer1M),
+        priceMode: mode,
+        apiInputPer1M: apiInput,
         apiOutputPer1M,
-        subscriberInputPer1M: roundMoney(entry.apiInputPer1M * factor),
-        subscriberOutputPer1M: roundMoney(apiOutputPer1M * factor),
+        subscriberInputPer1M,
+        subscriberOutputPer1M,
         subscriberDiscountPercent: entry.subscriberDiscountPercent,
+        // The Playground deliberately takes the list rate even for a paying tier, so this
+        // cannot be derived from `subscriber` alone any more.
+        chargedInputPer1M: subscriber ? subscriberInputPer1M : apiInput,
+        chargedOutputPer1M: subscriber ? subscriberOutputPer1M : apiOutputPer1M,
     };
 }
 /**
@@ -106,13 +122,17 @@ function roundMoney(value) {
     return Math.round(value * 1e8) / 1e8;
 }
 /**
- * Cost of one request in RON.
+ * Cost of one request in RON, at whichever rate list `priceMode` selects.
+ *
+ * Takes the mode rather than a bare boolean because this function used to recompute the price
+ * from `subscriber` alone, which silently ignored the Playground mode: a Max account was
+ * charged the subscriber rate there while the resolved price object beside it said list.
  *
  * Tokens are counted as non-negative integers; anything else is treated as zero so a
  * malformed usage block bills nothing rather than billing NaN.
  */
-function costRon(modelKey, usage, subscriber) {
-    const price = resolveTokenPrice(modelKey, subscriber);
+function costRon(modelKey, usage, priceMode) {
+    const price = resolveTokenPrice(modelKey, priceMode);
     if (!price.known)
         return 0;
     const rates = effectiveRates(price);

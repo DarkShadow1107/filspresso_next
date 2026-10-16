@@ -31,7 +31,7 @@ import {
 } from "@/icons";
 
 import { normalizeModelTier } from "@/lib/modelAccess";
-import { featureLinesForTier, modelAccessLinesForTier } from "@/lib/entitlements";
+import { featureLinesForTier, modelAccessLinesForTier, SPECTRE_SUBSCRIPTION, tierCanUsePlayground } from "@/lib/entitlements";
 
 type CurrentSubscription = {
 	tier: string;
@@ -215,6 +215,62 @@ export default function SubscriptionPageContent() {
 	const [pendingPlan, setPendingPlan] = useState<(typeof plans)[number] | null>(null);
 	const [hoveredManageBtn, setHoveredManageBtn] = useState(false);
 	const [allowances, setAllowances] = useState<AllowanceTable | null>(null);
+
+	// The Spectre subscription's terms, fetched from the service that charges for them.
+	// The copy in SPECTRE_SUBSCRIPTION covers first paint; this is the authority.
+	const [spectreAddon, setSpectreAddon] = useState<{ monthlyRon: number; yearlyRon: number }>({
+		monthlyRon: SPECTRE_SUBSCRIPTION.monthlyRon,
+		yearlyRon: SPECTRE_SUBSCRIPTION.annualRon,
+	});
+	const [spectreBusy, setSpectreBusy] = useState(false);
+	// Max and Ultimate bundle it, so offering them a paid add-on would be selling them
+	// something they already have.
+	const tierGrantsSpectre = tierCanUsePlayground(currentSubscription?.tier ?? null);
+
+	useEffect(() => {
+		let cancelled = false;
+		fetch(`${API_BASE}/api/spectre/subscription`, { credentials: "same-origin" as const })
+			.then((res) => (res.ok ? res.json() : null))
+			.then((body: { monthlyRon?: number; annualRon?: number } | null) => {
+				if (cancelled || !body) return;
+				setSpectreAddon({
+					monthlyRon: Number(body.monthlyRon ?? SPECTRE_SUBSCRIPTION.monthlyRon),
+					yearlyRon: Number(body.annualRon ?? SPECTRE_SUBSCRIPTION.annualRon),
+				});
+			})
+			.catch(() => {
+				// The static copy stands, so the card always shows a price.
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const subscribeToSpectre = async () => {
+		setSpectreBusy(true);
+		notify("Subscribing to the Spectre Playground…", 4000, "info", "spectre");
+		try {
+			const res = await fetch(`${API_BASE}/api/spectre/subscribe`, {
+				method: "POST",
+				credentials: "same-origin" as const,
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ billingCycle: billingPeriod === "yearly" ? "annual" : "monthly" }),
+			});
+			const body = (await res.json().catch(() => null)) as { message?: string } | null;
+			if (!res.ok) {
+				// The backend's own refusal is the useful thing to show: "add a default card"
+				// tells the customer what to do, and a generic failure does not.
+				notify(body?.message || "We could not complete the subscription.", 6000, "error", "spectre");
+				return;
+			}
+			notify("The Spectre Playground is now active on your account.", 5000, "success", "spectre");
+			router.push(buildPageHref("playground"));
+		} catch {
+			notify("We could not reach the billing service. Nothing was charged.", 6000, "error", "spectre");
+		} finally {
+			setSpectreBusy(false);
+		}
+	};
 
 	// The per-plan AI allowance, fetched from the same table the backend charges against.
 	// Null until it arrives, and null for good if it fails: the plan cards then simply omit
@@ -743,6 +799,51 @@ export default function SubscriptionPageContent() {
 
 				<div className="cards">
 					<div className="cards_inner" ref={cardsInnerRef}>
+						{/* The Spectre Playground subscription.
+						    Rendered after the tier ladder, not inside it: it is a separate product a
+						    customer can hold alongside any plan, so putting it in the ladder would
+						    imply it replaces a tier. */}
+						<article className="cards_card card card-spectre" key="spectre-addon">
+							<span className="card_kicker">Add-on subscription</span>
+							<h2 className="card_heading">Spectre Playground</h2>
+							<p className="card_price">
+								{billingPeriod === "yearly"
+									? formatRon(spectreAddon.yearlyRon)
+									: formatRon(spectreAddon.monthlyRon)}
+							</p>
+							{billingPeriod === "yearly" ? (
+								<p className="card_price-breakdown">
+									{formatRon(spectreAddon.yearlyRon / 12)}/month
+								</p>
+							) : null}
+							<ul className="card_bullets" style={{ padding: 0, listStyle: "none" }}>
+								<li>Full access to the Spectre Playground</li>
+								<li>Every model unlocked, including the LFM 2.5 8B</li>
+								<li className="card_bullet--note">
+									Model usage is billed separately at API list prices and is not included in
+									this subscription
+								</li>
+								<li>
+									{tierGrantsSpectre
+										? "Already included with your current plan"
+										: "Available on any plan, including Free"}
+								</li>
+							</ul>
+							<div className="card_actions">
+								{tierGrantsSpectre ? (
+									<span className="card_current">Included in your plan</span>
+								) : (
+									<button
+										className="card_cta"
+										onClick={() => void subscribeToSpectre()}
+										disabled={spectreBusy}
+									>
+										{spectreBusy ? "Subscribing…" : "Subscribe"}
+									</button>
+								)}
+							</div>
+						</article>
+
 						{plans.map((plan) => {
 							const currentPrice = billingPeriod === "yearly" ? plan.priceRonYearly : plan.priceRon;
 							const savings = billingPeriod === "yearly" ? calculateSavings(plan.priceRon, plan.priceRonYearly) : 0;
@@ -777,6 +878,9 @@ export default function SubscriptionPageContent() {
 										? benefitsForPlan(
 												plan.id,
 												[
+													allowances
+														? `Kafelot AI — ${allowances.anonymousRon.toFixed(2).replace(".", ",")} RON free for anonymous visitors`
+														: "Kafelot AI — a small free allowance for anonymous visitors",
 													"MiniLM V2 access",
 													"Default for all accounts",
 												],

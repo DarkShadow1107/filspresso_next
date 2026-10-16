@@ -10,6 +10,10 @@ import { buildPageHref } from "@/lib/pages";
 import { useModelPrewarm } from "@/hooks/useModelPrewarm";
 import { useModelLoadStatus } from "@/hooks/useModelLoadStatus";
 import PlaygroundModelLineup from "./PlaygroundModelLineup";
+
+/** Shared with the line-up so the two never quote different money. */
+const ron = (value: number) =>
+	`${Number(value || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RON`;
 import ModelLoadingBar from "./ModelLoadingBar";
 import {
 	MODEL_DESCRIPTION_BY_KEY,
@@ -20,9 +24,10 @@ import {
 	TEXT_MODEL_230M,
 	type TextModelKey,
 	type UserSubscriptionTier,
+	ALL_TEXT_MODEL_KEYS,
 } from "@/lib/modelAccess";
 import { ArrowNarrowDownIcon, SparklesIcon } from "@/icons";
-import { tierCanUsePlayground } from "@/lib/entitlements";
+import { tierCanUsePlayground, SPECTRE_SUBSCRIPTION } from "@/lib/entitlements";
 import { getOrCreateFingerprint } from "@/lib/fingerprint";
 
 type ChatMessage = {
@@ -85,12 +90,41 @@ export default function PlaygroundContent() {
 		};
 	}, []);
 
+	// The authoritative answer, fetched from the same service that enforces the gate.
+	//
+	// Starts as "no" and is only widened by a real response, so a failed or slow lookup
+	// shows the paywall rather than a Playground the route would then refuse -- and an
+	// add-on holder is never told they need to upgrade.
+	const [spectreAccess, setSpectreAccess] = useState<"addon" | "tier" | "none">(
+		tierCanUsePlayground(tier) ? "tier" : "none",
+	);
+	useEffect(() => {
+		let cancelled = false;
+		fetch("/api/spectre/access", { credentials: "include", cache: "no-store" })
+			.then((res) => (res.ok ? res.json() : null))
+			.then((body: { hasAccess?: boolean; source?: string } | null) => {
+				if (cancelled || !body?.hasAccess) return;
+				setSpectreAccess(body.source === "addon" ? "addon" : "tier");
+			})
+			.catch(() => {
+				// Silent: the tier-derived default stands, which under-claims rather than
+				// over-claims.
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [tier]);
+
+	const hasPlaygroundAccess = spectreAccess !== "none";
+
+	// Every model is selectable once access exists: each is charged at its own API price, so
+	// the tier ladder has no bearing on which one a customer can afford. Kafelot keeps its
+	// ladder -- the two products are entitled differently on purpose.
 	const allowedModels = useMemo<TextModelKey[]>(
-		() => (tier ? allowedTextModelsForTier(tier) : []),
-		[tier],
+		() => (hasPlaygroundAccess ? ALL_TEXT_MODEL_KEYS : []),
+		[hasPlaygroundAccess],
 	);
 
-	const hasPlaygroundAccess = tierCanUsePlayground(tier);
 
 	// Default to the strongest model the plan allows.
 	useEffect(() => {
@@ -341,7 +375,7 @@ try {
 					</Link>
 					{/* Shown signed-out too: a visitor who cannot sign in is exactly the
 					    person deciding which plan to buy. */}
-					<PlaygroundModelLineup tier={tier ?? null} textOnly />
+					<PlaygroundModelLineup tier={tier ?? null} access={spectreAccess} textOnly />
 				</section>
 			</main>
 		);
@@ -354,14 +388,24 @@ try {
 					<SparklesIcon size={22} />
 					<h1>Spectre Playground</h1>
 					<p>
-						The Playground is included with <strong>MAX</strong> and <strong>ULTIMATE</strong> plans. Upgrade to chat
-						directly with the GGUF models, tune temperature and system prompts, and stream tokens.
+						The Spectre Playground is a <strong>{ron(SPECTRE_SUBSCRIPTION.monthlyRon)} per month</strong>{" "}
+						subscription, or {ron(SPECTRE_SUBSCRIPTION.annualRon)} a year. It is also included with the{" "}
+						<strong> MAX</strong> and <strong>ULTIMATE</strong> plans.
 					</p>
-					<Link className="playground-cta" href={buildPageHref("subscription")}>
-						View plans
-					</Link>
+					<p className="playgate-note">
+						Model usage is <strong>not</strong> included in the subscription. Every message is metered at the
+						API list price shown in the lineup below and billed to your wallet.
+					</p>
+					<div className="playgate-actions">
+						<Link className="playground-cta" href={buildPageHref("subscription")}>
+							Subscribe
+						</Link>
+						<Link className="playground-cta playground-cta--ghost" href={buildPageHref("subscription")}>
+							View plans
+						</Link>
+					</div>
 					{upgradeMessage ? <p className="playground-upgrade-error">{upgradeMessage}</p> : null}
-					<PlaygroundModelLineup tier={tier ?? null} textOnly />
+					<PlaygroundModelLineup tier={tier ?? null} access={spectreAccess} textOnly />
 				</section>
 			</main>
 		);
@@ -540,7 +584,7 @@ try {
 
 			{/* The picker above only lists what this plan may run, so the lineup also
 			    shows what exists and what a higher plan would add. */}
-			<PlaygroundModelLineup tier={tier ?? null} textOnly />
+			<PlaygroundModelLineup tier={tier ?? null} access={spectreAccess} textOnly />
 		</main>
 	);
 }

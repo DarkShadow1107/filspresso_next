@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { SubscriptionsService } from "../subscriptions/subscriptions.service";
+import { AddonsService } from "../billing/addons.service";
 
 /**
  * Renews subscriptions whose period has ended, and retires the ones that will not renew.
@@ -25,6 +26,7 @@ export class SubscriptionRenewalScheduler implements OnModuleInit, OnModuleDestr
 	constructor(
 		private readonly db: DatabaseService,
 		private readonly subscriptions: SubscriptionsService,
+		private readonly addons: AddonsService,
 	) {}
 
 	async onModuleInit(): Promise<void> {
@@ -54,7 +56,13 @@ export class SubscriptionRenewalScheduler implements OnModuleInit, OnModuleDestr
 	 * instances both see the row, both charge, and the customer is billed twice for one
 	 * month; the lock is the only thing standing between a timer and a double charge.
 	 */
-	async runOnce(trigger: string): Promise<{ renewed: number; retired: number; skipped: boolean }> {
+	async runOnce(trigger: string): Promise<{
+		renewed: number;
+		retired: number;
+		addonsRenewed: number;
+		addonsRetired: number;
+		skipped: boolean;
+	}> {
 		const client = await this.db.getPool().connect();
 		let locked = false;
 		try {
@@ -64,23 +72,30 @@ export class SubscriptionRenewalScheduler implements OnModuleInit, OnModuleDestr
 			if (!lock.rows[0]?.locked) {
 				// Another instance is doing exactly this work right now. Not an error.
 				this.logger.log(`Renewal pass (${trigger}) skipped: another instance holds the lock`);
-				return { renewed: 0, retired: 0, skipped: true };
+				return { renewed: 0, retired: 0, addonsRenewed: 0, addonsRetired: 0, skipped: true };
 			}
 			locked = true;
 
 			const renewed = await this.subscriptions.renewDueSubscriptions();
 			const retired = await this.subscriptions.retireLapsedSubscriptions();
-			if (renewed > 0 || retired > 0) {
-				this.logger.log(`Renewal pass (${trigger}): ${renewed} renewed, ${retired} retired`);
+			// Add-ons ride in the same pass and under the same advisory lock. A separate timer
+			// would mean a second thing to remember to make concurrency-safe, for no gain.
+			const addonsRenewed = await this.addons.renewDue();
+			const addonsRetired = await this.addons.retireExpired();
+			if (renewed > 0 || retired > 0 || addonsRenewed > 0 || addonsRetired > 0) {
+				this.logger.log(
+					`Renewal pass (${trigger}): ${renewed} tiers renewed, ${retired} retired, ` +
+					`${addonsRenewed} add-ons renewed, ${addonsRetired} add-ons closed`,
+				);
 			}
-			return { renewed, retired, skipped: false };
+			return { renewed, retired, addonsRenewed, addonsRetired, skipped: false };
 		} catch (err) {
 			// A failed pass must not kill the interval, or one transient error silently stops
 			// every future renewal.
 			this.logger.error(
 				`Renewal pass (${trigger}) failed: ${err instanceof Error ? err.message : String(err)}`,
 			);
-			return { renewed: 0, retired: 0, skipped: false };
+			return { renewed: 0, retired: 0, addonsRenewed: 0, addonsRetired: 0, skipped: false };
 		} finally {
 			if (locked) {
 				await client.query("SELECT pg_advisory_unlock($1)", [RENEWAL_LOCK_NAME]).catch(() => undefined);

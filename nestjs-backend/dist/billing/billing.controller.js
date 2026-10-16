@@ -24,6 +24,9 @@ const kafelot_service_1 = require("../kafelot/kafelot.service");
 const billing_service_1 = require("./billing.service");
 const model_pricing_1 = require("./model-pricing");
 const charge_provider_1 = require("./charge-provider");
+const addons_controller_1 = require("./addons.controller");
+const addons_service_1 = require("./addons.service");
+const billing_context_1 = require("./billing-context");
 const tier_allowance_1 = require("./tier-allowance");
 const fingerprint_1 = require("../common/utils/fingerprint");
 /**
@@ -43,9 +46,11 @@ function requireFingerprint(req) {
 let BillingController = class BillingController {
     billing;
     kafelot;
-    constructor(billing, kafelot) {
+    addons;
+    constructor(billing, kafelot, addons) {
         this.billing = billing;
         this.kafelot = kafelot;
+        this.addons = addons;
     }
     /**
      * The price list, for the model picker and the admin table.
@@ -205,8 +210,22 @@ let BillingController = class BillingController {
                 requestId,
             });
         }
-        const subscriber = (0, tier_allowance_1.isPaidTier)(await this.resolveTier(req));
-        const price = (0, model_pricing_1.resolveTokenPrice)(modelKey, subscriber);
+        const tier = await this.resolveTier(req);
+        const subscriber = (0, tier_allowance_1.isPaidTier)(tier);
+        // Which surface this came from decides both the rate and the pot.
+        //
+        // The caller states the scope; `resolveBillingContext` decides what follows from it
+        // by reading the account's real entitlement. That split is deliberate -- letting the
+        // caller choose its own pot would be the same mistake as accepting a client-supplied
+        // cost_ron, one level up.
+        const scope = body?.scope === "playground" ? "playground" : "kafelot";
+        // Which product granted Playground access decides the pot. An add-on holder has no
+        // included usage at all, even when their tier carries an allowance.
+        const accessSource = scope === "playground"
+            ? (await this.addons.resolveSpectreAccess(accountId, tier, (0, tier_allowance_1.canUseSpectre)(tier))).source
+            : null;
+        const context = (0, billing_context_1.resolveBillingContext)({ scope, tier, accessSource, modelKey });
+        const price = (0, model_pricing_1.resolveTokenPrice)(modelKey, context.priceMode);
         if (!price.known) {
             // Rejected, not charged zero. An unpriced model is a bug, and a zero-cost row
             // would bury it in an audit trail that otherwise looks complete.
@@ -216,9 +235,11 @@ let BillingController = class BillingController {
             accountId,
             modelKey,
             subscriber,
-            tier: await this.resolveTier(req),
+            tier,
             requestId,
             usage: { inputTokens, outputTokens },
+            scope,
+            accessSource,
         });
     }
     /** An anonymous visitor's remaining allowance, for the window that shows it. */
@@ -255,10 +276,15 @@ let BillingController = class BillingController {
     async fund(req, body) {
         const accountId = this.requireAccountId(req);
         const tier = await this.resolveTier(req);
-        if (!(0, tier_allowance_1.canUseSpectre)(tier)) {
+        // The wallet funds the Spectre Playground, so it follows the same entitlement the
+        // gate uses: the add-on, or a bundled Max/Ultimate tier. Resolved here rather than
+        // from the tier alone, so an add-on holder on a low tier is not refused funding for
+        // the product they just paid for.
+        const access = await this.addons.resolveSpectreAccess(accountId, tier, (0, tier_allowance_1.canUseSpectre)(tier));
+        if (!access.hasAccess) {
             throw new common_1.ForbiddenException({
                 error: "WALLET_REQUIRES_SPECTRE",
-                message: `The AI wallet is part of the Spectre plan. Upgrade to MAX or ULTIMATE to add funds.`,
+                message: "The AI wallet funds the Spectre Playground. Subscribe for 99.99 RON/month, or upgrade to MAX or ULTIMATE, to add funds.",
                 currentTier: tier,
                 requiredTiers: tier_allowance_1.SPECTRE_TIERS_ALLOWED,
             });
@@ -406,7 +432,8 @@ __decorate([
 exports.BillingController = BillingController = __decorate([
     (0, common_1.Controller)("api/billing"),
     __metadata("design:paramtypes", [billing_service_1.BillingService,
-        kafelot_service_1.KafelotService])
+        kafelot_service_1.KafelotService,
+        addons_service_1.AddonsService])
 ], BillingController);
 let BillingModule = class BillingModule {
 };
@@ -414,9 +441,10 @@ exports.BillingModule = BillingModule;
 exports.BillingModule = BillingModule = __decorate([
     (0, common_1.Module)({
         imports: [config_1.ConfigModule, database_module_1.DatabaseModule, (0, common_2.forwardRef)(() => kafelot_module_1.KafelotModule)],
-        controllers: [BillingController],
+        controllers: [BillingController, addons_controller_1.AddonsController],
         providers: [
             billing_service_1.BillingService,
+            addons_service_1.AddonsService,
             // The single seam where money would leave the building. Swapping this binding for a
             // real provider is the whole of the future payment work -- every caller already
             // depends on the interface and already handles a failed charge.
@@ -425,6 +453,6 @@ exports.BillingModule = BillingModule = __decorate([
         // The charge seam is exported so the subscriptions module can renew and refund through
         // the same provider the wallet uses. Without that, renewals would need a second, parallel
         // payment path -- which is the duplication this binding exists to prevent.
-        exports: [billing_service_1.BillingService, charge_provider_1.ChargeProvider],
+        exports: [billing_service_1.BillingService, charge_provider_1.ChargeProvider, addons_service_1.AddonsService],
     })
 ], BillingModule);

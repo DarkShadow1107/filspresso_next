@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAiHost } from "@/lib/server/aiHost";
 import { readCallerTier } from "@/lib/server/promptLimits";
+import { resolveSpectreAccess } from "@/lib/server/spectreAccess";
 import {
 	MODEL_FILE_BY_KEY,
 	isVisionModelKey,
-	tierAllowsModel,
 	type ModelKey,
 } from "@/lib/modelAccess";
 import { PLAYGROUND_MINIMUM_TIER } from "@/lib/entitlements";
@@ -40,16 +40,10 @@ export const revalidate = 0;
 
 const PLAYGROUND_LOCKED = {
 	status: "forbidden",
-	error: "Spectre Playground requires a MAX or ULTIMATE subscription",
+	error: "Spectre Playground requires the Spectre subscription (99.99 RON/month) or a MAX/ULTIMATE plan. Model usage is billed separately at API prices.",
 } as const;
 
 /** Returns an error payload when the caller may not use the Playground. */
-function playgroundGate(tier: string | null) {
-	if (!tier || !PLAYGROUND_MINIMUM_TIER.includes(tier as never)) {
-		return NextResponse.json(PLAYGROUND_LOCKED, { status: 403 });
-	}
-	return null;
-}
 
 type WarmupPayload = { status?: string; duration_ms?: number | null };
 
@@ -91,8 +85,11 @@ export async function GET(request: NextRequest) {
 	if (!tier) {
 		return json({ status: "unauthorized", error: "Sign in to check model readiness" }, 401);
 	}
-	const gate = playgroundGate(tier);
-	if (gate) return gate;
+	// Same answer the chat route and the funding endpoint use. Prewarming a model an
+	// account may not send to would load it into memory for nothing, so this gate has to be
+	// the same gate.
+	const access = await resolveSpectreAccess(request);
+	if (!access.hasAccess) return json(PLAYGROUND_LOCKED, 403);
 
 	const requested = (request.nextUrl.searchParams.get("model") || "").trim();
 	if (!requested) {
@@ -104,9 +101,6 @@ export async function GET(request: NextRequest) {
 		return json({ status: "rejected", error: `unknown model ${requested}` }, 400);
 	}
 	const modelKey = requested as ModelKey;
-	if (!tierAllowsModel(tier, modelKey)) {
-		return json({ status: "forbidden", model: modelKey, error: "Model not available on your plan" }, 403);
-	}
 
 	const search = new URLSearchParams({
 		model: MODEL_FILE_BY_KEY[modelKey],
@@ -122,8 +116,11 @@ export async function POST(request: NextRequest) {
 	if (!tier) {
 		return json({ status: "unauthorized", error: "Sign in to pre-load models" }, 401);
 	}
-	const gate = playgroundGate(tier);
-	if (gate) return gate;
+	// Same answer the chat route and the funding endpoint use. Prewarming a model an
+	// account may not send to would load it into memory for nothing, so this gate has to be
+	// the same gate.
+	const access = await resolveSpectreAccess(request);
+	if (!access.hasAccess) return json(PLAYGROUND_LOCKED, 403);
 
 	let body: { model?: unknown } = {};
 	try {
@@ -137,9 +134,6 @@ export async function POST(request: NextRequest) {
 		return json({ status: "rejected", error: `unknown model ${requested}` }, 400);
 	}
 	const modelKey = requested as ModelKey;
-	if (!tierAllowsModel(tier, modelKey)) {
-		return json({ status: "forbidden", model: modelKey, error: "Model not available on your plan" }, 403);
-	}
 
 	const vision = isVisionModelKey(modelKey);
 	const result = await callPython(

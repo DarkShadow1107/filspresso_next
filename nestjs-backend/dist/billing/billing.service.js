@@ -15,6 +15,7 @@ const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
 const model_pricing_1 = require("./model-pricing");
 const charge_provider_1 = require("./charge-provider");
+const billing_context_1 = require("./billing-context");
 const tier_allowance_1 = require("./tier-allowance");
 /**
  * Hard backstop for the funded wallet.
@@ -86,16 +87,23 @@ let BillingService = BillingService_1 = class BillingService {
      * the same balance and each write balance-minus-cost, which silently loses one charge.
      */
     async recordUsage(params) {
-        const { accountId, modelKey, subscriber } = params;
+        const { accountId, modelKey } = params;
         const requestId = params.requestId ? String(params.requestId).slice(0, 128) : null;
-        const price = (0, model_pricing_1.resolveTokenPrice)(modelKey, subscriber);
+        const tier = String(params.tier ?? "free").toLowerCase();
+        const context = (0, billing_context_1.resolveBillingContext)({
+            scope: params.scope ?? "kafelot",
+            tier,
+            accessSource: params.accessSource ?? null,
+            modelKey,
+        });
+        const price = (0, model_pricing_1.resolveTokenPrice)(modelKey, context.priceMode);
         const rates = (0, model_pricing_1.effectiveRates)(price);
         const inputTokens = clampTokens(params.usage?.inputTokens);
         const outputTokens = clampTokens(params.usage?.outputTokens);
         // `metered` is the honest signal: a fallback answer or an upstream that omitted
         // usage must not look like a priced request.
         const metered = price.known && inputTokens + outputTokens > 0;
-        const cost = metered ? (0, model_pricing_1.costRon)(modelKey, { inputTokens, outputTokens }, subscriber) : 0;
+        const cost = metered ? (0, model_pricing_1.costRon)(modelKey, { inputTokens, outputTokens }, context.priceMode) : 0;
         const pool = this.db.getPool();
         const client = await pool.connect();
         let result;
@@ -122,7 +130,12 @@ let BillingService = BillingService_1 = class BillingService {
                 // subscription bought, so using card money while included money remains
                 // would be charging the customer twice for one request. Drawn inside this
                 // transaction so the two pots cannot both be spent by concurrent requests.
-                const allowanceApplied = cost > 0 ? await this.drawFromAllowanceTx(client, accountId, params.tier ?? "free", cost) : 0;
+                // Only drawn when the policy allows it. An add-on holder has no allowance to
+                // draw from, and Max on the 8B is explicitly excluded; both fall through to the
+                // wallet with the full cost charged there.
+                const allowanceApplied = cost > 0 && context.billFrom === "allowance_then_wallet"
+                    ? await this.drawFromAllowanceTx(client, accountId, tier, cost)
+                    : 0;
                 const fromWallet = (0, model_pricing_1.roundMoney)(cost - allowanceApplied);
                 // Lock the balance row for the duration so the read-modify-write below is
                 // serialised across concurrent requests for the same account.
@@ -154,8 +167,9 @@ let BillingService = BillingService_1 = class BillingService {
                 await client.query(`INSERT INTO ai_token_usage
 					   (account_id, model_key, input_tokens, output_tokens,
 					    input_price_per1m, output_price_per1m, subscriber_discount,
-					    cost_ron, allowance_applied_ron, uncovered_ron, metered, request_id, balance_after)
-					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, [
+					    cost_ron, allowance_applied_ron, uncovered_ron, metered, request_id, balance_after,
+					    price_mode, bill_from, scope)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`, [
                     accountId,
                     modelKey,
                     inputTokens,
@@ -169,6 +183,12 @@ let BillingService = BillingService_1 = class BillingService {
                     metered,
                     requestId,
                     updated.rows[0].balance_ron,
+                    // Stored so a charge can be reconstructed months later. The Playground is
+                    // list-priced and the wallet-only pot is a deliberate rule, and neither is
+                    // recoverable from the amounts alone.
+                    context.priceMode,
+                    context.billFrom,
+                    params.scope ?? "kafelot",
                 ]);
                 await client.query("COMMIT");
                 result = {
@@ -179,6 +199,9 @@ let BillingService = BillingService_1 = class BillingService {
                     uncoveredRon: uncovered,
                     balanceRon: Number(updated.rows[0].balance_ron),
                     price,
+                    priceMode: context.priceMode,
+                    billFrom: context.billFrom,
+                    reason: context.reason,
                 };
             }
             catch (err) {
@@ -274,6 +297,21 @@ let BillingService = BillingService_1 = class BillingService {
             // missing on /balance rather than as a broken request.
             console.warn(`[billing] auto-refill skipped for account ${accountId}: ${err instanceof Error ? err.message : String(err)}`);
         }
+    }
+    /**
+     * The account's authoritative tier, for callers that need it to make a decision rather
+     * than to price something. `kafelot.resolveTier` reads both `user_subscriptions` and the
+     * legacy `accounts.subscription` column and falls back between them; duplicating that
+     * here would be a second answer to the same question.
+     */
+    async resolveTierFor(accountId) {
+        const result = await this.db.getPool().query(`SELECT subscription_tier FROM user_subscriptions
+			  WHERE account_id = $1 AND is_active = TRUE AND status IN ('active','ending')
+			  ORDER BY created_at DESC LIMIT 1`, [accountId]);
+        if (result.rows[0]?.subscription_tier)
+            return String(result.rows[0].subscription_tier).toLowerCase();
+        const legacy = await this.db.getPool().query(`SELECT subscription FROM accounts WHERE id = $1`, [accountId]);
+        return String(legacy.rows[0]?.subscription ?? "free").toLowerCase();
     }
     async getBalance(accountId) {
         const pool = this.db.getPool();

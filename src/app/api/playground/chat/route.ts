@@ -12,7 +12,7 @@ import {
 	type TextModelKey,
 	type UserSubscriptionTier,
 } from "@/lib/modelAccess";
-import { tierCanUsePlayground } from "@/lib/entitlements";
+import { hasSpectreAccess } from "@/lib/server/spectreAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,10 +67,14 @@ export async function POST(request: NextRequest) {
 		return jsonError("UNAUTHORIZED", "Sign in to use the Playground.", 401);
 	}
 
-	if (!tierCanUsePlayground(tier)) {
+	// Access comes from the Spectre subscription *or* from a bundled Max/Ultimate tier.
+	// Resolved server-side against the same service that funds and meters it, so this gate
+	// cannot drift from the rule that charges for it.
+	const spectre = await hasSpectreAccess(request);
+	if (!spectre) {
 		return jsonError(
 			"PLAYGROUND_LOCKED",
-			"The Playground is available on MAX and ULTIMATE plans.",
+			"The Playground needs the Spectre subscription (99.99 RON/month). Model usage is billed separately at API prices.",
 			403,
 		);
 	}
@@ -212,6 +216,9 @@ export async function POST(request: NextRequest) {
 					// would need a second report to exist in the first place.
 					requestId: null,
 					fingerprint: getOrCreateFingerprint(),
+					// List-priced and, for an add-on holder, drawn wholly from the wallet.
+					// The backend resolves what that means from the account's entitlement.
+					scope: "playground",
 				}).catch(() => null);
 			};
 

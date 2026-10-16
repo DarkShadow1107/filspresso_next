@@ -23,6 +23,7 @@
 		"test:subscription-payments": "python scripts/subscription-payments-check.py",
 		"test:allowance-enforcement": "python scripts/allowance-enforcement-check.py",
 		"test:renewal": "python scripts/renewal-check.py",
+		"test:spectre-addon": "python scripts/spectre-addon-check.py",
 		"test:phase9": "npm run test:live && npm run test:load && npm run test:drills"
 	},
 	"dependencies": {

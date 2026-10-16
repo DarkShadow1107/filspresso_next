@@ -89,7 +89,8 @@ export const MODEL_DESCRIPTION_BY_KEY: Record<ModelKey, string> = {
 	[AUDIO_MODEL_1_5B]: "Speech and audio input/output.",
 };
 
-const TEXT_MODEL_KEYS: TextModelKey[] = [
+/** Exported so the Playground can offer every model; each is priced individually. */
+export const ALL_TEXT_MODEL_KEYS: TextModelKey[] = [
 	TEXT_MODEL_230M,
 	TEXT_MODEL_350M,
 	TEXT_MODEL_1_2B_INSTRUCT,
@@ -100,7 +101,7 @@ const TEXT_MODEL_KEYS: TextModelKey[] = [
 const VISION_MODEL_KEYS: VisionModelKey[] = [VISION_MODEL_450M, VISION_MODEL_3B];
 const AUDIO_MODEL_KEYS: AudioModelKey[] = [AUDIO_MODEL_1_5B];
 
-const TEXT_MODEL_KEY_SET = new Set<string>(TEXT_MODEL_KEYS);
+const TEXT_MODEL_KEY_SET = new Set<string>(ALL_TEXT_MODEL_KEYS);
 const VISION_MODEL_KEY_SET = new Set<string>(VISION_MODEL_KEYS);
 const AUDIO_MODEL_KEY_SET = new Set<string>(AUDIO_MODEL_KEYS);
 

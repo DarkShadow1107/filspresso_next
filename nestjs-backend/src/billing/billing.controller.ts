@@ -29,6 +29,9 @@ import {
 } from "./billing.service";
 import { pricingTable, resolveTokenPrice } from "./model-pricing";
 import { ChargeProvider, SimulatedChargeProvider } from "./charge-provider";
+import { AddonsController } from "./addons.controller";
+import { AddonsService } from "./addons.service";
+import { resolveBillingContext } from "./billing-context";
 import {
 	isPaidTier,
 	canUseSpectre,
@@ -60,10 +63,11 @@ function requireFingerprint(req: { headers?: Record<string, unknown> }): string 
 
 @Controller("api/billing")
 export class BillingController {
-	constructor(
-		private readonly billing: BillingService,
-		private readonly kafelot: KafelotService,
-	) {}
+constructor(
+    	private readonly billing: BillingService,
+    	private readonly kafelot: KafelotService,
+    	private readonly addons: AddonsService,
+    ) {}
 
 	/**
 	 * The price list, for the model picker and the admin table.
@@ -247,8 +251,26 @@ async getAllowances() {
 			});
 		}
 
-		const subscriber = isPaidTier(await this.resolveTier(req));
-		const price = resolveTokenPrice(modelKey, subscriber);
+		const tier = await this.resolveTier(req);
+		const subscriber = isPaidTier(tier);
+
+		// Which surface this came from decides both the rate and the pot.
+		//
+		// The caller states the scope; `resolveBillingContext` decides what follows from it
+		// by reading the account's real entitlement. That split is deliberate -- letting the
+		// caller choose its own pot would be the same mistake as accepting a client-supplied
+		// cost_ron, one level up.
+		const scope = body?.scope === "playground" ? "playground" : "kafelot";
+		// Which product granted Playground access decides the pot. An add-on holder has no
+		// included usage at all, even when their tier carries an allowance.
+		const accessSource =
+			scope === "playground"
+				? (await this.addons.resolveSpectreAccess(accountId, tier, canUseSpectre(tier))).source
+				: null;
+
+		const context = resolveBillingContext({ scope, tier, accessSource, modelKey });
+
+		const price = resolveTokenPrice(modelKey, context.priceMode);
 		if (!price.known) {
 			// Rejected, not charged zero. An unpriced model is a bug, and a zero-cost row
 			// would bury it in an audit trail that otherwise looks complete.
@@ -259,9 +281,11 @@ async getAllowances() {
 			accountId,
 			modelKey,
 			subscriber,
-			tier: await this.resolveTier(req),
+			tier,
 			requestId,
 			usage: { inputTokens, outputTokens },
+			scope,
+			accessSource,
 		});
 	}
 
@@ -306,10 +330,16 @@ async getAllowances() {
 	async fund(@Req() req: BillingRequest, @Body() body: Record<string, unknown>) {
 		const accountId = this.requireAccountId(req);
 		const tier = await this.resolveTier(req);
-		if (!canUseSpectre(tier)) {
+		// The wallet funds the Spectre Playground, so it follows the same entitlement the
+		// gate uses: the add-on, or a bundled Max/Ultimate tier. Resolved here rather than
+		// from the tier alone, so an add-on holder on a low tier is not refused funding for
+		// the product they just paid for.
+		const access = await this.addons.resolveSpectreAccess(accountId, tier, canUseSpectre(tier));
+		if (!access.hasAccess) {
 			throw new ForbiddenException({
 				error: "WALLET_REQUIRES_SPECTRE",
-				message: `The AI wallet is part of the Spectre plan. Upgrade to MAX or ULTIMATE to add funds.`,
+				message:
+					"The AI wallet funds the Spectre Playground. Subscribe for 99.99 RON/month, or upgrade to MAX or ULTIMATE, to add funds.",
 				currentTier: tier,
 				requiredTiers: SPECTRE_TIERS_ALLOWED,
 			});
@@ -387,9 +417,10 @@ async getAllowances() {
 
 @Module({
 	imports: [ConfigModule, DatabaseModule, forwardRef(() => KafelotModule)],
-	controllers: [BillingController],
+	controllers: [BillingController, AddonsController],
 	providers: [
 		BillingService,
+		AddonsService,
 		// The single seam where money would leave the building. Swapping this binding for a
 		// real provider is the whole of the future payment work -- every caller already
 		// depends on the interface and already handles a failed charge.
@@ -398,6 +429,6 @@ async getAllowances() {
 	// The charge seam is exported so the subscriptions module can renew and refund through
 	// the same provider the wallet uses. Without that, renewals would need a second, parallel
 	// payment path -- which is the duplication this binding exists to prevent.
-	exports: [BillingService, ChargeProvider],
+	exports: [BillingService, ChargeProvider, AddonsService],
 })
 export class BillingModule {}

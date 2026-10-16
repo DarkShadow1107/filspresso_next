@@ -4807,3 +4807,63 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 .pgm-lineup-price em {
 	display: none;
 }
+
+/* Locked rows now carry the price of the thing that unlocks them, so the badge needs to
+   hold two lines of real text rather than one short word. */
+.pgm-lineup-state__stack {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 1px;
+	text-align: right;
+	text-transform: none;
+	letter-spacing: 0;
+}
+.pgm-lineup-state__stack b {
+	font-size: 0.72rem;
+	font-weight: 600;
+	color: #fcd34d;
+	white-space: nowrap;
+}
+.pgm-lineup-state__stack em {
+	font-style: normal;
+	font-size: 0.64rem;
+	color: rgba(255, 255, 255, 0.45);
+	white-space: nowrap;
+}
+/* "Pay per use" and "Usage paid separately" are warnings, not locks: the row is usable,
+   it just is not covered by an allowance. */
+.pgm-lineup-state--metered {
+	background: rgba(245, 158, 11, 0.14);
+	color: #fcd34d;
+	text-transform: none;
+	letter-spacing: 0;
+	font-size: 0.7rem;
+}
+
+/* The Spectre paywall. Two paragraphs because the second one is the one customers get
+   wrong: the subscription is access, not usage. */
+.playgate-note {
+	margin-top: 0.85rem;
+	font-size: 0.85rem;
+	color: rgba(255, 255, 255, 0.6);
+	line-height: 1.55;
+}
+.playgate-note strong {
+	color: #fcd34d;
+}
+.playgate-actions {
+	display: flex;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+	margin-top: 1.1rem;
+}
+.playground-cta--ghost {
+	background: transparent;
+	border: 1px solid rgba(255, 255, 255, 0.25);
+	color: rgba(255, 255, 255, 0.8);
+}
+.playground-cta--ghost:hover {
+	border-color: #c4a77d;
+	color: #ffdba8;
+}

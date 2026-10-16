@@ -21,12 +21,24 @@ import { buildBackendUrl, copyRequestHeaders } from "@/lib/server/backend";
  * zero.
  */
 
+/**
+ * Which surface the usage came from.
+ *
+ * Sent so the backend can pick the rate and the pot. It is a *statement* of where the
+ * generation happened, not a request to be billed a particular way: `billing-context.ts`
+ * reads the account's real entitlement and decides what follows.
+ */
+export type UsageScope = "kafelot" | "playground";
+
 export type ReportedUsage = {
 	inputTokens: number;
 	outputTokens: number;
 	costRon?: number;
 	balanceRon?: number;
 	allowanceRemainingRon?: number;
+	priceMode?: string;
+	billFrom?: string;
+	reason?: string;
 };
 
 /** Coerce the gateway's usage block, refusing anything non-numeric. */
@@ -56,9 +68,15 @@ export async function reportUsage(
 		requestId?: string | null;
 		/** The caller's fingerprint, for anonymous metering. */
 		fingerprint?: string | null;
+		/**
+		 * Which surface this is. Defaults to kafelot, so a caller that has not been
+		 * updated keeps its existing behaviour rather than silently changing price.
+		 */
+		scope?: UsageScope;
 	},
 ): Promise<ReportedUsage | null> {
 	const { modelKey, inputTokens, outputTokens, requestId, fingerprint } = params;
+	const scope: UsageScope = params.scope ?? "kafelot";
 	if (!modelKey) return null;
 	// Nothing was spent: a lexical fallback or a cancelled request.
 	if (!(inputTokens > 0) && !(outputTokens > 0)) return null;
@@ -84,6 +102,7 @@ export async function reportUsage(
 				modelKey,
 				inputTokens,
 				outputTokens,
+				scope,
 				// The gateway's request id, so a retried report is charged once.
 				requestId: requestId ?? undefined,
 			}),

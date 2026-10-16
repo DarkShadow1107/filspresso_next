@@ -47,11 +47,28 @@ const CHAT_MEMORY_LIMIT_BY_TIER: Record<string, number> = {
 /**
  * Plans that may send messages from the Spectre Playground.
  *
- * Enforced at `api/playground/chat` and `api/playground/prewarm`. Note the gate is
+ * Tiers that bundle Playground access. The Spectre subscription grants the same access
+ * independently, so this is a *sufficient* condition rather than the gate itself; the
+ * authoritative answer comes from `resolveSpectreAccess` on the server. Enforced at
+ * `api/playground/chat` and `api/playground/prewarm`. Note the gate is
  * about *sending*, not viewing: the page and its model lineup are public so a
  * prospective subscriber can see what exists.
  */
 export const PLAYGROUND_MINIMUM_TIER: readonly UserSubscriptionTier[] = ["max", "ultimate"];
+
+/**
+ * What the Spectre subscription costs, and what it does not include.
+ *
+ * Kept beside the tier table because the plans page renders both and they must agree. The
+ * backend serves the same figures from `/api/spectre/subscription`, which is the copy that
+ * decides a charge -- this one exists for the components that render before any fetch
+ * resolves.
+ */
+export const SPECTRE_SUBSCRIPTION = {
+	monthlyRon: 99.99,
+	annualRon: 1099.99,
+	includesUsage: false,
+} as const;
 
 /** Plans whose vision uploads may be auto-converted and upscaled. */
 export const AUTO_CONVERT_VISION_TIERS: readonly UserSubscriptionTier[] = [
@@ -228,7 +245,7 @@ export function featureLinesForTier(tier: UserSubscriptionTier | string): string
 		// The text-modality icon, so this reads the same as the MiniLM line rather than
 		// carrying its own glyph. It used to be a clapper board, which was the only
 		// benefit line with an icon unrelated to what the feature actually is.
-		lines.push(`${MODALITY_EMOJI.text} Spectre Playground access`);
+		lines.push(`${MODALITY_EMOJI.text} Spectre Playground included (or subscribe separately)`);
 	}
 	if (tierCanUseMoleculeHelper(value)) {
 		lines.push("\u{1F9EC} Molecule Helper (LFM 2.5 VL)");
