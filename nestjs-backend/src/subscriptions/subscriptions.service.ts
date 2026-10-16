@@ -130,6 +130,10 @@ export class SubscriptionsService {
       );
       await client.query("UPDATE accounts SET subscription = $1 WHERE id = $2", [tier.charAt(0).toUpperCase() + tier.slice(1), accountId]);
 
+      // A plan that already includes the Playground makes any Spectre subscription on this
+      // account redundant. Auto-renew stops; access continues to the end of the paid period.
+      await this.endRedundantAddon(accountId, tier);
+
       // The payment record goes in the same transaction as the subscription itself.
       //
       // Written separately it could drift: a crash between the two leaves a customer who has
@@ -183,6 +187,7 @@ export class SubscriptionsService {
         const renewalDate = calculateRenewalDate(billingCycle as string);
         const result = await client.query(`INSERT INTO user_subscriptions (account_id,subscription_tier,billing_cycle,price_ron,start_date,renewal_date,is_active,auto_renew,status,card_id) VALUES ($1,$2,$3,$4,$5,$6,TRUE,TRUE,'active',$7) RETURNING id`, [accountId, tier, billingCycle, price, startDate, renewalDate, useCardId]);
         await client.query("UPDATE accounts SET subscription=$1 WHERE id=$2", [tier.charAt(0).toUpperCase() + tier.slice(1), accountId]);
+        await this.endRedundantAddon(accountId, tier);
         await client.query("COMMIT");
         return { message: "Subscription upgraded successfully! Your new plan is now active.", isUpgrade: true, subscription: { id: Number(result.rows[0].id), tier, billing_cycle: billingCycle, price_ron: price, start_date: startDate, renewal_date: renewalDate, is_active: true, status: "active" } };
       }
@@ -193,6 +198,33 @@ export class SubscriptionsService {
       await client.query("COMMIT");
       return { message: `Plan change scheduled. Current plan continues until ${endDate}, then ${tier} will activate.`, isUpgrade: false, currentEnds: endDate, scheduled: { id: Number(result.rows[0].id), tier, billing_cycle: billingCycle, price_ron: price, start_date: endDate, renewal_date: renewalDate, status: "scheduled" } };
     } catch (e) { await client.query("ROLLBACK").catch(() => undefined); throw e; } finally { client.release(); }
+  }
+
+  /**
+   * Stop a Spectre subscription that this tier has made redundant.
+   *
+   * Best-effort on purpose. The entitlement check gives the tier precedence over a stale
+   * add-on row, so a failure here cannot cost anyone access -- it could only leave a customer
+   * being billed for something their plan covers, which is worth logging but not worth
+   * failing a successful upgrade over.
+   */
+  private async endRedundantAddon(accountId: number, tier: string): Promise<void> {
+    try {
+      const ended = await this.db.getPool().query(
+        `UPDATE account_addons SET auto_renew = FALSE, updated_at = NOW()
+          WHERE account_id = $1 AND addon_code = 'spectre' AND status = 'active'`,
+        [accountId],
+      );
+      if (ended.rowCount) {
+        console.warn(
+          `[subscriptions] stopped a redundant Spectre subscription on account ${accountId} after an upgrade to ${tier}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[subscriptions] could not stop a redundant Spectre subscription on account ${accountId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   async cancelSubscription(accountId: number) {

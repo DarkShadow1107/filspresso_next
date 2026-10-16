@@ -11,6 +11,12 @@ Covers the parts that are new and the parts that must *not* have changed:
 4. Kafelot is untouched: a paid tier still gets its discount there.
 5. Cancelling keeps access until the period ends, and never clobbers a paid-for wallet.
 6. Renewals advance the expiry and record exactly one payment.
+7. Max and Ultimate are refused the purchase, because their plan already includes the
+   Playground.
+8. Upgrading to Max hands the entitlement to the tier: the add-on keeps the access it was
+   paid for but stops auto-renewing, and a Max customer's usage comes out of their
+   allowance. That last one is the ordering bug -- the add-on used to be resolved first, so
+   a stale add-on turned a bundled plan into wallet-only billing.
 
 Every assertion is in terms of money and database state rather than HTTP status alone,
 because a 201 that charged the wrong pot looks identical to one that charged the right pot
@@ -300,6 +306,93 @@ def main():
                       json={"billingCycle": "monthly"})
     check("refused", r.status_code >= 400, f"HTTP {r.status_code}")
     check("and it says which card is missing", "CARD" in r.text.upper(), r.text[:110])
+
+    print("\n=== Max and Ultimate cannot buy it: their plan already includes it ===")
+    for tier in ("max", "ultimate"):
+        c, a, card_id, _ = session(tier=tier)
+        payments_before = int(psql(
+            f"SELECT count(*) FROM subscription_payments WHERE account_id = {a} AND scope = 'spectre';") or 0)
+        r = requests.post(f"{API}/api/spectre/subscribe", timeout=60,
+                          headers={"cookie": c, "origin": ORIGIN, "content-type": "application/json"},
+                          json={"billingCycle": "monthly"})
+        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        check(f"{tier}: the purchase is refused", r.status_code >= 400, f"HTTP {r.status_code}")
+        check(f"{tier}: and the refusal says it is already included",
+              body.get("error") == "ADDON_INCLUDED_IN_PLAN", str(body.get("error")))
+        check(f"{tier}: nothing was written",
+              int(psql(f"SELECT count(*) FROM account_addons WHERE account_id = {a};") or 0) == 0, "no addon row")
+        check(f"{tier}: and nothing was charged",
+              int(psql(f"SELECT count(*) FROM subscription_payments WHERE account_id = {a} AND scope = 'spectre';")
+                  or 0) == payments_before, "no spectre payment")
+
+    print("\n=== upgrading to Max: the tier wins, the add-on stops renewing, no refund ===")
+    up_cookie, up_account, up_card, _ = session(tier="free")
+    r = requests.post(f"{API}/api/spectre/subscribe", timeout=60,
+                      headers={"cookie": up_cookie, "origin": ORIGIN, "content-type": "application/json"},
+                      json={"billingCycle": "monthly"})
+    check("bought it on Free", r.status_code in (200, 201), f"HTTP {r.status_code}")
+
+    # A real upgrade, so the cancellation hook is what is under test rather than a row
+    # edited by hand.
+    #
+    # The account needs an active user_subscriptions row, and that row has to sit on a tier
+    # BELOW Max: changeSubscription decides upgrade vs. downgrade by comparing the target to
+    # the current subscription_tier, so a 'max' row would make this a scheduled no-op and
+    # never reach the hook at all.
+    psql(f"UPDATE accounts SET subscription = 'Basic' WHERE id = {up_account};")
+    psql(f"INSERT INTO user_subscriptions (account_id, subscription_tier, billing_cycle, price_ron, "
+         f"start_date, renewal_date, auto_renew, is_active, status, card_id) "
+         f"SELECT {up_account}, 'basic', 'monthly', 0, CURRENT_DATE, NOW() + interval '30 days', "
+         f"FALSE, TRUE, 'active', {up_card or 'NULL'};")
+
+    expires_before = psql(f"SELECT expires_at FROM account_addons WHERE account_id = {up_account};")
+    spectre_payments_before = int(psql(
+        f"SELECT count(*) FROM subscription_payments WHERE account_id = {up_account} AND scope = 'spectre';") or 0)
+
+    r = requests.post(f"{API}/api/subscriptions/change", timeout=60,
+                      headers={"cookie": up_cookie, "origin": ORIGIN, "content-type": "application/json"},
+                      json={"tier": "max", "billingCycle": "monthly", "cardId": int(up_card or 0) or None})
+    check("the upgrade succeeded", r.status_code in (200, 201), f"HTTP {r.status_code} {r.text[:110]}")
+    check("and it was an immediate upgrade, not a scheduled change",
+          (r.json() if r.status_code in (200, 201) else {}).get("isUpgrade") is True,
+          str((r.json() if r.status_code in (200, 201) else {}).get("message"))[:90])
+
+    access = web("GET", "/api/spectre/access", up_cookie).json()
+    check("the tier is credited, not the stale add-on", access.get("source") == "tier", str(access.get("source")))
+    check("the paid period was not cut short",
+          psql(f"SELECT expires_at FROM account_addons WHERE account_id = {up_account};") == expires_before,
+          "expires_at unchanged")
+    auto_renew = psql(f"SELECT auto_renew FROM account_addons WHERE account_id = {up_account};")
+    check("the add-on's auto-renew really was switched off", auto_renew == "f", f"auto_renew = {auto_renew}")
+
+    # The bug this ordering fixes: with the add-on checked first this resolves to
+    # wallet_only and the Max customer is billed for a plan they are already paying for.
+    r = requests.post(f"{API}/api/billing/usage", timeout=60,
+                      headers={"cookie": up_cookie, "origin": ORIGIN, "content-type": "application/json"},
+                      json={"modelKey": "lfm2_5_230m_q4_k_m", "inputTokens": 1_000_000, "outputTokens": 0,
+                            "scope": "playground", "requestId": f"spec-{secrets.token_hex(5)}"})
+    up = r.json() if r.status_code in (200, 201) else {}
+    check("Playground usage comes from the Max allowance, not the wallet",
+          float(up.get("allowanceAppliedRon", 0)) > 0,
+          f"allowance {up.get('allowanceAppliedRon')} (wallet {up.get('walletChargedRon')})")
+    bill_from = psql(f"SELECT bill_from FROM ai_token_usage WHERE account_id = {up_account} ORDER BY id DESC LIMIT 1;")
+    check("the row records the allowance as the pot", bill_from != "wallet_only", f"bill_from = {bill_from}")
+
+    # Deliberately no wallet-balance assertion here. Auto-refill tops a wallet up to its
+    # target on its own schedule, so a balance delta cannot be attributed to this change --
+    # the payment checks below are what actually prove nothing was refunded.
+    check("no refund was issued for the remaining period",
+          int(psql(f"SELECT count(*) FROM subscription_payments WHERE account_id = {up_account} AND scope = 'spectre';")
+              or 0) == spectre_payments_before, "still one spectre payment")
+    check("and no negative payment exists for it",
+          int(psql(f"SELECT count(*) FROM subscription_payments WHERE account_id = {up_account} "
+                   f"AND scope = 'spectre' AND amount_ron < 0;") or 0) == 0, "no negative payment")
+
+    print("\n=== a Max account cannot buy it again after cancelling the old one ===")
+    r = requests.post(f"{API}/api/spectre/subscribe", timeout=60,
+                      headers={"cookie": up_cookie, "origin": ORIGIN, "content-type": "application/json"},
+                      json={"billingCycle": "monthly"})
+    check("still refused", r.status_code >= 400, f"HTTP {r.status_code}")
 
     failed = [c for c in checks if not c[1]]
     print(f"\n  {len(checks) - len(failed)}/{len(checks)} checks passed")

@@ -13,6 +13,7 @@ exports.AddonsService = exports.SPECTRE_ADDON_SUMMARY = exports.SPECTRE_ADDON = 
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
 const charge_provider_1 = require("./charge-provider");
+const tier_allowance_1 = require("./tier-allowance");
 /**
  * Products sold alongside the subscription tiers.
  *
@@ -72,21 +73,30 @@ let AddonsService = class AddonsService {
         // cannot silently extend access, and the failure mode is a customer losing access
         // rather than gaining it.
         const addonValid = Boolean(row) && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now());
+        if (tierGrantsAccess) {
+            // The tier is checked FIRST, and that ordering is load-bearing rather than
+            // cosmetic.
+            //
+            // With the add-on checked first, a Max account holding a stale add-on resolved to
+            // `source: 'addon'`, and the billing policy treats that as "the subscription
+            // includes no usage" -- so the Playground charged their wallet and skipped the
+            // 100 RON allowance entirely. Making Max unable to buy the add-on is what creates
+            // the stale-add-on path in the first place, through upgrading, so the two changes
+            // have to ship together.
+            return {
+                hasAccess: true,
+                source: "tier",
+                expiresAt: null,
+                autoRenew: true,
+                canFundWallet: true,
+            };
+        }
         if (addonValid) {
             return {
                 hasAccess: true,
                 source: "addon",
                 expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
                 autoRenew: Boolean(row.auto_renew),
-                canFundWallet: true,
-            };
-        }
-        if (tierGrantsAccess) {
-            return {
-                hasAccess: true,
-                source: "tier",
-                expiresAt: null,
-                autoRenew: true,
                 canFundWallet: true,
             };
         }
@@ -113,9 +123,24 @@ let AddonsService = class AddonsService {
      * worst case is a charge that succeeded and a write that failed, which the provider
      * reference can repair. The reverse hands out access that nobody paid for.
      */
-    async purchase(accountId, billingCycle, cardId) {
+    async purchase(accountId, billingCycle, cardId, 
+    /** The account's tier, so the service can refuse without trusting the caller. */
+    tier) {
         if (!["monthly", "annual"].includes(billingCycle)) {
             throw new common_1.BadRequestException({ error: "INVALID_BILLING_CYCLE" });
+        }
+        // Max and Ultimate already include the Playground, so they may not buy it.
+        //
+        // Checked here rather than only in the UI: hiding the button is presentation, and a
+        // customer on a bundled plan who can still POST 99.99 RON a month for something their
+        // plan covers is being charged twice. The error names the plan that already has it,
+        // because "not allowed" with no reason is the least actionable thing we could say.
+        if ((0, tier_allowance_1.canUseSpectre)(tier)) {
+            throw new common_1.BadRequestException({
+                error: "ADDON_INCLUDED_IN_PLAN",
+                message: `The Spectre Playground is already included with your ${tier.toUpperCase()} plan, so there is nothing to add.`,
+                currentTier: String(tier).toLowerCase(),
+            });
         }
         if (cardId == null) {
             throw new common_1.BadRequestException({

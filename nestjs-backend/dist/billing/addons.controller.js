@@ -58,7 +58,8 @@ let AddonsController = class AddonsController {
         const accountId = accountIdOf(req);
         const cycle = String(body?.billingCycle || "monthly");
         const cardId = await this.billing.defaultCardId(accountId);
-        return this.addons.purchase(accountId, cycle === "annual" ? "annual" : "monthly", cardId);
+        const tier = await this.billing.resolveTierFor(accountId);
+        return this.addons.purchase(accountId, cycle === "annual" ? "annual" : "monthly", cardId, tier);
     }
     /** Cancels, keeping access until the period already paid for ends. */
     async cancel(req) {

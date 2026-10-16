@@ -147,6 +147,9 @@
 	grid-template-columns: repeat(3, minmax(min(20rem, 100%), 1fr));
 	gap: 2.25em;
 	justify-items: center;
+	/* Same reason as .overlay below: auto rows absorb leftover height, which would leave the
+	   real rows a little taller than the ghosts built from them. */
+	align-content: start;
 	max-width: 90rem;
 	margin: 0 auto;
 }
@@ -168,8 +171,21 @@
 	--flow-space: 0.5em;
 	--hsl: var(--hue), var(--saturation), var(--lightness);
 	position: relative;
+	/* border-box and min(28.75rem, 100%) are one fix, not two.
+
+	   These cards are grid items in tracks that shrink with the viewport, but 28.75rem is a
+	   fixed width. Below roughly a 1450px viewport a 3-column track is narrower than 28.75rem,
+	   so the card used to overflow its own track -- and because nothing here resets
+	   box-sizing, the 1.5em/2em padding sat *outside* that 28.75rem too, pushing it about 4em
+	   further out. The result was cards overlapping their neighbours and the right-hand column
+	   clipped off the page, which is most visible on the Spectre card: at two cards wide it is
+	   the widest element on the page, so it inherits the overflow in full.
+
+	   border-box makes 100% mean the card's outer width, so the track genuinely caps it. At
+	   viewports wide enough for 28.75rem to fit -- the common case -- this changes nothing. */
+	box-sizing: border-box;
 	width: 100%;
-	max-width: 28.75rem;
+	max-width: min(28.75rem, 100%);
 	min-height: 28rem;
 	padding: 1.5em 2em;
 	display: grid;
@@ -380,6 +396,18 @@
 	pointer-events: none;
 	user-select: none;
 	opacity: var(--opacity);
+	/* align-content: start keeps this grid's rows at their natural height.
+
+	   The overlay is inset:0 over the whole card group, so its box is as tall as the entire
+	   ladder -- including anything below it. Its rows are implicit `auto`, and `auto` rows
+	   absorb leftover space, so all of that slack was split evenly between the two ghost
+	   rows. Adding the Spectre card below the ladder gave the overlay a whole extra row's
+	   worth of slack (563px), so each ghost row grew by ~281px and the second row of ghosts
+	   slid down onto the Spectre card: a green "Get Started" glowing through it.
+
+	   With align-content: start the slack stays at the bottom, where it belongs, and the
+	   mirror lines up row for row no matter what sits under the ladder. */
+	align-content: start;
 	mask: radial-gradient(25rem 25rem at var(--x) var(--y), #000 3%, transparent 55%);
 	-webkit-mask: radial-gradient(25rem 25rem at var(--x) var(--y), #000 3%, transparent 55%);
 	transition:

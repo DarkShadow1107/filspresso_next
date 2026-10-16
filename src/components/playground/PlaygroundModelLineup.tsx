@@ -5,12 +5,10 @@ import {
 	MODEL_DESCRIPTION_BY_KEY,
 	MODEL_LABEL_BY_KEY,
 	MODEL_MODALITY_BY_KEY,
-	tierAllowsModel,
 	normalizeModelTier,
 	type ModelKey,
 	type UserSubscriptionTier,
 } from "@/lib/modelAccess";
-import { SPECTRE_SUBSCRIPTION } from "@/lib/entitlements";
 import BrandLiquidIcon from "@/icons/brand-liquid-icon";
 import LockIcon from "@/icons/lock-icon";
 
@@ -25,6 +23,11 @@ import LockIcon from "@/icons/lock-icon";
  * Prices are the public API list price, and they are labelled as such. The Playground
  * is list-priced for everyone -- a plan's allowance is not a discount on tokens -- so
  * these numbers are what a message actually costs regardless of who is paying.
+ *
+ * A row carries its price and, when the account cannot run it, a lock. That is the whole
+ * surface on purpose: the table's job is to mirror the entitlement matrix, and the moment
+ * it also quotes the subscription's price it becomes a second place for those terms to live
+ * and go stale. They belong on the plans page, which is the one place they are sold.
  */
 
 type Price = { inputPer1M: number; outputPer1M: number };
@@ -32,9 +35,10 @@ type Price = { inputPer1M: number; outputPer1M: number };
 /**
  * How this account reached the Playground, or that it has not.
  *
- * Deliberately not the tier. Access now comes from the Spectre subscription, from a
- * bundled Max/Ultimate tier, or from neither, and the copy below says which -- because
- * "locked" tells a customer nothing about what would unlock it.
+ * Deliberately not the tier. Access comes from the Spectre subscription, from a bundled
+ * Max/Ultimate tier, or from neither. Still needed even though the rows no longer spell it
+ * out: it decides whether a plan's allowance covers a model, which changes how a message is
+ * billed.
  */
 export type SpectreAccessState = "addon" | "tier" | "none";
 
@@ -58,19 +62,6 @@ const MODALITY_LABEL: Record<string, string> = {
 	vision: "Vision",
 	audio: "Audio",
 };
-
-const ron = (value: number) =>
-	`${Number(value || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RON`;
-
-/** The cheapest plan that unlocks a model, for tier-based accounts. */
-function lowestTierFor(modelKey: ModelKey): UserSubscriptionTier | null {
-	const tiers: UserSubscriptionTier[] = ["free", "basic", "plus", "pro", "max", "ultimate"];
-	// `none` is not a real plan, so it is never a starting point.
-	for (const tier of tiers) {
-		if (tierAllowsModel(tier, modelKey)) return tier;
-	}
-	return null;
-}
 
 export default function PlaygroundModelLineup({
 	tier,
@@ -126,40 +117,6 @@ export default function PlaygroundModelLineup({
 					const included = hasAccess;
 					const excludedFromAllowance =
 						access === "tier" && Boolean(ALLOWANCE_EXCLUDED[resolved]?.has(key));
-					const from = lowestTierFor(key);
-
-					let badge: React.ReactNode;
-					if (!included) {
-						badge = (
-							<span className="pgm-lineup-state pgm-lineup-state-out">
-								<LockIcon size={13} />
-								<span className="pgm-lineup-state__stack">
-									<b>Spectre subscription · {ron(SPECTRE_SUBSCRIPTION.monthlyRon)}/month</b>
-									<em>model usage paid separately at API prices</em>
-								</span>
-							</span>
-						);
-					} else if (access === "addon") {
-						// No allowance is included with the subscription, so saying "Included"
-						// here would be the one thing this table must never say.
-						badge = (
-							<span className="pgm-lineup-state pgm-lineup-state-in pgm-lineup-state--metered">
-								Pay per use
-							</span>
-						);
-					} else if (excludedFromAllowance) {
-						badge = (
-							<span className="pgm-lineup-state pgm-lineup-state-out pgm-lineup-state--metered">
-								Usage paid separately
-							</span>
-						);
-					} else {
-						badge = (
-							<span className="pgm-lineup-state pgm-lineup-state-in">
-								Included
-							</span>
-						);
-					}
 
 					return (
 						<li key={key} className="pgm-lineup-row" data-included={included}>
@@ -177,7 +134,18 @@ export default function PlaygroundModelLineup({
 								{prices[key] && (
 									<span
 										className="pgm-lineup-price"
-										title={`API list price: ${prices[key].inputPer1M.toFixed(2)} RON per 1M input tokens, ${prices[key].outputPer1M.toFixed(2)} RON per 1M output tokens. This is what a message costs in the Playground, for every plan.`}
+										title={
+											`API list price: ${prices[key].inputPer1M.toFixed(2)} RON per 1M input tokens, ` +
+											`${prices[key].outputPer1M.toFixed(2)} RON per 1M output tokens. This is what a message costs ` +
+											`in the Playground, for every plan.` +
+											// The one billing fact that is genuinely plan-specific, kept in the
+											// tooltip rather than on the row: the line-up carries no plan copy at
+											// all, so this is the only place a Max customer can find out that the
+											// 8B will not come out of their allowance.
+											(excludedFromAllowance
+												? " Your plan's allowance does not cover this model -- usage is billed to your wallet."
+												: "")
+										}
 									>
 										API price
 										<b>
@@ -185,33 +153,31 @@ export default function PlaygroundModelLineup({
 										</b>
 									</span>
 								)}
-								{badge}
+								{included ? null : (
+									// A lock and nothing else. This table used to spell out the
+									// subscription price and what usage would cost, which put the
+									// add-on's commercial terms in a component whose only job is to
+									// mirror the entitlement matrix -- two sources of truth for the same
+									// numbers, one of them a copy-paste away from going stale.
+									<span
+										className="pgm-lineup-state pgm-lineup-state-out"
+										title="Locked. Subscribe to the Spectre Playground to unlock every model here."
+										aria-label="Locked"
+									>
+										<LockIcon size={13} />
+									</span>
+								)}
 							</span>
 						</li>
 					);
 				})}
 			</ul>
 			<p className="pgm-lineup-foot">
-				{hasAccess ? (
-					access === "addon" ? (
-						<>
-							Your Spectre subscription covers access to this Playground. Every message is metered at
-							the API price shown above and billed to your wallet.
-						</>
-					) : (
-						<>
-							One model runs at a time on the Playground. Switching loads it first, and the
-							progress bar shows how long that takes. Your monthly allowance covers usage; the
-							LFM 2.5 8B on the Max plan is billed separately.
-						</>
-					)
-				) : (
-					<>
-						Subscribe to the Spectre Playground for {ron(SPECTRE_SUBSCRIPTION.monthlyRon)} per month,
-						or {ron(SPECTRE_SUBSCRIPTION.annualRon)} a year. Model usage is paid separately at API
-						prices and is not included in the subscription.
-					</>
-				)}
+				{/* Only the operational note. The subscription's price and what usage costs
+				    live on the plans page; repeating them here is how two pages end up
+				    quoting different numbers. */}
+				One model runs at a time on the Playground. Switching loads it first, and the progress bar
+				shows how long that takes.
 			</p>
 		</section>
 	);

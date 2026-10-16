@@ -67,10 +67,12 @@ export class AddonsController {
     const accountId = accountIdOf(req);
     const cycle = String(body?.billingCycle || "monthly");
     const cardId = await this.billing.defaultCardId(accountId);
+    const tier = await this.billing.resolveTierFor(accountId);
     return this.addons.purchase(
       accountId,
       cycle === "annual" ? "annual" : "monthly",
       cardId,
+      tier,
     );
   }
 

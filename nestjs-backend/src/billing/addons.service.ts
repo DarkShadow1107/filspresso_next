@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { ChargeProvider } from "./charge-provider";
+import { canUseSpectre } from "./tier-allowance";
 
 /**
  * Products sold alongside the subscription tiers.
@@ -84,21 +85,30 @@ export class AddonsService {
 		// rather than gaining it.
 		const addonValid = Boolean(row) && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now());
 
+		if (tierGrantsAccess) {
+			// The tier is checked FIRST, and that ordering is load-bearing rather than
+			// cosmetic.
+			//
+			// With the add-on checked first, a Max account holding a stale add-on resolved to
+			// `source: 'addon'`, and the billing policy treats that as "the subscription
+			// includes no usage" -- so the Playground charged their wallet and skipped the
+			// 100 RON allowance entirely. Making Max unable to buy the add-on is what creates
+			// the stale-add-on path in the first place, through upgrading, so the two changes
+			// have to ship together.
+			return {
+				hasAccess: true,
+				source: "tier",
+				expiresAt: null,
+				autoRenew: true,
+				canFundWallet: true,
+			};
+		}
 		if (addonValid) {
 			return {
 				hasAccess: true,
 				source: "addon",
 				expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
 				autoRenew: Boolean(row.auto_renew),
-				canFundWallet: true,
-			};
-		}
-		if (tierGrantsAccess) {
-			return {
-				hasAccess: true,
-				source: "tier",
-				expiresAt: null,
-				autoRenew: true,
 				canFundWallet: true,
 			};
 		}
@@ -134,10 +144,27 @@ export class AddonsService {
 		accountId: number,
 		billingCycle: "monthly" | "annual",
 		cardId: number | null,
+		/** The account's tier, so the service can refuse without trusting the caller. */
+		tier: string,
 	): Promise<{ addon: SpectreAccess; priceRon: number }> {
 		if (!["monthly", "annual"].includes(billingCycle)) {
 			throw new BadRequestException({ error: "INVALID_BILLING_CYCLE" });
 		}
+
+		// Max and Ultimate already include the Playground, so they may not buy it.
+		//
+		// Checked here rather than only in the UI: hiding the button is presentation, and a
+		// customer on a bundled plan who can still POST 99.99 RON a month for something their
+		// plan covers is being charged twice. The error names the plan that already has it,
+		// because "not allowed" with no reason is the least actionable thing we could say.
+		if (canUseSpectre(tier)) {
+			throw new BadRequestException({
+				error: "ADDON_INCLUDED_IN_PLAN",
+				message: `The Spectre Playground is already included with your ${tier.toUpperCase()} plan, so there is nothing to add.`,
+				currentTier: String(tier).toLowerCase(),
+			});
+		}
+
 		if (cardId == null) {
 			throw new BadRequestException({
 				error: "NO_DEFAULT_CARD",

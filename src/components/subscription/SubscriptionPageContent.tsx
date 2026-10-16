@@ -30,7 +30,7 @@ import {
 	PenIcon,
 } from "@/icons";
 
-import { normalizeModelTier } from "@/lib/modelAccess";
+import { ALL_TEXT_MODEL_KEYS, normalizeModelTier } from "@/lib/modelAccess";
 import { featureLinesForTier, modelAccessLinesForTier, SPECTRE_SUBSCRIPTION, tierCanUsePlayground } from "@/lib/entitlements";
 
 type CurrentSubscription = {
@@ -226,6 +226,58 @@ export default function SubscriptionPageContent() {
 	// Max and Ultimate bundle it, so offering them a paid add-on would be selling them
 	// something they already have.
 	const tierGrantsSpectre = tierCanUsePlayground(currentSubscription?.tier ?? null);
+
+	// HSL(180, 52%, 48%). Declared here as well as in CSS because the benefit icons take a
+	// hex colour prop and cannot read the custom property.
+	const SPECTRE_ACCENT = "#3ababa";
+
+	// The API price list the card shows.
+	//
+	// Only the text models, because those are the only ones the Playground offers: listing a
+	// vision or audio price on a card that cannot unlock it would be quoting for something
+	// the customer cannot buy.
+	//
+	// Left empty on failure, and the card says so. A placeholder row reading zero would be
+	// worse than no table: it reads as a price someone set.
+	const [spectrePrices, setSpectrePrices] = useState<
+		Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }>
+	>([]);
+
+	// The add-on's bullets, phrased so the card reads the same whether or not the
+	// account's plan already includes the Playground.
+	const spectreBenefits = [
+		{ text: "Full access to the Spectre Playground", note: false },
+		{ text: "Every model unlocked, including the LFM 2.5 8B", note: false },
+		{
+			text: "Model usage is billed separately at the API prices listed here, and is not included in this subscription",
+			note: true,
+		},
+		tierGrantsSpectre
+			? { text: "Already included with your plan", note: false }
+			: { text: "Available on any plan, including Free", note: false },
+	];
+
+	useEffect(() => {
+		let cancelled = false;
+		fetch(`${API_BASE}/api/billing/pricing?audience=api`, { credentials: "same-origin" as const })
+			.then((res) => (res.ok ? res.json() : null))
+			.then((body: { models?: Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }> } | null) => {
+				if (cancelled || !body?.models) return;
+				const order = ALL_TEXT_MODEL_KEYS as readonly string[];
+				const byKey = new Map(body.models.map((m) => [m.modelKey, m]));
+				setSpectrePrices(
+					order
+						.map((key) => byKey.get(key))
+						.filter((m): m is NonNullable<typeof m> => Boolean(m)),
+				);
+			})
+			.catch(() => {
+				// Silent: the card degrades to an explanation instead of a table.
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -799,51 +851,6 @@ export default function SubscriptionPageContent() {
 
 				<div className="cards">
 					<div className="cards_inner" ref={cardsInnerRef}>
-						{/* The Spectre Playground subscription.
-						    Rendered after the tier ladder, not inside it: it is a separate product a
-						    customer can hold alongside any plan, so putting it in the ladder would
-						    imply it replaces a tier. */}
-						<article className="cards_card card card-spectre" key="spectre-addon">
-							<span className="card_kicker">Add-on subscription</span>
-							<h2 className="card_heading">Spectre Playground</h2>
-							<p className="card_price">
-								{billingPeriod === "yearly"
-									? formatRon(spectreAddon.yearlyRon)
-									: formatRon(spectreAddon.monthlyRon)}
-							</p>
-							{billingPeriod === "yearly" ? (
-								<p className="card_price-breakdown">
-									{formatRon(spectreAddon.yearlyRon / 12)}/month
-								</p>
-							) : null}
-							<ul className="card_bullets" style={{ padding: 0, listStyle: "none" }}>
-								<li>Full access to the Spectre Playground</li>
-								<li>Every model unlocked, including the LFM 2.5 8B</li>
-								<li className="card_bullet--note">
-									Model usage is billed separately at API list prices and is not included in
-									this subscription
-								</li>
-								<li>
-									{tierGrantsSpectre
-										? "Already included with your current plan"
-										: "Available on any plan, including Free"}
-								</li>
-							</ul>
-							<div className="card_actions">
-								{tierGrantsSpectre ? (
-									<span className="card_current">Included in your plan</span>
-								) : (
-									<button
-										className="card_cta"
-										onClick={() => void subscribeToSpectre()}
-										disabled={spectreBusy}
-									>
-										{spectreBusy ? "Subscribing…" : "Subscribe"}
-									</button>
-								)}
-							</div>
-						</article>
-
 						{plans.map((plan) => {
 							const currentPrice = billingPeriod === "yearly" ? plan.priceRonYearly : plan.priceRon;
 							const savings = billingPeriod === "yearly" ? calculateSavings(plan.priceRon, plan.priceRonYearly) : 0;
@@ -987,6 +994,93 @@ if (benefit.toLowerCase().includes("lfm") || benefit.toLowerCase().includes("qwe
 								</article>
 							);
 						})}
+					{/* The Spectre Playground subscription, rendered LAST and spanning two card
+					    widths. It is a separate product rather than a rung on the ladder, so it reads
+					    after the plans instead of inside them.
+
+					    `cards_card` opts it into the same ghost-card hover as the six tiers, which
+					    makes it a seventh item in both grids. Its ghost needs matching geometry and
+					    a teal of its own -- see .overlay .card:nth-child(7) in spectre-addon.css.
+
+					    No `card-${color}` class: the teal comes from that stylesheet, not from a
+					    position in the ladder. */}
+					<article className="cards_card card card-spectre" key="spectre-addon">
+						<div className="card-spectre__terms">
+							<span className="card_kicker">Add-on subscription</span>
+							<h2 className="card_heading">Spectre Playground</h2>
+							<p className="card_price">
+								{billingPeriod === "yearly"
+									? formatRon(spectreAddon.yearlyRon)
+									: formatRon(spectreAddon.monthlyRon)}
+							</p>
+							{billingPeriod === "yearly" ? (
+								<p className="card_price-breakdown">
+									{formatRon(spectreAddon.yearlyRon / 12)}/month
+								</p>
+							) : null}
+							<ul className="card-spectre__benefits">
+								{spectreBenefits.map((benefit) => (
+									<li key={benefit.text}>
+										<span className="card-spectre__benefit-icon">
+											<SimpleCheckedIcon size={16} color={SPECTRE_ACCENT} />
+										</span>
+										<span
+											className={
+												benefit.note ? "card-spectre__benefit-text card-spectre__benefit-text--note" : "card-spectre__benefit-text"
+											}
+										>
+											{benefit.text}
+										</span>
+									</li>
+								))}
+							</ul>
+							<div className="card-spectre__actions">
+								{tierGrantsSpectre ? (
+									<span className="card_current">
+										Included with your {currentSubscription?.tier.toUpperCase()} plan
+									</span>
+								) : (
+									<button
+										type="button"
+										className="card_cta cta"
+										onClick={() => void subscribeToSpectre()}
+										disabled={spectreBusy}
+									>
+										{spectreBusy ? "Subscribing…" : "Unlock the Playground"}
+									</button>
+								)}
+							</div>
+						</div>
+						<div className="card-spectre__prices">
+							<h3 className="card-spectre__prices-title">What usage costs</h3>
+							{spectrePrices.length === 0 ? (
+								<p className="card-spectre__prices-note">
+									Prices load with the page. Nothing is charged until you send a message,
+									and then it comes out of your funded wallet.
+								</p>
+							) : (
+								<table className="card-spectre__prices-table">
+									<thead>
+										<tr>
+											<th scope="col">Model</th>
+											<th scope="col">In / 1M</th>
+											<th scope="col">Out / 1M</th>
+										</tr>
+									</thead>
+									<tbody>
+										{spectrePrices.map((row) => (
+											<tr key={row.modelKey}>
+												<td>{row.label}</td>
+												<td>{row.inputPer1M.toFixed(2)}</td>
+												<td>{row.outputPer1M.toFixed(2)}</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							)}
+						</div>
+					</article>
+
 					</div>
 					<div className="overlay cards_inner" ref={overlayRef} aria-hidden="true" />
 				</div>

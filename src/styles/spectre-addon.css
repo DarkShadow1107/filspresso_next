@@ -1,0 +1,242 @@
+/* ---------------------------------------------------------------------------
+   The Spectre add-on card.
+
+   Teal, and the width of two plan cards, centred on a row of its own.
+
+   Why a class rather than a seventh nth-child rule: the six tier colours are keyed on
+   position, so appending a card cannot disturb them -- but it also means the add-on's
+   colour would otherwise follow whatever card happened to occupy its slot. A class is
+   bound to the card itself.
+
+   Teal sits at hue 180, forty degrees from Basic's green at 140, at lower saturation so
+   the two stay distinguishable side by side.
+   --------------------------------------------------------------------------- */
+.subscription-page .cards_inner > .card-spectre {
+	--hue: 180;
+	--saturation: 52%;
+	--lightness: 48%;
+
+	/* A 2-wide item cannot be centred in a 3-column grid -- it can only start at column 1
+	   or column 2 -- so it spans the row and is centred by its own max-width.
+
+	   That max-width is two grid tracks plus the gap between them, derived from the row
+	   itself rather than written in rem. The tier cards use a rem max-width, which is only
+	   equal to a fixed pixel width for a 16px root; under any browser zoom the rem value
+	   scales and a card sized "2 x 28.75rem" outgrows the row it is meant to span and gets
+	   clipped at the viewport edge. Deriving it from the row keeps the card exactly two
+	   cards wide at every zoom level.
+
+	   border-box is load-bearing for the same reason: the base .card rule sets no
+	   box-sizing and nothing here resets it globally, so these cards are content-box and
+	   the 1.5em/2em padding is added *outside* the width computed above. */
+	box-sizing: border-box;
+	grid-column: 1 / -1;
+	justify-self: center;
+	width: 100%;
+	max-width: calc((100% - 2 * 2.25em) * 2 / 3 + 2.25em);
+	min-height: 0;
+	/* The tier cards stack in a single column of rows. The extra width here is earned by a
+	   two-column interior, so this override is the point of the card. */
+	grid-template-rows: none;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 2em;
+	align-items: start;
+	border-color: hsl(var(--hsl) / 0.35);
+}
+
+/* Two tracks is the whole row once the grid is two columns, so the cap stops mattering. */
+@media (max-width: 1280px) {
+	.subscription-page .cards_inner > .card-spectre {
+		max-width: 100%;
+	}
+}
+
+@media (max-width: 900px) {
+	.subscription-page .cards_inner > .card-spectre {
+		/* One column of content before the card itself stops fitting two widths. */
+		grid-template-columns: minmax(0, 1fr);
+		gap: 1.5em;
+	}
+}
+
+/* ---------------------------------------------------------------------------
+   The add-on's ghost card.
+
+   Same hover as the six tiers: a coloured twin revealed by the shared cursor mask. The
+   tier ghosts are all one column wide because they all sit in the ladder; this one has to
+   span the row and centre, exactly like the card it stands in for, or it would line up
+   with the wrong column.
+
+   Width and height are assigned by the script from the real card's measured box, so only
+   the placement and the colour are set here. box-sizing matters for those measurements to
+   be the height that gets applied -- the base .card is content-box, and the script hands
+   the ghost a border-box number.
+
+   align-content on .overlay and .cards_inner (in subscription.css) is the other half: with
+   implicit auto rows absorbing leftover height, adding a row below the ladder pushed this
+   ghost's row down onto the card.
+   --------------------------------------------------------------------------- */
+.subscription-page .overlay .card {
+	box-sizing: border-box;
+	/* The overlay element carries the cards_inner class as well as overlay, so every ghost
+	   also matches `.cards_inner > .card` and inherits the real cards' max-width and
+	   min-height. That silently capped this ghost at 28.75rem (460px) while the card it
+	   stands in for is two columns wide -- 911px -- so it lined up with the wrong column and
+	   showed up as a half-width card.
+
+	   Every ghost's box is assigned by the script from the card it mirrors, so neither bound
+	   applies to it: a ghost that cannot be as wide as its source is not a mirror. */
+	max-width: none;
+	min-height: 0;
+}
+
+.subscription-page .overlay .card:nth-child(7) {
+	/* Spectre -- Teal. Matches .card-spectre, so hovering does not change hue. */
+	--hsl: 180, 52%, 48%;
+	grid-column: 1 / -1;
+	justify-self: center;
+	/* Same two-column interior as the card, so the button lands where the real button is
+	   instead of stretched across a card two columns wide. */
+	grid-template-rows: 1fr;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	column-gap: 2em;
+}
+
+.subscription-page .overlay .card:nth-child(7) .cta {
+	grid-column: 1;
+	grid-row: 1;
+	align-self: end;
+	width: 100%;
+}
+
+.card-spectre .card_kicker {
+	display: block;
+	margin-bottom: 0.5em;
+	font-size: 0.7rem;
+	text-transform: uppercase;
+	letter-spacing: 0.12em;
+	color: hsl(var(--hsl));
+}
+
+.card-spectre__benefits {
+	list-style: none;
+	padding: 0;
+	margin: 1.25em 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75em;
+}
+
+.card-spectre__benefits li {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.card-spectre__benefit-icon {
+	display: flex;
+	flex: 0 0 16px;
+	align-items: center;
+	justify-content: center;
+}
+
+.card-spectre__benefit-text {
+	font-size: 0.95rem;
+	line-height: 1.4;
+	color: rgba(221, 221, 221, 0.9);
+}
+
+/* The one bullet that says the price is not part of what was bought. Dimmed rather than
+   appended as a footnote, because a customer skimming the card will read the bullets and
+   stop -- so the caveat has to live where they will actually see it. */
+.card-spectre__benefit-text--note {
+	font-size: 0.85rem;
+	color: rgba(255, 255, 255, 0.55);
+}
+
+.card-spectre__actions {
+	display: flex;
+	align-items: center;
+	min-height: 3.25rem;
+}
+
+.card_current {
+	font-size: 0.9rem;
+	color: rgba(255, 255, 255, 0.6);
+}
+
+.card-spectre__prices {
+	border-left: 1px solid rgba(255, 255, 255, 0.1);
+	padding-left: 2em;
+	min-width: 0;
+}
+
+.card-spectre__prices-title {
+	margin: 0 0 0.85em 0;
+	font-size: 0.7rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.12em;
+	color: rgba(255, 255, 255, 0.45);
+}
+
+.card-spectre__prices-note {
+	margin: 0;
+	font-size: 0.85rem;
+	line-height: 1.55;
+	color: rgba(255, 255, 255, 0.5);
+}
+
+.card-spectre__prices-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.82rem;
+	/* Fixed layout so the two numeric tracks hold the same width on every row and the
+	   decimals line up as columns, instead of each cell choosing its own. */
+	table-layout: fixed;
+}
+
+.card-spectre__prices-table th {
+	padding: 0 0.5em 0.55em 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	font-size: 0.68rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: rgba(255, 255, 255, 0.4);
+	text-align: left;
+}
+
+/* The model name is the only variable-length column; the price columns are fixed. */
+.card-spectre__prices-table th:not(:first-child),
+.card-spectre__prices-table td:not(:first-child) {
+	width: 5.5em;
+	white-space: nowrap;
+}
+
+.card-spectre__prices-table th:not(:first-child),
+.card-spectre__prices-table td:not(:first-child) {
+	text-align: right;
+}
+
+.card-spectre__prices-table td {
+	padding: 0.5em 0.5em 0.5em 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+	color: rgba(255, 255, 255, 0.72);
+	/* Tabular figures, so the prices can be compared down the column at a glance -- which
+	   is the whole reason the table is on this card. */
+	font-variant-numeric: tabular-nums;
+}
+
+.card-spectre__prices-table tr:last-child td {
+	border-bottom: none;
+}
+
+@media (max-width: 900px) {
+	.card-spectre__prices {
+		border-left: none;
+		border-top: 1px solid rgba(255, 255, 255, 0.1);
+		padding-left: 0;
+		padding-top: 1.5em;
+	}
+}
