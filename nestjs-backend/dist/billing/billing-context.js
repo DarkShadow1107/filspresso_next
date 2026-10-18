@@ -39,6 +39,14 @@ function resolveBillingContext(params) {
             reason: "included",
         };
     }
+    // Everything below this point is the Spectre product, reached by two surfaces: the web
+    // Playground and the desktop client. `desktop` is named separately so that adding a
+    // fourth scope cannot silently inherit playground pricing -- a new scope falling through
+    // to these branches is exactly the sort of quiet default that bills a customer for the
+    // wrong thing.
+    if (scope !== "playground" && scope !== "desktop") {
+        throw new Error(`unhandled billing scope: ${String(scope)}`);
+    }
     if (accessSource === "addon") {
         // The subscription buys the product; usage is a separate meter. No allowance is
         // touched even when the account has one from its tier.

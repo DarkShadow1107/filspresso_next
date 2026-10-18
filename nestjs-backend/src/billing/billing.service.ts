@@ -172,7 +172,7 @@ export class BillingService {
 		 * billing policy rather than by the caller -- see billing-context.ts. Defaults to
 		 * 'kafelot' so a caller that has not been updated keeps the historical behaviour.
 		 */
-		scope?: "kafelot" | "playground";
+		scope?: "kafelot" | "playground" | "desktop";
 		/** Which product granted Playground access; decides whether allowance may be drawn. */
 		accessSource?: "addon" | "tier" | null;
 	}): Promise<RecordUsageResult> {

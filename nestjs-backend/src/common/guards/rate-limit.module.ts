@@ -1,7 +1,8 @@
 import { Global, Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
-import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { ThrottlerModule } from "@nestjs/throttler";
+import { DesktopAwareThrottlerGuard } from "./desktop-aware-throttler.guard";
 import { ThrottlerStorageRedisService } from "@nest-lab/throttler-storage-redis";
 
 import { resolveRedisUrl } from "../utils/redis-url";
@@ -62,8 +63,11 @@ import {
 	],
 	providers: [
 		{
+			// Not ThrottlerGuard: this subclass keys the desktop auth routes per account and
+			// device instead of per IP, so a shared NAT does not share one login budget. See
+			// desktop-aware-throttler.guard.ts for why that matters.
 			provide: APP_GUARD,
-			useClass: ThrottlerGuard,
+			useClass: DesktopAwareThrottlerGuard,
 		},
 	],
 	exports: [ThrottlerModule],

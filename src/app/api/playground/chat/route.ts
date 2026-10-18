@@ -135,7 +135,17 @@ export async function POST(request: NextRequest) {
 	try {
 		upstream = await fetch(`${aiHost}/api/chat/stream`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "text/event-stream",
+				// The AI service guards its model routes with a shared secret when one is
+				// configured. Sent only if configured -- an empty header is not the same as no
+				// header to anything comparing them, and this caller has no reason to send a
+				// blank credential.
+				...(process.env.AI_SERVICE_KEY
+					? { "x-ai-service-key": process.env.AI_SERVICE_KEY }
+					: {}),
+			},
 			cache: "no-store",
 			body: JSON.stringify({
 				message,

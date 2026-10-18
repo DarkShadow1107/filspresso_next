@@ -395,7 +395,24 @@ The following UML set covers the full platform from code modules to runtime cont
 
 ### 2.4 Security UML
 
-#### Security trust-boundary map
+#### The AI service is not an open door
+
+`/api/chat`, `/api/chat/stream` and `/api/warmup` load a model and generate tokens. Two things
+keep them from being free inference for anything that can reach the service:
+
+- **The port is bound to loopback.** `AI_BIND_HOST` defaults to `127.0.0.1`, matching
+  `BACKEND_BIND_HOST`. The Next server runs on the host and still reaches
+  `localhost:5000`; nothing off the machine can. This used to publish on all interfaces.
+- **`AI_SERVICE_KEY` is required when set.** When the variable is present, the three routes
+  above answer only to requests carrying a matching `x-ai-service-key`, compared in constant
+  time. Set it in the `ai` container, in the backend (the desktop gateway calls it), and in
+  this process's environment (the Next route calls it directly).
+
+Generate one with `openssl rand -hex 32`. **Leaving it unset is not a safe default** — the
+service prints a boot warning to say so, and the only thing standing between an unset key and
+exposure is the loopback binding.
+
+## Security trust-boundary map
 
 ![Security Trust Boundary](docs/uml/security-trust-boundary.svg)
 
@@ -763,6 +780,7 @@ Outside Docker (host machine):
 | ------------------------------ | --------------------- | -------------------------------------------- |
 | NEXT_PUBLIC_API_URL            | http://localhost:4000 | Base URL used by frontend calls              |
 | PYTHON_AI_HOST                 | http://localhost:5000 | Next handler upstream for AI proxy           |
+| AI_SERVICE_KEY                  | (unset)               | Shared secret for the AI service's model routes |
 | NEXT_PUBLIC_AI_URL             | optional              | Alternate client AI URL if used              |
 | SERVICE_METRICS_STRICT_DB_ONLY | false                 | Controls strict mode in service health route |
 

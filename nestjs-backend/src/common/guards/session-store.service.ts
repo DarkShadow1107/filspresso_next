@@ -154,12 +154,38 @@ export class SessionStoreService implements OnModuleDestroy {
 			expiresAt: Date;
 			ipAddress: string | null;
 			userAgent: string | null;
+			/**
+			 * Device identity, for clients that keep one session for weeks.
+			 *
+			 * Optional on purpose: the web login path has no device to describe and should not
+			 * grow one. A row created without these is a browser session and stays
+			 * cookie-refreshed, which is the behaviour it already has.
+			 */
+			device?: {
+				id: string | null;
+				name: string | null;
+				platform: string | null;
+				appVersion: string | null;
+			} | null;
+			/** Opaque refresh credential, stored hashed. Web sessions pass null. */
+			refreshToken?: string | null;
+			refreshExpiresAt?: Date | null;
 		},
 	): Promise<number> {
+		const device = params.device ?? null;
+		const isDesktop = Boolean(device);
+		// A browser session has no refresh credential, so an unexpired row must still be
+		// allowed to be null in that column. Desktop rows are the opposite: a refresh token
+		// that is absent would leave the app unable to stay signed in, and is better to fail
+		// loudly at creation than silently at the first refresh.
+		const refreshHash = params.refreshToken ? hashSessionToken(params.refreshToken) : null;
+
 		const result = await client.query(
 			`INSERT INTO user_sessions
-			   (account_id, session_token_hash, expires_at, ip_address, user_agent)
-			 VALUES ($1, $2, $3, $4, $5)
+			   (account_id, session_token_hash, expires_at, ip_address, user_agent,
+			    device_id, device_name, platform, app_version, client_type,
+			    refresh_token_hash, refresh_expires_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			 RETURNING id`,
 			[
 				params.accountId,
@@ -167,6 +193,13 @@ export class SessionStoreService implements OnModuleDestroy {
 				params.expiresAt,
 				params.ipAddress,
 				params.userAgent,
+				device?.id ?? null,
+				device?.name ?? null,
+				device?.platform ?? null,
+				device?.appVersion ?? null,
+				isDesktop ? "desktop" : "web",
+				refreshHash,
+				params.refreshExpiresAt ?? null,
 			],
 		);
 		const sessionId = Number(result.rows[0]?.id ?? 0);

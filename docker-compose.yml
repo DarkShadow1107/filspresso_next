@@ -186,6 +186,29 @@ services:
             APPLE_OAUTH_CLIENT_SECRET: ${APPLE_OAUTH_CLIENT_SECRET:-}
             APPLE_OAUTH_REDIRECT_URI: ${APPLE_OAUTH_REDIRECT_URI:-}
             PYTHON_AI_HOST: http://ai:5000
+            # Presented by the desktop gateway on every call to the AI service.
+            AI_SERVICE_KEY: ${AI_SERVICE_KEY:-}
+            # The global ceiling, raised for local runs only.
+            #
+            # This is the dial that a full sweep actually exhausts: a dozen live suites making
+            # a few hundred calls each will pass 1200 requests inside a 15-minute window, and
+            # the failure that produces is an unexplained 429 partway through a suite. It is
+            # the *generic* runaway-client control, so raising it in development costs
+            # nothing that the per-route auth budgets are not already providing.
+            #
+            # The per-route auth limits are deliberately NOT raised here. They are keyed per IP
+            # and the check scripts supply a distinct x-forwarded-for each run, so they are not
+            # what a sweep exhausts -- and `test:live` proves the register limiter works by
+            # deliberately spending it. Loosening them would turn that assertion into a no-op.
+            API_RATE_LIMIT_MAX: ${DEV_RATE_LIMIT_GLOBAL_MAX:-100000}
+            API_RATE_LIMIT_WINDOW_MS: ${DEV_RATE_LIMIT_GLOBAL_WINDOW_MS:-900000}
+            # A moderate raise rather than none. The per-IP register budget of 5 per hour is
+            # exhausted by the proxy-path check in test:live, which by design cannot forge a
+            # forwarded address (that is what it verifies) and therefore shares this host's
+            # real address across runs. 60 leaves room for repeated local runs while still
+            # being low enough that the throttler check can spend it -- and that check derives
+            # its attempt count from the configured budget rather than assuming a literal.
+            RATE_LIMIT_POST_API_AUTH_REGISTER_LIMIT: ${DEV_RATE_LIMIT_REGISTER:-60}
             INVOICE_SERVICE_URL: http://invoice-java:8082
             GO_OPS_URL: http://go-ops:8083
             GO_OPS_API_KEY: ${GO_OPS_API_KEY:-filspresso-ops-key}
@@ -492,8 +515,15 @@ services:
             # bounds resident conformers rather than throughput.
             AI_MAX_CONCURRENCY_MOLECULE: ${AI_MAX_CONCURRENCY_MOLECULE:-2}
             AI_MOLECULE_QUEUE_WAIT_SECONDS: ${AI_MOLECULE_QUEUE_WAIT_SECONDS:-10}
+            # Shared secret for the model routes. Unset means open, which is why the service
+            # prints a warning on boot and why the port is bound to loopback by default.
+            AI_SERVICE_KEY: ${AI_SERVICE_KEY:-}
         ports:
-            - "5000:5000"
+            # Loopback only, like the backend. The Next server runs on the host in the
+            # current topology and still reaches this at localhost:5000, but nothing off the
+            # machine can. Publishing it on all interfaces meant any local process -- and, on a
+            # routable host, anything that could reach the port -- could generate unmetered.
+            - "${AI_BIND_HOST:-127.0.0.1}:5000:5000"
         volumes:
             # Persist generated user icons
             - ./public/images/icons:/app/public/images/icons

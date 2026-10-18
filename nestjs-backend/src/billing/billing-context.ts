@@ -71,7 +71,7 @@ export type BillingContext = {
  * includes no usage at all, whereas a bundled tier keeps its allowance.
  */
 export function resolveBillingContext(params: {
-	scope: "kafelot" | "playground";
+	scope: "kafelot" | "playground" | "desktop";
 	tier: string;
 	/** Which product granted Playground access. Null means the gate should have refused. */
 	accessSource: "addon" | "tier" | null;
@@ -88,6 +88,15 @@ export function resolveBillingContext(params: {
 			drewFromAllowance: false,
 			reason: "included",
 		};
+	}
+
+	// Everything below this point is the Spectre product, reached by two surfaces: the web
+	// Playground and the desktop client. `desktop` is named separately so that adding a
+	// fourth scope cannot silently inherit playground pricing -- a new scope falling through
+	// to these branches is exactly the sort of quiet default that bills a customer for the
+	// wrong thing.
+	if (scope !== "playground" && scope !== "desktop") {
+		throw new Error(`unhandled billing scope: ${String(scope)}`);
 	}
 
 	if (accessSource === "addon") {

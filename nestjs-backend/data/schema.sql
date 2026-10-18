@@ -160,12 +160,32 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     expires_at TIMESTAMP NOT NULL,
     ip_address VARCHAR(45),
     user_agent TEXT,
+    -- Device identity, for clients that hold one session for weeks rather than for a
+    -- browsing session. See data/migrations/2026-10-desktop-device.sql.
+    device_id VARCHAR(64),
+    device_name VARCHAR(120),
+    platform VARCHAR(32),
+    app_version VARCHAR(32),
+    client_type VARCHAR(20) NOT NULL DEFAULT 'web'
+                   CHECK (client_type IN ('web', 'desktop')),
+    -- A second credential on the same row, so a refresh rotates both at once. Null on
+    -- web rows, which refresh by cookie.
+    refresh_token_hash CHAR(64),
+    refresh_expires_at TIMESTAMP,
+    last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash ON user_sessions(session_token_hash);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_account ON user_sessions(account_id);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);
+
+-- Desktop client: revoking "this laptop" is a per-account device lookup.
+CREATE INDEX IF NOT EXISTS idx_user_sessions_account_device ON user_sessions(account_id, device_id) WHERE device_id IS NOT NULL;
+-- Every refresh rotates by looking the credential up. Partial, because most rows have none.
+CREATE INDEX IF NOT EXISTS idx_user_sessions_refresh_hash ON user_sessions(refresh_token_hash) WHERE refresh_token_hash IS NOT NULL;
+-- The sessions list renders freshest-first.
+CREATE INDEX IF NOT EXISTS idx_user_sessions_account_last_seen ON user_sessions(account_id, last_seen_at DESC);
 
 -- =============================================================================
 -- CART TABLE

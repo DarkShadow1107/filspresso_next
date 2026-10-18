@@ -11,6 +11,7 @@ const common_1 = require("@nestjs/common");
 const auth_controller_1 = require("./auth.controller");
 const auth_service_1 = require("./auth.service");
 const auth_complex_controller_1 = require("./auth-complex.controller");
+const desktop_auth_controller_1 = require("./desktop-auth.controller");
 const auth_complex_service_1 = require("./auth-complex.service");
 const database_module_1 = require("../database/database.module");
 let AuthModule = class AuthModule {
@@ -19,7 +20,7 @@ exports.AuthModule = AuthModule;
 exports.AuthModule = AuthModule = __decorate([
     (0, common_1.Module)({
         imports: [database_module_1.DatabaseModule],
-        controllers: [auth_controller_1.AuthController, auth_complex_controller_1.AuthComplexController],
+        controllers: [auth_controller_1.AuthController, auth_complex_controller_1.AuthComplexController, desktop_auth_controller_1.DesktopAuthController],
         providers: [auth_service_1.AuthService, auth_complex_service_1.AuthComplexService],
         exports: [auth_service_1.AuthService, auth_complex_service_1.AuthComplexService],
     })

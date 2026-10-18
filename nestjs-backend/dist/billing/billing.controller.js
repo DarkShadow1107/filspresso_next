@@ -218,10 +218,23 @@ let BillingController = class BillingController {
         // by reading the account's real entitlement. That split is deliberate -- letting the
         // caller choose its own pot would be the same mistake as accepting a client-supplied
         // cost_ron, one level up.
-        const scope = body?.scope === "playground" ? "playground" : "kafelot";
+        // An absent scope still means kafelot: the AI service has always reported without one,
+        // and changing that silently would reprice every existing surface.
+        //
+        // An unrecognised scope is a different matter and used to be coerced to kafelot too.
+        // That was a hole: kafelot is the *subscriber* rate, so any caller could name a scope
+        // this endpoint did not know and be billed at the discounted price for usage it should
+        // have paid list for. Unknown is now refused rather than guessed, which means a new
+        // client surface cannot be under-billed by a typo.
+        const KNOWN_SCOPES = ["kafelot", "playground", "desktop"];
+        const requestedScope = body?.scope == null || body?.scope === "" ? "kafelot" : String(body.scope);
+        if (!KNOWN_SCOPES.includes(requestedScope)) {
+            throw new common_1.BadRequestException({ error: "unknown scope", scope: requestedScope });
+        }
+        const scope = requestedScope;
         // Which product granted Playground access decides the pot. An add-on holder has no
         // included usage at all, even when their tier carries an allowance.
-        const accessSource = scope === "playground"
+        const accessSource = scope !== "kafelot"
             ? (await this.addons.resolveSpectreAccess(accountId, tier, (0, tier_allowance_1.canUseSpectre)(tier))).source
             : null;
         const context = (0, billing_context_1.resolveBillingContext)({ scope, tier, accessSource, modelKey });

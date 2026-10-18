@@ -11,6 +11,7 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const core_1 = require("@nestjs/core");
 const throttler_1 = require("@nestjs/throttler");
+const desktop_aware_throttler_guard_1 = require("./desktop-aware-throttler.guard");
 const throttler_storage_redis_1 = require("@nest-lab/throttler-storage-redis");
 const redis_url_1 = require("../utils/redis-url");
 const resilient_throttler_storage_1 = require("./resilient-throttler.storage");
@@ -68,8 +69,11 @@ exports.RateLimitModule = RateLimitModule = __decorate([
         ],
         providers: [
             {
+                // Not ThrottlerGuard: this subclass keys the desktop auth routes per account and
+                // device instead of per IP, so a shared NAT does not share one login budget. See
+                // desktop-aware-throttler.guard.ts for why that matters.
                 provide: core_1.APP_GUARD,
-                useClass: throttler_1.ThrottlerGuard,
+                useClass: desktop_aware_throttler_guard_1.DesktopAwareThrottlerGuard,
             },
         ],
         exports: [throttler_1.ThrottlerModule],

@@ -19,6 +19,7 @@ Modes for /api/chat:
 """
 
 import os
+import hmac
 import json
 import logging
 import base64
@@ -120,6 +121,57 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+# ---------------------------------------------------------------------------
+# Service-to-service authentication for the model routes.
+#
+# Why this exists. Everything above -- /api/chat, /api/chat/stream, /api/warmup --
+# loads a model and generates tokens, and none of them authenticated anybody. The service
+# was reachable on host port 5000, so anything running on the machine could generate for
+# free: unmetered, unentitled, and invisible to billing. That was survivable while the only
+# caller was this application's own Next server, and it stops being survivable the moment a
+# desktop client exists and someone points it at the cheapest address.
+#
+# The key is compared with hmac.compare_digest rather than ==. A byte-by-byte string
+# compare returns as soon as it finds a difference, which is a timing signal about how much
+# of a guessed key was correct.
+#
+# Opt-in by environment variable so that a developer with no shared secret set is not
+# locked out of their own machine -- and loud in the log when it is off, because "no key
+# configured" is the state in which this service is open.
+# ---------------------------------------------------------------------------
+AI_SERVICE_KEY = (os.environ.get("AI_SERVICE_KEY") or "").strip()
+AI_SERVICE_KEY_HEADER = "x-ai-service-key"
+# The routes that reach a model. Deliberately an allow-list of what needs the key rather than
+# a deny-list of what might: a new inference route added later must opt in by being listed,
+# not opt out by being forgotten.
+AI_PROTECTED_PATHS = frozenset({"/api/chat", "/api/chat/stream", "/api/warmup"})
+
+if not AI_SERVICE_KEY:
+    # Printed rather than logged through the logger, because this is read in container logs
+    # before the logging config is necessarily in place, and the message's whole job is to be
+    # impossible to miss.
+    print(
+        "[ai] WARNING: AI_SERVICE_KEY is not set. /api/chat, /api/chat/stream and "
+        "/api/warmup accept unauthenticated requests from anything that can reach this "
+        "port. Set AI_SERVICE_KEY before exposing the service on any interface other than "
+        "loopback.",
+        flush=True,
+    )
+
+
+@app.middleware("http")
+async def require_service_key(request: Request, call_next):
+    if AI_SERVICE_KEY and request.url.path in AI_PROTECTED_PATHS:
+        presented = str(request.headers.get(AI_SERVICE_KEY_HEADER) or "")
+        if not presented or not hmac.compare_digest(presented, AI_SERVICE_KEY):
+            return JSONResponse(
+                {"error": "service key required", "path": request.url.path},
+                status_code=401,
+            )
+    return await call_next(request)
+
 
 cors_origin_raw = os.getenv("CORS_ORIGIN", "http://localhost:3000")
 cors_origins = [origin.strip() for origin in cors_origin_raw.split(",") if origin.strip()]

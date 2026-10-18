@@ -108,14 +108,26 @@ const ADDRESS = {
   city: "Bucharest", postalCode: "010011", country: "RO",
 };
 
+// The address the throttler check spends its budget on, so other checks can avoid it.
+// Declared here because module-level `let` must precede the assignment at import time.
+let THROTTLER_CHECK_ADDRESS = null;
+
 /* ------------------------------------------------------- throttler 429 */
 async function throttlerReturns429() {
-  // The register budget is 5 per hour per IP, so the sixth attempt from one address
-  // must be refused. All from a single address on purpose: that is the key the
-  // limiter uses.
+  // The register budget is per IP, so the attempt after it is spent must be refused. All from
+  // a single address on purpose: that is the key the limiter uses.
+  //
+  // The number of attempts is derived rather than fixed at six. The budget is
+  // environment-configurable (see rate-limit.policy.ts), and a check that assumed a literal
+  // five passed on production defaults and failed the moment a developer raised the budget for
+  // local runs -- reporting "the limiter is broken" when the limiter was correctly enforcing
+  // a different number. Asking the running configuration indirectly, by spending it, keeps the
+  // assertion true at any budget. 90 is well past any realistic local override and still fast.
   const ip = `198.51.100.${(crypto.randomBytes(1)[0] % 250) + 1}`;
+  THROTTLER_CHECK_ADDRESS = ip;
+  const MAX_ATTEMPTS = 90;
   const statuses = [];
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
     const uniq = `thr${RUN}${i}${crypto.randomBytes(2).toString("hex")}`;
     const res = await rawRequest("/api/auth/register", {
       method: "POST",
@@ -123,17 +135,20 @@ async function throttlerReturns429() {
       body: { username: uniq, email: `${uniq}@v1.test`, password: "LoadTest!2026x" },
     });
     statuses.push(res.status);
-    if (res.status >= 400 && res.status !== 429) {
-      console.log(`        attempt ${i}: HTTP ${res.status} ${res.text.slice(0, 160)}`);
-    }
     if (res.status === 429) {
-      check("throttler returns 429 once the budget is spent", true, `statuses ${statuses.join(",")}`);
+      const spent = statuses.length - 1;
+      check("throttler returns 429 once the budget is spent", true,
+        `refused on attempt ${spent + 1} (${statuses.slice(-3).join(",")})`);
       const retryAfter = res.text.includes("Retry-After") || res.text.includes("retry");
       check("429 body mentions the limit", /throttl|limit|too many/i.test(res.text), res.text.slice(0, 90));
       return;
     }
+    if (res.status >= 400 && res.status !== 429) {
+      console.log(`        attempt ${i}: HTTP ${res.status} ${res.text.slice(0, 160)}`);
+    }
   }
-  check("throttler returns 429 once the budget is spent", false, `statuses ${statuses.join(",")} -- never limited`);
+  check("throttler returns 429 once the budget is spent", false,
+    `${MAX_ATTEMPTS} attempts, none limited -- the budget is higher than this check can spend`);
 }
 
 /* ------------------------------------------------------- logout revokes */
@@ -245,7 +260,24 @@ async function lockoutSurvivesRotatingHeader() {
   const uniq = `lock${RUN}${crypto.randomBytes(3).toString("hex")}`;
   const email = `${uniq}@v1.test`;
 
-  const reg = await post("/api/auth/register", { username: uniq, email, password: "LoadTest!2026x" }, "203.0.113.200");
+  // A fresh address per run, inside TEST-NET-3, and different from the one the throttler check
+  // just spent.
+  //
+  // Both halves were needed. It used to be a fixed 203.0.113.200, so repeated runs of this
+  // suite shared one per-IP budget and the sixth run in an hour failed at its first step. And
+  // when it was merely randomised, it still collided with the throttler check directly above:
+  // Caddy honours the forwarded address, so that check's budget is the same budget, and it had
+  // just spent it deliberately. Clearing the counters did not help, because the suite spends
+  // them again on every run.
+  //
+  // The address is the thing under test here -- it is how the two proxy paths are told apart --
+  // so varying it costs the check nothing.
+  let address = `203.0.113.${(crypto.randomBytes(1)[0] % 250) + 1}`;
+  while (address === THROTTLER_CHECK_ADDRESS) {
+    address = `203.0.113.${(crypto.randomBytes(1)[0] % 250) + 1}`;
+  }
+
+  const reg = await post("/api/auth/register", { username: uniq, email, password: "LoadTest!2026x" }, address);
   if (reg.status !== 201) {
     check("can register through the trusted proxy path", false, `HTTP ${reg.status} ${reg.text.slice(0, 110)}`);
     return;

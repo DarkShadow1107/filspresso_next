@@ -78,7 +78,21 @@ def session(tier="free", with_card=True, card_last_digit=None):
     card_id = ""
     if with_card:
         card_id = psql(f"SELECT id FROM user_cards WHERE account_id = {account} ORDER BY id DESC LIMIT 1;")
-        if card_last_digit is not None:
+        # The simulated provider declines on `card_id % 10 == 7` -- the *row id*, not the card
+        # number. So which card a suite ends up with depends on how many cards were inserted
+        # before it, and a suite that simply takes the newest card is at the mercy of the
+        # sequence position.
+        #
+        # That made this check fail whenever another suite ran first and shifted the ids, which
+        # is why it could pass standalone and fail in a batch with no code change in between.
+        # The default target is therefore "any id that is not 7", not "whatever comes next";
+        # an explicit card_last_digit still wins, because the declined path needs one.
+        target_digit = card_last_digit if card_last_digit is not None else None
+        while int(card_id) % 10 == 7 and target_digit is None:
+            psql(f"INSERT INTO user_cards (account_id, card_number_encrypted, card_expiry_encrypted, "
+                 f"card_holder, card_last_four, is_default) VALUES ({account}, 'f', 'f', 'T', '0000', FALSE);")
+            card_id = psql(f"SELECT id FROM user_cards WHERE account_id = {account} ORDER BY id DESC LIMIT 1;")
+        if target_digit is not None:
             while int(card_id) % 10 != card_last_digit:
                 psql(f"INSERT INTO user_cards (account_id, card_number_encrypted, card_expiry_encrypted, "
                      f"card_holder, card_last_four, is_default) VALUES ({account}, 'f', 'f', 'T', '0000', FALSE);")
