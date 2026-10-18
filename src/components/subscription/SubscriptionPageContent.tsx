@@ -432,6 +432,12 @@ export default function SubscriptionPageContent() {
 		return Math.round(savings); // Round to nearest integer
 	};
 
+	// The add-on's badge uses the ladder's own maths, so it says the same thing the other
+	// cards say for the same yearly switch. It reads 8%, against 40% on the plans: the
+	// add-on is priced close to twelve months rather than discounted like a tier, so
+	// borrowing the ladder's headline number would be a lie told by a shared constant.
+	const spectreSavings = calculateSavings(spectreAddon.monthlyRon, spectreAddon.yearlyRon);
+
 	// Handle plan selection with confirmation for changes
 	const handlePlanClick = (plan: (typeof plans)[number]) => {
 		const action = getPlanAction(plan);
@@ -1005,6 +1011,9 @@ if (benefit.toLowerCase().includes("lfm") || benefit.toLowerCase().includes("qwe
 					    No `card-${color}` class: the teal comes from that stylesheet, not from a
 					    position in the ladder. */}
 					<article className="cards_card card card-spectre" key="spectre-addon">
+						{billingPeriod === "yearly" && spectreSavings > 0 && (
+							<span className="card_savings-badge">Save {spectreSavings}%</span>
+						)}
 						<div className="card-spectre__terms">
 							<span className="card_kicker">Add-on subscription</span>
 							<h2 className="card_heading">Spectre Playground</h2>
@@ -1051,22 +1060,22 @@ if (benefit.toLowerCase().includes("lfm") || benefit.toLowerCase().includes("qwe
 								)}
 							</div>
 						</div>
-						<div className="card-spectre__prices">
-							<h3 className="card-spectre__prices-title">What usage costs</h3>
-							{spectrePrices.length === 0 ? (
-								<p className="card-spectre__prices-note">
-									Prices load with the page. Nothing is charged until you send a message,
-									and then it comes out of your funded wallet.
-								</p>
-							) : (
-								<table className="card-spectre__prices-table">
-									<thead>
-										<tr>
-											<th scope="col">Model</th>
-											<th scope="col">In / 1M</th>
-											<th scope="col">Out / 1M</th>
-										</tr>
-									</thead>
+<div className="card-spectre__prices">
+						<h3 className="card-spectre__prices-title">What usage costs per 1M tokens (RON)</h3>
+						{spectrePrices.length === 0 ? (
+							<p className="card-spectre__prices-note">
+								Prices load with the page. Nothing is charged until you send a message,
+								and then it comes out of your funded wallet.
+							</p>
+						) : (
+							<table className="card-spectre__prices-table">
+								<thead>
+									<tr>
+										<th scope="col">Model</th>
+										<th scope="col">Input</th>
+										<th scope="col">Output</th>
+									</tr>
+								</thead>
 									<tbody>
 										{spectrePrices.map((row) => (
 											<tr key={row.modelKey}>
