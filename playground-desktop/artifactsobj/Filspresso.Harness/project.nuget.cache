@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "q22bPvS+a3s=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Alexandru Gabriel\\Desktop\\GitHub\\filspresso_next\\playground-desktop\\src\\Filspresso.Harness\\Filspresso.Harness.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\system.text.json\\9.0.0\\system.text.json.9.0.0.nupkg.sha512",
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\microsoft.windows.sdk.net.ref\\10.0.19041.57\\microsoft.windows.sdk.net.ref.10.0.19041.57.nupkg.sha512"
+  ],
+  "logs": []
+}

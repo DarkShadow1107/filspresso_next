@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <RootNamespace>Filspresso.Harness</RootNamespace>
+    <AssemblyName>Filspresso.Harness</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Filspresso.Core\Filspresso.Core.csproj" />
+    <ProjectReference Include="..\Filspresso.Sandbox\Filspresso.Sandbox.csproj" />
+  </ItemGroup>
+
+</Project>

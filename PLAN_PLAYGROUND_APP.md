@@ -4,7 +4,15 @@ A Windows desktop client for the Spectre Playground: a coding harness with real
 sandboxing, gated behind a Spectre subscription, metered through the same wallet the
 web app uses.
 
-**Status:** Phase 0 **done**. Phases 1-5 are specified but not started.
+**Status:** Phase 0 **done**, Phase 1 **done** (scaffold, installer pipeline). Phases 2-5
+are specified but not started.
+
+Phase 1 delivered, in `playground-desktop/`:
+- .NET 9 solution: `Filspresso.Core` (API client, SSE reader, platform rules), `Filspresso.Harness`,
+  `Filspresso.Sandbox`, `Filspresso.App` (WinUI 3 unpackaged), 65 unit tests.
+- The WinUI app builds in Release, self-contained, so the MSI can ship the runtime.
+- A WiX v5 MSI builds from that output, with the **Pro-edition gate enforced at install time**.
+- GitHub Actions builds and tests it; the signing job runs when a certificate is configured.
 
 Phase 0 delivered:
 - `POST /api/auth/desktop/token` -- device grant, access + refresh in the body, no cookie,
@@ -32,42 +40,60 @@ end to end, including a real metered generation).
 | --- | --- |
 | Where models run | Hosted, via a **new backend gateway**. Not local, not hybrid. |
 | Credential | **Device grant** returning real access + refresh tokens in the response body. |
-| Packaging | **MSIX**, signed. Not MSI, not unpackaged. |
+| Packaging | **MSI** (WiX v5), signed. WinUI 3 **unpacked**. Not MSIX. |
 | Sandbox | **Hyper-V VM per session, Windows 10 Pro / 11 Pro only.** Windows Home is blocked. |
 | Sandbox control channel | **PowerShell Direct** over the hypervisor VMBus, with **no network adapter attached**. |
-| Signing | Signed with an EV code-signing certificate. |
+| Signing | Signed, EV preferred. MSI also gets an Authenticode signature. |
 | Distribution | Entitlement-gated download route; not a guessable static URL. |
 | Auth throttling | Re-keyed per account + device, with a separate refresh budget. |
 
 ---
 
+## Why MSI rather than MSIX
+
+MSIX was the earlier plan and was changed to **MSI** deliberately, for the install
+experience: MSIX will not install from an untrusted certificate at all. Sideloading an
+MSIX means either publishing to the Store or first importing the signing certificate into
+Trusted People on every target machine. A signed MSI installs like any other installer,
+which is what "the users can install it" has to mean in practice.
+
+It also **solves the Windows Home problem I said MSIX could not solve.** An MSIX manifest
+can constrain OS *version* but not *edition*, so under MSIX the Pro-only requirement was
+only enforceable by the app refusing to start and by a download route reporting its OS —
+both advisory. A WiX installer runs a custom action during install, where it can read the
+real edition from the registry and **fail the installation**. The requirement moves from "we
+ask nicely at first run" to "the installer refuses".
+
+What we give up, stated plainly:
+
+- **No auto-update.** MSIX has an update story; an MSI needs its own updater or the user
+  reinstalls. Worth building before release, not after.
+- **No per-user install by default.** MSI is per-machine, so it needs elevation. Per-user
+  MSI is possible but changes where files live and complicates the Windows App SDK runtime.
+- **Larger installer.** The Windows App SDK runtime ships with it rather than being
+  resolved by the package manager.
+- **Unsigned, SmartScreen still bites.** Signing removes the "unknown publisher" prompt;
+  SmartScreen reputation on a first-seen binary can still warn. MSIX had the same problem
+  and worse.
+
 ## Platform floor and what it costs us
 
 **Windows 10 Pro (1903 or later) and Windows 11 Pro only.** The Hyper-V role is not
-available on Home, and there is no supported fallback that keeps the isolation
-guarantee. Home users are blocked at download and at first run.
+available on Home, and there is no supported fallback that keeps the isolation guarantee.
 
-This is a deliberate trade: it costs us every Home user, and in exchange the sandbox is
-a real VM with no network path to the host. I think that is the right way round — a
-coding agent that executes generated code is the single worst thing to run with weak
-isolation, and "works on Home with a weaker sandbox" is how that guarantee quietly
-erodes.
+This is a deliberate trade: it costs us every Home user, and in exchange the sandbox is a
+real VM with no network path to the host. A coding agent that executes generated code is
+the single worst thing to run with weak isolation, and "works on Home with a weaker
+sandbox" is how that guarantee quietly erodes.
 
-**Honest limitation:** an MSIX manifest cannot express a Pro-edition requirement. MSIX
-can constrain OS *version* (`TargetDeviceFamily`), not edition. So the edition gate has
-to be enforced in two other places, and neither is a security boundary on its own:
+Enforcement is layered, and the installer is the only real boundary:
 
-1. **App self-check at first run** — the app reads the edition and refuses to start.
-   Defeats the honest user; a determined user can patch it out.
-2. **Download route** — the client reports its OS, the server refuses. Spoofable, and
-   treated only as a courtesy that saves a wasted download.
-
-If we want a genuine install-time block, the only honest option is a **WiX Burn
-bootstrapper** that checks the edition and then installs the MSIX. That is a real
-decision with a real cost — a bootstrapper is its own install surface, its own
-trust prompt, and it is *not* MSIX. My recommendation: ship the MSIX plus the
-app-side check, and treat the Home block as "not supported, and it will tell you so"
-rather than pretending to be an enforcement boundary.
+1. **Installer custom action (the boundary).** Reads the edition from the registry and
+   fails the install on Home. Not bypassable by a user who did not patch the MSI.
+2. **App self-check at first run.** Belt and braces, and it covers an install that was
+   sideloaded or copied rather than installed.
+3. **Download route.** The client reports its OS and the server refuses. Spoofable, so it
+   is only a courtesy that saves someone a wasted download — never treated as a control.
 
 ---
 
@@ -173,22 +199,40 @@ loopback or require a service key, before any release.
 
 ---
 
-## Phase 1 — Solution scaffold
+## Phase 1 — Solution scaffold (done)
 
 ```
 playground-desktop/
   global.json, Directory.Build.props, Filspresso.Desktop.sln
-  src/Filspresso.App/              WinUI 3, packaged for MSIX
-  src/Filspresso.Core/             API client, auth, entitlement, model catalogue
-  src/Filspresso.Harness/          agent loop, tool protocol, transcripts
-  src/Filspresso.Sandbox.HyperV/   VM lifecycle, PowerShell Direct
-  src/Filspresso.Sandbox.Shared/   the sandbox contract both backends satisfy
-  packaging/                       AppxManifest, signing, MSIX pipeline
+  src/Filspresso.Core/      API client, auth, entitlement, SSE reader, platform rules
+  src/Filspresso.Harness/   agent loop and its contracts
+  src/Filspresso.Sandbox/   what a sandbox must guarantee, independent of implementation
+  src/Filspresso.App/       WinUI 3, unpackaged
+  installer/                WiX v5, edition gate, licence
+  tests/Filspresso.Core.Tests/
 ```
 
-This is the first .NET artifact in the repository. There is no `global.json`,
-`Directory.Build.props` or NuGet config to inherit, and CI currently builds only
-security policies.
+This is the first .NET artifact in the repository.
+
+**One build constraint worth recording before anyone loses an hour to it:** the WinUI
+application cannot be built with `dotnet build`. The Windows App SDK's PRI generation targets
+are not in the .NET CLI's copy of MSBuild and the build fails with `MSB4062`. It requires
+MSBuild from Visual Studio. `Core`, `Sandbox` and `Harness` build normally with the CLI. The
+CI workflow encodes this. It is also why the app sits in its own solution
+(`Filspresso.App.sln`): `dotnet build` at the root has to keep working, and putting the app in the
+main solution makes it fail for everyone.
+
+Two deliberate choices about where the rules live:
+
+- **The platform rule is in `Core`, not in the installer.** `PlatformRequirementCheck` is unit
+  tested and both sides ask it. The installer cannot call into managed code before it has
+  installed a runtime, so it enumerates the same editions in its condition — and
+  `InstallerContractTests` reads the `.wxs` and fails the build if the two lists disagree.
+  Duplication pinned by a test, rather than two copies nobody compares.
+- **The SSE reader is hand-written.** A frame can straddle two network reads, and a reader
+  that discards the trailing fragment drops the `done` frame carrying the token counts —
+  a completed generation nobody is charged for. The web route documents having exactly this
+  bug's shape.
 
 ---
 
@@ -241,13 +285,13 @@ headless scripting API, and its network model is not something we control per se
 
 ## Phase 5 — Packaging, signing, gated download
 
-- **MSIX** built by GitHub Actions on `windows-latest` (MSIX is buildable headless; the
-  WinUI unpackaged/XAML-compiler toolchain is far happier on Windows than in
-  cross-platform containers).
-- **Signed.** An MSIX will not install without a certificate the machine trusts. This
-  requires an **EV code-signing certificate**; I cannot issue one, and a self-signed
-  cert only produces an installer SmartScreen actively warns about. The pipeline is
-  built to take a `.pfx` from a secret; the certificate has to be purchased.
+- **MSI** built by GitHub Actions on `windows-latest`, which is required: the WinUI XAML
+  compiler and the Windows App SDK are Windows-only and do not build in a Linux container.
+- **Signed.** The MSI is Authenticode-signed, which removes the "unknown publisher"
+  prompt that makes an installer look malicious. A **purchased code-signing certificate**
+  is still required — I cannot issue one, and a self-signed certificate produces an
+  installer SmartScreen actively warns about. The pipeline takes a `.pfx` from a secret.
+  EV is worth it for reputation, OV works functionally.
 - **Gated download**: a Next route verifies Spectre entitlement, then redirects to a
   short-lived signed URL. The package is never at a guessable path and never in the repo.
 
@@ -257,8 +301,8 @@ headless scripting API, and its network model is not something we control per se
 
 - **Home users cannot use the app at all.** Deliberate, but it is a real revenue and
   support cost.
-- **EV certificate cost and renewal** are ongoing, and the signing step blocks release
-  without one.
+- **Code-signing certificate cost and renewal** are ongoing, and the signing step blocks a
+  clean first install without one.
 - **Login throttling** is keyed per account + device after 0.4; a per-IP ceiling remains
   as a second layer.
 - **No payment provider is wired.** "Can pay" currently means "has money in the

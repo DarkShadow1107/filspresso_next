@@ -1,0 +1,55 @@
+<Project>
+
+  <!--
+    One place for the settings every project in the solution shares.
+
+    This is the first .NET code in the repository, so there is nothing to inherit and every
+    default here is a choice someone had to make. The ones worth arguing about:
+
+      - TreatWarningsAsErrors. A warning nobody can ship is a warning nobody reads. It also
+        means a new SDK version cannot quietly introduce a build break.
+      - Nullable enable. The single highest-value switch in modern C#. It costs a little
+        verbosity and removes a whole class of "it was null" defect at runtime.
+      - ImplicitUsings off. It is convenient, but it hides what a file actually depends on,
+        and a file that opens a socket should say so.
+      - Deterministic builds. Two builds of the same commit produce the same bytes, which is
+        what makes an Authenticode signature meaningful and a symbol file worth shipping.
+  -->
+
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Product>Filspresso Playground</Product>
+    <Company>Filspresso</Company>
+    <Copyright>Copyright (c) Filspresso</Copyright>
+    <!--
+      The version is stamped from git when CI builds, so an installer can be traced back to
+      the commit that produced it. Locally it falls back to 0.1.0 rather than to the empty
+      string, because Windows Installer rejects a version with no third field.
+    -->
+    <Version Condition="'$(GIT_COMMIT)' != ''">0.1.0+$(GIT_COMMIT.Substring(0, 8))</Version>
+    <Version Condition="'$(GIT_COMMIT)' == ''">0.1.0</Version>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      One output tree for every project, so `dotnet clean` at the solution root removes
+      everything and nothing is left behind in per-project bin/obj directories.
+
+      The trailing backslash is load-bearing: MSBuild does not insert a separator, and without
+      it the paths become "artifactsbin" and "artifactsobj", which silently works and quietly
+      litters the repository.
+    -->
+    <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts\</ArtifactsPath>
+    <BaseOutputPath>$(ArtifactsPath)bin\$(MSBuildProjectName)\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(ArtifactsPath)obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,12 @@
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsbin\Filspresso.Core\release\Filspresso.Core.deps.json
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsbin\Filspresso.Core\release\Filspresso.Core.dll
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsbin\Filspresso.Core\release\Filspresso.Core.pdb
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Core\release\Filspresso.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Core\release\Filspresso.Core.AssemblyInfoInputs.cache
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Core\release\Filspresso.Core.AssemblyInfo.cs
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Core\release\Filspresso.Core.csproj.CoreCompileInputs.cache
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Core\release\Filspresso.Core.sourcelink.json
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Core\release\Filspresso.Core.dll
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Core\release\refint\Filspresso.Core.dll
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Core\release\Filspresso.Core.pdb
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Core\release\ref\Filspresso.Core.dll

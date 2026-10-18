@@ -1,0 +1,14 @@
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsbin\Filspresso.Sandbox\debug\Filspresso.Sandbox.deps.json
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsbin\Filspresso.Sandbox\debug\Filspresso.Sandbox.dll
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsbin\Filspresso.Sandbox\debug\Filspresso.Sandbox.pdb
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\Filspresso.Sandbox.csproj.AssemblyReference.cache
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\Filspresso.Sandbox.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\Filspresso.Sandbox.AssemblyInfoInputs.cache
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\Filspresso.Sandbox.AssemblyInfo.cs
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\Filspresso.Sandbox.csproj.CoreCompileInputs.cache
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\Filspresso.Sandbox.sourcelink.json
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\Filspres.88C4F2D4.Up2Date
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\Filspresso.Sandbox.dll
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\refint\Filspresso.Sandbox.dll
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\Filspresso.Sandbox.pdb
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Sandbox\debug\ref\Filspresso.Sandbox.dll

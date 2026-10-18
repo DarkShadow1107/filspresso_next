@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WinUI 3, UNPACKED.
+
+    Unpacked rather than packaged because the deliverable is an MSI, not an MSIX. The two
+    differ in ways that matter here:
+
+      - An MSIX will not install from an untrusted certificate at all; sideloading means
+        publishing to the Store or importing the signing certificate onto every target
+        machine. An MSI installs like any other installer, which is what "users can install
+        it" has to mean.
+      - Unpacking is also what lets the MSI enforce the Pro-edition requirement during
+        installation. An MSIX manifest can constrain OS version but not edition, so under
+        MSIX the requirement would only be advisory. See installer/Filspresso.Installer.wxs
+        and PlatformRequirementCheck, which holds the rule both sides ask.
+
+    The Windows App SDK runtime is deployed alongside by the MSI rather than resolved by the
+    package manager, which makes the installer larger and is the price of not being MSIX.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Filspresso.App</RootNamespace>
+    <AssemblyName>Filspresso.Playground</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Unpacked: no package identity, which is the whole point. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+
+    <!-- WinUI's XAML compiler and the app's generated code both treat warnings as their own. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250228001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Filspresso.Core\Filspresso.Core.csproj" />
+    <ProjectReference Include="..\Filspresso.Harness\Filspresso.Harness.csproj" />
+    <ProjectReference Include="..\Filspresso.Sandbox\Filspresso.Sandbox.csproj" />
+  </ItemGroup>
+
+</Project>

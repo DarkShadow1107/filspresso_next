@@ -1,0 +1,24 @@
+# Build output.
+#
+# The solution redirects bin/ and obj/ into artifacts/ (see Directory.Build.props), so the
+# per-project directories below are belt and braces for anything that bypasses that.
+
+[Bb]in/
+[Oo]bj/
+artifacts/
+*.user
+*.suo
+.vs/
+
+# The installer build tree. Regenerated on every build, never committed, and it contains the
+# compiled MSI -- a binary artefact that has no business in version control, and one that would
+# make a diff unreviewable.
+installer/build/
+installer/obj/
+*.wixobj/
+*.wixpdb
+
+# NuGet
+packages.lock.json is intentionally NOT ignored: this solution restores pinned versions so a
+# build in six months produces the same binaries. An unlocked restore is how a Windows App SDK
+# update lands silently and changes the output.

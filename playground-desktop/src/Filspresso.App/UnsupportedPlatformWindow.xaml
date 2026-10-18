@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Filspresso.App.UnsupportedPlatformWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Shown when the installer was bypassed and the application starts on an edition whose
+        sandbox cannot work. It exists to explain, not to apologise: the user needs to know
+        which editions are supported and why this one is not, because "it just says no" is the
+        version of this that gets filed as a bug.
+    -->
+    <Grid Padding="32" RowDefinitions="Auto,Auto,Auto" MaxWidth="720" HorizontalAlignment="Left">
+        <TextBlock
+            Text="This Windows edition is not supported"
+            Style="{StaticResource TitleTextBlockStyle}"
+            TextWrapping="Wrap" />
+
+        <TextBlock
+            x:Name="Reason"
+            Grid.Row="1"
+            Margin="0,16,0,0"
+            TextWrapping="Wrap"
+            Style="{StaticResource BodyTextBlockStyle}" />
+
+        <TextBlock
+            Grid.Row="2"
+            Margin="0,16,0,0"
+            TextWrapping="Wrap"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            Style="{StaticResource CaptionTextBlockStyle}"
+            Text="The Playground runs the code it generates inside a Hyper-V virtual machine, with no network connection to your computer. Windows Home does not include Hyper-V, so that boundary cannot be provided there." />
+    </Grid>
+</Window>

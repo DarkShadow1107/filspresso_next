@@ -1,0 +1,14 @@
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\Filspresso.Harness.csproj.AssemblyReference.cache
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\Filspresso.Harness.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\Filspresso.Harness.AssemblyInfoInputs.cache
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\Filspresso.Harness.AssemblyInfo.cs
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\Filspresso.Harness.csproj.CoreCompileInputs.cache
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\Filspresso.Harness.sourcelink.json
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsbin\Filspresso.Harness\debug\Filspresso.Harness.deps.json
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsbin\Filspresso.Harness\debug\Filspresso.Harness.dll
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsbin\Filspresso.Harness\debug\Filspresso.Harness.pdb
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\Filspres.964FB0BC.Up2Date
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\Filspresso.Harness.dll
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\refint\Filspresso.Harness.dll
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\Filspresso.Harness.pdb
+C:\Users\Alexandru Gabriel\Desktop\GitHub\filspresso_next\playground-desktop\artifactsobj\Filspresso.Harness\debug\ref\Filspresso.Harness.dll

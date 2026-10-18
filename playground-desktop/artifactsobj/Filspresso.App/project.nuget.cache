@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "dgSpecHash": "ixuO66NG4Bs=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Alexandru Gabriel\\Desktop\\GitHub\\filspresso_next\\playground-desktop\\src\\Filspresso.App\\Filspresso.App.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\microsoft.web.webview2\\1.0.2651.64\\microsoft.web.webview2.1.0.2651.64.nupkg.sha512",
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\microsoft.windows.sdk.buildtools\\10.0.26100.1742\\microsoft.windows.sdk.buildtools.10.0.26100.1742.nupkg.sha512",
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\microsoft.windowsappsdk\\1.6.250228001\\microsoft.windowsappsdk.1.6.250228001.nupkg.sha512",
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\system.text.json\\9.0.0\\system.text.json.9.0.0.nupkg.sha512",
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\9.0.18\\microsoft.netcore.app.runtime.win-x64.9.0.18.nupkg.sha512",
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\9.0.18\\microsoft.windowsdesktop.app.runtime.win-x64.9.0.18.nupkg.sha512",
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\9.0.18\\microsoft.aspnetcore.app.runtime.win-x64.9.0.18.nupkg.sha512",
+    "C:\\Users\\Alexandru Gabriel\\.nuget\\packages\\microsoft.windows.sdk.net.ref\\10.0.19041.57\\microsoft.windows.sdk.net.ref.10.0.19041.57.nupkg.sha512"
+  ],
+  "logs": []
+}

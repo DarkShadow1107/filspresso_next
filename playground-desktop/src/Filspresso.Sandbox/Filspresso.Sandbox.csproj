@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <RootNamespace>Filspresso.Sandbox</RootNamespace>
+    <AssemblyName>Filspresso.Sandbox</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Filspresso.Core\Filspresso.Core.csproj" />
+  </ItemGroup>
+
+</Project>

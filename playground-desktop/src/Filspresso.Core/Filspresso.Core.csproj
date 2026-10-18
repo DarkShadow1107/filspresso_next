@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <RootNamespace>Filspresso.Core</RootNamespace>
+    <AssemblyName>Filspresso.Core</AssemblyName>
+    <!--
+      Not a Windows UI project. It targets the Windows TFM only because the credential vault
+      uses DPAPI and the sandbox needs Windows APIs; it has no WinUI dependency, so it stays
+      unit-testable on any machine.
+    -->
+    <UseWindowsForms>false</UseWindowsForms>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Frame classification and status mapping are internal because they are implementation
+      detail, but they are exactly where a bug would be invisible from outside: a frame
+      mistaken for another is a generation that streams wrong or a charge that lands in the
+      wrong place. Tested from here rather than made public.
+    -->
+    <InternalsVisibleTo Include="Filspresso.Core.Tests" />
+  </ItemGroup>
+
+</Project>

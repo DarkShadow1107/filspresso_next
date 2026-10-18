@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The Filspresso Playground installer.
+
+  Two things about this file are deliberate and are the reason the product is an MSI rather
+  than an MSIX:
+
+    1. THE EDITION GATE IS HERE, AND IT IS REAL.
+       An MSIX manifest can constrain the OS *version* but not the *edition*, so under MSIX the
+       "Windows 10/11 Pro only" requirement was advisory — checked by the app at first run and
+       by a download route that reports its own OS, both of which are bypassable. A WiX custom
+       action runs during installation with the machine's real registry in front of it, and
+       fails the install. That moves the requirement from "we ask nicely" to "it does not
+       install".
+
+    2. UNPACKED, NOT MSIX.
+       An MSIX refuses to install from an untrusted certificate at all; sideloading means
+       importing the signing certificate onto every target machine first. An MSI installs the
+       way users expect, which is the entire point.
+
+  The rule itself is not written here. It lives in Filspresso.Core's
+  PlatformRequirementCheck and is unit tested; this action asks the same decision the
+  application asks, so the installer and the app cannot drift into disagreeing about which
+  editions are supported. Duplicating the rule in C# here would guarantee they eventually do.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="Filspresso Playground"
+           Manufacturer="Filspresso"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="6F2C1A9E-4B7D-4E52-9C31-8D0A5E7B1F44"
+           Scope="perMachine"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Filspresso Playground is already installed. Remove it before installing this one." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!--
+      No separate version Launch here. There was one, checking VersionNT against 603, and it
+      was removed: it was redundant with the build check in the edition gate below, and two
+      launch conditions failing on the same machine produce two different explanations for one
+      problem. The gate tests FILSPRESSO_BUILD, which is the real build number, where VersionNT
+      saturates at 603 for anything modern and so could not actually distinguish 19041 from
+      26100.
+    -->
+
+    <!--
+      Per-user install would avoid UAC, and was rejected. The Windows App SDK runtime and the
+      Hyper-V PowerShell modules are machine-wide, so a per-user install would put application
+      files somewhere the runtime installer and the upgrade path do not expect. One elevation
+      prompt at install is cheaper than a layout that fights its own uninstaller.
+    -->
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Filspresso Playground" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ShortcutsFolder" Name="Filspresso Playground" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="LocalAppDataFolder" />
+
+    <!-- ==================================================================
+         The edition gate.
+
+         Evaluated during InstallExecute — after the file copy has been planned, before it is
+         committed — so a refusal leaves the machine untouched.
+
+         The edition list below is a duplicate of the rule in Filspresso.Core's
+         PlatformRequirementCheck, which is the copy the application uses at runtime and the
+         copy that is unit tested. Duplicating it here is not ideal, so it is *pinned*: the
+         installer contract test reads this file and fails if the two disagree. That is the same
+         arrangement used for the Playground's model catalogue, and it is better than the
+         alternative — a native or .NET custom action that calls into Core, which would make
+         the installer depend on a managed runtime before it has installed anything.
+
+         An absent EditionID falls through to InstallationType, where "Client" is the
+         consumer SKU and cannot be promoted to Pro. A machine that reports neither is refused.
+         ================================================================== -->
+    <Property Id="FILSPRESSO_EDITION">
+      <RegistrySearch Id="FindEdition"
+                      Root="HKLM"
+                      Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+                      Name="EditionID"
+                      Type="raw" />
+    </Property>
+
+    <Property Id="FILSPRESSO_INSTALLTYPE">
+      <RegistrySearch Id="FindInstallType"
+                      Root="HKLM"
+                      Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+                      Name="InstallationType"
+                      Type="raw" />
+    </Property>
+
+    <Property Id="FILSPRESSO_BUILD">
+      <RegistrySearch Id="FindBuild"
+                      Root="HKLM"
+                      Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+                      Name="CurrentBuildNumber"
+                      Type="raw" />
+    </Property>
+
+    <!--
+      Every edition that carries the Hyper-V role, spelled out. MSI has no way to test "is
+      this one of a set" without enumerating it, so this list is the rule.
+
+      `Core` is included because some Pro machines report it instead of `Professional`, and
+      refusing those would be a false negative on hardware that is perfectly capable.
+
+      `Client` appears only in the InstallationType fallback. It is the consumer SKU and has no
+      Hyper-V role, so it is listed to be *refused* by omission — it is not in the accepted
+      set, and the fallback branch exists only to give the message something to show.
+    -->
+    <Launch
+        Condition="Installed OR ((FILSPRESSO_BUILD &gt;= 19041) AND ((FILSPRESSO_EDITION = &quot;Professional&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalEducation&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalWorkstation&quot;) OR (FILSPRESSO_EDITION = &quot;Enterprise&quot;) OR (FILSPRESSO_EDITION = &quot;EnterpriseS&quot;) OR (FILSPRESSO_EDITION = &quot;Education&quot;) OR (FILSPRESSO_EDITION = &quot;IoTEnterprise&quot;) OR (FILSPRESSO_EDITION = &quot;Core&quot;)))"
+        Message="Filspresso Playground needs Windows 10 Pro or Windows 11 Pro.&#13;&#10;&#13;&#10;This machine reports the [FILSPRESSO_EDITION] edition, build [FILSPRESSO_BUILD].&#13;&#10;&#13;&#10;The Playground runs the code it generates inside a Hyper-V virtual machine with no network connection to your computer. Windows Home does not include Hyper-V, so that boundary cannot be provided there." />
+
+    <!--
+      The same rule again, in the execute sequence, and it is not redundant.
+
+      A Launch condition raises a dialog. Under /quiet there is no dialog, and a silent install
+      that skipped the edition check entirely would be exactly the bypass this product must not
+      have. This one has no UI and always fires.
+    -->
+    <InstallExecuteSequence>
+      <Condition Sequence="4999" Condition="Installed OR ((FILSPRESSO_BUILD &gt;= 19041) AND ((FILSPRESSO_EDITION = &quot;Professional&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalEducation&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalWorkstation&quot;) OR (FILSPRESSO_EDITION = &quot;Enterprise&quot;) OR (FILSPRESSO_EDITION = &quot;EnterpriseS&quot;) OR (FILSPRESSO_EDITION = &quot;Education&quot;) OR (FILSPRESSO_EDITION = &quot;IoTEnterprise&quot;) OR (FILSPRESSO_EDITION = &quot;Core&quot;)))" />
+    </InstallExecuteSequence>
+
+    <Feature Id="Main" Title="Filspresso Playground" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentGroupRef Id="Shortcuts" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_FeatureTree" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer/License.rtf" />
+
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.AppPublishDir)\**" />
+    </ComponentGroup>
+
+    <ComponentGroup Id="Shortcuts" Directory="ShortcutsFolder">
+      <Component Id="AppShortcutComponent" Guid="2A6B9F41-77C3-4E58-9E1D-0F5B3C8A7D22">
+        <Shortcut Id="AppShortcut"
+                  Name="Filspresso Playground"
+                  Description="A coding agent with every Filspresso model, sandboxed in a Hyper-V virtual machine."
+                  Target="[INSTALLFOLDER]Filspresso.Playground.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveShortcutsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\Filspresso\Playground"
+                       Name="Installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

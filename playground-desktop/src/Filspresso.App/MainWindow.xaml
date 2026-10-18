@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Filspresso.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!--
+        The shell. Navigation, not content.
+
+        Phase 1 stops here on purpose: the login and connect screen is Phase 2, and writing a
+        placeholder that looks like it works would be worse than an honest empty shell. What is
+        here is the frame those screens go into, and the entitlement banner, which is the one
+        piece of state every screen depends on.
+    -->
+    <Grid x:Name="Root" RowDefinitions="Auto,*,Auto">
+
+        <Grid Padding="24,16" ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2">
+                <TextBlock Text="Filspresso Playground" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock
+                    x:Name="Subtitle"
+                    Text="Not signed in"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+            <Button Grid.Column="1" x:Name="AccountButton" Content="Account" Click="OnAccountClick" />
+        </Grid>
+
+        <NavigationView x:Name="Nav" Grid.Row="1" PaneDisplayMode="LeftCompact" IsBackButtonVisible="Collapsed">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Session" Icon="" IsSelected="True" />
+                <NavigationViewItem Content="Models" Icon="" />
+                <NavigationViewItem Content="Sandbox" Icon="" />
+            </NavigationView.MenuItems>
+            <Frame x:Name="ContentFrame" />
+        </NavigationView>
+
+        <InfoBar
+            x:Name="EntitlementBar"
+            Grid.Row="2"
+            Margin="24,8,24,16"
+            IsOpen="False"
+            IsClosable="True"
+            Severity="Informational" />
+
+    </Grid>
+</Window>
