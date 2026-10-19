@@ -15,7 +15,7 @@
         here is the frame those screens go into, and the entitlement banner, which is the one
         piece of state every screen depends on.
     -->
-    <Grid x:Name="Root" RowDefinitions="Auto,*,Auto">
+    <Grid x:Name="Root" RowDefinitions="Auto,*,Auto" Loaded="OnLoaded">
 
         <Grid Padding="24,16" ColumnDefinitions="*,Auto">
             <StackPanel Spacing="2">

@@ -4,8 +4,12 @@ A Windows desktop client for the Spectre Playground: a coding harness with real
 sandboxing, gated behind a Spectre subscription, metered through the same wallet the
 web app uses.
 
-**Status:** Phase 0 **done**, Phase 1 **done** (scaffold, installer pipeline). Phases 2-5
-are specified but not started.
+**Status:** Phases 0, 1 and 2 **done**. Phases 3-5 are specified but not started.
+
+Phase 2 delivered: a dedicated sign-in and connect screen, MFA in the same flow, DPAPI-backed
+credential storage in Windows Credential Manager, a session manager that refreshes before expiry
+and is single-flight, and an account panel showing tier, access and expiry, allowance, wallet
+and whether anything can actually be sent.
 
 Phase 1 delivered, in `playground-desktop/`:
 - .NET 9 solution: `Filspresso.Core` (API client, SSE reader, platform rules), `Filspresso.Harness`,
@@ -236,15 +240,35 @@ Two deliberate choices about where the rules live:
 
 ---
 
-## Phase 2 — Login and account screen
+## Phase 2 — Login and account screen (done)
 
-Dedicated sign-in screen: password, MFA challenge, then an account panel showing tier,
-Spectre status and expiry, allowance remaining, wallet balance. Tokens in Windows
-Credential Manager (DPAPI), never a file. `GET /api/auth/sessions` must show these as
-named devices so a user can revoke one.
+Dedicated sign-in screen: password, MFA challenge, then an account panel showing tier, access
+and expiry, allowance, wallet, and a plain statement of whether anything can be sent.
 
-Wallet funding is not in the app: `POST /api/billing/fund` requires a default card the
-desktop app cannot hold. It deep-links to the web account page instead.
+Four decisions worth recording, because each was the obvious alternative:
+
+- **Tokens go in Windows Credential Manager under DPAPI, never a file.** An access token plus a
+  month-long refresh token in a JSON file under %AppData% is readable by every process running
+  as the user. DPAPI at `CurrentUser` scope binds the blob to one user on one machine, which is
+  exactly the lifetime the token should have.
+- **Refresh is single-flight.** The app polls entitlement after every generation and on window
+  focus, so several callers can want a token at once. The server *rotates* the refresh token on
+  every use and treats a replay as theft, deleting the session — so two concurrent refreshes is
+  not untidy, it is the event that signs the customer out and invalidates their device. There is
+  a test that runs three concurrent callers and asserts exactly one refresh happened.
+- **Refresh happens a minute before expiry, not at it.** Refreshing at expiry leaves no room:
+  the refresh request races the token it is replacing, and one slow response turns a valid
+  request into a 401.
+- **Signing out is local only.** The session stays valid on the server until it expires or is
+  revoked from the account page. A user on a shared machine should not be able to revoke a
+  session they do not own by signing out of someone else's.
+
+The account panel reports plan, allowance and wallet separately, never as one balance. They are
+not interchangeable — the allowance resets monthly, the wallet does not, and the product charges
+from whichever can pay, so a single figure cannot be acted on.
+
+Wallet funding is still not in the app: `POST /api/billing/fund` needs a default card the
+desktop app cannot hold. It deep-links to the web account page.
 
 ---
 

@@ -64,7 +64,12 @@ public sealed record DesktopGrantResult(
 /// would put the application on the wrong side of that guard.
 /// </para>
 /// </remarks>
-public sealed class DesktopApiClient : IDisposable
+// Not sealed, and the two credential methods are virtual, so tests can substitute a client
+// whose responses the test controls the timing of. The behaviour worth testing here -- two
+// callers refreshing at once, a slow refresh -- cannot be expressed without that, and a
+// mocking framework would hide the very thing under test by wrapping the call instead of
+// replacing it.
+public class DesktopApiClient : IDisposable
 {
     private readonly HttpClient _http;
     private readonly bool _ownsClient;
@@ -82,7 +87,7 @@ public sealed class DesktopApiClient : IDisposable
     /// <summary>
     /// Exchanges a password for tokens, or returns an MFA challenge when one is required.
     /// </summary>
-    public async Task<DesktopGrantResult> GrantAsync(
+    public virtual async Task<DesktopGrantResult> GrantAsync(
         string email,
         string password,
         string deviceId,
@@ -162,7 +167,7 @@ public sealed class DesktopApiClient : IDisposable
         return new DesktopGrantResult(ApiResult<DesktopTokenResponse>.Success(token), null);
     }
 
-    public async Task<ApiResult<DesktopTokenResponse>> RefreshAsync(
+    public virtual async Task<ApiResult<DesktopTokenResponse>> RefreshAsync(
         string refreshToken,
         CancellationToken cancellationToken = default)
     {
