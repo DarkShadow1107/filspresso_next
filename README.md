@@ -418,19 +418,22 @@ The Spectre Playground desktop client can search the web. The search runs on the
 in the client's sandbox, because the sandbox is a Hyper-V virtual machine with no network
 adapter at all -- that is what stops generated code from reaching the network.
 
-Two providers, chosen by configuration:
+**Scrapling, DuckDuckGo and Google.** The scraping is done in the Python service
+(`models/websearch.py`), because Scrapling is a Python library and because its adaptive
+element selection is the part worth having: when a provider changes a class name, the selector
+is re-resolved against the page instead of silently matching nothing. The base install of
+Scrapling is used, not `scrapling[fetchers]`, because the fetchers extra pulls in Playwright
+and downloads Chromium -- about 260 MB of packages plus a browser, in a slim image, for
+something that only ever needs to speak HTTP.
 
-- **`BRAVE_SEARCH_API_KEY` set** -- Brave's search API. A documented rate limit, a stable
-  response shape, no scraping of somebody else's HTML. **This is what a production deployment
-  should use.**
-- **unset** -- DuckDuckGo's HTML endpoint, so the feature works out of the box without anyone
-  buying a key. It rate-limits after a couple of requests from one address, and when it does the
-  tool says so rather than returning an empty list, which would tell the model the web had
-  nothing to say.
+Both providers are scraped, so both rate-limit and both answer a block rather than results
+when they are refusing. That is reported as a block, because an empty result list would tell
+the model the web had nothing to say, and the model would answer from its own memory and
+sound confident about it. Google is best-effort: it increasingly serves a JavaScript-only
+page to a plain HTTP client, so from a datacenter address it often has no results in the
+markup at all. The search never depends on one provider alone.
 
-The provider's host must also be in `INTERNAL_EGRESS_ALLOWLIST`, like any other outbound
-call. The default development list includes `html.duckduckgo.com`; add
-`api.search.brave.com` if you use that provider.
+The provider's host must be in `INTERNAL_EGRESS_ALLOWLIST`, like any other outbound call.
 
 ## Security trust-boundary map
 
@@ -800,7 +803,6 @@ Outside Docker (host machine):
 | ------------------------------ | --------------------- | -------------------------------------------- |
 | NEXT_PUBLIC_API_URL            | http://localhost:4000 | Base URL used by frontend calls              |
 | PYTHON_AI_HOST                 | http://localhost:5000 | Next handler upstream for AI proxy           |
-| BRAVE_SEARCH_API_KEY             | (unset)               | Web search provider for the desktop app      |
 | AI_SERVICE_KEY                  | (unset)               | Shared secret for the AI service's model routes |
 | NEXT_PUBLIC_AI_URL             | optional              | Alternate client AI URL if used              |
 | SERVICE_METRICS_STRICT_DB_ONLY | false                 | Controls strict mode in service health route |

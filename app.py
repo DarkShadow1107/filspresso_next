@@ -42,6 +42,7 @@ import psycopg2
 from models.tanka import TankaModel, MODE_DISPLAY_NAMES, VALID_MODES
 from models.gate import MOLECULE_GATE, QueueTimeoutError, budget_after_queue_wait
 from models.residency import ModelBusyError
+from models import websearch
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -118,6 +119,7 @@ async def lifespan(_app: FastAPI):
         with suppress(asyncio.CancelledError):
             await warmup_task
         await tanka.aclose()
+        await websearch.aclose()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -1981,6 +1983,38 @@ async def model_status(request: Request):
         "models": models,
         "residency": tanka.residency.snapshot(),
     })
+
+
+# ---------------------------------------------------------------------------
+# Web search, for the desktop Playground.
+#
+# The scraping happens here rather than in the NestJS backend because Scrapling is a Python
+# library, and because Scrapling's adaptive element selection is the part worth having: a
+# provider changes a class name and the selector is re-resolved against the page instead of
+# silently matching nothing.
+#
+# This service is not the security boundary for the web tool. The backend holds the egress
+# allowlist and the fence that refuses a private address, and the model-supplied *fetch* is
+# done there. What happens here is a search against two fixed providers, which cannot be
+# steered inward by anything the model says.
+# ---------------------------------------------------------------------------
+@app.get("/api/web/search")
+async def web_search(request: Request):
+    query = (request.query_params.get("q") or "").strip()
+    limit = min(max(int(request.query_params.get("limit", 10)), 1), 20)
+
+    try:
+        result = await websearch.search(websearch.get_client(), query, limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("web-search error: %s", exc)
+        return json_response({"status": "error", "error": str(exc)}, 500)
+
+    # A provider that is refusing is a 503, not an empty result: the caller has to be able to
+    # tell "the web has nothing" from "the web would not answer".
+    if result.get("status") == "blocked":
+        return json_response(result, 503)
+
+    return json_response(result)
 
 
 @app.get("/api/health")

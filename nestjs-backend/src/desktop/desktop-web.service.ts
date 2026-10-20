@@ -36,7 +36,6 @@ import { fetchBounded } from "../common/utils/httpClient";
  *     a hostile page cannot flood the model, the client or the ledger.
  */
 
-const SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/";
 const MAX_QUERY_LENGTH = 512;
 const MAX_RESULTS = 10;
 const DEFAULT_FETCH_LIMIT = 20_000;
@@ -65,21 +64,19 @@ export class DesktopWebService {
 	/**
 	 * Search the web.
 	 *
-	 * Two providers, and which one is used is a deployment decision.
+	 * Scrapling, against DuckDuckGo and Google.
 	 *
-	 * **A real search API when one is configured.** `BRAVE_SEARCH_API_KEY` switches to Brave's
-	 * API, which is a supported service with a documented rate limit, and the one a production
-	 * deployment should use.
+	 * The scraping happens in the AI service, because Scrapling is a Python library and because
+	 * its adaptive element selection is the part worth having: a provider changes a class name
+	 * and the selector is re-resolved against the page rather than silently matching nothing.
 	 *
-	 * **A scraped provider otherwise.** DuckDuckGo's HTML endpoint, because it needs no API
-	 * key: a desktop client that is unusable until somebody buys a search key is a desktop
-	 * client that does not get used. The cost is that it rate-limits, and after a couple of
-	 * requests from one address it answers with a challenge page instead of results.
+	 * Both providers are scraped, so both rate-limit and both answer a block rather than
+	 * results when they are refusing. That is reported as a block, because an empty result
+	 * list would tell the model the web had nothing to say, and the model would answer from its
+	 * own memory instead.
 	 *
-	 * A challenge is detected and reported as what it is -- the provider is refusing this
-	 * address right now, which is worth retrying and worth saying out loud. Returning an empty
-	 * list for it would be a lie: it would tell the model the web has nothing to say, and the
-	 * model would answer from its own memory instead.
+	 * The *fetch* of a model-supplied url is not done here and is not done by the AI service
+	 * either: it is done by this class, because that is where the fence lives.
 	 */
 	async search(query: string, limit = MAX_RESULTS): Promise<WebSearchResult[]> {
 		const text = String(query || "").trim();
@@ -90,170 +87,58 @@ export class DesktopWebService {
 			throw new BadRequestException({ error: `the query may be at most ${MAX_QUERY_LENGTH} characters` });
 		}
 
-		const braveKey = String(process.env.BRAVE_SEARCH_API_KEY || "").trim();
-		return braveKey
-			? await this.searchBrave(text, limit, braveKey)
-			: await this.searchScraped(text);
-	}
-
-	/**
-	 * Brave's search API.
-	 *
-	 * The one to use in production: a documented rate limit, a stable response shape, and no
-	 * scraping of somebody else's HTML.
-	 */
-	private async searchBrave(query: string, limit: number, apiKey: string): Promise<WebSearchResult[]> {
-		const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${Math.min(limit, 20)}`;
+		// The search itself is scraped by the AI service, with Scrapling.
+		//
+		// Scrapling is a Python library, so the scraping cannot happen here, and putting it
+		// there would mean either a second scraper in Node or a call out to the AI service
+		// anyway. The AI service already speaks HTTP to everything else, and the parsing is
+		// where Scrapling earns its place: its selectors adapt when a provider changes its
+		// markup, where a regular expression would silently match nothing.
+		//
+		// The providers are DuckDuckGo and Google. Both are scraped, both rate-limit, and
+		// both answer with a block rather than with results when they are refusing. That is
+		// reported as a block, because an empty list would tell the model the web had nothing
+		// to say.
+		const url = `${this.aiHost()}/api/web/search?q=${encodeURIComponent(text)}&limit=${limit}`;
 		assertAllowedEgress(url, "web search");
 
 		const response = await fetchBounded(url, {
 			method: "GET",
 			timeoutMs: SEARCH_TIMEOUT_MS,
 			maxBytes: 1_000_000,
-			headers: {
-				"X-Subscription-Token": apiKey,
-				Accept: "application/json",
-			},
+			headers: { Accept: "application/json" },
 		});
+
+		if (response.status === 503) {
+			const body = await response.json().catch(() => ({})) as { error?: string };
+			throw new ServiceUnavailableException({
+				error: "SEARCH_PROVIDER_BUSY",
+				message: body.error ?? "The search providers are refusing this address right now.",
+			});
+		}
 
 		if (!response.ok) {
 			throw new ServiceUnavailableException({
 				error: "SEARCH_PROVIDER_BUSY",
-				message: "The search provider refused the request. Try again shortly.",
+				message: "The search could not be run. Try again shortly.",
 			});
 		}
 
-		const body = JSON.parse(await response.text()) as {
-			web?: { results?: Array<{ title?: string; url?: string; description?: string }> };
+		const body = await response.json().catch(() => ({})) as {
+			results?: Array<{ title?: string; url?: string; snippet?: string; provider?: string }>;
 		};
 
-		return (body.web?.results ?? []).slice(0, limit).map((result) => ({
+		return (body.results ?? []).map((result) => ({
 			title: String(result.title ?? ""),
 			url: String(result.url ?? ""),
-			snippet: String(result.description ?? ""),
+			snippet: String(result.snippet ?? ""),
 		}));
 	}
 
-	/**
-	 * The no-key provider.
-	 *
-	 * Retried once after a short pause, because the limit is a burst limit and a pause is
-	 * cheap.
-	 */
-	private async searchScraped(query: string): Promise<WebSearchResult[]> {
-		const url = `${SEARCH_ENDPOINT}?q=${encodeURIComponent(query)}`;
-		// The search provider is outbound traffic, and the egress allowlist governs it like any
-		// other. A deployment that has decided what may leave the network keeps that decision.
-		assertAllowedEgress(url, "web search");
-
-		for (let attempt = 0; attempt < 2; attempt += 1) {
-			const response = await fetchBounded(url, {
-				method: "GET",
-				timeoutMs: SEARCH_TIMEOUT_MS,
-				// The cap is on the response body, and the search page is a few tens of kilobytes.
-				maxBytes: 1_000_000,
-				headers: {
-					// DuckDuckGo serves a different page to a client that does not look like a
-					// browser, and that page has no results in it.
-					"User-Agent":
-						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-					Accept: "text/html,application/xhtml+xml",
-				},
-			});
-
-			const html = await response.text();
-			if (DesktopWebService.isChallengePage(html)) {
-				if (attempt === 0) {
-					await DesktopWebService.pause(1500);
-					continue;
-				}
-
-				throw new ServiceUnavailableException({
-					error: "SEARCH_PROVIDER_BUSY",
-					message:
-						"The search provider is rate-limiting this address. Wait a few minutes and try again.",
-				});
-			}
-
-			return DesktopWebService.parseSearchResults(html);
-		}
-
-		return [];
-	}
-
-	/**
-	 * Pause, without a cancellation token, between provider attempts.
-	 *
-	 * A plain promise rather than a timer handle: the point is to wait, and a handle would
-	 * only be needed to cancel it, which this deliberately does not do -- a cancelled retry
-	 * would look like a failed search.
-	 */
-	private static pause(milliseconds: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, milliseconds));
-	}
-
-	/**
-	 * Whether the provider answered with a challenge rather than with results.
-	 *
-	 * Detected from the page itself, because the provider returns 200 for it. A search that
-	 * silently finds nothing is worse than one that says it is being blocked: the first makes
-	 * the model answer from memory, and the second tells the user to wait.
-	 */
-	static isChallengePage(html: string): boolean {
-		const page = String(html || "");
-		if (page.length > 40_000) return false; // a real results page is bigger than this
-		return /anomaly-modal|challenge-form|unusual traffic|are you a robot|blocked for security/i.test(page);
-	}
-
-	/**
-	 * Parse the result page.
-	 *
-	 * The markup is matched by class name, and the real link is unwrapped from the redirect
-	 * the provider wraps every result in -- handing the model a `duckduckgo.com/l/?uddg=...`
-	 * link would be useless to it and would hide where the link actually goes.
-	 */
-	static parseSearchResults(html: string): WebSearchResult[] {
-		const results: WebSearchResult[] = [];
-		const anchor = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-
-		for (const match of html.matchAll(anchor)) {
-			if (results.length >= MAX_RESULTS) break;
-			const target = DesktopWebService.unwrapRedirect(match[1]);
-			if (!target) continue;
-			results.push({
-				title: DesktopWebService.stripTags(match[2]),
-				url: target,
-				snippet: "",
-			});
-		}
-
-		// The snippets are in a second anchor per result, in the same order, so they are read
-		// separately and paired by position. Missing a snippet is fine; inventing one is not.
-		const snippets = [...html.matchAll(/<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi)].map((m) =>
-			DesktopWebService.stripTags(m[1]),
-		);
-		results.forEach((result, index) => {
-			result.snippet = snippets[index] ?? "";
-		});
-
-		return results;
-	}
-
-	/** DuckDuckGo wraps each result's real link in a redirect; unwrap it. */
-	static unwrapRedirect(href: string): string | null {
-		let raw = String(href || "").trim();
-		if (!raw) return null;
-		if (raw.startsWith("//")) raw = `https:${raw}`;
-
-		try {
-			const parsed = new URL(raw);
-			const wrapped = parsed.searchParams.get("uddg");
-			if (wrapped) return wrapped;
-			// A direct link is fine too, as long as it is http(s).
-			return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : null;
-		} catch {
-			return null;
-		}
+	/** Where the AI service is. The same name the Next route uses. */
+	private aiHost(): string {
+		const configured = String(process.env.PYTHON_AI_HOST || "").trim();
+		return (configured || "http://ai:5000").replace(/\/+$/, "");
 	}
 
 	/**

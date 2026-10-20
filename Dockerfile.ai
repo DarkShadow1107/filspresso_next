@@ -42,6 +42,7 @@ COPY models/__init__.py ./models/__init__.py
 COPY models/tanka.py ./models/tanka.py
 COPY models/gate.py ./models/gate.py
 COPY models/residency.py ./models/residency.py
+COPY models/websearch.py ./models/websearch.py
 
 RUN mkdir -p /app/public/images/icons /tmp \
     && chown -R appuser:appgroup /app /tmp

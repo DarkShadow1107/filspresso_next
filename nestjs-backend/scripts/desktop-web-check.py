@@ -95,8 +95,8 @@ def main():
         # model answer from its own memory and look confident about it.
         check("the provider's refusal is explicit, not a silent empty list", True,
               "SEARCH_PROVIDER_BUSY")
-        print("  (the shared provider is rate-limiting this address; "
-              "a BRAVE_SEARCH_API_KEY avoids it)")
+        print("  (the scraped providers are rate-limiting this address; "
+              "that is the providers refusing, not the tool failing)")
     else:
         check("search answered", status == 200, status)
         check("it found some results", len(results) > 0, f"{len(results)} results")

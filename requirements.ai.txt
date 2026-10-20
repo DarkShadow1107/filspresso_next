@@ -22,3 +22,11 @@ python-dotenv==1.0.0
 # Molecule rendering endpoints still require RDKit + py3Dmol.
 rdkit>=2023.9.1
 py3Dmol>=2.0.4
+
+# Web search for the desktop Playground.
+#
+# The base install only, deliberately. `scrapling[fetchers]` adds Playwright, Patchright and
+# Browserforge, and the install downloads Chromium: about 260 MB of packages plus the browser
+# itself, in a slim image, for something that only ever needs to speak HTTP. The adaptive
+# element selection and the text extraction -- the parts worth having -- are in the base.
+scrapling==0.5
