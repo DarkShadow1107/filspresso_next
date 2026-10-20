@@ -924,6 +924,15 @@ export default React.memo(function PaymentPageContent() {
 			<div className="payment-card">
 				<div className="payment-summary-card">
 					<div className="payment-meta-grid">
+						{/*
+							The shipping destination, only for something that is shipped.
+
+							A subscription is delivered to the account, so asking where to send it
+							was a question with no answer -- and the currency is picked from the
+							destination, so hiding the field also means the currency selector has
+							to stand on its own.
+						*/}
+						{!subscriptionCheckout && (
 						<label className="payment-field payment-span-1 payment-destination-field">
 							<span className="payment-field__title">Shipping destination</span>
 							<p className="payment-field__helper">EU destinations plus Switzerland and Turkey are supported.</p>
@@ -972,6 +981,7 @@ export default React.memo(function PaymentPageContent() {
 							</div>
 							<p className="payment-field__helper payment-field__helper--status">{shippingAutoDetectLabel}</p>
 						</label>
+						)}
 						<label className="payment-field payment-span-1 payment-currency-field">
 							<span className="payment-field__title">Payment currency</span>
 							<p className="payment-field__helper">
