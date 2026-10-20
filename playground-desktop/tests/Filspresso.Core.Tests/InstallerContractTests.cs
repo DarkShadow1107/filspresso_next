@@ -119,6 +119,11 @@ public class InstallerContractTests
         var accepted = InstallerAcceptedEditions();
         Assert.DoesNotContain("Home", accepted);
         Assert.DoesNotContain("HomeSingleLanguage", accepted);
+        // Core is the consumer SKU. If the installer ever accepts it, the requirement stops
+        // meaning anything on exactly the machines it was written for.
+        Assert.DoesNotContain("Core", accepted);
+        Assert.DoesNotContain("CoreN", accepted);
+        Assert.DoesNotContain("CoreSingleLanguage", accepted);
     }
 
     [Fact]

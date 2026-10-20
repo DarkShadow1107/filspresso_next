@@ -59,8 +59,9 @@ public static class PlatformRequirementCheck
     /// Whether this edition carries the Hyper-V role.
     /// </summary>
     /// <remarks>
-    /// <c>Core</c> is treated as supported: it is Windows 10 Pro for the purposes of this
-    /// check, and the edition id for it is not reliably distinct from Pro's on every build.
+    /// <c>Core</c> is Windows Home and is refused. It is not a near-miss of Professional:
+    /// it is the consumer SKU, it has no Hyper-V role, and treating it as Pro would wave
+    /// through exactly the machines the requirement exists to exclude.
     /// <c>Server</c> is refused explicitly rather than falling into the unsupported bucket,
     /// because the sandbox design assumes an interactive desktop session.
     /// </remarks>
@@ -90,9 +91,9 @@ public static class PlatformRequirementCheck
         {
             return editionId.Trim() switch
             {
-                "Home" => WindowsEdition.Home,
-                "HomeSingleLanguage" => WindowsEdition.HomeSingleLanguage,
-                "Professional" => WindowsEdition.Pro,
+                "Home" or "Core" or "CoreN" or "CoreCountrySpecific" => WindowsEdition.Home,
+                "HomeSingleLanguage" or "CoreSingleLanguage" => WindowsEdition.HomeSingleLanguage,
+                "Professional" or "ProfessionalN" => WindowsEdition.Pro,
                 "ProfessionalEducation" or "ProfessionalEducationN" => WindowsEdition.ProEducation,
                 "ProfessionalWorkstation" => WindowsEdition.ProWorkstation,
                 "Enterprise" or "EnterpriseN" => WindowsEdition.Enterprise,
@@ -100,7 +101,6 @@ public static class PlatformRequirementCheck
                 "Education" or "EducationN" => WindowsEdition.Education,
                 "IoTEnterprise" => WindowsEdition.IoTEnterprise,
                 "Server" => WindowsEdition.Server,
-                "Core" => WindowsEdition.Pro,
                 _ => WindowsEdition.Unknown,
             };
         }

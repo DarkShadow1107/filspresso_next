@@ -27,20 +27,25 @@ public sealed partial class LoginPage : UserControl
     private readonly Action _onSignedIn;
 
     private string _email = string.Empty;
+
     public LoginPage(
         AuthSessionManager auth,
         Func<Task<ApiResult<Entitlement>>> loadEntitlement,
         Action onSignedIn)
     {
-        InitializeComponent();
-
         _auth = auth;
         _loadEntitlement = loadEntitlement;
         _onSignedIn = onSignedIn;
+        InitializeComponent();
     }
 
     private async void OnSubmit(object sender, RoutedEventArgs e)
     {
+        if (string.IsNullOrWhiteSpace(EmailBox.Text) || string.IsNullOrEmpty(PasswordBox.Password))
+        {
+            return;
+        }
+
         SubmitButton.IsEnabled = false;
         SetError(null);
         ShowBusy(true);
@@ -77,9 +82,18 @@ public sealed partial class LoginPage : UserControl
 
                 default:
                     SetError(_auth.LastError ?? "That email and password do not match an account.");
-                    PasswordBox.Password = string.Empty;
+                    if (_auth.PendingMfaChallenge is null)
+                    {
+                        PasswordBox.Password = string.Empty;
+                    }
                     return;
             }
+        }
+        catch (Exception error) when (error is System.Net.Http.HttpRequestException or OperationCanceledException)
+        {
+            // The network failed. That is not a rejected password, and saying so would send
+            // the user looking for a typo they do not have.
+            SetError("Could not reach Filspresso. Check your connection and try again.");
         }
         finally
         {
@@ -133,10 +147,17 @@ public sealed partial class LoginPage : UserControl
     /// <summary>Disables the button until there is something to submit.</summary>
     private void OnEmailChanged(object sender, TextChangedEventArgs e) => UpdateSubmitEnabled();
 
+    private void OnPasswordChanged(object sender, RoutedEventArgs e) => UpdateSubmitEnabled();
+
     private void OnCodeChanged(object sender, TextChangedEventArgs e) => UpdateSubmitEnabled();
 
     private void UpdateSubmitEnabled()
     {
+        if (EmailBox is null || PasswordBox is null || CodeBox is null || SubmitButton is null || BusyRing is null)
+        {
+            return;
+        }
+
         var ready = _auth.PendingMfaChallenge is null
             ? EmailBox.Text.Trim().Length > 0 && PasswordBox.Password.Length > 0
             : CodeBox.Text.Trim().Length > 0;

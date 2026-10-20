@@ -1,6 +1,9 @@
 using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Filspresso.Core.Auth;
@@ -14,153 +17,169 @@ namespace Filspresso.App;
 /// <remarks>
 /// Not a file, and that is the whole decision. An access token plus a month-long refresh token
 /// sitting in a JSON file under %AppData% is readable by every process running as the user,
-/// and is trivially copied by anything that gets the machine. Credential Manager encrypts with
-/// DPAPI at <c>CurrentUser</c> scope, so the blob is only decryptable by the same user on the
-/// same machine — which is exactly the lifetime the token should have.
+/// and is copied by anything that gets the machine. Credential Manager encrypts with DPAPI at
+/// <c>CurrentUser</c> scope, so the blob is only decryptable by the same user on the same
+/// machine — which is exactly the lifetime the token should have.
 /// <para>
 /// The device id is stored alongside in the same store, because it has the same properties:
 /// stable across runs, worthless to anyone else, and awkward to keep anywhere sensible.
 /// </para>
 /// </remarks>
-public sealed class WindowsCredentialStore : ICredentialStore
+public sealed class WindowsCredentialStore(string targetPrefix = "Filspresso.Playground") : ICredentialStore
 {
-    // "Filspresso.Playground" target and a "Desktop" credential type. The type is a genuine
-    // part of the name: keeping it out of the app's own data is what stops a future bug from
-    // writing a token into a place that is not protected.
-    private const string TargetName = "Filspresso.Playground";
-
-    private const string SessionBlob = "session";
-    private const string DeviceIdBlob = "device-id";
+    private const uint Generic = 1;
+    private const int NotFound = 1168;
 
     public async Task<StoredSession?> LoadAsync(CancellationToken cancellationToken = default)
     {
-        var json = await ReadAsync(SessionBlob, cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(json))
+        var json = await ReadAsync("session", cancellationToken).ConfigureAwait(false);
+        if (json is null)
         {
             return null;
         }
 
         try
         {
-            return System.Text.Json.JsonSerializer.Deserialize<StoredSession>(json!);
+            return JsonSerializer.Deserialize<StoredSession>(json);
         }
-        catch (System.Text.Json.JsonException)
+        catch (JsonException)
         {
             // A corrupt or stale-format blob is treated as "not signed in" and removed, rather
-            // than left to fail every launch. The cost is one re-authentication; the alternative
-            // is an application that cannot start.
+            // than left to fail every launch. The cost is one re-authentication; the
+            // alternative is an application that cannot start.
             await ClearAsync(cancellationToken).ConfigureAwait(false);
             return null;
         }
     }
 
-    public async Task SaveAsync(StoredSession session, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(session);
+    public Task SaveAsync(StoredSession session, CancellationToken cancellationToken = default) =>
+        WriteAsync("session", JsonSerializer.Serialize(session), cancellationToken);
 
-        var json = System.Text.Json.JsonSerializer.Serialize(session);
-        await WriteAsync(SessionBlob, json, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task ClearAsync(CancellationToken cancellationToken = default)
+    public Task ClearAsync(CancellationToken cancellationToken = default)
     {
-        // Only the session. The device id survives sign-out on purpose: the next sign-in is
-        // still the same computer, and a new id each time would fill the server's sessions list
-        // with devices the user does not recognise.
-        await DeleteAsync(SessionBlob, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CredDeleteW($"{targetPrefix}/session", Generic, 0) && Marshal.GetLastWin32Error() != NotFound)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>The stable device id, generated once and then kept.</summary>
     public Task<string> GetOrCreateDeviceIdAsync(CancellationToken cancellationToken = default) =>
-        DeviceIdentity.ResolveAsync(LoadDeviceIdAsync, SaveDeviceIdAsync, cancellationToken);
+        DeviceIdentity.ResolveAsync(
+            ct => ReadAsync("device-id", ct),
+            (value, ct) => WriteAsync("device-id", value, ct),
+            cancellationToken);
 
-    private Task<string?> LoadDeviceIdAsync(CancellationToken cancellationToken) =>
-        ReadAsync(DeviceIdBlob, cancellationToken);
-
-    private Task SaveDeviceIdAsync(string value, CancellationToken cancellationToken) =>
-        WriteAsync(DeviceIdBlob, value, cancellationToken);
-
-    private static async Task<string?> ReadAsync(string blob, CancellationToken cancellationToken)
+    private Task<string?> ReadAsync(string name, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var buffer = new StringBuilder(4096);
-        if (!CredReadW(TargetName, (uint)blob.Length, blob, buffer, buffer.Capacity, 0, out var size) || size == 0)
+        if (!CredReadW($"{targetPrefix}/{name}", Generic, 0, out var pointer))
         {
-            return null;
+            var error = Marshal.GetLastWin32Error();
+            if (error == NotFound)
+            {
+                return Task.FromResult<string?>(null);
+            }
+
+            throw new Win32Exception(error);
         }
 
-        var value = buffer.ToString();
-
-        // The interface is async so a different platform's store can be genuinely slow. This
-        // one is a Win32 call that returns in microseconds; the yield keeps that guarantee
-        // honest without pretending the work is off-thread.
-        await Task.Yield();
-        return value;
-    }
-
-    private static async Task WriteAsync(string blob, string value, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var bytes = Encoding.Unicode.GetBytes(value);
-        var pointer = Marshal.AllocCoTaskMem(bytes.Length);
         try
         {
-            Marshal.Copy(bytes, 0, pointer, bytes.Length);
-            if (!CredWriteW(TargetName, (uint)blob.Length, blob, pointer, (uint)bytes.Length, 0))
+            var credential = Marshal.PtrToStructure<Credential>(pointer);
+            var bytes = new byte[checked((int)credential.BlobSize)];
+            try
             {
-                throw new InvalidOperationException(
-                    $"Could not write '{blob}' to Windows Credential Manager (error {Marshal.GetLastWin32Error()}).");
+                Marshal.Copy(credential.Blob, bytes, 0, bytes.Length);
+                return Task.FromResult<string?>(Encoding.Unicode.GetString(bytes));
+            }
+            finally
+            {
+                // The blob held a refresh token in plaintext. Freeing it does not clear it.
+                CryptographicOperations.ZeroMemory(bytes);
             }
         }
         finally
         {
-            Marshal.FreeCoTaskMem(pointer);
-            // Zeroed before release. The buffer held a refresh token in plaintext, and freeing
-            // managed-looking memory does not clear it -- the bytes stay in the heap until
-            // something overwrites them, which may be never.
-            Array.Clear(bytes);
+            CredFree(pointer);
         }
-
-        // Yielded rather than awaited-on-completed, so a write does not block the UI thread.
-        // The interop itself is a few microseconds; the yield is what keeps a burst of them
-        // from stalling input.
-        await Task.Yield();
     }
 
-    private static async Task DeleteAsync(string blob, CancellationToken cancellationToken)
+    private Task WriteAsync(string name, string value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Returns false when there was nothing to delete, which is the normal case and not an
-        // error: clearing a cleared store must succeed.
-        CredDeleteW(TargetName, (uint)blob.Length, blob, 0);
-        await Task.Yield();
+        var bytes = Encoding.Unicode.GetBytes(value);
+        if (bytes.Length > 2560)
+        {
+            throw new InvalidOperationException("Credential exceeds the Windows blob limit.");
+        }
+
+        var pointer = Marshal.AllocCoTaskMem(bytes.Length);
+        try
+        {
+            Marshal.Copy(bytes, 0, pointer, bytes.Length);
+            var credential = new Credential
+            {
+                Type = Generic,
+                TargetName = $"{targetPrefix}/{name}",
+                UserName = Environment.UserName,
+                BlobSize = (uint)bytes.Length,
+                Blob = pointer,
+                // Persist locally: the session should survive a reboot without a sign-in.
+                Persist = 2,
+            };
+
+            if (!CredWriteW(ref credential, 0))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+        }
+        finally
+        {
+            // Zeroed before release, and the unmanaged copy too: the buffer held a refresh
+            // token in plaintext and freeing it does not clear it.
+            CryptographicOperations.ZeroMemory(bytes);
+            Marshal.Copy(bytes, 0, pointer, bytes.Length);
+            Marshal.FreeCoTaskMem(pointer);
+        }
+
+        return Task.CompletedTask;
     }
 
-    [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CredReadW(
-        string target,
-        uint type,
-        string? targetName,
-        StringBuilder credentialBlob,
-        int credentialBlobSize,
-        uint flags,
-        out uint credentialBlobSizeActual);
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct Credential
+    {
+        public uint Flags;
+        public uint Type;
+        public string? TargetName;
+        public string? Comment;
+        public long LastWritten;
+        public uint BlobSize;
+        public IntPtr Blob;
+        public uint Persist;
+        public uint AttributeCount;
+        public IntPtr Attributes;
+        public string? TargetAlias;
+        public string? UserName;
+    }
 
-    [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CredWriteW(
-        string target,
-        uint type,
-        string? targetName,
-        IntPtr credentialBlob,
-        uint credentialBlobSize,
-        uint flags);
+    private static extern bool CredReadW(string target, uint type, uint flags, out IntPtr credential);
 
-    [DllImport("advapi32.dll", EntryPoint = "CredDeleteW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CredDeleteW(string target, uint type, string? targetName, uint flags);
+    private static extern bool CredWriteW(ref Credential credential, uint flags);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CredDeleteW(string target, uint type, uint flags);
+
+    [DllImport("advapi32.dll")]
+    private static extern void CredFree(IntPtr credential);
 }

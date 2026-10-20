@@ -131,7 +131,22 @@ public sealed class AuthSessionManager : IAuthSession
     /// <see cref="Task{TResult}"/> rather than a lock, so that N callers await the same
     /// operation instead of N of them queueing behind it and then refreshing in turn anyway.
     /// </summary>
-    private Task<bool>? _refreshInFlight;
+    /// <summary>
+    /// The refresh gate.
+    /// </summary>
+    /// <remarks>
+    /// A semaphore rather than a shared in-flight task, because a shared task has a race in
+    /// it: two callers both read "no refresh running" before either starts one, and both
+    /// refresh. The server <i>rotates</i> the refresh token on every use and treats a replay
+    /// as theft, deleting the session — so a double refresh is not untidy, it is exactly the
+    /// event that signs the customer out and invalidates their device.
+    /// <para>
+    /// The expiry check is inside the gate for the same reason. Checked outside, two callers
+    /// would both see an expiring token and both queue a refresh; the second would spend a
+    /// refresh token the first had already replaced.
+    /// </para>
+    /// </remarks>
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
 
     public AuthSessionManager(
         DesktopApiClient api,
@@ -226,37 +241,27 @@ public sealed class AuthSessionManager : IAuthSession
 
     public async Task<bool> EnsureAccessTokenAsync(CancellationToken cancellationToken = default)
     {
-        var session = Current;
-        if (session is null)
-        {
-            return false;
-        }
-
-        if (!RefreshPolicy.ShouldRefresh(session, _clock.UtcNow, _margin))
-        {
-            return true;
-        }
-
-        // Single-flight. Everyone who arrives while a refresh is running awaits that one
-        // rather than starting another.
-        var pending = Volatile.Read(ref _refreshInFlight);
-        if (pending is not null)
-        {
-            return await pending.ConfigureAwait(false);
-        }
-
-        var task = RefreshAsync(session, cancellationToken);
-        Volatile.Write(ref _refreshInFlight, task);
-
+        await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await task.ConfigureAwait(false);
+            var session = Current;
+            if (session is null)
+            {
+                return false;
+            }
+
+            if (!RefreshPolicy.ShouldRefresh(session, _clock.UtcNow, _margin))
+            {
+                return true;
+            }
+
+            return await RefreshAsync(session, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            // Cleared in a finally so a thrown refresh does not wedge every later call on a
-            // completed faulted task.
-            Volatile.Write(ref _refreshInFlight, null);
+            // Released in a finally so a throwing refresh cannot wedge every later call
+            // behind a held gate.
+            _refreshGate.Release();
         }
     }
 
@@ -274,18 +279,29 @@ public sealed class AuthSessionManager : IAuthSession
         var result = await _api.RefreshAsync(session.RefreshToken, cancellationToken).ConfigureAwait(false);
 
         // If another caller signed us out while this was in flight, its decision stands.
-        if (!ReferenceEquals(Current, session) && Current is not null)
+        if (!ReferenceEquals(Current, session))
         {
-            return Current.IsAccessTokenValid(_clock.UtcNow);
+            return Current?.IsAccessTokenValid(_clock.UtcNow) ?? false;
         }
 
         if (!result.Ok || result.Value is null)
         {
-            // The server answers 401 identically for "expired", "revoked" and "replayed", and
-            // guessing between them here would be guessing. All three mean the same thing to
-            // the user: sign in again.
-            await SignOutAsync(cancellationToken).ConfigureAwait(false);
-            LastError = "Your session ended. Sign in again.";
+            // A 401 means the session is gone: expired, revoked, or replayed. The server
+            // answers all three the same way and the client cannot tell them apart, so all
+            // three mean the same thing here -- sign in again.
+            //
+            // Anything else is our problem, not the user's. A network failure must not sign
+            // the customer out of a working application.
+            if (result.Error == ApiError.Unauthenticated)
+            {
+                await SignOutAsync(cancellationToken).ConfigureAwait(false);
+                LastError = "Your session ended. Sign in again.";
+            }
+            else
+            {
+                LastError = "Could not renew the session. Try again shortly.";
+            }
+
             RaiseChanged();
             return false;
         }

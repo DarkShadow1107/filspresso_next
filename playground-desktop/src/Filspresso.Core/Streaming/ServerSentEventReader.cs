@@ -49,58 +49,61 @@ public static class ServerSentEventReader
         var buffer = pending + chunk;
         var events = new List<ServerSentEvent>();
 
-        // SplitKeepingEmptyEntries, because a blank line is the event terminator and is
-        // therefore meaningful. A plain Split would swallow it.
-        var lines = buffer.Split('\n');
-        var complete = lines.Length - 1; // the last element is either empty or partial
-
-        var data = new StringBuilder();
-        var sawField = false;
-
-        for (var i = 0; i < complete; i++)
+        // Scanned for line ends rather than split on '\n', because the interesting case is a
+        // frame split across two network reads. A frame is retained whole -- its data lines
+        // and the blank line that terminates it -- and only the unfinished remainder is
+        // carried forward.
+        var frameStart = 0;
+        var lineStart = 0;
+        for (var i = 0; i < buffer.Length; i++)
         {
-            var line = lines[i].TrimEnd('\r');
-
-            if (line.Length == 0)
+            if (buffer[i] != '\n') continue;
+            var length = i - lineStart;
+            if (length == 0 || (length == 1 && buffer[lineStart] == '\r'))
             {
-                if (sawField)
-                {
-                    events.Add(new ServerSentEvent(data.ToString()));
-                    data.Clear();
-                    sawField = false;
-                }
-                continue;
+                // A blank line terminates the event.
+                var data = ParseData(buffer[frameStart..(i + 1)]);
+                if (data is not null) events.Add(new ServerSentEvent(data));
+                frameStart = i + 1;
             }
+            lineStart = i + 1;
+        }
 
-            // A line beginning with ':' is a comment, used as a keep-alive.
-            if (line[0] == ':')
-            {
-                continue;
-            }
+        // The whole unfinished event is retained, not only its last line: a `data:` line
+        // followed by the terminating blank line arriving in a later read must still be
+        // delivered.
+        newPending = buffer[frameStart..];
+        if (newPending.Length > 1_048_576)
+        {
+            throw new InvalidDataException("SSE event exceeded 1 MiB.");
+        }
+
+        return events;
+    }
+
+    /// <summary>
+    /// The data of one event, or null when the frame carries none.
+    /// </summary>
+    private static string? ParseData(string frame)
+    {
+        var data = new List<string>();
+        foreach (var rawLine in frame.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            // A blank line is the terminator, and a line starting with ':' is a comment --
+            // which is how this stream sends keep-alives.
+            if (line.Length == 0 || line[0] == ':') continue;
 
             var colon = line.IndexOf(':');
             var field = colon < 0 ? line : line[..colon];
             var value = colon < 0 ? string.Empty : line[(colon + 1)..];
             // Exactly one optional leading space is part of the framing, not the value.
-            if (value.StartsWith(' '))
-            {
-                value = value[1..];
-            }
+            if (value.StartsWith(' ')) value = value[1..];
 
-            if (string.Equals(field, "data", StringComparison.Ordinal))
-            {
-                if (sawField)
-                {
-                    data.Append('\n');
-                }
-
-                data.Append(value);
-                sawField = true;
-            }
+            if (field == "data") data.Add(value);
         }
 
-        newPending = string.Concat(lines.Skip(complete));
-        return events;
+        return data.Count == 0 ? null : string.Join("\n", data);
     }
 
     /// <summary>
@@ -115,28 +118,8 @@ public static class ServerSentEventReader
             yield break;
         }
 
-        var line = pending.TrimEnd('\r', '\n');
-        if (line.Length == 0 || line[0] == ':')
-        {
-            yield break;
-        }
-
-        var colon = line.IndexOf(':');
-        if (colon < 0 || !string.Equals(line[..colon], "data", StringComparison.Ordinal))
-        {
-            yield break;
-        }
-
-        var value = line[(colon + 1)..];
-        if (value.StartsWith(' '))
-        {
-            value = value[1..];
-        }
-
-        if (value.Length > 0)
-        {
-            yield return new ServerSentEvent(value);
-        }
+        var value = ParseData(pending);
+        if (value is not null) yield return new ServerSentEvent(value);
     }
 
     /// <summary>
@@ -224,16 +207,16 @@ public static class ServerSentEventStream
     {
         ArgumentNullException.ThrowIfNull(stream);
 
-        using var reader = new StreamReader(stream, Encoding.UTF8);
+        using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
         var pending = string.Empty;
+        var buffer = new char[4096];
 
-        while (!reader.EndOfStream)
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             // ReadAsync(CancellationToken) returning ValueTask<string> is not available on
             // the char-based reader, so the buffer form is used. It is still cancellable.
-            var buffer = new char[4096];
             var read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
                 .ConfigureAwait(false);
             if (read == 0)

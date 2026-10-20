@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, Req, Res, ServiceUnavailableException, UnauthorizedException, UseGuards } from "@nestjs/common";
 import type { Response } from "express";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { BillingService } from "../billing/billing.service";
@@ -8,6 +8,7 @@ import { MODEL_TOKEN_PRICING, effectiveRates, resolveTokenPrice } from "../billi
 import { canUseSpectre } from "../billing/tier-allowance";
 import { playgroundTextModelKeys } from "./text-models";
 import { DesktopGatewayService } from "./desktop-gateway.service";
+import { desktopModelAccess } from "./desktop-policy";
 
 /** What JwtAuthGuard guarantees on the request it has let through. */
 type DesktopRequest = { user?: { id?: number | string } };
@@ -84,16 +85,29 @@ export class DesktopController {
 			throw new UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
 		}
 
+		// Fail closed. If the account state cannot be read, the client is told the service is
+		// unavailable -- not that the account is locked and not that it is broke. Those are
+		// different messages pointing at different remedies, and answering "locked" to a
+		// billing outage would send a paying customer to subscribe again.
+		try {
+			return await this.entitlementFor(accountId);
+		} catch {
+			throw new ServiceUnavailableException({ error: "BILLING_UNAVAILABLE" });
+		}
+	}
+
+	private async entitlementFor(accountId: number) {
 		const tier = await this.billing.resolveTierFor(accountId);
+
 		// The allowance is a separate view from the wallet, so it is a separate query. They
-		// run concurrently, and they are the same two reads `canGenerate` already performs,
+		// run concurrently, and they are the same two reads the money gate already performs,
 		// so this is not extra load -- it is the same load, answered once instead of twice.
-		const [access, balance, allowance, canGenerate] = await Promise.all([
+		const [access, balance, allowance] = await Promise.all([
 			this.addons.resolveSpectreAccess(accountId, tier, canUseSpectre(tier)),
 			this.billing.getBalance(accountId),
 			this.billing.getAllowance(accountId, tier),
-			this.billing.canGenerate(accountId, tier),
 		]);
+		const models = this.modelCatalogue(access.source, tier, balance.canGenerate, allowance.remainingRon);
 
 		return {
 			accountId,
@@ -119,7 +133,7 @@ export class DesktopController {
 				minBalanceIsCustom: balance.minBalanceIsCustom,
 				autoRefill: balance.autoRefill,
 			},
-			canGenerate: canGenerate.canGenerate,
+			canGenerate: models.some((model) => model.canGenerate),
 			// The subscription terms, so the app can render an upsell without a second call.
 			// Prices are what the account would actually pay, from the same source the charge
 			// path uses, so the upsell cannot quote a number the checkout would then change.
@@ -128,7 +142,7 @@ export class DesktopController {
 				annualRon: SPECTRE_ADDON_SUMMARY.annualRon,
 				includesUsage: SPECTRE_ADDON_SUMMARY.includesUsage,
 			},
-			models: DesktopController.modelCatalogue(access.hasAccess, tier),
+			models,
 			// The app polls this after every generation. Stamped so it can tell a fresh answer
 			// from a cached one without trusting its own clock against the server's.
 			servedAt: new Date().toISOString(),
@@ -145,7 +159,12 @@ export class DesktopController {
 	 * Locked models are listed rather than omitted, with their price attached. The app needs
 	 * to show what exists and what it would cost, and a hidden model cannot do either.
 	 */
-	private static modelCatalogue(hasAccess: boolean, tier: string) {
+	private modelCatalogue(
+		accessSource: "addon" | "tier" | null,
+		tier: string,
+		walletCanGenerate: boolean,
+		allowanceRemainingRon: number,
+	) {
 		// The Playground's own text-model list, not every priced model: the vision and audio
 		// models are priced for other surfaces and have no place in a coding harness, and a
 		// price quoted for a model the app cannot send is worse than no price at all.
@@ -155,34 +174,28 @@ export class DesktopController {
 				const price = resolveTokenPrice(modelKey, "playground");
 				const rates = effectiveRates(price);
 				// A model the account cannot afford is still listed: the app shows the price and
-				// the lock, which is the same thing the web line-up does. `affordable` is a hint
-				// for the UI, never a gate -- the gateway re-checks on every request, because a
-				// balance read at render time says nothing about the balance at send time.
-				const usesAllowance = accessUsesAllowance(modelKey, tier, hasAccess);
+				// the lock, which is the same thing the web line-up does. `canGenerate` is a
+				// hint for the UI, never a gate -- the gateway re-checks on every request,
+				// because a balance read at render time says nothing about the balance at
+				// send time.
 				return {
 					modelKey,
+					// The display name. Without it the client shows the raw key -- lfm2_5_230m_q4_k_m --
+					// which is a storage identifier, not a product name. It comes from the same
+					// resolved price the numbers do, so the label and the price cannot disagree
+					// about which model this is.
+					label: price.label,
 					inputPer1M: rates.inputPer1M,
 					outputPer1M: rates.outputPer1M,
 					priceMode: price.priceMode,
-					locked: !hasAccess,
-					usesAllowance,
-					requiresWallet: hasAccess && !usesAllowance,
+					...desktopModelAccess({
+						modelKey,
+						tier,
+						accessSource,
+						walletCanGenerate,
+						allowanceRemainingRon,
+					}),
 				};
 			});
 	}
-}
-
-/**
- * Whether this model draws on the monthly allowance, or has to be paid from the wallet.
- *
- * Mirrors billing-context.ts deliberately, and must change with it. The rules are: the
- * Spectre add-on includes no usage at all, so every model is wallet-only; Max includes the
- * Playground but excludes the 8B; Ultimate covers everything; a lower tier has no
- * Playground access in the first place, so the answer does not matter and is reported as
- * allowance to avoid implying the model is usable.
- */
-function accessUsesAllowance(modelKey: string, tier: string, hasAccess: boolean): boolean {
-	if (!hasAccess) return true;
-	if (tier.toLowerCase() === "max") return modelKey !== "lfm2_5_8b_a1b_q4_k_m";
-	return tier.toLowerCase() !== "ultimate";
 }

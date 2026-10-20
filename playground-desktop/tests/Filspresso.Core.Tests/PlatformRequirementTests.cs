@@ -46,14 +46,19 @@ public class PlatformRequirementTests
         Assert.False(PlatformRequirementCheck.EditionSupportsHyperV(WindowsEdition.Unknown));
     }
 
-    [Fact]
-    public void CoreIsTreatedAsPro()
+    [Theory]
+    [InlineData("Core")]
+    [InlineData("CoreN")]
+    [InlineData("CoreCountrySpecific")]
+    public void CoreIsWindowsHomeAndIsRefused(string editionId)
     {
-        // Core is Windows 10 Pro for this purpose, and the registry sometimes reports it as
-        // "Core" where a Pro machine would report "Professional".
-        Assert.Equal(WindowsEdition.Pro, PlatformRequirementCheck.ParseEdition("Core", null));
-        Assert.True(PlatformRequirementCheck.EditionSupportsHyperV(
-            PlatformRequirementCheck.ParseEdition("Core", null)));
+        // Core is the consumer SKU, not a near-miss of Professional. It has no Hyper-V
+        // role, so treating it as Pro would wave through exactly the machines the
+        // requirement exists to exclude.
+        var parsed = PlatformRequirementCheck.ParseEdition(editionId, null);
+        Assert.Equal(WindowsEdition.Home, parsed);
+        Assert.False(PlatformRequirementCheck.EditionSupportsHyperV(parsed));
+        Assert.False(PlatformRequirementCheck.Evaluate(26200, parsed).Supported);
     }
 
     [Fact]

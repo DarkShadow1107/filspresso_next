@@ -246,7 +246,11 @@ describe("the desktop entitlement endpoint", () => {
   });
 
   it("reports locked models with their prices rather than hiding them", () => {
-    assert.match(controller, /locked: !hasAccess/);
+    // The lock and the affordability come from the shared policy, so the catalogue and the
+    // stream gate cannot disagree about which model an account may use.
+    assert.match(controller, /desktopModelAccess/);
+    assert.match(controller, /inputPer1M: rates.inputPer1M/);
+    assert.match(controller, /label: price.label/);
   });
 });
 

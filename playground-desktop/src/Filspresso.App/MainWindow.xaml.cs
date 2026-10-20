@@ -1,8 +1,5 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
-using Filspresso.Core.Api;
-using Filspresso.Core.Auth;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -20,93 +17,183 @@ public sealed partial class MainWindow : Window
 {
     private readonly AppServices _services;
     private AccountPanel? _accountPanel;
+    private PlaygroundPage? _playgroundPage;
+    private bool _loaded;
+    private bool _refreshing;
 
     public MainWindow()
     {
+        _services = new AppServices(new Uri(
+            Environment.GetEnvironmentVariable("FILSPRESSO_BACKEND_URL") ?? "http://localhost:4000/"));
         InitializeComponent();
-        _services = new AppServices(new Uri("http://localhost:4000"));
+        Title = "Spectre Playground · Filspresso";
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 860));
+        Activated += OnWindowActivated;
+        Closed += (_, _) =>
+        {
+            _playgroundPage?.Dispose();
+            _services.Dispose();
+        };
         ShowSignedOut();
     }
 
-    private async void OnLoaded(object sender, RoutedEventArgs e) => await ConnectAsync();
-
-    /// <summary>
-    /// Restore a stored session, or show the sign-in screen.
-    /// </summary>
-    /// <remarks>
-    /// A stored session is only a candidate, never an answer. It is verified against the server
-    /// before the shell opens, because a session restored from disk may have been revoked, may
-    /// have been killed by the reuse detection, or may have simply expired while the app was
-    /// closed.
-    /// </remarks>
-    private async Task ConnectAsync()
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        await _services.Auth.RestoreAsync();
-
-        if (_services.Auth.IsSignedIn)
+        if (_loaded)
         {
-            var restored = await _services.LoadEntitlementAsync();
-            if (restored.Ok)
-            {
-                ShowSignedIn();
-                return;
-            }
+            return;
         }
 
-        ShowSignedOut();
+        _loaded = true;
+        try
+        {
+            await _services.Auth.RestoreAsync();
+            if (_services.Auth.IsSignedIn)
+            {
+                await ShowSignedInAsync();
+            }
+        }
+        catch (Exception error)
+        {
+            ShowError(error);
+        }
     }
 
-    private void ShowSignedIn()
+    private async Task ShowSignedInAsync()
     {
+        _playgroundPage ??= new PlaygroundPage(_services, _services.Playground);
         if (_accountPanel is null)
         {
             _accountPanel = new AccountPanel(_services);
             _accountPanel.SignOutRequested += async (_, _) =>
             {
+                _playgroundPage?.Dispose();
                 await _services.Auth.SignOutAsync();
+                _playgroundPage = null;
+                _accountPanel = null;
                 ShowSignedOut();
             };
         }
 
-        ContentFrame.Content = _accountPanel;
+        SignInHost.Children.Clear();
+        SignInHost.Visibility = Visibility.Collapsed;
         Nav.Visibility = Visibility.Visible;
         Subtitle.Text = _services.Auth.Current?.Email ?? string.Empty;
         AccountButton.Content = "Account";
-
-        _ = _accountPanel.RefreshAsync();
+        ContentFrame.Content = _playgroundPage;
+        Nav.SelectedItem = Nav.MenuItems[0];
+        await _playgroundPage.RefreshAsync();
     }
 
     private void ShowSignedOut()
     {
         Nav.Visibility = Visibility.Collapsed;
-        Subtitle.Text = "Not signed in";
-        AccountButton.Content = "Sign in";
-
-        ContentFrame.Content = new LoginPage(
+        ContentFrame.Content = null;
+        SignInHost.Visibility = Visibility.Visible;
+        SignInHost.Children.Clear();
+        SignInHost.Children.Add(new LoginPage(
             _services.Auth,
             () => _services.LoadEntitlementAsync(),
-            ShowSignedIn);
+            () => DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    await ShowSignedInAsync();
+                }
+                catch (Exception error)
+                {
+                    ShowError(error);
+                }
+            })));
+        Subtitle.Text = "Not signed in";
+        AccountButton.Content = "Sign in";
     }
 
-    private async void OnAccountClick(object sender, RoutedEventArgs e)
+    private async void OnNavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (_services.Auth.IsSignedIn)
+        if (!_loaded || !_services.Auth.IsSignedIn || _playgroundPage is null)
         {
-            ShowSignedIn();
             return;
         }
 
-        ShowSignedOut();
-        await Task.CompletedTask;
+        try
+        {
+            if (args.SelectedItem is NavigationViewItem { Tag: "account" })
+            {
+                ContentFrame.Content = _accountPanel;
+                if (_accountPanel is not null)
+                {
+                    await _accountPanel.RefreshAsync();
+                }
+            }
+            else
+            {
+                _playgroundPage.ShowModelsOnly(args.SelectedItem is NavigationViewItem { Tag: "models" });
+                ContentFrame.Content = _playgroundPage;
+            }
+        }
+        catch (Exception error)
+        {
+            ShowError(error);
+        }
     }
 
-    private async void OnSignOutRequested(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Re-reads the account state when the window regains focus.
+    /// </summary>
+    /// <remarks>
+    /// A subscription can lapse, a wallet can be topped up, and a session can be revoked from
+    /// another device, and none of those announce themselves. Polling on focus is how the
+    /// application notices without asking the user to press a refresh button -- and without
+    /// polling continuously, which would spend the request budget for nothing.
+    /// </remarks>
+    private async void OnWindowActivated(object sender, WindowActivatedEventArgs args)
     {
-        // Local only. The session stays valid on the server until it expires or is revoked
-        // from the account page -- which is the right behaviour, because signing out of a
-        // desktop app is a local act and a user on a shared machine should not be able to
-        // revoke a session they do not own by signing out of someone else's.
-        await _services.Auth.SignOutAsync();
-        ShowSignedOut();
+        if (!_loaded || _refreshing || !_services.Auth.IsSignedIn ||
+            args.WindowActivationState == WindowActivationState.Deactivated)
+        {
+            return;
+        }
+
+        _refreshing = true;
+        try
+        {
+            if (ReferenceEquals(ContentFrame.Content, _accountPanel) && _accountPanel is not null)
+            {
+                await _accountPanel.RefreshAsync();
+            }
+            else if (_playgroundPage is not null)
+            {
+                await _playgroundPage.RefreshAsync();
+            }
+        }
+        catch (Exception error)
+        {
+            ShowError(error);
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private void OnAccountClick(object sender, RoutedEventArgs args)
+    {
+        if (_services.Auth.IsSignedIn)
+        {
+            Nav.SelectedItem = Nav.MenuItems[2];
+        }
+        else
+        {
+            ShowSignedOut();
+        }
+    }
+
+    private void ShowError(Exception error)
+    {
+        EntitlementBar.Message = error is System.Net.Http.HttpRequestException
+            ? "Could not reach Filspresso. Check your connection and refresh."
+            : "Account state could not be loaded. Try refreshing or signing in again.";
+        EntitlementBar.IsOpen = true;
     }
 }

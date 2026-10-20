@@ -110,27 +110,24 @@
       Every edition that carries the Hyper-V role, spelled out. MSI has no way to test "is
       this one of a set" without enumerating it, so this list is the rule.
 
-      `Core` is included because some Pro machines report it instead of `Professional`, and
-      refusing those would be a false negative on hardware that is perfectly capable.
+      `Core` is Windows Home, not Professional, and is deliberately absent from this list.
+      It is the consumer SKU, and it has no Hyper-V role — including it would wave through
+      exactly the machines this requirement exists to exclude.
 
       `Client` appears only in the InstallationType fallback. It is the consumer SKU and has no
       Hyper-V role, so it is listed to be *refused* by omission — it is not in the accepted
       set, and the fallback branch exists only to give the message something to show.
     -->
     <Launch
-        Condition="Installed OR ((FILSPRESSO_BUILD &gt;= 19041) AND ((FILSPRESSO_EDITION = &quot;Professional&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalEducation&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalWorkstation&quot;) OR (FILSPRESSO_EDITION = &quot;Enterprise&quot;) OR (FILSPRESSO_EDITION = &quot;EnterpriseS&quot;) OR (FILSPRESSO_EDITION = &quot;Education&quot;) OR (FILSPRESSO_EDITION = &quot;IoTEnterprise&quot;) OR (FILSPRESSO_EDITION = &quot;Core&quot;)))"
+        Condition="Installed OR ((FILSPRESSO_BUILD &gt;= 19041) AND ((FILSPRESSO_EDITION = &quot;Professional&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalN&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalEducation&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalWorkstation&quot;) OR (FILSPRESSO_EDITION = &quot;Enterprise&quot;) OR (FILSPRESSO_EDITION = &quot;EnterpriseS&quot;) OR (FILSPRESSO_EDITION = &quot;Education&quot;) OR (FILSPRESSO_EDITION = &quot;IoTEnterprise&quot;)))"
         Message="Filspresso Playground needs Windows 10 Pro or Windows 11 Pro.&#13;&#10;&#13;&#10;This machine reports the [FILSPRESSO_EDITION] edition, build [FILSPRESSO_BUILD].&#13;&#10;&#13;&#10;The Playground runs the code it generates inside a Hyper-V virtual machine with no network connection to your computer. Windows Home does not include Hyper-V, so that boundary cannot be provided there." />
 
     <!--
-      The same rule again, in the execute sequence, and it is not redundant.
-
-      A Launch condition raises a dialog. Under /quiet there is no dialog, and a silent install
-      that skipped the edition check entirely would be exactly the bypass this product must not
-      have. This one has no UI and always fires.
+      No separate execute-sequence condition is needed. WiX schedules LaunchConditions in
+      both the UI and the execute sequence, so the check already runs under /quiet — where
+      it fails the install silently rather than showing its message. A hand-written copy here
+      would have been a second list to keep in step with the first.
     -->
-    <InstallExecuteSequence>
-      <Condition Sequence="4999" Condition="Installed OR ((FILSPRESSO_BUILD &gt;= 19041) AND ((FILSPRESSO_EDITION = &quot;Professional&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalEducation&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalWorkstation&quot;) OR (FILSPRESSO_EDITION = &quot;Enterprise&quot;) OR (FILSPRESSO_EDITION = &quot;EnterpriseS&quot;) OR (FILSPRESSO_EDITION = &quot;Education&quot;) OR (FILSPRESSO_EDITION = &quot;IoTEnterprise&quot;) OR (FILSPRESSO_EDITION = &quot;Core&quot;)))" />
-    </InstallExecuteSequence>
 
     <Feature Id="Main" Title="Filspresso Playground" Level="1" AllowAbsent="no">
       <ComponentGroupRef Id="AppFiles" />

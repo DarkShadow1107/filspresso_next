@@ -11,7 +11,7 @@
         first run, and a modal over an empty shell looks like an error rather than a first step.
     -->
     <Grid Padding="32" MaxWidth="480" HorizontalAlignment="Center" VerticalAlignment="Center">
-        <StackPanel Spacing="1.5em">
+        <StackPanel Spacing="24">
 
             <StackPanel Spacing="4">
                 <TextBlock x:Name="Header" Text="Sign in to Filspresso" Style="{StaticResource SubtitleTextBlockStyle}" />
@@ -29,7 +29,7 @@
                          Header="Email"
                          PlaceholderText="you@example.com"
                          TextChanged="OnEmailChanged" />
-                <PasswordBox x:Name="PasswordBox" Header="Password" />
+                <PasswordBox x:Name="PasswordBox" Header="Password" PasswordChanged="OnPasswordChanged" />
             </StackPanel>
 
             <StackPanel x:Name="MfaPanel" Spacing="12" Visibility="Collapsed">

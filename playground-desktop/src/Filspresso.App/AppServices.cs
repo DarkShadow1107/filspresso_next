@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Filspresso.Core.Api;
 using Filspresso.Core.Auth;
+using Filspresso.Core.Session;
 using Microsoft.UI.Xaml;
 
 namespace Filspresso.App;
@@ -34,6 +35,20 @@ public sealed class AppServices : IDisposable
             DeviceId,
             Environment.MachineName,
             AppVersion);
+
+        Playground = new PlaygroundSession(_api, Auth, LoadEntitlementAsync);
+
+        // Signing out clears the session, and the Playground's view of the account has to be
+        // cleared with it. Otherwise the next screen still shows a balance and a catalogue
+        // for an account the user has just left.
+        Auth.Changed += (_, _) =>
+        {
+            if (!Auth.IsSignedIn)
+            {
+                Entitlement = null;
+                Playground.Reset();
+            }
+        };
     }
 
     public string DeviceId { get; }
@@ -44,6 +59,8 @@ public sealed class AppServices : IDisposable
     public ICredentialStore Store { get; }
 
     public AuthSessionManager Auth { get; }
+
+    public PlaygroundSession Playground { get; }
 
     /// <summary>The most recent entitlement, kept so every screen reads the same answer.</summary>
     public Entitlement? Entitlement { get; private set; }
@@ -58,14 +75,30 @@ public sealed class AppServices : IDisposable
     /// </remarks>
     public async Task<ApiResult<Entitlement>> LoadEntitlementAsync(CancellationToken cancellationToken = default)
     {
-        if (!await Auth.EnsureAccessTokenAsync(cancellationToken).ConfigureAwait(true))
+        bool valid;
+        try
         {
-            return ApiResult<Entitlement>.Failure(ApiError.Unauthenticated, "Signed out", 401);
+            valid = await Auth.EnsureAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is System.Net.Http.HttpRequestException ||
+            (error is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            // The network failed, which is not the same as being signed out. The distinction
+            // matters: one is worth a retry, the other needs a password.
+            return ApiResult<Entitlement>.Failure(ApiError.Unexpected, "Session service unreachable", 0);
+        }
+
+        if (!valid)
+        {
+            return ApiResult<Entitlement>.Failure(
+                Auth.IsSignedIn ? ApiError.Unexpected : ApiError.Unauthenticated,
+                "Session unavailable",
+                Auth.IsSignedIn ? 0 : 401);
         }
 
         var result = await _api
             .GetEntitlementAsync(Auth.Current!.AccessToken, cancellationToken)
-            .ConfigureAwait(true);
+            .ConfigureAwait(false);
 
         if (result.Ok)
         {
@@ -74,6 +107,21 @@ public sealed class AppServices : IDisposable
 
         return result;
     }
+
+    /// <summary>
+    /// Where the customer manages their subscription and funds their wallet.
+    /// </summary>
+    /// <remarks>
+    /// The web account page, not a page in this application. Funding needs a default card,
+    /// which the desktop app deliberately does not handle, and a payment form belongs in the
+    /// browser anyway.
+    /// </remarks>
+    public Uri AccountUrl => new(new Uri(WebBaseUrl), "api/pages/account");
+
+    public Uri SubscriptionUrl => new(new Uri(WebBaseUrl), "api/pages/subscription");
+
+    private static string WebBaseUrl =>
+        Environment.GetEnvironmentVariable("FILSPRESSO_WEB_URL") ?? "https://localhost:8443/";
 
     public void Dispose() => _api.Dispose();
 }

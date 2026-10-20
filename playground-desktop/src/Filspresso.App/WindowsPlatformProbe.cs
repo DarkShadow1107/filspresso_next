@@ -42,7 +42,12 @@ public static class WindowsPlatformProbe
                 key.GetValue("EditionID") as string,
                 key.GetValue("InstallationType") as string);
 
-            var build = key.GetValue("CurrentBuildNumber") as int? ?? 0;
+            // Read as a string and parsed: the registry value is a REG_SZ, and an `as int?`
+            // on it yields null -- which would report every machine as build 0 and refuse
+            // it as too old.
+            int.TryParse(
+                Convert.ToString(key.GetValue("CurrentBuildNumber"), System.Globalization.CultureInfo.InvariantCulture),
+                out var build);
 
             return PlatformRequirementCheck.Evaluate(build, edition);
         }

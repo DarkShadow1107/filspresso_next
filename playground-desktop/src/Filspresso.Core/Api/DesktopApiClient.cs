@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -29,7 +30,13 @@ public enum ApiError
     /// <summary>503. Our problem, not the customer's. Say so, and do not send them to pay.</summary>
     BillingUnavailable,
 
-    /// <summary>402/403 equivalents from the model service.</summary>
+    /// <summary>
+    /// The model service is busy -- usually loading or swapping a model. Retryable, and
+    /// nothing to do with money.
+    /// </summary>
+    ModelBusy,
+
+    /// <summary>The model service failed. The money is fine; the generation is not.</summary>
     Upstream,
 
     RateLimited,
@@ -72,14 +79,17 @@ public sealed record DesktopGrantResult(
 public class DesktopApiClient : IDisposable
 {
     private readonly HttpClient _http;
-    private readonly bool _ownsClient;
 
     public DesktopApiClient(Uri backendBaseAddress, HttpMessageHandler? handler = null)
     {
         ArgumentNullException.ThrowIfNull(backendBaseAddress);
 
-        _ownsClient = handler is null;
-        _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        // Cookies are off and redirects are refused: a native client has no cookie jar, and
+        // following a redirect would send the bearer token to a host the client did not
+        // choose.
+        _http = handler is null
+            ? new HttpClient(new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
+            : new HttpClient(handler, disposeHandler: false);
         _http.BaseAddress = backendBaseAddress;
         _http.Timeout = TimeSpan.FromSeconds(60);
     }
@@ -207,20 +217,34 @@ public class DesktopApiClient : IDisposable
         using var request = new HttpRequestMessage(HttpMethod.Get, "api/desktop/entitlement");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            return Failure<Entitlement>(response);
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var code = await ReadErrorCodeAsync(response, cancellationToken).ConfigureAwait(false);
+                return ApiResult<Entitlement>.Failure(
+                    MapRefusal((int)response.StatusCode, code),
+                    response.ReasonPhrase ?? string.Empty,
+                    (int)response.StatusCode);
+            }
+
+            var entitlement = await response.Content
+                .ReadFromJsonAsync<Entitlement>(cancellationToken)
+                .ConfigureAwait(false);
+
+            return entitlement is null
+                ? ApiResult<Entitlement>.Failure(ApiError.Unexpected, "Empty entitlement.", (int)response.StatusCode)
+                : ApiResult<Entitlement>.Success(entitlement);
         }
-
-        var entitlement = await response.Content
-            .ReadFromJsonAsync<Entitlement>(cancellationToken)
-            .ConfigureAwait(false);
-
-        return entitlement is null
-            ? ApiResult<Entitlement>.Failure(ApiError.Unexpected, "Empty entitlement.", (int)response.StatusCode)
-            : ApiResult<Entitlement>.Success(entitlement);
+        catch (Exception error) when (IsTransportError(error, cancellationToken))
+        {
+            // A network failure is not a server answer, and the caller has to be able to tell
+            // the difference: "we could not ask" is not "you are locked" and not "you are out
+            // of credit", and they call for different actions.
+            return ApiResult<Entitlement>.Failure(ApiError.Unexpected, "Could not read account state.", 0);
+        }
     }
 
     /// <summary>
@@ -270,32 +294,105 @@ public class DesktopApiClient : IDisposable
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
-        var response = await _http
-            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
+        // A generation legitimately runs for minutes, so the bound is generous -- but it is a
+        // bound, because an unbounded stream holds a socket and a connection from the pool
+        // indefinitely.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+
+        HttpResponseMessage? response = null;
+        try
+        {
+            response = await _http
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token)
+                .ConfigureAwait(false);
+        }
+        catch (Exception error) when (IsTransportError(error, cancellationToken))
+        {
+            // The upstream was unreachable. Reported as a refusal rather than an exception, so
+            // the UI can show it as a state the user can retry.
+        }
+
+        if (response is null)
+        {
+            yield return new StreamUpdate.Refused(ApiError.Unexpected);
+            yield break;
+        }
+
+        using var responseOwner = response;
 
         if (!response.IsSuccessStatusCode)
         {
+            // The body carries a precise error code, and the status alone cannot separate
+            // "the model is loading" from "we could not check your balance" -- both are 503,
+            // and they call for different things from the user.
             var status = (int)response.StatusCode;
-            response.Dispose();
-            // The status alone is enough to classify. Reading the body to build a message here
-            // would spread one error's wording across every call site, and the server's own
-            // strings are written for the web UI.
-            yield return new StreamUpdate.Refused(MapStatus(status));
+            var code = await ReadErrorCodeAsync(response, timeout.Token).ConfigureAwait(false);
+            yield return new StreamUpdate.Refused(MapRefusal(status, code));
             yield break;
         }
 
         await using var stream = await response.Content
-            .ReadAsStreamAsync(cancellationToken)
+            .ReadAsStreamAsync(timeout.Token)
             .ConfigureAwait(false);
 
-        await foreach (var evt in ServerSentEventStream.ReadAsync(stream, cancellationToken).ConfigureAwait(false))
+        var completed = false;
+        await using var events = ServerSentEventStream
+            .ReadAsync(stream, timeout.Token)
+            .GetAsyncEnumerator(timeout.Token);
+
+        while (true)
         {
-            var update = ParseFrame(evt.Data);
-            if (update is not null)
+            var moved = false;
+            var failed = false;
+            try
             {
-                yield return update;
+                moved = await events.MoveNextAsync().ConfigureAwait(false);
             }
+            catch (Exception error) when (IsTransportError(error, cancellationToken))
+            {
+                failed = true;
+            }
+
+            if (failed)
+            {
+                // The stream broke mid-answer. Whatever was received is not a completed
+                // generation, and reporting it as one would be a lie the ledger would act on.
+                yield return new StreamUpdate.Refused(ApiError.Upstream);
+                yield break;
+            }
+
+            if (!moved)
+            {
+                break;
+            }
+
+            var update = ParseFrame(events.Current.Data);
+            if (update is null)
+            {
+                continue;
+            }
+
+            // Nothing after the done frame is part of this answer.
+            if (completed)
+            {
+                continue;
+            }
+
+            completed = update is StreamUpdate.Completed;
+            yield return update;
+
+            if (update is StreamUpdate.Refused)
+            {
+                yield break;
+            }
+        }
+
+        if (!completed)
+        {
+            // The stream ended without a done frame. The model did not finish, so there is no
+            // usage to bill and no answer to present as complete.
+            yield return new StreamUpdate.Refused(ApiError.Upstream);
         }
     }
 
@@ -332,7 +429,8 @@ public class DesktopApiClient : IDisposable
             root.TryGetProperty("done", out var done) &&
             done.ValueKind == JsonValueKind.True)
         {
-            return new StreamUpdate.Completed(ServerSentEventReader.ReadUsage(data) ?? default);
+            var usage = ServerSentEventReader.ReadUsage(data);
+            return new StreamUpdate.Completed(usage ?? default, usage is not null);
         }
 
         if (root.ValueKind == JsonValueKind.Object &&
@@ -349,6 +447,54 @@ public class DesktopApiClient : IDisposable
     /// Status code to meaning. The UI keys off the enum, never off the raw code or the
     /// server's prose, so the wording lives in one place and cannot drift per caller.
     /// </summary>
+    /// <summary>
+    /// Turns a refusal into a meaning.
+    /// </summary>
+    /// <remarks>
+    /// The server sends a machine-readable <c>error</c> code with every refusal, and that
+    /// code is more precise than the status: 503 covers both "we could not check your
+    /// balance" and "the model is loading, try again", and those call for different things
+    /// from the user. The body is read for that one field, and the status is the fallback
+    /// when there is no body or no code.
+    /// </remarks>
+    internal static ApiError MapRefusal(int status, string? errorCode)
+    {
+        switch (errorCode)
+        {
+            case "PLAYGROUND_LOCKED": return ApiError.Locked;
+            case "INSUFFICIENT_BALANCE": return ApiError.OutOfFunds;
+            case "BILLING_UNAVAILABLE": return ApiError.BillingUnavailable;
+            // The model is loading or the slot is busy. Retryable, and nothing about money.
+            case "MODEL_BUSY": return ApiError.ModelBusy;
+            case "UPSTREAM_UNAVAILABLE":
+            case "UPSTREAM_ERROR": return ApiError.Upstream;
+            case "ACCOUNT_REQUIRED": return ApiError.Unauthenticated;
+            default: return MapStatus(status);
+        }
+    }
+
+    /// <summary>
+    /// Reads the refusal's error code, if the body carries one.
+    /// </summary>
+    private static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(payload)) return null;
+            using var document = JsonDocument.Parse(payload);
+            return document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String
+                ? error.GetString()
+                : null;
+        }
+        catch (Exception error) when (error is JsonException or IOException or HttpRequestException)
+        {
+            // A body that cannot be read is not a reason to fail the call; the status alone
+            // still classifies it.
+            return null;
+        }
+    }
+
     internal static ApiError MapStatus(int status) => status switch
     {
         401 => ApiError.Unauthenticated,
@@ -363,28 +509,23 @@ public class DesktopApiClient : IDisposable
     private static ApiResult<T> Failure<T>(HttpResponseMessage response)
     {
         var status = (int)response.StatusCode;
-        var error = MapStatus(status);
-        var _unused = status switch
-        {
-            401 => ApiError.Unauthenticated,
-            402 => ApiError.OutOfFunds,
-            403 => ApiError.Locked,
-            429 => ApiError.RateLimited,
-            503 => ApiError.BillingUnavailable,
-            >= 500 => ApiError.Upstream,
-            _ => ApiError.Unexpected,
-        };
-
-        return ApiResult<T>.Failure(error, response.ReasonPhrase ?? string.Empty, status);
+        return ApiResult<T>.Failure(MapStatus(status), response.ReasonPhrase ?? string.Empty, status);
     }
 
-    public void Dispose()
-    {
-        if (_ownsClient)
-        {
-            _http.Dispose();
-        }
-    }
+    /// <summary>
+    /// Whether an exception means "the network or the server failed" rather than "the caller
+    /// asked for something impossible".
+    /// </summary>
+    /// <remarks>
+    /// A cancellation the caller did not request is a timeout, and is a transport failure.
+    /// A cancellation the caller did request is the user pressing stop, and must not be
+    /// swallowed into an error state.
+    /// </remarks>
+    private static bool IsTransportError(Exception error, CancellationToken caller) =>
+        error is HttpRequestException or IOException or JsonException ||
+        (error is OperationCanceledException && !caller.IsCancellationRequested);
+
+    public void Dispose() => _http.Dispose();
 }
 
 /// <summary>One step of a streamed generation.</summary>
@@ -392,7 +533,7 @@ public abstract record StreamUpdate
 {
     public sealed record Delta(string Text) : StreamUpdate;
 
-    public sealed record Completed(TokenUsage Usage) : StreamUpdate;
+    public sealed record Completed(TokenUsage Usage, bool UsageReported = true) : StreamUpdate;
 
     public sealed record Refused(ApiError Error) : StreamUpdate;
 }

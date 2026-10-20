@@ -4,12 +4,18 @@ A Windows desktop client for the Spectre Playground: a coding harness with real
 sandboxing, gated behind a Spectre subscription, metered through the same wallet the
 web app uses.
 
-**Status:** Phases 0, 1 and 2 **done**. Phases 3-5 are specified but not started.
+**Status:** Phases 0, 1, 2 and 3 **done**. Phase 4 (the sandbox) and phase 5 (packaging
+pipeline signing) are specified but not started.
 
 Phase 2 delivered: a dedicated sign-in and connect screen, MFA in the same flow, DPAPI-backed
 credential storage in Windows Credential Manager, a session manager that refreshes before expiry
 and is single-flight, and an account panel showing tier, access and expiry, allowance, wallet
 and whether anything can actually be sent.
+
+Phase 3 delivered: the model catalogue with the server's own prices, a pre-flight before
+every message, per-model affordability, streaming with the balance refreshed once the work is
+settled, and a state for every refusal -- including the one that matters most for a user
+waiting on a cold model.
 
 Phase 1 delivered, in `playground-desktop/`:
 - .NET 9 solution: `Filspresso.Core` (API client, SSE reader, platform rules), `Filspresso.Harness`,

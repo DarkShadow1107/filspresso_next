@@ -150,6 +150,16 @@ public sealed record ModelEntry
     [JsonPropertyName("modelKey")]
     public string ModelKey { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The display name, e.g. "LFM 2.5 230M".
+    /// </summary>
+    /// <remarks>
+    /// The model key is a storage identifier, not a product name. Showing it raw is how a
+    /// user ends up reading "lfm2_5_230m_q4_k_m" as though it were a product.
+    /// </remarks>
+    [JsonPropertyName("label")]
+    public string? Label { get; init; }
+
     [JsonPropertyName("inputPer1M")]
     public decimal InputPer1M { get; init; }
 
@@ -161,6 +171,17 @@ public sealed record ModelEntry
 
     [JsonPropertyName("locked")]
     public bool Locked { get; init; }
+
+    /// <summary>
+    /// Whether this model can be paid for right now.
+    /// </summary>
+    /// <remarks>
+    /// Per model, not per account. An account can be able to generate and still be unable to
+    /// run the model that was selected -- the 8B on a Max plan is paid from the wallet, and
+    /// the wallet may be empty. The server decides it, with the same policy the charge uses.
+    /// </remarks>
+    [JsonPropertyName("canGenerate")]
+    public bool CanGenerate { get; init; }
 
     [JsonPropertyName("usesAllowance")]
     public bool UsesAllowance { get; init; }

@@ -25,7 +25,8 @@
     "test:renewal": "python scripts/renewal-check.py",
     "test:spectre-addon": "python scripts/spectre-addon-check.py",
     "test:phase9": "npm run test:live && npm run test:load && npm run test:drills",
-    "test:desktop": "python scripts/desktop-check.py"
+    "test:desktop": "python scripts/desktop-check.py",
+    "test:desktop-playground": "python scripts/desktop-playground-check.py"
   },
   "dependencies": {
     "@nest-lab/throttler-storage-redis": "^1.2.0",

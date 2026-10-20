@@ -50,6 +50,7 @@ const billing_service_1 = require("../billing/billing.service");
 const addons_service_1 = require("../billing/addons.service");
 const tier_allowance_1 = require("../billing/tier-allowance");
 const text_models_1 = require("./text-models");
+const desktop_policy_1 = require("./desktop-policy");
 /** Mirrors the web route's clamps, so the two surfaces cannot disagree on what is legal. */
 const MAX_MESSAGE_LENGTH = 8000;
 const MAX_SYSTEM_PROMPT_LENGTH = 2000;
@@ -128,22 +129,39 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
      * "we could not find out whether you can pay" is ours, and answering 402 to a billing
      * outage sends a paying customer to top up a wallet that is not the problem.
      */
-    async refuse(accountId, tier) {
-        const access = await this.addons.resolveSpectreAccess(accountId, tier, (0, tier_allowance_1.canUseSpectre)(tier));
-        const accessSource = access.source;
-        if (!access.hasAccess) {
-            return {
-                accessSource,
-                refusal: {
-                    kind: "refused",
-                    status: 403,
-                    error: "PLAYGROUND_LOCKED",
-                    message: "The Playground needs the Spectre subscription or a Max/Ultimate plan.",
-                },
-            };
-        }
+    async refuse(accountId, tier, modelKey) {
+        let accessSource = null;
         try {
-            const gate = await this.billing.canGenerate(accountId, tier);
+            const access = await this.addons.resolveSpectreAccess(accountId, tier, (0, tier_allowance_1.canUseSpectre)(tier));
+            accessSource = access.source;
+            if (!access.hasAccess) {
+                return {
+                    accessSource,
+                    refusal: {
+                        kind: "refused",
+                        status: 403,
+                        error: "PLAYGROUND_LOCKED",
+                        message: "The Playground needs the Spectre subscription or a Max/Ultimate plan.",
+                    },
+                };
+            }
+            // Per-model affordability, from the same policy the charge is resolved with.
+            //
+            // A plain "can this account afford anything" check is not enough here. An add-on
+            // holder cannot spend their plan allowance on the Playground -- the subscription buys
+            // access, not usage -- and Max cannot pay for the 8B out of its allowance. Deciding
+            // it in one place keeps the catalogue and the gate from disagreeing.
+            const [balance, allowance] = await Promise.all([
+                this.billing.getBalance(accountId),
+                this.billing.getAllowance(accountId, tier),
+            ]);
+            const gate = (0, desktop_policy_1.desktopModelAccess)({
+                modelKey,
+                tier,
+                accessSource,
+                walletCanGenerate: balance.canGenerate,
+                allowanceRemainingRon: allowance.remainingRon,
+            });
             if (!gate.canGenerate) {
                 return {
                     accessSource,
@@ -199,7 +217,7 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
         // be a race: Nest services are singletons, so two streams in flight would overwrite each
         // other's access source and one of them would be billed from the wrong pot -- an add-on
         // customer charged at their tier's allowance rate, or the reverse.
-        const gate = await this.refuse(accountId, tier);
+        const gate = await this.refuse(accountId, tier, modelKey);
         if (gate.refusal)
             return gate.refusal;
         const accessSource = gate.accessSource;
@@ -248,6 +266,21 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
         }
         if (!upstream.ok || !upstream.body) {
             clearTimeout(upstreamTimeout);
+            // 429 from the model service means its single llama.cpp slot is busy -- usually
+            // because a model swap is loading, which takes minutes. That is a retryable
+            // condition and not a failure, and it gets its own code so the client can say
+            // "the model is loading" rather than "the model service could not complete that
+            // request". Collapsing the two would leave the user staring at an error while
+            // the model finishes loading underneath them.
+            if (upstream.status === 429) {
+                this.logger.warn(`desktop model service is busy for account ${accountId}`);
+                return {
+                    kind: "refused",
+                    status: 503,
+                    error: "MODEL_BUSY",
+                    message: "The model is being loaded. Please try again in a moment.",
+                };
+            }
             this.logger.warn(`desktop upstream returned HTTP ${upstream.status} for account ${accountId}`);
             return {
                 kind: "refused",
