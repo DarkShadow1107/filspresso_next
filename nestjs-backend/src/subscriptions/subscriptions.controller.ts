@@ -17,6 +17,17 @@ export class SubscriptionsController {
     return this.subscriptionsService.getSubscription(Number(req.user?.id));
   }
 
+  /**
+   * What each plan costs.
+   *
+   * Public, because the plans page shows prices to people who are not signed in. It is a price
+   * list and nothing more: no account, no session, nothing to read.
+   */
+  @Get("prices")
+  prices() {
+    return this.subscriptionsService.priceTable();
+  }
+
   @UseGuards(JwtAuthGuard) @Get("payments")
   paymentHistory(@Req() req: AuthenticatedRequest) {
     return this.subscriptionsService.paymentHistory(Number(req.user?.id));

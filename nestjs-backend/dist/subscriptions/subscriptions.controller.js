@@ -24,6 +24,15 @@ let SubscriptionsController = class SubscriptionsController {
     getSubscription(req) {
         return this.subscriptionsService.getSubscription(Number(req.user?.id));
     }
+    /**
+     * What each plan costs.
+     *
+     * Public, because the plans page shows prices to people who are not signed in. It is a price
+     * list and nothing more: no account, no session, nothing to read.
+     */
+    prices() {
+        return this.subscriptionsService.priceTable();
+    }
     paymentHistory(req) {
         return this.subscriptionsService.paymentHistory(Number(req.user?.id));
     }
@@ -53,6 +62,12 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], SubscriptionsController.prototype, "getSubscription", null);
+__decorate([
+    (0, common_1.Get)("prices"),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], SubscriptionsController.prototype, "prices", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Get)("payments"),

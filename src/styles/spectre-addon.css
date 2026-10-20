@@ -240,3 +240,12 @@
 		padding-top: 1.5em;
 	}
 }
+/* The fine print under the add-on card. Deliberately quiet: it is a qualification of the
+   offer, not a call to action, and it sits below the button so it cannot be mistaken for
+   part of the price. */
+.card-spectre__fineprint {
+	margin: 1em 0 0;
+	font-size: 0.75rem;
+	line-height: 1.5;
+	color: rgba(255, 255, 255, 0.45);
+}

@@ -26,14 +26,20 @@ export function SubscriptionSection({ subscription, subscriptionData }: Subscrip
 							● {subscriptionData?.is_active !== false ? "Active" : "Inactive"}
 						</p>
 					</div>
-					<div className="sub-price">
-						{subscriptionData?.price_ron && subscriptionData.price_ron > 0
-							? `${subscriptionData.price_ron.toFixed(2)} RON`
-							: "Free"}
-						{subscriptionData?.price_ron && subscriptionData.price_ron > 0 && (
-							<span>/{subscriptionData?.billing_cycle === "yearly" ? "year" : "month"}</span>
-						)}
-					</div>
+				<div className="sub-price">
+					{subscriptionData?.price_ron && subscriptionData.price_ron > 0
+						? `${subscriptionData.price_ron.toFixed(2)} RON`
+						: "Free"}
+					{/*
+						`price_ron && ...` rendered directly rather than as a condition, so a free
+						plan printed the number 0 next to the word "Free". React renders a numeric
+						0 -- it is only false, null and undefined that render nothing. The test is a
+						boolean for that reason.
+					*/}
+					{(subscriptionData?.price_ron ?? 0) > 0 && (
+						<span>/{subscriptionData?.billing_cycle === "yearly" ? "year" : "month"}</span>
+					)}
+				</div>
 				</div>
 				<div className="sub-details">
 					<h3>

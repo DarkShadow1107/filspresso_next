@@ -9,6 +9,11 @@ import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { readAccountSession, writeAccountSession } from "@/lib/accountSession";
 import { buildPageHref } from "@/lib/pages";
+import {
+	clearSubscriptionIntent,
+	readSubscriptionIntent,
+	type SubscriptionCheckoutIntent,
+} from "@/lib/subscriptionCheckout";
 import CreditCard from "@/icons/credit-card";
 import LockIcon from "@/icons/lock-icon";
 import { InlineLoadingSpinner } from "@/components/loading/ProgressiveLoading";
@@ -151,6 +156,51 @@ export default React.memo(function PaymentPageContent() {
 	const router = useRouter();
 	const { items, currentSum, memberDiscount, reset } = useCart();
 	const { notify } = useNotifications();
+
+	// The subscription being bought, if any.
+	//
+	// Read in an effect rather than during render: sessionStorage does not exist on the
+	// server, and reading it during the first render would make the server's markup and the
+	// client's disagree.
+	const [subscriptionIntent, setSubscriptionIntent] = useState<SubscriptionCheckoutIntent | null>(null);
+	// The server's price table. The charged price always comes from the server; this is here
+	// so that the price *shown* is the same number, rather than a copy the client happens to
+	// hold.
+	const [subscriptionPrices, setSubscriptionPrices] = useState<
+		Record<string, { monthly: number; annual: number }>
+	>({});
+
+	useEffect(() => {
+		setSubscriptionIntent(readSubscriptionIntent());
+	}, []);
+
+	useEffect(() => {
+		let cancelled = false;
+		fetch(`${API_BASE}/api/subscriptions/prices`)
+			.then((res) => (res.ok ? res.json() : null))
+			.then((body: { tiers?: Array<{ tier: string; monthly: number; annual: number }> } | null) => {
+				if (cancelled || !body?.tiers) return;
+				const table: Record<string, { monthly: number; annual: number }> = {};
+				for (const row of body.tiers) table[row.tier] = { monthly: row.monthly, annual: row.annual };
+				setSubscriptionPrices(table);
+			})
+			.catch(() => {
+				// A price list that cannot be fetched leaves the intent's own price on screen.
+				// The charge is unaffected either way -- it comes from the server.
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const serverSubscriptionPrice = useCallback(
+		(intent: SubscriptionCheckoutIntent) => {
+			const row = subscriptionPrices[intent.tier];
+			if (!row) return null;
+			return intent.cycle === "annual" ? row.annual : row.monthly;
+		},
+		[subscriptionPrices],
+	);
 
 	// ensure the user came here via the place-order OK action
 	const pathname = usePathname();
@@ -509,7 +559,11 @@ export default React.memo(function PaymentPageContent() {
 	const selectedDestination =
 		SUPPORTED_DESTINATIONS.find((destination) => destination.code === selectedDestinationCode) ?? SUPPORTED_DESTINATIONS[0];
 	const baseHasFreeShipping = ["Master", "Virtuoso", "Ambassador"].includes(memberDiscount.tier) || currentSum >= 200;
-	const baseShippingCost = baseHasFreeShipping ? 0 : 24.99;
+	// A subscription is not shipped, so it is not charged for shipping. The 24.99 RON is the
+	// flat rate on a coffee order, and applying it to a plan was how a 599.99 RON Ultimate
+	// checkout came to ask for 24.99 RON.
+	const subscriptionCheckout = subscriptionIntent != null;
+	const baseShippingCost = subscriptionCheckout ? 0 : baseHasFreeShipping ? 0 : 24.99;
 	const selectedRate = selectedCurrency === "RON" ? 1 : Number(fxRates[selectedCurrency] || 0);
 	const canConvertCurrency = selectedCurrency === "RON" || selectedRate > 0;
 
@@ -531,11 +585,24 @@ export default React.memo(function PaymentPageContent() {
 		setSelectedCurrency(selectedDestination.defaultCurrency as SupportedCurrencyCode);
 	}, [selectedDestination, isCurrencyManuallySelected]);
 
-	const convertedSubtotal = roundCurrency(convertFromRon(currentSum));
+	// What is being bought.
+	//
+	// For coffee it is the cart. For a subscription it is the plan, priced by the server.
+	// The distinction matters because the cart is empty during a subscription checkout --
+	// that is the whole point of not putting a subscription in it -- and every total below was
+	// computed from the cart.
+	const subscriptionPriceRon = subscriptionIntent
+		? serverSubscriptionPrice(subscriptionIntent) ?? subscriptionIntent.priceRon
+		: 0;
+	const merchandiseTotalRon = subscriptionCheckout ? subscriptionPriceRon : currentSum;
+
+	const convertedSubtotal = roundCurrency(convertFromRon(merchandiseTotalRon));
 	const convertedShippingCost = roundCurrency(convertFromRon(baseShippingCost));
 	const conversionFeePercent = CURRENCY_CONFIG[selectedCurrency].feePercent;
-	const subtotalA = roundCurrency(items.reduce((sum, item) => sum + item.price * item.qty, 0));
-	const discountAmount = roundCurrency(memberDiscount.amount || 0);
+	const subtotalA = roundCurrency(merchandiseTotalRon);
+	// No member discount on a subscription. The discount is a coffee-tier benefit on a coffee
+	// order, and applying it to buying a plan would be inventing a price nobody agreed to.
+	const discountAmount = subscriptionCheckout ? 0 : roundCurrency(memberDiscount.amount || 0);
 	const subtotalB = roundCurrency(Math.max(0, subtotalA - discountAmount));
 	const exchangeTaxAmountRon = selectedCurrency === "RON" ? 0 : roundCurrency(subtotalB * (conversionFeePercent / 100));
 	const totalBeforeVatRon = roundCurrency(subtotalB + exchangeTaxAmountRon);
@@ -547,19 +614,21 @@ export default React.memo(function PaymentPageContent() {
 			? 0
 			: roundCurrency((convertedSubtotal + convertedShippingCost) * (conversionFeePercent / 100));
 	const chargedTotal = roundCurrency(convertedSubtotal + convertedShippingCost + conversionFeeAmount);
-	const ronEquivalentSubtotal = roundCurrency(currentSum);
+	const ronEquivalentSubtotal = roundCurrency(merchandiseTotalRon);
 	const ronEquivalentShipping = roundCurrency(baseShippingCost);
 	const ronEquivalentConversionFee =
 		selectedCurrency === "RON"
 			? 0
 			: roundCurrency((ronEquivalentSubtotal + ronEquivalentShipping) * (conversionFeePercent / 100));
 	const ronEquivalentTotal = roundCurrency(ronEquivalentSubtotal + ronEquivalentShipping + ronEquivalentConversionFee);
-	const shipmentRuleMessage =
-		selectedDestination.shippingRegion === "exception"
+	const shipmentRuleMessage = subscriptionCheckout
+		? "This plan is delivered to your account, so there is nothing to ship."
+		: selectedDestination.shippingRegion === "exception"
 			? `${selectedDestination.name} ships as an explicit exception to the standard EU-only shipment rule.`
 			: `${selectedDestination.name} is covered by the standard EU shipment rule.`;
-	const shippingAutoDetectLabel =
-		selectedDestination.shippingRegion === "eu"
+	const shippingAutoDetectLabel = subscriptionCheckout
+		? "No delivery address is needed for a subscription."
+		: selectedDestination.shippingRegion === "eu"
 			? `Auto-detected: ${selectedDestination.name} is in the EU shipping zone.`
 			: `Auto-detected: ${selectedDestination.name} is an approved non-EU shipping exception.`;
 	const exchangeRateLabel = canConvertCurrency ? `1 RON = ${selectedRate.toFixed(4)} ${selectedCurrency}` : "Rate unavailable";
@@ -657,16 +726,24 @@ export default React.memo(function PaymentPageContent() {
 					}
 				}
 
-				// Check if this is a subscription purchase
-				const subscriptionItem = items.find((item) => item.id.startsWith("sub-"));
-				const isSubscriptionPurchase = !!subscriptionItem;
+				// Check if this is a subscription purchase.
+				//
+				// The intent comes from the plans page, not from the cart. A subscription is not
+				// merchandise: it has no stock, no delivery and no destination, and the thing
+				// that records it is the subscription ledger rather than the orders table.
+				//
+				// It used to be a fake line item in the coffee cart, which the cart rejected --
+				// "Product not found in stock inventory" -- while the customer was still
+				// navigated here with an empty cart, where the only thing left to charge was
+				// the 24.99 RON coffee delivery fee.
+				const subscriptionIntent = readSubscriptionIntent();
+				const subscriptionTier = subscriptionIntent?.tier ?? null;
+				const billingCycle = subscriptionIntent?.cycle ?? "monthly";
+				const isSubscriptionPurchase = Boolean(subscriptionTier);
 
-				if (isSubscriptionPurchase && subscriptionItem) {
-					// Extract subscription details from item id (e.g., "sub-ultimate")
-					const subscriptionTier = subscriptionItem.id.replace("sub-", "");
-					const billingCycle = subscriptionItem.name.toLowerCase().includes("yearly") ? "annual" : "monthly";
-
-					// Create subscription via API
+				if (isSubscriptionPurchase && subscriptionTier) {
+					// Create the subscription via the API. It charges the card itself, from the
+					// server's own price table.
 					try {
 						const subResponse = await fetch(`${API_BASE}/api/subscriptions`, {
 							method: "POST",
@@ -701,46 +778,14 @@ export default React.memo(function PaymentPageContent() {
 								"payment",
 							);
 
-							// Also create an order record for the subscription
-							try {
-								await fetch(`${API_BASE}/api/orders`, {
-									method: "POST",
-									headers: {
-										"Content-Type": "application/json",
-									},
-									body: JSON.stringify({
-										items: [
-											{
-												productId: subscriptionItem.id,
-												productName: subscriptionItem.name,
-												productType: "subscription",
-												quantity: 1,
-												unitPrice: subscriptionItem.price,
-												productImage: null,
-											},
-										],
-										shippingCost: 0,
-										total: ronEquivalentTotal,
-										paymentMethod: paymentMethodSummary,
-										cardId: selectedSavedCard?.id || null,
-										isSubscription: true,
-										currencyCode: selectedCurrency,
-										exchangeRate: selectedRate || 1,
-										conversionFeePercent,
-										chargedSubtotal: convertedSubtotal,
-										chargedShippingCost: 0,
-										chargedTax: conversionFeeAmount,
-										chargedTotal: paymentTotal,
-										destinationCountry: selectedDestination.name,
-										shippingAddress: {
-											country: selectedDestination.name,
-											region: selectedDestination.shippingRegion,
-										},
-									}),
-								});
-							} catch (e) {
-								console.error("Failed to save subscription order", e);
-							}
+							// The subscription is NOT also written as a merchandise order.
+							//
+							// It used to be, and that order carried a line item with a product id
+							// of "sub-ultimate" -- which the orders service resolves against the
+							// coffee catalogue, finds no such capsule, and rejects with "Product not
+							// found in stock inventory". The subscription ledger
+							// (`subscription_payments`) is the record of a subscription purchase,
+							// and it is already written by the call above.
 
 							// Keep account state synchronized in both local and session storage.
 							const updatedAccountData = {
@@ -748,6 +793,7 @@ export default React.memo(function PaymentPageContent() {
 								subscription: subscriptionTier.charAt(0).toUpperCase() + subscriptionTier.slice(1),
 							};
 							writeAccountSession(updatedAccountData);
+							clearSubscriptionIntent();
 						} else {
 							notify("Subscription activation failed. Please contact support.", 5000, "error", "payment");
 						}

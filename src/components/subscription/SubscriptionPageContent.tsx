@@ -5,6 +5,7 @@ import useCart from "@/hooks/useCart";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useRouter } from "next/navigation";
 import { buildPageHref } from "@/lib/pages";
+import { writeSubscriptionIntent } from "@/lib/subscriptionCheckout";
 import { isSignedIn, subscribeAuthState } from "@/lib/authState";
 
 const API_BASE = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000" : "";
@@ -254,7 +255,7 @@ export default function SubscriptionPageContent() {
 		},
 		tierGrantsSpectre
 			? { text: "Already included with your plan", note: false }
-			: { text: "Available on any plan, including Free", note: false },
+			: { text: "Works alongside any plan", note: false },
 	];
 
 	useEffect(() => {
@@ -545,8 +546,19 @@ export default function SubscriptionPageContent() {
 				return;
 			}
 
-			// Add subscription to cart and go directly to payment
-			addItem({ id: `sub-${planId}`, name: `${planTitle} Subscription (${period}) - ${formatRon(price)}`, price });
+			// A subscription is recorded as an intent, not as a line in the coffee cart.
+			//
+			// It used to be added to the cart, and the cart rejected it -- a coffee capsule
+			// named "sub-ultimate" does not exist -- while the customer was still sent to
+			// payment with an empty cart, where the only thing left to charge was the 24.99 RON
+			// delivery fee. A subscription has no stock, no delivery and no destination; it is
+			// checked out on its own terms.
+			writeSubscriptionIntent({
+				tier: planId,
+				cycle: billingPeriod === "yearly" ? "annual" : "monthly",
+				title: planTitle,
+				priceRon: price,
+			});
 			notify(`${planTitle} subscription selected! Proceeding to payment...`, 3000, "success", "subscription");
 
 			// Store the timestamp token and redirect to payment
@@ -1059,6 +1071,17 @@ if (benefit.toLowerCase().includes("lfm") || benefit.toLowerCase().includes("qwe
 									</button>
 								)}
 							</div>
+							{/*
+								The fine print, below the card rather than inside it.
+
+								"Available on any plan, including Free" is true, and it was easy to
+								read as "available on every plan" -- which is what a Max or Ultimate
+								customer already has, and what they would then be told to buy a
+								second time. Hence the exception, stated plainly.
+							*/}
+							<p className="card-spectre__fineprint">
+								Available on any plan, including Free. Max and Ultimate already include it.
+							</p>
 						</div>
 <div className="card-spectre__prices">
 						<h3 className="card-spectre__prices-title">What usage costs per 1M tokens (RON)</h3>

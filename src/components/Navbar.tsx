@@ -311,28 +311,53 @@ export default function Navbar() {
 												justifyContent: "flex-start",
 											}}
 										>
-											{accountIcon ? (
-												<>
-													<img
-														src={accountIcon}
-														alt="account"
-														className="nav-account-icon"
-														style={{
-															marginRight: 10,
-															display: "inline-block",
-														}}
-														onError={() => {
-															if (accountIcon && !accountIcon.startsWith("data:image/")) {
-																lastFailedUrlRef.current = accountIcon;
-																setAccountIcon(fallbackAvatarRef.current || null);
-															}
-														}}
-													/>
-													<span style={{ display: "inline-block", verticalAlign: "middle" }}>
-														{accountName || label}
-													</span>
-												</>
-											) : (
+									{accountIcon ? (
+										<>
+											{/*
+												The account's own picture, over the initials.
+
+												Putting the user's image *on top of* the generated
+												avatar rather than instead of it means a picture that
+												fails to load shows the initials underneath rather than
+												a broken-image glyph. The onError handler cannot do
+												this on its own: it only runs for a URL, so an avatar
+												that is itself a malformed data URL is left exactly
+												as it was, broken.
+											*/}
+											<span
+												style={{
+													position: "relative",
+													display: "inline-block",
+													width: 32,
+													height: 32,
+													marginRight: 10,
+													overflow: "hidden",
+													borderRadius: "50%",
+												}}>
+												<img
+													src={createDefaultAvatarDataUrl(accountName || "User")}
+													alt=""
+													aria-hidden="true"
+													style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+												/>
+												<img
+													src={accountIcon}
+													alt="account"
+													className="nav-account-icon"
+													style={{ position: "relative", width: "100%", height: "100%", objectFit: "cover" }}
+													onError={() => {
+														if (accountIcon && !accountIcon.startsWith("data:image/")) {
+															lastFailedUrlRef.current = accountIcon;
+															setAccountIcon(fallbackAvatarRef.current || null);
+														}
+													}}
+												/>
+											</span>
+											<span style={{ display: "inline-block", verticalAlign: "middle" }}>
+												{accountName || label}
+											</span>
+										</>
+									) : (
 												<>
 													<div
 														style={{

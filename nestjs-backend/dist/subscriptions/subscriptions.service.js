@@ -9,11 +9,11 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SubscriptionsService = void 0;
+exports.SubscriptionsService = exports.SUBSCRIPTION_PRICES = void 0;
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
 const charge_provider_1 = require("../billing/charge-provider");
-const SUBSCRIPTION_PRICES = {
+exports.SUBSCRIPTION_PRICES = {
     free: { monthly: 0, annual: 0 },
     basic: { monthly: 55.99, annual: 399.99 },
     plus: { monthly: 109.99, annual: 1099.99 },
@@ -56,6 +56,26 @@ let SubscriptionsService = class SubscriptionsService {
     constructor(chargeProvider, db) {
         this.chargeProvider = chargeProvider;
         this.db = db;
+    }
+    /**
+     * The price table, for a checkout that must quote the server's number.
+     *
+     * The prices lived only in this file, and the web client kept its own copies in three
+     * places. They agreed, and then a checkout showed a customer 24.99 RON -- a coffee delivery
+     * fee -- because the subscription had been routed through the shopping cart and the cart was
+     * empty. A price that is only *displayed* from a client copy is a price that can be wrong on
+     * screen while the charge is right, or the other way round. This is the single source for
+     * what a subscription costs.
+     */
+    priceTable() {
+        return {
+            currency: "RON",
+            tiers: Object.entries(exports.SUBSCRIPTION_PRICES).map(([tier, cycles]) => ({
+                tier,
+                monthly: cycles.monthly ?? 0,
+                annual: cycles.annual ?? 0,
+            })),
+        };
     }
     async getSubscription(accountId) {
         const pool = this.db.getPool();
@@ -115,7 +135,7 @@ let SubscriptionsService = class SubscriptionsService {
         if (tier !== "free" && !["monthly", "annual"].includes(String(billingCycle || ""))) {
             throw new common_1.BadRequestException({ error: "Invalid billing cycle" });
         }
-        const price = tier === "free" ? 0 : (SUBSCRIPTION_PRICES[tier]?.[billingCycle] ?? 0);
+        const price = tier === "free" ? 0 : (exports.SUBSCRIPTION_PRICES[tier]?.[billingCycle] ?? 0);
         const startDate = new Date().toISOString().split("T")[0];
         const renewalDate = tier === "free" ? null : calculateRenewalDate(billingCycle);
         const pool = this.db.getPool();
@@ -180,7 +200,7 @@ let SubscriptionsService = class SubscriptionsService {
                 throw new common_1.BadRequestException({ error: "No active subscription to change from" });
             }
             await client.query(`DELETE FROM user_subscriptions WHERE account_id = $1 AND status = 'scheduled'`, [accountId]);
-            const price = SUBSCRIPTION_PRICES[tier]?.[billingCycle] ?? 0;
+            const price = exports.SUBSCRIPTION_PRICES[tier]?.[billingCycle] ?? 0;
             const useCardId = cardId || currentSub.card_id;
             const isUpgrade = (TIER_LEVELS[tier] || 0) > (TIER_LEVELS[String(currentSub.subscription_tier)] || 0);
             if (isUpgrade) {

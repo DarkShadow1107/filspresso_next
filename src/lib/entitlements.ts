@@ -245,7 +245,12 @@ export function featureLinesForTier(tier: UserSubscriptionTier | string): string
 		// The text-modality icon, so this reads the same as the MiniLM line rather than
 		// carrying its own glyph. It used to be a clapper board, which was the only
 		// benefit line with an icon unrelated to what the feature actually is.
-		lines.push(`${MODALITY_EMOJI.text} Spectre Playground included (or subscribe separately)`);
+		//
+		// No "or subscribe separately" after this. It read as though the Playground might not
+		// be included on a plan that includes it, and on a Max card it contradicted the
+		// card's own price: if it were a separate purchase, the 279.99 RON would not have
+		// covered it. The plan includes the Playground, full stop.
+		lines.push(`${MODALITY_EMOJI.text} Spectre Playground included`);
 	}
 	if (tierCanUseMoleculeHelper(value)) {
 		lines.push("\u{1F9EC} Molecule Helper (LFM 2.5 VL)");

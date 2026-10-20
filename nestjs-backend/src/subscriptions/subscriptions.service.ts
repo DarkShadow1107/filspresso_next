@@ -6,7 +6,7 @@ import {
 import { DatabaseService } from "../database/database.service";
 import { ChargeProvider } from "../billing/charge-provider";
 
-const SUBSCRIPTION_PRICES: Record<string, Record<string, number>> = {
+export const SUBSCRIPTION_PRICES: Record<string, Record<string, number>> = {
   free: { monthly: 0, annual: 0 },
   basic: { monthly: 55.99, annual: 399.99 },
   plus: { monthly: 109.99, annual: 1099.99 },
@@ -50,6 +50,27 @@ const REFUND_WINDOW_DAYS = Math.max(
 export class SubscriptionsService {
   constructor(  private readonly chargeProvider: ChargeProvider,
     private readonly db: DatabaseService) {}
+
+  /**
+   * The price table, for a checkout that must quote the server's number.
+   *
+   * The prices lived only in this file, and the web client kept its own copies in three
+   * places. They agreed, and then a checkout showed a customer 24.99 RON -- a coffee delivery
+   * fee -- because the subscription had been routed through the shopping cart and the cart was
+   * empty. A price that is only *displayed* from a client copy is a price that can be wrong on
+   * screen while the charge is right, or the other way round. This is the single source for
+   * what a subscription costs.
+   */
+  priceTable(): { currency: "RON"; tiers: Array<{ tier: string; monthly: number; annual: number }> } {
+    return {
+      currency: "RON",
+      tiers: Object.entries(SUBSCRIPTION_PRICES).map(([tier, cycles]) => ({
+        tier,
+        monthly: cycles.monthly ?? 0,
+        annual: cycles.annual ?? 0,
+      })),
+    };
+  }
 
   async getSubscription(accountId: number) {
     const pool = this.db.getPool();
