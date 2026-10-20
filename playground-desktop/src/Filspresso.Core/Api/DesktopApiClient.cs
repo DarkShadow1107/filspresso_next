@@ -397,6 +397,83 @@ public class DesktopApiClient : IDisposable
     }
 
     /// <summary>
+    /// Calls the web tool on the server.
+    /// </summary>
+    /// <remarks>
+    /// The request goes to the backend rather than to the web directly, because the backend is
+    /// where the egress allowlist lives, so a deployment decides what may leave the network,
+    /// and because the request is authenticated as the user rather than being an open proxy.
+    /// <para>
+    /// The status is returned as well as the body, because the body of a refusal is where the
+    /// reason is, and the reason is what the model needs to try something else.
+    /// </para>
+    /// </remarks>
+    public async Task<(int Status, JsonDocument Body)> PostWebAsync(
+        string accessToken,
+        string action,
+        object payload,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
+        ArgumentException.ThrowIfNullOrWhiteSpace(action);
+
+        // The body is the action plus the payload's own fields. Built as a dictionary rather
+        // than an anonymous object with a spread, because C# has no spread and the payload is
+        // already a bag of named values.
+        var requestBody = new Dictionary<string, object?> { ["action"] = action };
+        foreach (var field in Extract(payload))
+        {
+            requestBody[field.Key] = field.Value;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/desktop/web")
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(requestBody),
+                Encoding.UTF8,
+                "application/json"),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        try
+        {
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var body = string.IsNullOrWhiteSpace(text)
+                ? JsonDocument.Parse("{}")
+                : JsonDocument.Parse(text);
+            return ((int)response.StatusCode, body);
+        }
+        catch (Exception error) when (IsTransportError(error, cancellationToken))
+        {
+            var body = JsonDocument.Parse("{}");
+            return (0, body);
+        }
+    }
+
+    /// <summary>
+    /// The payload's own fields, so they can sit beside `action` in the body.
+    /// </summary>
+    private static Dictionary<string, object?> Extract(object payload)
+    {
+        if (payload is Dictionary<string, object?> dictionary) return dictionary;
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+        var result = new Dictionary<string, object?>();
+        foreach (var property in document.RootElement.EnumerateObject())
+        {
+            result[property.Name] = property.Value.ValueKind switch
+            {
+                JsonValueKind.String => property.Value.GetString(),
+                JsonValueKind.Number => property.Value.GetDouble(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => null,
+            };
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Turns one SSE frame into an update. Returns null for anything that is not an event
     /// the UI understands, such as a keep-alive.
     /// </summary>

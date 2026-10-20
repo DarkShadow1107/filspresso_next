@@ -58,6 +58,7 @@ async function fetchBounded(url, options = {}) {
             headers: options.headers,
             body: options.body,
             signal: controller.signal,
+            ...(options.redirect ? { redirect: options.redirect } : {}),
         });
         if (options.maxBytes !== undefined) {
             // Read the declared length once. When it is present and within budget the body can

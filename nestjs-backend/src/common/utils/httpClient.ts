@@ -17,6 +17,15 @@ export type FetchOptions = {
   timeoutMs?: number;
   /** Reject rather than buffer a response larger than this. */
   maxBytes?: number;
+  /**
+   * How redirects are handled. Defaults to the platform's own behaviour, which is to follow
+   * them.
+   *
+   * It is a parameter because a caller that validates each hop itself has to stop the
+   * client following the chain behind its back: a public URL that redirects to
+   * `http://192.168.1.1/` would otherwise be fetched without ever being looked at.
+   */
+  redirect?: "follow" | "manual" | "error";
 };
 
 export class UpstreamTimeoutError extends Error {
@@ -56,6 +65,7 @@ export async function fetchBounded(url: string, options: FetchOptions = {}): Pro
       headers: options.headers,
       body: options.body,
       signal: controller.signal,
+      ...(options.redirect ? { redirect: options.redirect } : {}),
     });
 
     if (options.maxBytes !== undefined) {

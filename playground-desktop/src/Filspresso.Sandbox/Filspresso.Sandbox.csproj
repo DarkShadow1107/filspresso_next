@@ -10,4 +10,14 @@
     <ProjectReference Include="..\Filspresso.Core\Filspresso.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      The path handling and the string escaping are internal, and they are exactly the code
+      that has to be right: a path that climbs out of the workspace, or a value that closes a
+      quoted string, are both boundary failures. They are tested from here rather than made
+      public for the sake of it.
+    -->
+    <InternalsVisibleTo Include="Filspresso.Core.Tests" />
+  </ItemGroup>
+
 </Project>

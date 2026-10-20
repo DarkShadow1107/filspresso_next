@@ -57,6 +57,10 @@ export const PER_ROUTE_RATE_LIMITS = {
 	// script. It is still a ceiling, because "unlimited" is not an option for a credential
 	// endpoint.
 	"POST /api/auth/desktop/refresh": { limit: 60, ttlMs: 15 * MINUTE, name: "auth-desktop-refresh" },
+	// The web tool. An outbound fetch is far more expensive than a database read, and it is
+	// the one endpoint a model can be talked into calling repeatedly, so it gets its own
+	// budget rather than sharing the global one.
+	"POST /api/desktop/web": { limit: 20, ttlMs: 5 * MINUTE, name: "desktop-web" },
 	"POST /api/admin/login": { limit: 10, ttlMs: 15 * MINUTE, name: "admin-login" },
 	"POST /api/admin/mfa": { limit: 10, ttlMs: 15 * MINUTE, name: "admin-mfa" },
 	"POST /api/orders": { limit: 20, ttlMs: 60 * MINUTE, name: "orders-create" },

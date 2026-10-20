@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { DesktopController } from "./desktop.controller";
+import { DesktopWebController } from "./desktop-web.controller";
+import { DesktopWebService } from "./desktop-web.service";
 import { DesktopGatewayService } from "./desktop-gateway.service";
 import { BillingModule } from "../billing/billing.controller";
 
@@ -18,7 +20,7 @@ import { BillingModule } from "../billing/billing.controller";
  */
 @Module({
 	imports: [BillingModule],
-	controllers: [DesktopController],
-	providers: [DesktopGatewayService],
+	controllers: [DesktopController, DesktopWebController],
+	providers: [DesktopGatewayService, DesktopWebService],
 })
 export class DesktopModule {}

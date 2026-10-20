@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Filspresso.Core\Filspresso.Core.csproj" />
+    <ProjectReference Include="..\..\src\Filspresso.Sandbox\Filspresso.Sandbox.csproj" />
     <!--
       Compiled in rather than referenced. The store is Win32 interop, and referencing the
       whole App project would drag the WinUI runtime into a test that only needs the vault.
