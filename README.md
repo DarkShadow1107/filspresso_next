@@ -412,6 +412,26 @@ Generate one with `openssl rand -hex 32`. **Leaving it unset is not a safe defau
 service prints a boot warning to say so, and the only thing standing between an unset key and
 exposure is the loopback binding.
 
+## The desktop app's web search
+
+The Spectre Playground desktop client can search the web. The search runs on the server, not
+in the client's sandbox, because the sandbox is a Hyper-V virtual machine with no network
+adapter at all -- that is what stops generated code from reaching the network.
+
+Two providers, chosen by configuration:
+
+- **`BRAVE_SEARCH_API_KEY` set** -- Brave's search API. A documented rate limit, a stable
+  response shape, no scraping of somebody else's HTML. **This is what a production deployment
+  should use.**
+- **unset** -- DuckDuckGo's HTML endpoint, so the feature works out of the box without anyone
+  buying a key. It rate-limits after a couple of requests from one address, and when it does the
+  tool says so rather than returning an empty list, which would tell the model the web had
+  nothing to say.
+
+The provider's host must also be in `INTERNAL_EGRESS_ALLOWLIST`, like any other outbound
+call. The default development list includes `html.duckduckgo.com`; add
+`api.search.brave.com` if you use that provider.
+
 ## Security trust-boundary map
 
 ![Security Trust Boundary](docs/uml/security-trust-boundary.svg)
@@ -780,6 +800,7 @@ Outside Docker (host machine):
 | ------------------------------ | --------------------- | -------------------------------------------- |
 | NEXT_PUBLIC_API_URL            | http://localhost:4000 | Base URL used by frontend calls              |
 | PYTHON_AI_HOST                 | http://localhost:5000 | Next handler upstream for AI proxy           |
+| BRAVE_SEARCH_API_KEY             | (unset)               | Web search provider for the desktop app      |
 | AI_SERVICE_KEY                  | (unset)               | Shared secret for the AI service's model routes |
 | NEXT_PUBLIC_AI_URL             | optional              | Alternate client AI URL if used              |
 | SERVICE_METRICS_STRICT_DB_ONLY | false                 | Controls strict mode in service health route |

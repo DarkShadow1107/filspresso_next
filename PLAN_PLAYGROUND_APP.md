@@ -340,8 +340,15 @@ unless it is fenced in, and the model reads untrusted pages: a page can contain 
 - caps the body and reduces it to text, so a hostile page cannot flood the model or the ledger;
 - has its own rate limit, because an outbound fetch is far more expensive than a database read.
 
-Search itself goes through DuckDuckGo's HTML endpoint, because it needs no API key: a desktop
-client that is unusable until somebody buys a search key is a desktop client nobody uses.
+Search has two providers, and which one runs is a deployment decision.
+`BRAVE_SEARCH_API_KEY` switches to Brave's API, which has a documented rate limit and a
+stable response shape, and is what a production deployment should use. Without a key it falls
+back to DuckDuckGo's HTML endpoint, which needs no key so the feature works out of the box --
+and which rate-limits after a couple of requests from one address.
+
+**When the provider is refusing, the tool says so.** A silent empty list would tell the model
+the web had nothing to say, and the model would answer from its own memory and sound
+confident about it. The challenge page is detected and reported as a refusal worth retrying.
 
 ### Two bugs found while building it
 
