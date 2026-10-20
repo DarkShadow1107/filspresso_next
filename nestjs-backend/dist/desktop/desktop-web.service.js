@@ -91,10 +91,21 @@ let DesktopWebService = DesktopWebService_1 = class DesktopWebService {
     /**
      * Search the web.
      *
-     * DuckDuckGo's HTML endpoint, because it needs no API key: a desktop client that is
-     * unusable until somebody buys a search key is a desktop client that does not get used.
-     * The results are its own HTML, parsed here rather than through a browser, so the
-     * endpoint stays a plain HTTP call with no headless Chromium on the server.
+     * Two providers, and which one is used is a deployment decision.
+     *
+     * **A real search API when one is configured.** `BRAVE_SEARCH_API_KEY` switches to Brave's
+     * API, which is a supported service with a documented rate limit, and the one a production
+     * deployment should use.
+     *
+     * **A scraped provider otherwise.** DuckDuckGo's HTML endpoint, because it needs no API
+     * key: a desktop client that is unusable until somebody buys a search key is a desktop
+     * client that does not get used. The cost is that it rate-limits, and after a couple of
+     * requests from one address it answers with a challenge page instead of results.
+     *
+     * A challenge is detected and reported as what it is -- the provider is refusing this
+     * address right now, which is worth retrying and worth saying out loud. Returning an empty
+     * list for it would be a lie: it would tell the model the web has nothing to say, and the
+     * model would answer from its own memory instead.
      */
     async search(query, limit = MAX_RESULTS) {
         const text = String(query || "").trim();
@@ -104,23 +115,103 @@ let DesktopWebService = DesktopWebService_1 = class DesktopWebService {
         if (text.length > MAX_QUERY_LENGTH) {
             throw new common_1.BadRequestException({ error: `the query may be at most ${MAX_QUERY_LENGTH} characters` });
         }
-        const url = `${SEARCH_ENDPOINT}?q=${encodeURIComponent(text)}`;
-        // The search provider is outbound traffic, and the egress allowlist governs it like any
-        // other. A deployment that has decided what may leave the network keeps that decision.
+        const braveKey = String(process.env.BRAVE_SEARCH_API_KEY || "").trim();
+        return braveKey
+            ? await this.searchBrave(text, limit, braveKey)
+            : await this.searchScraped(text);
+    }
+    /**
+     * Brave's search API.
+     *
+     * The one to use in production: a documented rate limit, a stable response shape, and no
+     * scraping of somebody else's HTML.
+     */
+    async searchBrave(query, limit, apiKey) {
+        const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${Math.min(limit, 20)}`;
         (0, egressPolicy_1.assertAllowedEgress)(url, "web search");
         const response = await (0, httpClient_1.fetchBounded)(url, {
             method: "GET",
             timeoutMs: SEARCH_TIMEOUT_MS,
-            // The cap is on the response body, and the search page is a few tens of kilobytes.
             maxBytes: 1_000_000,
             headers: {
-                // DuckDuckGo serves a different page to a client that does not look like a
-                // browser, and that page has no results in it.
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-                Accept: "text/html,application/xhtml+xml",
+                "X-Subscription-Token": apiKey,
+                Accept: "application/json",
             },
         });
-        return DesktopWebService_1.parseSearchResults(await response.text());
+        if (!response.ok) {
+            throw new common_1.ServiceUnavailableException({
+                error: "SEARCH_PROVIDER_BUSY",
+                message: "The search provider refused the request. Try again shortly.",
+            });
+        }
+        const body = JSON.parse(await response.text());
+        return (body.web?.results ?? []).slice(0, limit).map((result) => ({
+            title: String(result.title ?? ""),
+            url: String(result.url ?? ""),
+            snippet: String(result.description ?? ""),
+        }));
+    }
+    /**
+     * The no-key provider.
+     *
+     * Retried once after a short pause, because the limit is a burst limit and a pause is
+     * cheap.
+     */
+    async searchScraped(query) {
+        const url = `${SEARCH_ENDPOINT}?q=${encodeURIComponent(query)}`;
+        // The search provider is outbound traffic, and the egress allowlist governs it like any
+        // other. A deployment that has decided what may leave the network keeps that decision.
+        (0, egressPolicy_1.assertAllowedEgress)(url, "web search");
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const response = await (0, httpClient_1.fetchBounded)(url, {
+                method: "GET",
+                timeoutMs: SEARCH_TIMEOUT_MS,
+                // The cap is on the response body, and the search page is a few tens of kilobytes.
+                maxBytes: 1_000_000,
+                headers: {
+                    // DuckDuckGo serves a different page to a client that does not look like a
+                    // browser, and that page has no results in it.
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+                    Accept: "text/html,application/xhtml+xml",
+                },
+            });
+            const html = await response.text();
+            if (DesktopWebService_1.isChallengePage(html)) {
+                if (attempt === 0) {
+                    await DesktopWebService_1.pause(1500);
+                    continue;
+                }
+                throw new common_1.ServiceUnavailableException({
+                    error: "SEARCH_PROVIDER_BUSY",
+                    message: "The search provider is rate-limiting this address. Wait a few minutes and try again.",
+                });
+            }
+            return DesktopWebService_1.parseSearchResults(html);
+        }
+        return [];
+    }
+    /**
+     * Pause, without a cancellation token, between provider attempts.
+     *
+     * A plain promise rather than a timer handle: the point is to wait, and a handle would
+     * only be needed to cancel it, which this deliberately does not do -- a cancelled retry
+     * would look like a failed search.
+     */
+    static pause(milliseconds) {
+        return new Promise((resolve) => setTimeout(resolve, milliseconds));
+    }
+    /**
+     * Whether the provider answered with a challenge rather than with results.
+     *
+     * Detected from the page itself, because the provider returns 200 for it. A search that
+     * silently finds nothing is worse than one that says it is being blocked: the first makes
+     * the model answer from memory, and the second tells the user to wait.
+     */
+    static isChallengePage(html) {
+        const page = String(html || "");
+        if (page.length > 40_000)
+            return false; // a real results page is bigger than this
+        return /anomaly-modal|challenge-form|unusual traffic|are you a robot|blocked for security/i.test(page);
     }
     /**
      * Parse the result page.
