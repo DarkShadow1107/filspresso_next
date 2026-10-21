@@ -410,6 +410,14 @@ let BillingService = BillingService_1 = class BillingService {
      * Granted lazily rather than by a cron, so a signup at 23:59 on the last day of the
      * month still gets that month's allowance, and a missed scheduler run cannot silently
      * cost a customer their budget for the month.
+     *
+     * The pot always reflects the plan the account is on *now*. The row is keyed by
+     * (account, month), so without the conflict clause below it kept whatever tier and
+     * allowance the account had when the month started: a customer who upgraded to Pro on
+     * the 3rd kept metering against Free's 5 RON for the rest of the month, and the
+     * Usage & Wallet page named a plan they no longer had. Upgrading raises the pot to the
+     * new plan's full allowance; downgrading lowers it, and anything already spent beyond
+     * the lower plan leaves nothing remaining and spills to the wallet.
      */
     async getAllowance(accountId, tier) {
         const pool = this.db.getPool();
@@ -417,7 +425,8 @@ let BillingService = BillingService_1 = class BillingService {
         const granted = (0, tier_allowance_1.allowanceRon)(tier, true);
         const result = await pool.query(`INSERT INTO ai_monthly_allowance (account_id, month_key, tier, granted_ron)
 			 VALUES ($1, $2, $3, $4)
-			 ON CONFLICT (account_id, month_key) DO UPDATE SET account_id = EXCLUDED.account_id
+			 ON CONFLICT (account_id, month_key) DO UPDATE SET
+			   tier = EXCLUDED.tier, granted_ron = EXCLUDED.granted_ron
 			 RETURNING tier, granted_ron, spent_ron`, [accountId, month, String(tier || "free").slice(0, 32), granted]);
         const row = result.rows[0];
         const spent = Number(row.spent_ron);
@@ -437,6 +446,10 @@ let BillingService = BillingService_1 = class BillingService {
      * The allowance is spent before the funded balance because it is the thing the
      * subscription bought. `greatest()` caps the draw at the remaining allowance, so a cost
      * larger than what is left spills over to the wallet instead of overdrawing the pot.
+     *
+     * The upsert below refreshes the pot to the tier being metered against, for the same
+     * reason `getAllowance` does: metering a Pro customer against a pot written when they
+     * were on Free would charge them the free rate all month.
      */
     async drawFromAllowance(accountId, tier, cost) {
         if (!(cost > 0))
@@ -445,7 +458,8 @@ let BillingService = BillingService_1 = class BillingService {
         const month = (0, tier_allowance_1.monthKey)();
         const result = await pool.query(`INSERT INTO ai_monthly_allowance (account_id, month_key, tier, granted_ron, spent_ron)
 			 VALUES ($1, $2, $3, $4, 0)
-			 ON CONFLICT (account_id, month_key) DO UPDATE SET account_id = EXCLUDED.account_id
+			 ON CONFLICT (account_id, month_key) DO UPDATE SET
+			   tier = EXCLUDED.tier, granted_ron = EXCLUDED.granted_ron
 			 RETURNING granted_ron, spent_ron`, [accountId, month, String(tier || "free").slice(0, 32), (0, tier_allowance_1.allowanceRon)(tier, true)]);
         const row = result.rows[0];
         const remaining = Math.max(0, Number(row.granted_ron) - Number(row.spent_ron));
@@ -468,7 +482,8 @@ let BillingService = BillingService_1 = class BillingService {
         const month = (0, tier_allowance_1.monthKey)();
         const inserted = await client.query(`INSERT INTO ai_monthly_allowance (account_id, month_key, tier, granted_ron, spent_ron)
 			 VALUES ($1, $2, $3, $4, 0)
-			 ON CONFLICT (account_id, month_key) DO UPDATE SET account_id = EXCLUDED.account_id
+			 ON CONFLICT (account_id, month_key) DO UPDATE SET
+			   tier = EXCLUDED.tier, granted_ron = EXCLUDED.granted_ron
 			 RETURNING granted_ron, spent_ron`, [accountId, month, String(tier || "free").slice(0, 32), (0, tier_allowance_1.allowanceRon)(tier, true)]);
         const row = inserted.rows[0];
         const remaining = Math.max(0, Number(row.granted_ron) - Number(row.spent_ron));

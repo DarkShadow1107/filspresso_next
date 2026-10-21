@@ -196,6 +196,35 @@ def main():
     check("allowance included", isinstance(bal.get("allowance"), dict))
     check("recent spend listed", len(bal.get("recent", [])) >= 2, f"{len(bal.get('recent', []))} rows")
 
+    print("\n=== the allowance follows the plan the account is on ===")
+    # The allowance row is keyed by (account, month), so it used to keep whatever tier
+    # the account had when the month started: a customer who upgraded to Pro on the 3rd
+    # metered against Free's 5 RON for the rest of the month, and the Usage & Wallet
+    # page named a plan they no longer had.
+    #
+    # A fresh account on the free plan is the worst case for this, because the month
+    # has already begun and the free row already exists.
+    psql(f"UPDATE accounts SET subscription = 'max' WHERE email = '{email}';")
+    status, upgraded, _ = req("/api/billing/allowance", cookie=cookie)
+    check("the allowance is the new plan's", upgraded.get("grantedRon") == 100,
+          f"{upgraded.get('grantedRon')} RON (tier {upgraded.get('tier')})")
+    check("the allowance names the new plan", upgraded.get("tier") == "max", str(upgraded.get("tier")))
+    status, upbal, _ = req("/api/billing/balance", cookie=cookie)
+    check("the balance endpoint agrees",
+          upbal.get("allowance", {}).get("grantedRon") == 100,
+          str(upbal.get("allowance", {}).get("grantedRon")))
+
+    # And back down again: the pot is the plan you are on, not the best one you had.
+    psql(f"UPDATE accounts SET subscription = 'free' WHERE email = '{email}';")
+    status, downgraded, _ = req("/api/billing/allowance", cookie=cookie)
+    check("a downgrade lowers the pot again", downgraded.get("grantedRon") == 5,
+          f"{downgraded.get('grantedRon')} RON (tier {downgraded.get('tier')})")
+    check("what was already spent is not refunded",
+          abs(downgraded.get("spentRon", 0) - 5) < 1e-9, f"spent {downgraded.get('spentRon')}")
+    check("and the remaining is never negative", downgraded.get("remainingRon") == 0,
+          str(downgraded.get("remainingRon")))
+
+
     failed = [c for c in checks if not c[1]]
     print(f"\n  {len(checks) - len(failed)}/{len(checks)} checks passed")
     print("RESULT:", "PASS" if not failed else "FAIL")
