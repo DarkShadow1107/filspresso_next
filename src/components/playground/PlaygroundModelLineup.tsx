@@ -6,6 +6,7 @@ import {
 	MODEL_DESCRIPTION_BY_KEY,
 	MODEL_LABEL_BY_KEY,
 	MODEL_MODALITY_BY_KEY,
+	formatContextTokens,
 	normalizeModelTier,
 	type ModelKey,
 	type UserSubscriptionTier,
@@ -127,10 +128,7 @@ export default function PlaygroundModelLineup({
 				aria-controls="pgm-lineup-panel"
 				onClick={() => setOpen((value) => !value)}
 			>
-				<span className="pgm-lineup-toggle-label">
-					Model lineup
-					<span className="pgm-lineup-toggle-count">{rows.length}</span>
-				</span>
+				<span className="pgm-lineup-toggle-label">API Prices</span>
 				<ArrowNarrowDownIcon size={14} className="pgm-lineup-chevron" />
 			</button>
 
@@ -164,7 +162,7 @@ export default function PlaygroundModelLineup({
 									    belongs next to the model rather than only in the
 									    max-tokens control. */}
 									<span className="pgm-lineup-context">
-										{MODEL_CONTEXT_TOKENS[key].toLocaleString("en-GB")} ctx
+										{formatContextTokens(MODEL_CONTEXT_TOKENS[key])} ctx
 									</span>
 									{prices[key] && (
 										<span

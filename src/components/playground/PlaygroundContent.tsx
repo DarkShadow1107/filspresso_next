@@ -19,8 +19,9 @@ import {
 	MODEL_CONTEXT_TOKENS,
 	MODEL_DESCRIPTION_BY_KEY,
 	MODEL_LABEL_BY_KEY,
-	MAX_TOKENS_STEP,
+	MAX_TOKENS_LEVELS,
 	defaultMaxTokensFor,
+	formatContextTokens,
 	maxTokensCeilingFor,
 	normalizeModelTier,
 	tierCanUseThinkingModel,
@@ -29,9 +30,19 @@ import {
 	type UserSubscriptionTier,
 	ALL_TEXT_MODEL_KEYS,
 } from "@/lib/modelAccess";
-import { ArrowNarrowDownIcon, SparklesIcon } from "@/icons";
+import { ArrowNarrowDownIcon, GithubIcon, SparklesIcon } from "@/icons";
 import { tierCanUsePlayground, SPECTRE_SUBSCRIPTION } from "@/lib/entitlements";
 import { getOrCreateFingerprint } from "@/lib/fingerprint";
+import DesktopAppDownload from "./DesktopAppDownload";
+
+/**
+ * Where the source lives.
+ *
+ * The Playground is a thin window onto the models, and the models are open
+ * source: the button is here so that someone who likes what they are looking
+ * at can go and read it.
+ */
+const GITHUB_URL = "https://github.com/DarkShadow1107/filspresso_next";
 
 type ChatMessage = {
 	id: string;
@@ -41,17 +52,6 @@ type ChatMessage = {
 	model?: TextModelKey;
 	failed?: boolean;
 };
-
-/**
- * The reply length the max-tokens control starts at.
- *
- * 512 is a comfortable answer's worth of text and, on this host, a couple of
- * seconds of generation rather than minutes.
- */
-const DEFAULT_MAX_TOKENS = 512;
-
-/** The smallest reply worth asking for. */
-const MIN_MAX_TOKENS = 64;
 
 
 export default function PlaygroundContent() {
@@ -63,8 +63,7 @@ export default function PlaygroundContent() {
 
 	// Controls
 	const [model, setModel] = useState<TextModelKey | null>(null);
-	const [systemPrompt, setSystemPrompt] = useState("");
-	const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
+	const [maxTokens, setMaxTokens] = useState(MAX_TOKENS_LEVELS[0]);
 	const [thinking, setThinking] = useState(false);
 
 	// Conversation
@@ -151,13 +150,24 @@ export default function PlaygroundContent() {
 	// The reply length is bounded by the model's own context window, so the
 	// control can never offer a reply the model has nowhere to put.
 	const maxTokensCeiling = useMemo(
-		() => (model ? maxTokensCeilingFor(model) : DEFAULT_MAX_TOKENS),
+		() => (model ? maxTokensCeilingFor(model) : MAX_TOKENS_LEVELS[0]),
 		[model],
 	);
 	const contextTokens = model ? MODEL_CONTEXT_TOKENS[model] : 0;
 
+	// The control's stops are the context levels, so the value is a position on
+	// the ladder rather than a number of tokens.
+	const levelIndex = useMemo(() => {
+		const found = MAX_TOKENS_LEVELS.indexOf(maxTokens);
+		return found >= 0 ? found : 0;
+	}, [maxTokens]);
+	const availableLevels = useMemo(
+		() => MAX_TOKENS_LEVELS.filter((level) => level <= maxTokensCeiling),
+		[maxTokensCeiling],
+	);
+
 	// Switching to a model with a smaller window has to pull the current value
-	// back inside it, or the slider would sit past its own end. It goes back to
+	// back inside it, or the control would sit past its own end. It goes back to
 	// the default rather than up to the new ceiling, because jumping to 16k
 	// tokens because you changed model is not what anyone meant.
 	useEffect(() => {
@@ -171,7 +181,14 @@ export default function PlaygroundContent() {
 		if (!thinkingAllowed) setThinking(false);
 	}, [thinkingAllowed]);
 
-	const prewarm = useModelPrewarm({ modelKey: hasPlaygroundAccess ? model : null, enabled: hasPlaygroundAccess });
+	// The model is loaded in the background as soon as it is picked, so the
+	// first message does not pay for the load.
+	//
+	// Its state is not shown. The progress bar beside the model picker already
+	// says what is happening, and a second indicator saying "warming up" only
+	// confused people: it is not the conversation that is warming up, it is a
+	// 4.9 GB file being read off the disk.
+	useModelPrewarm({ modelKey: hasPlaygroundAccess ? model : null, enabled: hasPlaygroundAccess });
 	// Only one chat model is resident at a time, so selecting a different model
 	// means a swap. Track it so the transcript can show determinate progress
 	// instead of a stalled-looking empty stream.
@@ -238,7 +255,6 @@ export default function PlaygroundContent() {
 				},
 				body: JSON.stringify({
 					message: prompt,
-					system_prompt: systemPrompt,
 					model,
 					max_tokens: maxTokens,
 					thinking,
@@ -382,12 +398,7 @@ try {
 			setStreamingText("");
 			setStreamingReasoning("");
 		}
-	}, [input, streaming, model, systemPrompt, maxTokens, thinking, nextId, waitUntilLoaded]);
-
-	const clearTranscript = useCallback(() => {
-		stopStream();
-		setMessages([]);
-	}, [stopStream]);
+	}, [input, streaming, model, maxTokens, thinking, nextId, waitUntilLoaded]);
 
 	// ---- Gate -----------------------------------------------------------
 
@@ -457,13 +468,20 @@ try {
 					</p>
 				</div>
 				<div className="playground-header-actions">
-					<span className="playground-ready" data-status={prewarm.status}>
-						{prewarm.status === "idle" ? "" : prewarm.label}
-					</span>
 					{model ? <ModelLoadingBar modelKey={model} state={modelLoad} compact /> : null}
-					<button type="button" className="playground-ghost-button" onClick={clearTranscript} disabled={messages.length === 0}>
-						Clear
-					</button>
+					<DesktopAppDownload />
+					{/* The source is open, so the link to it belongs on the page that
+					    shows what it does. */}
+					<a
+						className="playground-icon-button"
+						href={GITHUB_URL}
+						target="_blank"
+						rel="noopener noreferrer"
+						title="Filspresso on GitHub"
+						aria-label="Filspresso on GitHub"
+					>
+						<GithubIcon size={18} />
+					</a>
 				</div>
 			</header>
 
@@ -485,59 +503,41 @@ try {
 					</label>
 
 					{/* The line-up is a submenu of the picker, not a table at the foot of
-					    the page: the picker is what you use, and the line-up is what you
-					    open when you want to know what else there is and what it costs. */}
+					    the page: the picker is what you use, and the prices are what you
+					    open when you want to know what a message costs. */}
 					<PlaygroundModelLineup tier={tier ?? null} access={spectreAccess} textOnly compact />
 				</div>
 
 				<div className="playground-field playground-field-tokens">
 					<span>
-						Max tokens <em>{maxTokens.toLocaleString("en-GB")}</em>{" "}
+						Max tokens <em>{formatContextTokens(maxTokens)}</em>{" "}
 						{contextTokens > 0 ? (
-							<small>of {contextTokens.toLocaleString("en-GB")} context</small>
+							<small>of {formatContextTokens(contextTokens)} context</small>
 						) : null}
 					</span>
-					{/* The ceiling is the model's own context window, so the slider
-					    cannot offer a reply the model has nowhere to put. The step is
-					    a whole number of tokens, which is what makes the control
-					    land on a known value instead of an arbitrary one. */}
+					{/* The stops are the context levels -- 16K, 32K, 64K, 128K -- so the
+					    control says what it is and lands on a level rather than on an
+					    arbitrary number of tokens. */}
 					<input
 						type="range"
-						min={MIN_MAX_TOKENS}
-						max={maxTokensCeiling}
-						step={MAX_TOKENS_STEP}
-						value={maxTokens}
+						min={0}
+						max={Math.max(0, availableLevels.length - 1)}
+						step={1}
+						value={Math.min(levelIndex, Math.max(0, availableLevels.length - 1))}
 						disabled={streaming}
-						onChange={(event) => setMaxTokens(Number.parseInt(event.target.value, 10))}
-					/>
-					<input
-						type="number"
-						className="playground-token-input"
-						min={MIN_MAX_TOKENS}
-						max={maxTokensCeiling}
-						step={MAX_TOKENS_STEP}
-						value={maxTokens}
-						disabled={streaming}
-						aria-label="Max tokens"
 						onChange={(event) => {
-							const next = Number.parseInt(event.target.value, 10);
-							if (!Number.isFinite(next)) return;
-							setMaxTokens(Math.min(maxTokensCeiling, Math.max(MIN_MAX_TOKENS, next)));
+							const next = availableLevels[Number.parseInt(event.target.value, 10)];
+							if (next) setMaxTokens(next);
 						}}
 					/>
+					<div className="playground-token-levels" aria-hidden="true">
+						{availableLevels.map((level) => (
+							<span key={level} data-active={level === maxTokens}>
+								{formatContextTokens(level)}
+							</span>
+						))}
+					</div>
 				</div>
-
-				<label className="playground-field playground-field-wide">
-					<span>System prompt</span>
-					<textarea
-						rows={2}
-						value={systemPrompt}
-						maxLength={2000}
-						disabled={streaming}
-						placeholder="You are a helpful assistant."
-						onChange={(event) => setSystemPrompt(event.target.value)}
-					/>
-				</label>
 
 				{thinkingAllowed && (
 					<label className="playground-toggle">

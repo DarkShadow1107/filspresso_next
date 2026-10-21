@@ -21,7 +21,6 @@ import {
 	PaymentsSection,
 	ChatHistorySection,
 	BillingSection,
-	DesktopAppDownload,
 	RepairPopup,
 	MaintenancePopup,
 } from "./sections";
@@ -977,39 +976,30 @@ export default function AccountManagement() {
 
 			<div className="account-content">
 			{activeTab === "profile" && (
-				<>
-					{/* The desktop app had no home on the site, so "where do I get
-					    it?" had no answer. It is the first card on the profile tab
-					    because the profile is where someone goes to look after
-					    being told the app exists -- and a card at the bottom of a
-					    long page is the same as no card at all. */}
-					<DesktopAppDownload />
-
-					<ProfileSection
-						account={account}
-						isEditing={isEditing}
-						editFullName={editFullName}
-						editEmail={editEmail}
-						newPassword={newPassword}
-						confirmPassword={confirmPassword}
-						totalSpending={totalSpending}
-						setIsEditing={setIsEditing}
-						setEditFullName={setEditFullName}
-						setEditEmail={setEditEmail}
-						setNewPassword={setNewPassword}
-						setConfirmPassword={setConfirmPassword}
-						setEditIconDataUrl={setEditIconDataUrl}
-						handleSaveProfile={handleSaveProfile}
-						handleChangePassword={handleChangePassword}
-						mfaSetup={mfaSetup}
-						mfaCode={mfaCode}
-						mfaIncludeQrCode={mfaIncludeQrCode}
-						setMfaCode={setMfaCode}
-						setMfaIncludeQrCode={setMfaIncludeQrCode}
-						handleStartMfaSetup={handleStartMfaSetup}
-						handleEnableMfa={handleEnableMfa}
-					/>
-				</>
+				<ProfileSection
+					account={account}
+					isEditing={isEditing}
+					editFullName={editFullName}
+					editEmail={editEmail}
+					newPassword={newPassword}
+					confirmPassword={confirmPassword}
+					totalSpending={totalSpending}
+					setIsEditing={setIsEditing}
+					setEditFullName={setEditFullName}
+					setEditEmail={setEditEmail}
+					setNewPassword={setNewPassword}
+					setConfirmPassword={setConfirmPassword}
+					setEditIconDataUrl={setEditIconDataUrl}
+					handleSaveProfile={handleSaveProfile}
+					handleChangePassword={handleChangePassword}
+					mfaSetup={mfaSetup}
+					mfaCode={mfaCode}
+					mfaIncludeQrCode={mfaIncludeQrCode}
+					setMfaCode={setMfaCode}
+					setMfaIncludeQrCode={setMfaIncludeQrCode}
+					handleStartMfaSetup={handleStartMfaSetup}
+					handleEnableMfa={handleEnableMfa}
+				/>
 			)}
 
 				{activeTab === "status" && (

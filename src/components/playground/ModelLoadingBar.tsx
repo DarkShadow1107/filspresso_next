@@ -54,9 +54,10 @@ export default function ModelLoadingBar({ modelKey, state, compact = false }: Mo
 				<div className="model-load-fill" style={{ width: `${progress}%` }} />
 			</div>
 			<span className="model-load-label">
-				{/* The same word llama.cpp's own web UI uses, so the wait reads the
-				    way the rest of the tool does. */}
-				Warming up… {label}
+				{/* Plainly what is happening: a model is being loaded onto the
+				    GPU. "Warming up" said something warmer than that, and
+				    nobody could tell what it referred to. */}
+				Loading {label}
 				{compact ? "" : estimate > 0 ? ` · about ${estimate}s` : ""}
 				{elapsed > 0 ? ` · ${elapsed}s elapsed` : ""}
 				<span className="model-load-pct">{progress}%</span>
