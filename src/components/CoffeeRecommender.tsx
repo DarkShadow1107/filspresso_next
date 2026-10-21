@@ -1969,10 +1969,14 @@ export default React.memo(function CoffeeRecommender() {
 				return;
 			}
 
-			if (!(await waitUntilLoaded())) {
+			const loaded = await waitUntilLoaded();
+			if (!loaded.ok) {
 				const loadFailedMsg: Message = {
 					role: "assistant",
-					content: `${selectedTextModelLabel} could not be loaded in time. Please try again in a moment.`,
+					content:
+						loaded.reason === "timeout"
+							? `${selectedTextModelLabel} is still loading. It is a large model and takes several minutes on this machine -- wait a moment and send again.`
+							: `${selectedTextModelLabel} could not be loaded${loaded.error ? `: ${loaded.error}` : ""}. Please try again in a moment.`,
 				};
 				setChatMessages((m) => [...m, loadFailedMsg]);
 				return;

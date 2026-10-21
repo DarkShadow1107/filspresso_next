@@ -131,10 +131,62 @@ _ESTIMATED_LOAD_SECONDS: Dict[str, float] = {}
 DEFAULT_LOAD_ESTIMATE_SMALL = 15.0
 DEFAULT_LOAD_ESTIMATE_LARGE = 45.0
 
+# Per-model load estimates, in seconds, for the models whose load time is not
+# the default. These are the times the router actually took on this host, and
+# they exist so the progress bar moves at a believable rate instead of sitting
+# at 95% for minutes: the estimate is what the elapsed time is divided by.
+#
+# The 8B A1B is the outlier. It is a 4.9 GB file whose expert tensors are kept
+# in system RAM (--cpu-moe), so it is read from disk rather than from the GPU
+# and takes minutes, not seconds.
+DEFAULT_LOAD_ESTIMATES: Dict[str, float] = {
+    "LFM2.5-230M-Q4_K_M.gguf": 15.0,
+    "LFM2.5-350M-Q8_0.gguf": 15.0,
+    "LFM2.5-1.2B-Instruct-Q4_K_M.gguf": 25.0,
+    "LFM2.5-1.2B-Thinking-Q4_K_M.gguf": 25.0,
+    "LFM2.5-2.6B-Q4_0.gguf": 90.0,
+    "LFM2.5-8B-A1B-Q4_K_M.gguf": 300.0,
+}
+
+# How long a load may take before it is called a failure.
+#
+# This used to be a flat `estimate * 6`, which gave every model except the 230M
+# the same 270 s. The 8B A1B needs several minutes more than that -- so it was
+# recorded as a failure while the router was still loading it, and the failure
+# stuck: the model was then reported "unavailable" forever, and a customer who
+# then picked the small model was told that *it* could not be loaded in time
+# while the router was still busy with the 8B.
+#
+# The deadline is now generous enough for the slowest model on this host, and a
+# timeout is no longer remembered as a permanent failure: the next load request
+# clears it, so the model can be tried again.
+DEFAULT_LOAD_DEADLINE_SECONDS = 900.0
+MIN_LOAD_DEADLINE_SECONDS = 120.0
+
+
+def load_deadline_seconds(model_name: str) -> float:
+    """How long to wait for ``model_name`` to become resident.
+
+    Bounded below so a wedged loader is eventually called a failure, and large
+    enough that a legitimately slow load (the 8B) is not mistaken for one.
+    """
+    override = os.getenv("AI_LOAD_DEADLINE_SECONDS")
+    if override:
+        try:
+            value = float(override.strip())
+            if value > 0:
+                return value
+        except ValueError:
+            logger.warning("AI_LOAD_DEADLINE_SECONDS=%r is not a number", override)
+    return DEFAULT_LOAD_DEADLINE_SECONDS
+
 
 def estimated_load_seconds(model_name: str) -> float:
     if model_name in _ESTIMATED_LOAD_SECONDS:
         return _ESTIMATED_LOAD_SECONDS[model_name]
+    known = DEFAULT_LOAD_ESTIMATES.get(model_name)
+    if known is not None:
+        return known
     fast = os.getenv("AI_FAST_MODEL", DEFAULT_230M_MODEL).strip()
     return (
         DEFAULT_LOAD_ESTIMATE_SMALL
@@ -204,6 +256,12 @@ class ModelResidencyCoordinator:
             for name in list(self.loading):
                 if name not in loading:
                     self.loading.pop(name, None)
+            # A model that is now resident is not failed, whatever was recorded
+            # earlier. The router can finish a load after this coordinator gave
+            # up on it, and a stale "timed out loading" would keep reporting the
+            # model as unavailable long after it became usable.
+            for name in loaded:
+                self.failed.pop(name, None)
         return statuses
 
     def is_resident(self, model_name: str) -> bool:
@@ -260,6 +318,20 @@ class ModelResidencyCoordinator:
                 )
             return self.status_for(model_name)
 
+    async def _await_router_settled(self, timeout_seconds: float = 120.0) -> None:
+        """Wait for the router to stop loading anything.
+
+        The router reports one model at a time as "loading". Asking it for a
+        different model while one is still loading makes it stop the instance it
+        is working on, so the swap waits first.
+        """
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            statuses = await self.refresh_residency()
+            if not any(status == "loading" for status in statuses.values()):
+                return
+            await asyncio.sleep(1.0)
+
     async def _swap_worker(self) -> None:
         """Perform one queued load, but only when the GPU is free of generations."""
         try:
@@ -279,6 +351,17 @@ class ModelResidencyCoordinator:
 
                     self.pending_load = None
                     self.loading[target] = time.monotonic()
+
+                # Before asking the router for a different model, let it finish
+                # whatever it is already loading.
+                #
+                # The router runs with --models-max 1, so loading one model evicts
+                # the other. If it is still loading the previous one, that eviction
+                # kills the load in progress: the router stops the instance and,
+                # after its 10 s stop-timeout, force-kills it. That is how a
+                # perfectly ordinary "switch to the small model" destroyed a
+                # multi-minute load and left the router's slot empty.
+                await self._await_router_settled()
 
                 if self.active_model and self.active_model != target:
                     self.swaps += 1
@@ -323,9 +406,7 @@ class ModelResidencyCoordinator:
                     return
 
                 # Poll the router until it reports loaded, or give up.
-                deadline = time.monotonic() + max(
-                    60.0, estimated_load_seconds(target) * 6
-                )
+                deadline = time.monotonic() + load_deadline_seconds(target)
                 while time.monotonic() < deadline:
                     await self.refresh_residency()
                     if target in self.resident:

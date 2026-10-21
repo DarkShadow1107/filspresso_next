@@ -19,8 +19,29 @@ const IDLE: ModelLoadState = { status: "not_loaded", progress: 0 };
 
 /** How often to poll while a model is loading. */
 const POLL_MS = 1000;
+
+/**
+ * How long to wait for a model to become resident.
+ *
+ * The AI service allows a load 15 minutes (AI_LOAD_DEADLINE_SECONDS), because the
+ * 8B A1B is a 4.9 GB file that is read from disk and takes minutes. This waits a
+ * little longer than that, so the browser is never the one to give up while the
+ * server is still legitimately loading.
+ *
+ * It used to be 3 minutes, which is what produced "LFM 2.5 230M could not be
+ * loaded in time": the small model was queued behind a big model that was still
+ * loading, and the browser gave up seconds before the server finished.
+ */
+const LOAD_WAIT_MS = 16 * 60 * 1000;
+
 /** Give up after this long so a wedged load cannot poll forever. */
-const MAX_POLL_MS = 10 * 60 * 1000;
+const MAX_POLL_MS = LOAD_WAIT_MS;
+
+/** How a wait for a model ended. */
+export type ModelLoadOutcome =
+	| { ok: true }
+	| { ok: false; reason: "unavailable" | "timeout"; error?: string };
+
 
 /**
  * Tracks whether a model is loaded, and asks for it to be loaded if not.
@@ -100,7 +121,7 @@ export function useModelLoadStatus(modelKey: ModelKey | null | undefined) {
 	}, [file, poll]);
 
 	/**
-	 * Ensure the model is resident and wait for it, resolving true once loaded.
+	 * Ensure the model is resident and wait for it.
 	 *
 	 * `ensureLoaded` only *starts* the swap, which is right for a background
 	 * prewarm but wrong before sending: the gateway would otherwise wait out
@@ -109,10 +130,15 @@ export function useModelLoadStatus(modelKey: ModelKey | null | undefined) {
 	 *
 	 * Polls the status endpoint directly rather than reading React state, so it
 	 * stays correct when called from a handler that captured an older render.
+	 *
+	 * The result says *why* it ended, because the two failures need different
+	 * words: the server giving up on a model it could not load is a failure the
+	 * user can retry, while the deadline here expiring means the model is still
+	 * loading and the answer is to wait, not to give up.
 	 */
 	const waitUntilLoaded = useCallback(
-		async (timeoutMs = 180_000): Promise<boolean> => {
-			if (!file) return true;
+		async (timeoutMs = LOAD_WAIT_MS): Promise<ModelLoadOutcome> => {
+			if (!file) return { ok: true };
 			await ensureLoaded();
 			const deadline = Date.now() + timeoutMs;
 			while (Date.now() < deadline) {
@@ -122,18 +148,20 @@ export function useModelLoadStatus(modelKey: ModelKey | null | undefined) {
 						{ cache: "no-store" },
 					);
 					if (res.ok) {
-						const data = (await res.json()) as { status?: string };
-						if (data.status === "loaded") return true;
+						const data = (await res.json()) as { status?: string; error?: string };
+						if (data.status === "loaded") return { ok: true };
 						// The gateway answered but will not serve this model, so waiting
 						// longer cannot help.
-						if (data.status === "unavailable") return false;
+						if (data.status === "unavailable") {
+							return { ok: false, reason: "unavailable", error: data.error };
+						}
 					}
 				} catch {
 					// Transient network error; the deadline still bounds this loop.
 				}
 				await new Promise((resolve) => setTimeout(resolve, POLL_MS));
 			}
-			return false;
+			return { ok: false, reason: "timeout" };
 		},
 		[file, ensureLoaded],
 	);
