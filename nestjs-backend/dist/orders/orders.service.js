@@ -44,6 +44,9 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var OrdersService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OrdersService = void 0;
+exports.tierForCapsules = tierForCapsules;
+exports.nextTierAfter = nextTierAfter;
+exports.membershipPeriod = membershipPeriod;
 const common_1 = require("@nestjs/common");
 const database_service_1 = require("../database/database.service");
 const fx_rates_service_1 = require("./fx-rates.service");
@@ -98,14 +101,18 @@ function nextTierAfter(capsules) {
  * the most recent anniversary that has already passed.
  */
 function membershipPeriod(accountCreatedAt, now) {
+    // UTC, not local time. A membership year that starts at the local midnight of the
+    // anniversary is a different date for every server, and for a customer east or
+    // west of the server it is a day out -- which shows up as a membership year that
+    // starts on the 14th for some accounts and the 15th for others.
     const start = new Date(accountCreatedAt.getTime());
-    start.setHours(0, 0, 0, 0);
+    start.setUTCHours(0, 0, 0, 0);
     const end = new Date(start.getTime());
-    end.setFullYear(end.getFullYear() + 1);
+    end.setUTCFullYear(end.getUTCFullYear() + 1);
     // Step forward a whole year at a time until the window contains `now`.
     while (end <= now) {
-        start.setFullYear(start.getFullYear() + 1);
-        end.setFullYear(end.getFullYear() + 1);
+        start.setUTCFullYear(start.getUTCFullYear() + 1);
+        end.setUTCFullYear(end.getUTCFullYear() + 1);
     }
     const daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
     return { start, end, daysRemaining };
