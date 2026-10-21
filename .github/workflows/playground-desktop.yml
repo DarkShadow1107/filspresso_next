@@ -11,10 +11,12 @@ on:
     branches: [main]
     paths:
       - "playground-desktop/**"
+      - "public/fonts/poppins-*.ttf"
       - ".github/workflows/playground-desktop.yml"
   pull_request:
     paths:
       - "playground-desktop/**"
+      - "public/fonts/poppins-*.ttf"
       - ".github/workflows/playground-desktop.yml"
   workflow_dispatch:
 
@@ -53,41 +55,15 @@ jobs:
           if (-not $path) { throw "MSBuild not found; the Windows App SDK cannot be built without it." }
           "path=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Restore
-        run: dotnet restore playground-desktop/Filspresso.Desktop.sln
-
-      - name: Build and test the libraries
-        # The main solution deliberately excludes the WinUI app, because the CLI's MSBuild
-        # cannot run the Windows App SDK's PRI targets. Building it here would fail the whole
-        # step, so the app is a separate solution and a separate step below.
+      - name: Install WiX 5
         run: |
-          dotnet build playground-desktop/Filspresso.Desktop.sln -c Release -p:Platform=x64
-          dotnet test playground-desktop/Filspresso.Desktop.sln -c Release --no-build
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add --global WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
 
-      - name: Build the WinUI application
-        run: >
-          & '${{ steps.msbuild.outputs.path }}'
-          playground-desktop\src\Filspresso.App\Filspresso.App.csproj
-          -restore -p:Configuration=Release -p:Platform=x64 -v:m -nologo
-
-      - name: Publish the application
-        run: >
-          & '${{ steps.msbuild.outputs.path }}'
-          playground-desktop\src\Filspresso.App\Filspresso.App.csproj
-          -t:Publish -p:Configuration=Release -p:Platform=x64 -p:PublishDir=playground-desktop\artifacts\publish\ -v:m -nologo
-
-      - name: Build the installer
-        # Unsigned. The signing step below is a separate, secret-gated job; this one proves the
-        # MSI is produced and structurally valid without needing a certificate.
-        run: |
-          wix build `
-            playground-desktop\installer\Filspresso.Installer.wxs `
-            -arch x64 `
-            -d AppPublishDir="$(Resolve-Path playground-desktop\artifacts\publish)" `
-            -d ProductVersion=0.1.0 `
-            -ext WixToolset.UI.wixext `
-            -ext WixToolset.Util.wixext `
-            -o playground-desktop\artifacts\Filspresso.Playground.msi
+      - name: Test, publish and build the installer
+        # The same entry point as a local release: includes the native uninstaller and
+        # its cleanup tests, bundled fonts, and a check for the WinUI runtime resources.
+        run: ./playground-desktop/build/Build-Desktop.ps1 -ProductVersion "0.2.$env:GITHUB_RUN_NUMBER"
 
       - name: Verify the MSI produced a package
         shell: pwsh
@@ -108,7 +84,7 @@ jobs:
     # Signing is gated on a real certificate existing. Until one does, this job sits idle and
     # the unsigned artifact above is what the team tests with -- which is a known, stated gap
     # rather than a silent one.
-    if: ${{ secrets.WINDOWS_SIGNING_PFX != '' }}
+    if: ${{ vars.WINDOWS_SIGNING_ENABLED == 'true' }}
     needs: build
     runs-on: windows-2022
     timeout-minutes: 20
@@ -124,16 +100,21 @@ jobs:
 
       - name: Sign
         shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
         run: |
-          $pfx = [System.IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String("${{ secrets.WINDOWS_SIGNING_PFX }}"))
-          $password = ConvertTo-SecureString "${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}" -AsPlainText -Force
+          $pfx = "$env:RUNNER_TEMP\cert.pfx"
+          [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX))
           # Timestamped, so the signature outlives the certificate's own validity window. An
           # installer without a timestamp stops verifying the day the certificate expires,
           # which on a desktop app can be years after it was first published.
-          & signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $pfx /p $password artifacts\Filspresso.Playground.msi
-          if ($LASTEXITCODE -ne 0) { throw "signtool failed with $LASTEXITCODE" }
-          & signtool verify /pa artifacts\Filspresso.Playground.msi
-          if ($LASTEXITCODE -ne 0) { throw "the signed MSI does not verify" }
+          try {
+            & signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD artifacts\Filspresso.Playground.msi
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed with $LASTEXITCODE" }
+            & signtool verify /pa artifacts\Filspresso.Playground.msi
+            if ($LASTEXITCODE -ne 0) { throw "the signed MSI does not verify" }
+          } finally { Remove-Item -LiteralPath $pfx -Force }
 
       - uses: actions/upload-artifact@v4
         with:

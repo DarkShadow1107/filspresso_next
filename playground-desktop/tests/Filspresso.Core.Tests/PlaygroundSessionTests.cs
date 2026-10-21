@@ -84,6 +84,35 @@ public class PlaygroundSessionTests
         return events;
     }
 
+    [Fact]
+    public async Task NativeContextAndThinkingSettingsReachTheGateway()
+    {
+        string? sent = null;
+        var handler = new Handler
+        {
+            Respond = async (request, ct) =>
+            {
+                sent = await request.Content!.ReadAsStringAsync(ct);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("data: {\"reasoning\":\"Think first\"}\n\ndata: {\"delta\":\"Answer\"}\n\ndata: {\"done\":true,\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2}}\n\n", Encoding.UTF8, "text/event-stream"),
+                };
+            },
+        };
+        var (api, session) = await Build(handler, _ => Task.FromResult(ApiResult<Entitlement>.Success(State())));
+        using (api)
+        {
+            var events = new List<PlaygroundEvent>();
+            await foreach (var item in session.SendAsync("hello", "test-model", maxTokens: 131072, thinking: true)) events.Add(item);
+            using var payload = System.Text.Json.JsonDocument.Parse(sent!);
+            Assert.Equal(131072, payload.RootElement.GetProperty("max_tokens").GetInt32());
+            Assert.True(payload.RootElement.GetProperty("thinking").GetBoolean());
+            Assert.Equal("Think first", Assert.Single(events.OfType<PlaygroundEvent.Think>()).Text);
+            Assert.Equal("Answer", Assert.Single(events.OfType<PlaygroundEvent.Say>()).Text);
+            Assert.Single(events.OfType<PlaygroundEvent.Finished>());
+        }
+    }
+
     [Theory]
     [InlineData(false, true, true, PlaygroundAvailability.NoAccess)]
     [InlineData(true, false, false, PlaygroundAvailability.OutOfFunds)]

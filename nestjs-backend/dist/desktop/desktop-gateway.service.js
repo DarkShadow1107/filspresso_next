@@ -54,7 +54,8 @@ const desktop_policy_1 = require("./desktop-policy");
 /** Mirrors the web route's clamps, so the two surfaces cannot disagree on what is legal. */
 const MAX_MESSAGE_LENGTH = 8000;
 const MAX_SYSTEM_PROMPT_LENGTH = 2000;
-const MAX_MAX_TOKENS = 2048;
+// The native client offers the same 16K / 32K / 64K / 128K levels as the web UI.
+const MAX_MAX_TOKENS = 131_072;
 const DEFAULT_MAX_TOKENS = 512;
 const MAX_TEMPERATURE = 2;
 const DEFAULT_TEMPERATURE = 0.7;

@@ -17,7 +17,9 @@ public sealed partial class MainWindow : Window
 {
     private readonly AppServices _services;
     private AccountPanel? _accountPanel;
+    private ScrollViewer? _accountHost;
     private PlaygroundPage? _playgroundPage;
+    private SettingsPage? _settingsPage;
     private bool _loaded;
     private bool _refreshing;
 
@@ -27,7 +29,12 @@ public sealed partial class MainWindow : Window
             Environment.GetEnvironmentVariable("FILSPRESSO_BACKEND_URL") ?? "http://localhost:4000/"));
         InitializeComponent();
         Title = "Spectre Playground · Filspresso";
+        _services.WindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 860));
+        AppWindow.TitleBar.BackgroundColor = Windows.UI.Color.FromArgb(255, 20, 18, 19);
+        AppWindow.TitleBar.ForegroundColor = Windows.UI.Color.FromArgb(255, 242, 229, 220);
+        AppWindow.TitleBar.ButtonBackgroundColor = Windows.UI.Color.FromArgb(255, 20, 18, 19);
+        AppWindow.TitleBar.ButtonForegroundColor = Windows.UI.Color.FromArgb(255, 228, 179, 138);
         Activated += OnWindowActivated;
         Closed += (_, _) =>
         {
@@ -62,6 +69,15 @@ public sealed partial class MainWindow : Window
     private async Task ShowSignedInAsync()
     {
         _playgroundPage ??= new PlaygroundPage(_services, _services.Playground);
+        _playgroundPage.SettingsRequested -= OnSettings;
+        _playgroundPage.SettingsRequested += OnSettings;
+        if (_settingsPage is null)
+        {
+            _settingsPage = new SettingsPage(_services);
+            _settingsPage.BackRequested += (_, _) => SetSection("chat");
+            _settingsPage.ExportRequested += async (_, _) => await _playgroundPage.ExportConversationAsync();
+            _settingsPage.ImportRequested += async (_, _) => { await _playgroundPage.ImportConversationAsync(); SetSection("chat"); };
+        }
         if (_accountPanel is null)
         {
             _accountPanel = new AccountPanel(_services);
@@ -71,23 +87,25 @@ public sealed partial class MainWindow : Window
                 await _services.Auth.SignOutAsync();
                 _playgroundPage = null;
                 _accountPanel = null;
+                _accountHost = null;
+                _settingsPage = null;
                 ShowSignedOut();
             };
         }
 
         SignInHost.Children.Clear();
         SignInHost.Visibility = Visibility.Collapsed;
-        Nav.Visibility = Visibility.Visible;
+        WorkspaceHost.Visibility = Rail.Visibility = Visibility.Visible;
         Subtitle.Text = _services.Auth.Current?.Email ?? string.Empty;
         AccountButton.Content = "Account";
         ContentFrame.Content = _playgroundPage;
-        Nav.SelectedItem = Nav.MenuItems[0];
+        SetSection("chat");
         await _playgroundPage.RefreshAsync();
     }
 
     private void ShowSignedOut()
     {
-        Nav.Visibility = Visibility.Collapsed;
+        WorkspaceHost.Visibility = Rail.Visibility = Visibility.Collapsed;
         ContentFrame.Content = null;
         SignInHost.Visibility = Visibility.Visible;
         SignInHost.Children.Clear();
@@ -109,28 +127,24 @@ public sealed partial class MainWindow : Window
         AccountButton.Content = "Sign in";
     }
 
-    private async void OnNavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    private async void OnAccountClick(object sender, RoutedEventArgs args)
     {
-        if (!_loaded || !_services.Auth.IsSignedIn || _playgroundPage is null)
+        if (!_services.Auth.IsSignedIn)
         {
+            ShowSignedOut();
             return;
         }
-
         try
         {
-            if (args.SelectedItem is NavigationViewItem { Tag: "account" })
+            _accountHost ??= new ScrollViewer
             {
-                ContentFrame.Content = _accountPanel;
-                if (_accountPanel is not null)
-                {
-                    await _accountPanel.RefreshAsync();
-                }
-            }
-            else
-            {
-                _playgroundPage.ShowModelsOnly(args.SelectedItem is NavigationViewItem { Tag: "models" });
-                ContentFrame.Content = _playgroundPage;
-            }
+                Content = _accountPanel,
+                Padding = new Thickness(36, 24, 36, 36),
+                MaxWidth = 820,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            ContentFrame.Content = _accountHost;
+            if (_accountPanel is not null) await _accountPanel.RefreshAsync();
         }
         catch (Exception error)
         {
@@ -158,7 +172,7 @@ public sealed partial class MainWindow : Window
         _refreshing = true;
         try
         {
-            if (ReferenceEquals(ContentFrame.Content, _accountPanel) && _accountPanel is not null)
+            if (ContentFrame.Content is ScrollViewer { Content: AccountPanel } && _accountPanel is not null)
             {
                 await _accountPanel.RefreshAsync();
             }
@@ -177,17 +191,29 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnAccountClick(object sender, RoutedEventArgs args)
+    private void SetSection(string section)
     {
-        if (_services.Auth.IsSignedIn)
+        if (_playgroundPage is null) return;
+        PricesNav.Background = SettingsNav.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        if (section == "settings")
         {
-            Nav.SelectedItem = Nav.MenuItems[2];
+            _settingsPage?.Reload();
+            ContentFrame.Content = _settingsPage;
+            SettingsNav.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoSurface"];
+            return;
         }
-        else
-        {
-            ShowSignedOut();
-        }
+        _playgroundPage.ShowModelsOnly(section == "prices");
+        ContentFrame.Content = _playgroundPage;
+        if (section == "prices") PricesNav.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoSurface"];
     }
+
+    private void OnSettings(object? sender, RoutedEventArgs args) => SetSection("settings");
+    private void OnPrices(object sender, RoutedEventArgs args) => SetSection("prices");
+    private void OnNewConversation(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.NewConversation(); }
+    private void OnConversations(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(false); }
+    private void OnSearch(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(true); }
+    private async void OnGitHub(object sender, RoutedEventArgs args) =>
+        await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/DarkShadow1107/filspresso_next"));
 
     private void ShowError(Exception error)
     {

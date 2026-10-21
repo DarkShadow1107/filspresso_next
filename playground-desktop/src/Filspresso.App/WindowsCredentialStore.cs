@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Filspresso.Core.Auth;
 using Filspresso.Core.Platform;
+using Filspresso.Core.Storage;
 
 namespace Filspresso.App;
 
@@ -25,7 +26,7 @@ namespace Filspresso.App;
 /// stable across runs, worthless to anyone else, and awkward to keep anywhere sensible.
 /// </para>
 /// </remarks>
-public sealed class WindowsCredentialStore(string targetPrefix = "Filspresso.Playground") : ICredentialStore
+public sealed class WindowsCredentialStore(string targetPrefix = DesktopDataPaths.CredentialPrefix) : ICredentialStore
 {
     private const uint Generic = 1;
     private const int NotFound = 1168;

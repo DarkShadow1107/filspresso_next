@@ -42,6 +42,49 @@ public class InstallerContractTests
 
     private static XDocument Load() => XDocument.Load(InstallerPath());
 
+    [Fact]
+    public void TheFolderChooserSelectsAParentAndTheAppAlwaysHasItsOwnFolder()
+    {
+        var document = Load();
+        XNamespace ui = "http://wixtoolset.org/schemas/v4/wxs/ui";
+        var wizard = document.Descendants(ui + "WixUI").Single();
+        Assert.Equal("WixUI_InstallDir", wizard.Attribute("Id")?.Value);
+        Assert.Equal("INSTALLROOT", wizard.Attribute("InstallDirectory")?.Value);
+        var app = document.Descendants(Wxs + "Directory").Single(element => (string?)element.Attribute("Id") == "INSTALLFOLDER");
+        Assert.Equal("Filspresso Playground", app.Attribute("Name")?.Value);
+        Assert.Equal("INSTALLROOT", app.Parent?.Attribute("Id")?.Value);
+    }
+
+    [Fact]
+    public void FullRemovalCleansUserDataButMajorUpgradesDoNot()
+    {
+        var document = Load();
+        var cleanup = document.Descendants(Wxs + "CustomAction").Single(element => (string?)element.Attribute("Id") == "CleanupUserData");
+        Assert.Equal("MaintenanceExe", cleanup.Attribute("FileRef")?.Value);
+        Assert.Equal("--cleanup-user-data", cleanup.Attribute("ExeCommand")?.Value);
+        Assert.Equal("yes", cleanup.Attribute("Impersonate")?.Value);
+        var scheduled = document.Descendants(Wxs + "Custom").Single(element => (string?)element.Attribute("Action") == "CleanupUserData");
+        Assert.Contains("REMOVE = \"ALL\"", scheduled.Attribute("Condition")!.Value, StringComparison.Ordinal);
+        Assert.Contains("NOT UPGRADINGPRODUCTCODE", scheduled.Attribute("Condition")!.Value, StringComparison.Ordinal);
+        Assert.Equal("RemoveFiles", scheduled.Attribute("Before")?.Value);
+        Assert.Contains("Uninstall.exe", document.Descendants(Wxs + "File").Single(element => (string?)element.Attribute("Id") == "MaintenanceExe").Attribute("Source")!.Value, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NativeCleanupAndTheAppUseTheSameOwnedDirectoriesAndCredentialTargets()
+    {
+        var installerDirectory = Path.GetDirectoryName(InstallerPath())!;
+        var native = File.ReadAllText(Path.Combine(installerDirectory, "native", "Maintenance.cpp"));
+        var header = File.ReadAllText(Path.Combine(installerDirectory, "native", "Maintenance.h"));
+        Assert.Contains(Core.Storage.DesktopDataPaths.CredentialPrefix, header, StringComparison.Ordinal);
+        Assert.Contains("/session", native, StringComparison.Ordinal);
+        Assert.Contains("/device-id", native, StringComparison.Ordinal);
+        Assert.Contains("FOLDERID_LocalAppData", native, StringComparison.Ordinal);
+        Assert.Contains("FOLDERID_RoamingAppData", native, StringComparison.Ordinal);
+        Assert.Contains("FILE_ATTRIBUTE_REPARSE_POINT", native, StringComparison.Ordinal);
+        Assert.Contains("NOT UPGRADINGPRODUCTCODE", Load().ToString(), StringComparison.Ordinal);
+    }
+
     /// <summary>The edition ids the installer's condition accepts.</summary>
     private static string[] InstallerAcceptedEditions()
     {

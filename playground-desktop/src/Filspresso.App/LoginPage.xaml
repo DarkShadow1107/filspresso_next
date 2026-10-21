@@ -10,11 +10,14 @@
         Deliberately a page rather than a dialog: this is a state the user passes through on a
         first run, and a modal over an empty shell looks like an error rather than a first step.
     -->
-    <Grid Padding="32" MaxWidth="480" HorizontalAlignment="Center" VerticalAlignment="Center">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <Grid Padding="32" MaxWidth="510" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Border Background="{StaticResource FilspressoSubtleSurface}" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="20" Padding="32">
         <StackPanel Spacing="24">
 
             <StackPanel Spacing="4">
-                <TextBlock x:Name="Header" Text="Sign in to Filspresso" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock Text="SPECTRE PLAYGROUND" FontSize="11" Foreground="{StaticResource FilspressoAccent}" Margin="0,0,0,12" />
+                <TextBlock x:Name="Header" Text="Welcome back" FontSize="27" />
                 <TextBlock
                     x:Name="Subheader"
                     Text="Your Playground access and wallet follow your account."
@@ -43,7 +46,7 @@
 
             <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
                 <ProgressRing x:Name="BusyRing" IsActive="False" Width="20" Height="20" Visibility="Collapsed" />
-                <Button x:Name="SubmitButton" Content="Sign in" Click="OnSubmit" Style="{StaticResource AccentButtonStyle}" />
+                <Button x:Name="SubmitButton" Content="Sign in" Click="OnSubmit" Style="{StaticResource CopperButtonStyle}" />
             </StackPanel>
 
             <TextBlock
@@ -53,5 +56,7 @@
                 Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
 
         </StackPanel>
+        </Border>
     </Grid>
+    </ScrollViewer>
 </UserControl>

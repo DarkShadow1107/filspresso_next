@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="Filspresso.App.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer>
+        <Grid Padding="38,16,38,36" MaxWidth="1120" HorizontalAlignment="Stretch" RowDefinitions="Auto,Auto,*" RowSpacing="28">
+            <Button Content="← Back to chat" Click="OnBack" Style="{StaticResource QuietButtonStyle}" />
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="14">
+                <SymbolIcon Symbol="Setting" Foreground="{StaticResource FilspressoAccent}" />
+                <TextBlock Text="Settings" FontSize="29" />
+            </StackPanel>
+            <Grid Grid.Row="2" ColumnDefinitions="200,*" ColumnSpacing="36">
+                <StackPanel Spacing="8">
+                    <Button x:Name="GeneralNav" Content="General" Tag="general" Click="OnSection" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
+                    <Button x:Name="DisplayNav" Content="Display" Tag="display" Click="OnSection" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
+                    <Button x:Name="DataNav" Content="Import / Export" Tag="data" Click="OnSection" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="24">
+                    <TextBlock x:Name="SectionTitle" Text="General" FontSize="21" />
+                    <Border Height="1" Background="{StaticResource FilspressoBorder}" />
+                    <StackPanel x:Name="GeneralPanel" Spacing="26">
+                        <ComboBox x:Name="DefaultModelBox" Header="Default model" HorizontalAlignment="Stretch" DisplayMemberPath="Label" AutomationProperties.Name="Default model" />
+                        <TextBlock Text="Every model has a 128K context window. You can also switch models inside the composer." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="Maximum output tokens" />
+                            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
+                                <Button x:Name="Level16" Content="16K" Tag="16384" Click="OnLevel" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
+                                <Button x:Name="Level32" Content="32K" Tag="32768" Click="OnLevel" Grid.Column="1" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
+                                <Button x:Name="Level64" Content="64K" Tag="65536" Click="OnLevel" Grid.Column="2" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
+                                <Button x:Name="Level128" Content="128K" Tag="131072" Click="OnLevel" Grid.Column="3" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
+                            </Grid>
+                            <TextBlock Text="A limit, not a target. The model can finish before reaching it." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="ThinkingSwitch" Header="Thinking mode" OnContent="Show reasoning" OffContent="Answer only" />
+                        <ToggleSwitch x:Name="EnterSwitch" Header="Enter to send" OnContent="Shift + Enter inserts a new line" OffContent="Ctrl + Enter sends" />
+                    </StackPanel>
+                    <StackPanel x:Name="DisplayPanel" Spacing="26" Visibility="Collapsed">
+                        <ComboBox x:Name="TextSizeBox" Header="Message text size" HorizontalAlignment="Stretch" AutomationProperties.Name="Message text size">
+                            <ComboBoxItem Content="Small" />
+                            <ComboBoxItem Content="Standard" />
+                            <ComboBoxItem Content="Large" />
+                        </ComboBox>
+                        <ToggleSwitch x:Name="StatisticsSwitch" Header="Generation statistics" OnContent="Show token counts, timing and usage cost" OffContent="Hide statistics" />
+                    </StackPanel>
+                    <StackPanel x:Name="DataPanel" Spacing="18" Visibility="Collapsed">
+                        <TextBlock Text="Keep a copy of your current conversation, or open a conversation you exported earlier." TextWrapping="Wrap" Foreground="{StaticResource FilspressoMuted}" />
+                        <Button Content="Export conversation" Click="OnExport" Style="{StaticResource QuietButtonStyle}" />
+                        <Button Content="Import conversation" Click="OnImport" Style="{StaticResource QuietButtonStyle}" />
+                        <Border Height="1" Background="{StaticResource FilspressoBorder}" Margin="0,12" />
+                        <TextBlock Text="Application data" FontSize="17" />
+                        <TextBlock x:Name="DataLocation" IsTextSelectionEnabled="True" FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource FilspressoMuted}" />
+                        <Button Content="Open app data folder" Click="OnOpenData" Style="{StaticResource QuietButtonStyle}" />
+                        <TextBlock Text="Uninstall.exe in the installation folder removes the application, saved preferences and this Windows user's saved sign-in. Uninstalling from Windows Settings performs the same cleanup." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
+                    </StackPanel>
+                    <TextBlock Text="Preferences are saved on this PC. Conversations stay in the current session unless exported." FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource FilspressoMuted}" Margin="0,12,0,0" />
+                    <InfoBar x:Name="NoticeBar" IsOpen="False" IsClosable="True" />
+                    <Grid x:Name="SavePanel" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <Button x:Name="ResetSettingsButton" Content="Reset to default" Click="OnReset" Style="{StaticResource QuietButtonStyle}" />
+                        <Button x:Name="SaveSettingsButton" Content="Save settings" Click="OnSave" Grid.Column="1" Style="{StaticResource CopperButtonStyle}" />
+                    </Grid>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

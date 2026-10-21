@@ -511,6 +511,13 @@ public class DesktopApiClient : IDisposable
         }
 
         if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("reasoning", out var reasoning) &&
+            reasoning.ValueKind == JsonValueKind.String)
+        {
+            return new StreamUpdate.Reasoning(reasoning.GetString() ?? string.Empty);
+        }
+
+        if (root.ValueKind == JsonValueKind.Object &&
             root.TryGetProperty("delta", out var delta) &&
             delta.ValueKind == JsonValueKind.String)
         {
@@ -609,6 +616,8 @@ public class DesktopApiClient : IDisposable
 public abstract record StreamUpdate
 {
     public sealed record Delta(string Text) : StreamUpdate;
+
+    public sealed record Reasoning(string Text) : StreamUpdate;
 
     public sealed record Completed(TokenUsage Usage, bool UsageReported = true) : StreamUpdate;
 

@@ -55,9 +55,17 @@
       prompt at install is cheaper than a layout that fights its own uninstaller.
     -->
 
+    <!-- The chooser selects a parent; the application always has its own child folder. -->
+    <Property Id="INSTALLROOT" Secure="yes">
+      <RegistrySearch Id="PreviousInstallRoot" Root="HKLM" Key="Software\Filspresso\Playground" Name="InstallRoot" Type="raw" Bitness="always64" />
+    </Property>
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="Filspresso Playground" />
+      <Directory Id="INSTALLROOT" Name=".">
+        <Directory Id="INSTALLFOLDER" Name="Filspresso Playground" />
+      </Directory>
     </StandardDirectory>
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/DarkShadow1107/filspresso_next" />
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="ShortcutsFolder" Name="Filspresso Playground" />
@@ -132,10 +140,20 @@
     <Feature Id="Main" Title="Filspresso Playground" Level="1" AllowAbsent="no">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentGroupRef Id="Shortcuts" />
+      <ComponentGroupRef Id="Maintenance" />
     </Feature>
 
-    <ui:WixUI Id="WixUI_FeatureTree" />
-    <WixVariable Id="WixUILicenseRtf" Value="installer/License.rtf" />
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLROOT" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.InstallerSourceDir)\License.rtf" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.BrandingDir)\banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.BrandingDir)\dialog.bmp" />
+
+    <!-- Also runs when removal is launched from Windows Settings, but never on upgrade. -->
+    <CustomAction Id="CleanupUserData" FileRef="MaintenanceExe" ExeCommand="--cleanup-user-data" Execute="deferred" Impersonate="yes" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="CleanupUserData" Before="RemoveFiles" Condition="REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+    <util:CloseApplication Id="ClosePlayground" Target="Filspresso.Playground.exe" Description="Close Filspresso Playground before removing its saved data." CloseMessage="yes" ElevatedCloseMessage="no" Timeout="10" RebootPrompt="no" Condition="REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
 
   </Package>
 
@@ -144,20 +162,28 @@
       <Files Include="$(var.AppPublishDir)\**" />
     </ComponentGroup>
 
+    <ComponentGroup Id="Maintenance" Directory="INSTALLFOLDER">
+      <Component Id="MaintenanceComponent" Guid="6F3029AD-9573-473D-9904-B20A80B2B119">
+        <File Id="MaintenanceExe" Source="$(var.MaintenanceDir)\Uninstall.exe" KeyPath="yes" />
+        <Shortcut Id="UninstallShortcut" Directory="ShortcutsFolder" Name="Uninstall Filspresso Playground" Target="[#MaintenanceExe]" WorkingDirectory="INSTALLFOLDER" />
+      </Component>
+    </ComponentGroup>
+
     <ComponentGroup Id="Shortcuts" Directory="ShortcutsFolder">
-      <Component Id="AppShortcutComponent" Guid="2A6B9F41-77C3-4E58-9E1D-0F5B3C8A7D22">
+      <Component Id="AppShortcutComponent" Guid="29F605CE-0F86-410D-9F43-F389F9231DB0">
         <Shortcut Id="AppShortcut"
                   Name="Filspresso Playground"
                   Description="A coding agent with every Filspresso model, sandboxed in a Hyper-V virtual machine."
                   Target="[INSTALLFOLDER]Filspresso.Playground.exe"
                   WorkingDirectory="INSTALLFOLDER" />
         <RemoveFolder Id="RemoveShortcutsFolder" On="uninstall" />
-        <RegistryValue Root="HKCU"
+        <RegistryValue Root="HKLM"
                        Key="Software\Filspresso\Playground"
-                       Name="Installed"
-                       Type="integer"
-                       Value="1"
+                       Name="InstallRoot"
+                       Type="string"
+                       Value="[INSTALLROOT]"
                        KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Filspresso\Playground" Name="InstallLocation" Type="string" Value="[INSTALLFOLDER]" />
       </Component>
     </ComponentGroup>
   </Fragment>

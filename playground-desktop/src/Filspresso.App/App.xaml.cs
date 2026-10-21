@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using Filspresso.Core.Storage;
 using Microsoft.UI.Xaml;
 
 namespace Filspresso.App;
@@ -19,6 +21,8 @@ public partial class App : Application
 
     public App()
     {
+        UnhandledException += (_, args) => RecordFailure(args.Exception);
+        DebugSettings.XamlResourceReferenceFailed += (_, args) => RecordFailure(new InvalidOperationException(args.Message));
         InitializeComponent();
 
         // No bootstrapper initialisation here, and that is deliberate.
@@ -34,12 +38,35 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var requirement = WindowsPlatformProbe.CurrentRequirement();
+        try
+        {
+            var requirement = WindowsPlatformProbe.CurrentRequirement();
 
-        _window = requirement.Supported
-            ? new MainWindow()
-            : new UnsupportedPlatformWindow(requirement);
+            _window = requirement.Supported
+                ? new MainWindow()
+                : new UnsupportedPlatformWindow(requirement);
 
-        _window.Activate();
+            _window.Activate();
+        }
+        catch (Exception error)
+        {
+            RecordFailure(error);
+            throw;
+        }
+    }
+
+    private static void RecordFailure(Exception error)
+    {
+        try
+        {
+            var directory = Environment.GetEnvironmentVariable("FILSPRESSO_PROFILE_DIR") ?? DesktopDataPaths.UserDataDirectory;
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, "last-error.log");
+            if (File.Exists(path) && new FileInfo(path).Length > 64 * 1024) File.Delete(path);
+            File.AppendAllText(path, $"{DateTimeOffset.UtcNow:O} {error} HRESULT={error.HResult:X8}{Environment.NewLine}");
+            foreach (System.Collections.DictionaryEntry item in error.Data)
+                File.AppendAllText(path, $"{item.Key}: {item.Value}{Environment.NewLine}");
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException) { }
     }
 }

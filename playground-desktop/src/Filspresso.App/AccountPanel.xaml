@@ -4,9 +4,9 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <StackPanel Spacing="20">
+    <StackPanel Spacing="24">
 
-        <TextBlock Text="Your account" Style="{StaticResource SubtitleTextBlockStyle}" />
+        <TextBlock Text="Your account" FontSize="29" />
 
         <!-- The access state, which decides whether anything else on this page matters. -->
         <Border

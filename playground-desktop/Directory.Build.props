@@ -34,8 +34,8 @@
       the commit that produced it. Locally it falls back to 0.1.0 rather than to the empty
       string, because Windows Installer rejects a version with no third field.
     -->
-    <Version Condition="'$(GIT_COMMIT)' != ''">0.1.0+$(GIT_COMMIT.Substring(0, 8))</Version>
-    <Version Condition="'$(GIT_COMMIT)' == ''">0.1.0</Version>
+    <Version Condition="'$(GIT_COMMIT)' != ''">0.2.0+$(GIT_COMMIT.Substring(0, 8))</Version>
+    <Version Condition="'$(GIT_COMMIT)' == ''">0.2.0</Version>
   </PropertyGroup>
 
   <PropertyGroup>

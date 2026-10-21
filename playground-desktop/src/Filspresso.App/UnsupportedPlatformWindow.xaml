@@ -10,7 +10,7 @@
         which editions are supported and why this one is not, because "it just says no" is the
         version of this that gets filed as a bug.
     -->
-    <Grid Padding="32" RowDefinitions="Auto,Auto,Auto" MaxWidth="720" HorizontalAlignment="Left">
+    <Grid Padding="32" RowDefinitions="Auto,Auto,Auto" Background="{StaticResource FilspressoBackground}" RequestedTheme="Dark">
         <TextBlock
             Text="This Windows edition is not supported"
             Style="{StaticResource TitleTextBlockStyle}"

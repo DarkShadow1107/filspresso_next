@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="en-US">
+  <String Id="InstallDirDlgTitle" Value="Choose where to install" />
+  <String Id="InstallDirDlgDescription" Value="Setup creates a dedicated Filspresso Playground folder inside the location you choose." />
+  <String Id="InstallDirDlgFolderLabel" Value="Install Filspresso Playground under this parent folder:" />
+</WixLocalization>

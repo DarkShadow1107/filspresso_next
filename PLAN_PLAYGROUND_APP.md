@@ -10,6 +10,14 @@ Phase 4 delivered: a Hyper-V sandbox with **no network adapter at all**, control
 PowerShell Direct, and the web tools running on the host so the model can search without the
 sandbox ever gaining a socket.
 
+Desktop 0.2 update: the native app now follows the web Playground's Filspresso theme
+and chat layout, with inline model selection, session conversations, API Prices,
+native settings, import/export and 16K/32K/64K/128K output levels. The MSI has a parent-folder
+chooser and always creates a dedicated `Filspresso Playground` directory. Its bundled
+`Uninstall.exe` and the Windows Settings removal path share a current-user cleanup action
+for preferences/logs and Credential Manager session/device entries; upgrades preserve them.
+The release build now explicitly includes WinUI's PRI/XBF resources and the bundled fonts.
+
 Phase 2 delivered: a dedicated sign-in and connect screen, MFA in the same flow, DPAPI-backed
 credential storage in Windows Credential Manager, a session manager that refreshes before expiry
 and is single-flight, and an account panel showing tier, access and expiry, allowance, wallet

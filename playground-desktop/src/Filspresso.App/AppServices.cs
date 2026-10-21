@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Filspresso.Core.Api;
 using Filspresso.Core.Auth;
 using Filspresso.Core.Session;
+using Filspresso.Core.Storage;
 using Microsoft.UI.Xaml;
 
 namespace Filspresso.App;
@@ -24,7 +25,10 @@ public sealed class AppServices : IDisposable
     public AppServices(Uri backendBaseAddress)
     {
         _api = new DesktopApiClient(backendBaseAddress);
-        var store = new WindowsCredentialStore();
+        var store = new WindowsCredentialStore(
+            Environment.GetEnvironmentVariable("FILSPRESSO_CREDENTIAL_PREFIX") ?? DesktopDataPaths.CredentialPrefix);
+        PreferencesStore = new DesktopPreferencesStore(Environment.GetEnvironmentVariable("FILSPRESSO_PROFILE_DIR"));
+        Preferences = PreferencesStore.Load();
 
         DeviceId = store.GetOrCreateDeviceIdAsync().GetAwaiter().GetResult();
         Store = store;
@@ -61,6 +65,18 @@ public sealed class AppServices : IDisposable
     public AuthSessionManager Auth { get; }
 
     public PlaygroundSession Playground { get; }
+
+    public IntPtr WindowHandle { get; set; }
+    public DesktopPreferencesStore PreferencesStore { get; }
+    public DesktopPreferences Preferences { get; private set; }
+    public event EventHandler? PreferencesChanged;
+
+    public void SavePreferences(DesktopPreferences preferences)
+    {
+        PreferencesStore.Save(preferences);
+        Preferences = preferences.Normalize();
+        PreferencesChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>The most recent entitlement, kept so every screen reads the same answer.</summary>
     public Entitlement? Entitlement { get; private set; }

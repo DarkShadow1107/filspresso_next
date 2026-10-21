@@ -19,6 +19,13 @@ public class StreamFrameTests
     }
 
     [Fact]
+    public void ReasoningIsKeptSeparateFromTheAnswer()
+    {
+        var update = DesktopApiClient.ParseFrame("""{"reasoning":"Consider the constraints."}""");
+        Assert.Equal("Consider the constraints.", Assert.IsType<StreamUpdate.Reasoning>(update).Text);
+    }
+
+    [Fact]
     public void TheDoneFrameBecomesACompletionWithItsUsage()
     {
         var update = DesktopApiClient.ParseFrame(

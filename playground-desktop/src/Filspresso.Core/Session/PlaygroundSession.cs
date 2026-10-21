@@ -19,6 +19,8 @@ public abstract record PlaygroundEvent
     /// <summary>A piece of the answer.</summary>
     public sealed record Say(string Text) : PlaygroundEvent;
 
+    public sealed record Think(string Text) : PlaygroundEvent;
+
     /// <summary>The message finished. Carries what it cost, as an estimate.</summary>
     public sealed record Finished(MessageUsage Usage) : PlaygroundEvent;
 
@@ -177,7 +179,8 @@ public sealed class PlaygroundSession
         string prompt,
         string modelKey,
         double temperature = 0.7,
-        int maxTokens = 2048,
+        int maxTokens = 16_384,
+        bool thinking = false,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
@@ -214,13 +217,17 @@ public sealed class PlaygroundSession
             StreamUpdate.Completed? completion = null;
 
             await foreach (var update in _api
-                .StreamChatAsync(_auth.Current.AccessToken, modelKey, prompt, null, temperature, maxTokens, false, cancellationToken)
+                .StreamChatAsync(_auth.Current.AccessToken, modelKey, prompt, null, temperature, maxTokens, thinking, cancellationToken)
                 .ConfigureAwait(false))
             {
                 switch (update)
                 {
                     case StreamUpdate.Delta delta:
                         yield return new PlaygroundEvent.Say(delta.Text);
+                        break;
+
+                    case StreamUpdate.Reasoning reasoning:
+                        yield return new PlaygroundEvent.Think(reasoning.Text);
                         break;
 
                     case StreamUpdate.Completed done:
