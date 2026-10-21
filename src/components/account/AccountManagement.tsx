@@ -21,6 +21,7 @@ import {
 	PaymentsSection,
 	ChatHistorySection,
 	BillingSection,
+	DesktopAppDownload,
 	RepairPopup,
 	MaintenancePopup,
 } from "./sections";
@@ -106,6 +107,21 @@ export default function AccountManagement() {
 		if (next === "profile") url.searchParams.delete("tab");
 		else url.searchParams.set("tab", next);
 		window.history.replaceState(null, "", url.toString());
+
+		// Bring the tab's content into view, under the fixed navbar.
+		//
+		// The account header and the tab bar take a screenful, so a tab picked
+		// from further down the page -- or from another tab with a long body --
+		// would open with its content off-screen. The offset is the navbar's own
+		// measured height, because it is not the same on every screen.
+		window.requestAnimationFrame(() => {
+			const content = document.querySelector(".account-content");
+			if (!content) return;
+			const navbar = document.querySelector(".header_body");
+			const navbarHeight = navbar ? navbar.getBoundingClientRect().height : 0;
+			const top = content.getBoundingClientRect().top + window.scrollY - navbarHeight - 16;
+			window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+		});
 	}, []);
 
 	// Deep link: /?tab=billing, used by the out-of-allowance prompt.
@@ -960,7 +976,15 @@ export default function AccountManagement() {
 			</div>
 
 			<div className="account-content">
-				{activeTab === "profile" && account && (
+			{activeTab === "profile" && (
+				<>
+					{/* The desktop app had no home on the site, so "where do I get
+					    it?" had no answer. It is the first card on the profile tab
+					    because the profile is where someone goes to look after
+					    being told the app exists -- and a card at the bottom of a
+					    long page is the same as no card at all. */}
+					<DesktopAppDownload />
+
 					<ProfileSection
 						account={account}
 						isEditing={isEditing}
@@ -985,7 +1009,8 @@ export default function AccountManagement() {
 						handleStartMfaSetup={handleStartMfaSetup}
 						handleEnableMfa={handleEnableMfa}
 					/>
-				)}
+				</>
+			)}
 
 				{activeTab === "status" && (
 					<MemberStatusSection

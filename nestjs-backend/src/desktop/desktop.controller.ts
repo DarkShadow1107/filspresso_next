@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res, ServiceUnavailableException, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, Post, Req, Res, ServiceUnavailableException, UnauthorizedException, UseGuards } from "@nestjs/common";
 import type { Response } from "express";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { BillingService } from "../billing/billing.service";
@@ -8,6 +8,7 @@ import { MODEL_TOKEN_PRICING, effectiveRates, resolveTokenPrice } from "../billi
 import { canUseSpectre } from "../billing/tier-allowance";
 import { playgroundTextModelKeys } from "./text-models";
 import { DesktopGatewayService } from "./desktop-gateway.service";
+import { DesktopInstallerService } from "./desktop-installer.service";
 import { desktopModelAccess } from "./desktop-policy";
 
 /** What JwtAuthGuard guarantees on the request it has let through. */
@@ -36,7 +37,62 @@ export class DesktopController {
 		private readonly billing: BillingService,
 		private readonly addons: AddonsService,
 		private readonly gateway: DesktopGatewayService,
+		private readonly installer: DesktopInstallerService,
 	) {}
+
+	/**
+	 * Where the desktop app is, and whether this account may have it.
+	 *
+	 * The account page asks for this so it can show the download without the page
+	 * having to know where installers live. The answer is deliberately available to
+	 * an account *without* Spectre access: the app is a Spectre feature, but hiding
+	 * the fact that it exists from someone who has not subscribed yet is how a
+	 * product nobody can find stays that way. What the answer withholds is the
+	 * file itself.
+	 */
+	@Get("installer")
+	async installerInfo(@Req() req: DesktopRequest) {
+		const accountId = Number(req.user?.id);
+		if (!Number.isInteger(accountId) || accountId <= 0) {
+			throw new UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+		}
+		const tier = await this.billing.resolveTierFor(accountId);
+		const access = await this.addons.resolveSpectreAccess(accountId, tier, canUseSpectre(tier));
+		const available = await this.installer.isAvailable();
+
+		return {
+			available,
+			fileName: this.installer.fileName,
+			// The button is disabled rather than failing on click, so the reason is on
+			// screen before the customer tries.
+			canDownload: available && access.hasAccess,
+			downloadUrl: "/api/desktop/download",
+		};
+	}
+
+	/**
+	 * The installer itself.
+	 *
+	 * Gated on Spectre access, because the app is a Spectre feature and the access
+	 * check is the same one the client's own entitlement call uses -- a download that
+	 * does not check would let anyone who guessed the URL have the app.
+	 */
+	@Get("download")
+	async download(@Req() req: DesktopRequest, @Res() res: Response) {
+		const accountId = Number(req.user?.id);
+		if (!Number.isInteger(accountId) || accountId <= 0) {
+			throw new UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+		}
+		const tier = await this.billing.resolveTierFor(accountId);
+		const access = await this.addons.resolveSpectreAccess(accountId, tier, canUseSpectre(tier));
+		if (!access.hasAccess) {
+			throw new ForbiddenException({
+				error: "SPECTRE_REQUIRED",
+				message: "The desktop app comes with the Spectre Playground subscription.",
+			});
+		}
+		await this.installer.stream(res);
+	}
 
 	/**
 	 * Stream a generation, metered.

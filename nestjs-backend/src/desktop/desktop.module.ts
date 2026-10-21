@@ -3,6 +3,7 @@ import { DesktopController } from "./desktop.controller";
 import { DesktopWebController } from "./desktop-web.controller";
 import { DesktopWebService } from "./desktop-web.service";
 import { DesktopGatewayService } from "./desktop-gateway.service";
+import { DesktopInstallerService } from "./desktop-installer.service";
 import { BillingModule } from "../billing/billing.controller";
 
 /**
@@ -21,6 +22,6 @@ import { BillingModule } from "../billing/billing.controller";
 @Module({
 	imports: [BillingModule],
 	controllers: [DesktopController, DesktopWebController],
-	providers: [DesktopGatewayService, DesktopWebService],
-})
-export class DesktopModule {}
+	providers: [DesktopGatewayService, DesktopWebService, DesktopInstallerService],
+  })
+  export class DesktopModule {}

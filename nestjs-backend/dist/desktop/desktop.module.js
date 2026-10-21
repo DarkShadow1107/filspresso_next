@@ -12,6 +12,7 @@ const desktop_controller_1 = require("./desktop.controller");
 const desktop_web_controller_1 = require("./desktop-web.controller");
 const desktop_web_service_1 = require("./desktop-web.service");
 const desktop_gateway_service_1 = require("./desktop-gateway.service");
+const desktop_installer_service_1 = require("./desktop-installer.service");
 const billing_controller_1 = require("../billing/billing.controller");
 /**
  * The desktop client's backend surface.
@@ -33,6 +34,6 @@ exports.DesktopModule = DesktopModule = __decorate([
     (0, common_1.Module)({
         imports: [billing_controller_1.BillingModule],
         controllers: [desktop_controller_1.DesktopController, desktop_web_controller_1.DesktopWebController],
-        providers: [desktop_gateway_service_1.DesktopGatewayService, desktop_web_service_1.DesktopWebService],
+        providers: [desktop_gateway_service_1.DesktopGatewayService, desktop_web_service_1.DesktopWebService, desktop_installer_service_1.DesktopInstallerService],
     })
 ], DesktopModule);

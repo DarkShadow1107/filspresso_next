@@ -249,6 +249,7 @@ export default function SubscriptionPageContent() {
 	const spectreBenefits = [
 		{ text: "Full access to the Spectre Playground", note: false },
 		{ text: "Every model unlocked, including the LFM 2.5 8B", note: false },
+		{ text: "The Windows desktop app, with a local sandbox for the code it writes", note: false },
 		{
 			text: "Model usage is billed separately at the API prices listed here, and is not included in this subscription",
 			note: true,

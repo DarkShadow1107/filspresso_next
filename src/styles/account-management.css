@@ -1,7 +1,8 @@
 .account-management {
 	max-width: 1000px;
 	margin: 0 auto;
-	margin-top: 120px;
+	/* The navbar is fixed, so the page needs to reserve room for it. */
+	margin-top: var(--navbar-clearance, 120px);
 	padding: 2rem;
 	color: #fff;
 }
@@ -81,6 +82,12 @@
 	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 	padding-bottom: 1px;
 	overflow-x: auto;
+	/* Seven tabs did not fit on one line at the page's width, and the row
+	   scrolled horizontally: the last tab was off the right edge, so the
+	   "Usage & Wallet" and "Chat History" tabs were somewhere nobody
+	   looked. They wrap instead. */
+	flex-wrap: wrap;
+	row-gap: 0;
 }
 .account-tabs button {
 	background: none;
@@ -662,8 +669,43 @@
 	color: rgba(255, 255, 255, 0.65);
 	line-height: 1.5;
 }
-.ai-balance-gate__actions {
-	display: flex;
-	gap: 0.6rem;
-	flex-wrap: wrap;
-}
+  .ai-balance-gate__actions {
+  	display: flex;
+  	gap: 0.6rem;
+  	flex-wrap: wrap;
+  }
+
+  /* ── The desktop app's download ────────────────────────────────────────
+   *
+   * The card is on the profile tab because that is where someone goes to look
+   * after being told the desktop app exists.
+   */
+  .desktop-download {
+  	background: linear-gradient(145deg, rgba(30, 30, 35, 0.8), rgba(20, 20, 25, 0.9));
+  }
+  .desktop-download__title {
+  	margin: 0 0 0.5rem;
+  	font-size: 1.05rem;
+  	color: #ffdba8;
+  	font-weight: 600;
+  }
+  .desktop-download__button {
+  	display: inline-flex;
+  	align-items: center;
+  	gap: 0.5rem;
+  	margin-top: 1rem;
+  }
+  .desktop-download__button:disabled {
+  	opacity: 0.45;
+  	cursor: not-allowed;
+  }
+  .desktop-download__note {
+  	display: flex;
+  	align-items: center;
+  	gap: 0.45rem;
+  	margin: 0.9rem 0 0;
+  	font-size: 0.82rem;
+  	line-height: 1.45;
+  	color: #fcd34d;
+  }
+

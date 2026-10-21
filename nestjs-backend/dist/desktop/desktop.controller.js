@@ -22,6 +22,7 @@ const model_pricing_1 = require("../billing/model-pricing");
 const tier_allowance_1 = require("../billing/tier-allowance");
 const text_models_1 = require("./text-models");
 const desktop_gateway_service_1 = require("./desktop-gateway.service");
+const desktop_installer_service_1 = require("./desktop-installer.service");
 const desktop_policy_1 = require("./desktop-policy");
 /**
  * One call that answers "may I use this, and can I afford it".
@@ -43,10 +44,61 @@ let DesktopController = class DesktopController {
     billing;
     addons;
     gateway;
-    constructor(billing, addons, gateway) {
+    installer;
+    constructor(billing, addons, gateway, installer) {
         this.billing = billing;
         this.addons = addons;
         this.gateway = gateway;
+        this.installer = installer;
+    }
+    /**
+     * Where the desktop app is, and whether this account may have it.
+     *
+     * The account page asks for this so it can show the download without the page
+     * having to know where installers live. The answer is deliberately available to
+     * an account *without* Spectre access: the app is a Spectre feature, but hiding
+     * the fact that it exists from someone who has not subscribed yet is how a
+     * product nobody can find stays that way. What the answer withholds is the
+     * file itself.
+     */
+    async installerInfo(req) {
+        const accountId = Number(req.user?.id);
+        if (!Number.isInteger(accountId) || accountId <= 0) {
+            throw new common_1.UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+        }
+        const tier = await this.billing.resolveTierFor(accountId);
+        const access = await this.addons.resolveSpectreAccess(accountId, tier, (0, tier_allowance_1.canUseSpectre)(tier));
+        const available = await this.installer.isAvailable();
+        return {
+            available,
+            fileName: this.installer.fileName,
+            // The button is disabled rather than failing on click, so the reason is on
+            // screen before the customer tries.
+            canDownload: available && access.hasAccess,
+            downloadUrl: "/api/desktop/download",
+        };
+    }
+    /**
+     * The installer itself.
+     *
+     * Gated on Spectre access, because the app is a Spectre feature and the access
+     * check is the same one the client's own entitlement call uses -- a download that
+     * does not check would let anyone who guessed the URL have the app.
+     */
+    async download(req, res) {
+        const accountId = Number(req.user?.id);
+        if (!Number.isInteger(accountId) || accountId <= 0) {
+            throw new common_1.UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+        }
+        const tier = await this.billing.resolveTierFor(accountId);
+        const access = await this.addons.resolveSpectreAccess(accountId, tier, (0, tier_allowance_1.canUseSpectre)(tier));
+        if (!access.hasAccess) {
+            throw new common_1.ForbiddenException({
+                error: "SPECTRE_REQUIRED",
+                message: "The desktop app comes with the Spectre Playground subscription.",
+            });
+        }
+        await this.installer.stream(res);
     }
     /**
      * Stream a generation, metered.
@@ -198,6 +250,21 @@ let DesktopController = class DesktopController {
 };
 exports.DesktopController = DesktopController;
 __decorate([
+    (0, common_1.Get)("installer"),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], DesktopController.prototype, "installerInfo", null);
+__decorate([
+    (0, common_1.Get)("download"),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], DesktopController.prototype, "download", null);
+__decorate([
     (0, common_1.Post)("chat/stream"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
@@ -218,5 +285,6 @@ exports.DesktopController = DesktopController = __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     __metadata("design:paramtypes", [billing_service_1.BillingService,
         addons_service_1.AddonsService,
-        desktop_gateway_service_1.DesktopGatewayService])
+        desktop_gateway_service_1.DesktopGatewayService,
+        desktop_installer_service_1.DesktopInstallerService])
 ], DesktopController);
