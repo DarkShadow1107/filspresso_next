@@ -37,6 +37,15 @@ let OrdersController = class OrdersController {
     getCapsuleStats(req) {
         return this.ordersService.getCapsuleStats(Number(req.user?.["id"]));
     }
+    /**
+     * Monthly consumption, for the Member Status charts.
+     *
+     * The account page has asked for this since the tab was written and got a 404, so
+     * the charts never had anything to draw.
+     */
+    getConsumptionHistory(req) {
+        return this.ordersService.getConsumptionHistory(Number(req.user?.["id"]));
+    }
     getOrders(req) {
         return this.ordersService.getUserOrders(Number(req.user?.["id"]));
     }
@@ -97,6 +106,14 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], OrdersController.prototype, "getCapsuleStats", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)("consumption-history"),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], OrdersController.prototype, "getConsumptionHistory", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Get)(),

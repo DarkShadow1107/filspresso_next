@@ -20,6 +20,137 @@ const TIER_THRESHOLDS = [
   { tier: "Ambassador", min: 7000 }, { tier: "Virtuoso", min: 4000 },
   { tier: "Master", min: 2000 }, { tier: "Expert", min: 750 }, { tier: "Connoisseur", min: 1 },
 ];
+
+/**
+ * The membership ladder, lowest first, with the level the account page draws.
+ *
+ * `TIER_THRESHOLDS` above is the same ladder in the other order, because it is
+ * scanned for a discount. This one is scanned for a tier *and* a level, so it
+ * needs the levels -- the account page shows the tier as a step on a ladder.
+ */
+const MEMBER_TIERS: Array<{ tier: string; min: number; level: number }> = [
+  { tier: "None", min: 0, level: 0 },
+  { tier: "Connoisseur", min: 1, level: 1 },
+  { tier: "Expert", min: 750, level: 2 },
+  { tier: "Master", min: 2000, level: 3 },
+  { tier: "Virtuoso", min: 4000, level: 4 },
+  { tier: "Ambassador", min: 7000, level: 5 },
+];
+
+/** The catalogue sells sleeves; the membership ladder counts capsules. */
+const CAPSULES_PER_SLEEVE = 10;
+
+/** The tier a capsule count earns, and the step on the ladder it sits at. */
+export function tierForCapsules(capsules: number): { name: string; level: number } {
+  let current = MEMBER_TIERS[0];
+  for (const tier of MEMBER_TIERS) {
+    if (capsules >= tier.min) current = tier;
+  }
+  return { name: current.tier, level: current.level };
+}
+
+/** The tier above the one a capsule count earns, and how many capsules short it is. */
+export function nextTierAfter(capsules: number): { name: string; needed: number; remaining: number } | null {
+  const current = tierForCapsules(capsules);
+  const next = MEMBER_TIERS.find((tier) => tier.level === current.level + 1);
+  if (!next) return null;
+  return { name: next.tier, needed: next.min, remaining: Math.max(0, next.min - capsules) };
+}
+
+/**
+ * The membership year an account is in.
+ *
+ * The year runs from the account's own anniversary, not from January, because a
+ * member's discount is earned over the year they have been a member. The window is
+ * the most recent anniversary that has already passed.
+ */
+export function membershipPeriod(accountCreatedAt: Date, now: Date): {
+  start: Date;
+  end: Date;
+  daysRemaining: number;
+} {
+  // UTC, not local time. A membership year that starts at the local midnight of the
+  // anniversary is a different date for every server, and for a customer east or
+  // west of the server it is a day out -- which shows up as a membership year that
+  // starts on the 14th for some accounts and the 15th for others.
+  const start = new Date(accountCreatedAt.getTime());
+  start.setUTCHours(0, 0, 0, 0);
+  const end = new Date(start.getTime());
+  end.setUTCFullYear(end.getUTCFullYear() + 1);
+
+  // Step forward a whole year at a time until the window contains `now`.
+  while (end <= now) {
+    start.setUTCFullYear(start.getUTCFullYear() + 1);
+    end.setUTCFullYear(end.getUTCFullYear() + 1);
+  }
+
+  const daysRemaining = Math.max(
+    0,
+    Math.ceil((end.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
+  );
+  return { start, end, daysRemaining };
+}
+
+/**
+ * Totals for the membership summary, with Original and Vertuo split apart.
+ *
+ * "Vertuo" is a product-line word: it appears in the product id and in the product
+ * name, and nowhere else, so the split is a match on either. The catalogue is the
+ * only place that knows which line a product belongs to, and it encodes it that way.
+ */
+const VERTUO_SPLIT_SQL = `
+  SELECT
+    COALESCE(SUM(oi.quantity) FILTER (WHERE oi.product_type = 'capsule'), 0) AS sleeves,
+    COALESCE(SUM(oi.quantity) FILTER (
+      WHERE oi.product_type = 'capsule'
+        AND (LOWER(oi.product_id) LIKE '%vertuo%' OR LOWER(oi.product_name) LIKE '%vertuo%')
+    ), 0) AS vertuo_sleeves,
+    COALESCE(SUM(oi.quantity) FILTER (WHERE oi.product_type = 'machine'), 0) AS machines,
+    COALESCE(SUM(oi.quantity) FILTER (
+      WHERE oi.product_type = 'machine'
+        AND (LOWER(oi.product_id) LIKE '%vertuo%' OR LOWER(oi.product_name) LIKE '%vertuo%')
+    ), 0) AS vertuo_machines,
+    COUNT(DISTINCT o.id) AS orders
+  FROM orders o
+  LEFT JOIN order_items oi ON oi.order_id = o.id
+  WHERE o.account_id = $1 AND o.status != 'cancelled'`;
+
+/** The same split, grouped by calendar year, for the yearly tier history. */
+const YEARLY_SPLIT_SQL = `
+  SELECT
+    EXTRACT(YEAR FROM o.created_at)::int AS year,
+    COALESCE(SUM(oi.quantity) FILTER (WHERE oi.product_type = 'capsule'), 0) AS sleeves,
+    COALESCE(SUM(oi.quantity) FILTER (
+      WHERE oi.product_type = 'capsule'
+        AND (LOWER(oi.product_id) LIKE '%vertuo%' OR LOWER(oi.product_name) LIKE '%vertuo%')
+    ), 0) AS vertuo_sleeves,
+    COUNT(DISTINCT o.id) AS orders
+  FROM orders o
+  LEFT JOIN order_items oi ON oi.order_id = o.id
+  WHERE o.account_id = $1 AND o.status != 'cancelled'
+  GROUP BY EXTRACT(YEAR FROM o.created_at)
+  ORDER BY EXTRACT(YEAR FROM o.created_at)`;
+
+/** The same split, grouped by month, for the consumption charts. */
+const MONTHLY_SPLIT_SQL = `
+  SELECT
+    TO_CHAR(DATE_TRUNC('month', o.created_at), 'YYYY-MM') AS month,
+    COALESCE(SUM(oi.quantity) FILTER (WHERE oi.product_type = 'capsule'), 0) AS sleeves,
+    COALESCE(SUM(oi.quantity) FILTER (
+      WHERE oi.product_type = 'capsule'
+        AND (LOWER(oi.product_id) LIKE '%vertuo%' OR LOWER(oi.product_name) LIKE '%vertuo%')
+    ), 0) AS vertuo_sleeves,
+    COALESCE(SUM(oi.quantity) FILTER (WHERE oi.product_type = 'machine'), 0) AS machines,
+    COALESCE(SUM(oi.quantity) FILTER (
+      WHERE oi.product_type = 'machine'
+        AND (LOWER(oi.product_id) LIKE '%vertuo%' OR LOWER(oi.product_name) LIKE '%vertuo%')
+    ), 0) AS vertuo_machines
+  FROM orders o
+  LEFT JOIN order_items oi ON oi.order_id = o.id
+  WHERE o.account_id = $1 AND o.status != 'cancelled'
+  GROUP BY DATE_TRUNC('month', o.created_at)
+  ORDER BY DATE_TRUNC('month', o.created_at)`;
+
 /**
  * Shipping: a flat rate below a threshold, free at or above it.
  *
@@ -308,30 +439,160 @@ export class OrdersService {
   }
 
   // ── GET /api/orders/capsule-stats
+  /**
+   * The coffee membership summary the account page's Member Status tab draws.
+   *
+   * This used to return four numbers -- total capsules, total orders, the tier *name*
+   * and a discount -- while the account page expected a much larger object: a tier
+   * object with a level, a current period with a day count, a next tier, a yearly
+   * history, machine counts, and a split between Original and Vertuo. The tab read
+   * `capsuleStats.currentPeriod.capsules` off a payload that had no such field, so
+   * selecting Member Status threw and took the account page down with it. The
+   * consumption-history endpoint the tab also asked for did not exist at all.
+   *
+   * So the shape is decided here, by the service that has the data, and the frontend
+   * reads it rather than inventing it. The tier ladder below matches the one the
+   * account page renders, and `nestjs-backend/test/member-status.test.ts` checks the
+   * two against each other.
+   */
   async getCapsuleStats(accountId: number): Promise<unknown> {
     const pool = this.db.getPool();
     const client = await pool.connect();
     try {
-      const [totalRes, ordersCountRes] = await Promise.all([
-        client.query(
-          `SELECT COALESCE(SUM(oi.quantity), 0) as total_sleeves FROM order_items oi
-           JOIN orders o ON oi.order_id = o.id
-           WHERE o.account_id = $1 AND o.status != 'cancelled' AND oi.product_type = 'capsule'`,
-          [accountId],
-        ),
-        client.query(`SELECT COUNT(*) as total_orders FROM orders WHERE account_id = $1 AND status != 'cancelled'`, [accountId]),
+      const [totalsRes, accountRes, repairsRes, yearlyRes] = await Promise.all([
+        client.query(VERTUO_SPLIT_SQL, [accountId]),
+        client.query(`SELECT created_at FROM accounts WHERE id = $1 LIMIT 1`, [accountId]),
+        client.query(`SELECT COUNT(*) AS total_repairs FROM repairs WHERE account_id = $1`, [accountId]),
+        client.query(YEARLY_SPLIT_SQL, [accountId]),
       ]);
-      const totalCapsules = (Number(totalRes.rows[0]?.total_sleeves) || 0) * 10;
-      const totalOrders = Number(ordersCountRes.rows[0]?.total_orders) || 0;
-      let currentTier = "None";
-      for (const threshold of TIER_THRESHOLDS) {
-        if (totalCapsules >= threshold.min) { currentTier = threshold.tier; break; }
-      }
+
+      const totals = totalsRes.rows[0] ?? {};
+      const accountCreatedAt = new Date(accountRes.rows[0]?.created_at ?? Date.now());
+      const totalSleeves = Number(totals.sleeves) || 0;
+      const vertuoSleeves = Number(totals.vertuo_sleeves) || 0;
+      const originalSleeves = Math.max(0, totalSleeves - vertuoSleeves);
+
+      // A sleeve is ten capsules. The catalogue sells sleeves; the membership
+      // ladder counts capsules, and every tier threshold is in capsules.
+      const totalCapsules = totalSleeves * CAPSULES_PER_SLEEVE;
+      const originalCapsules = originalSleeves * CAPSULES_PER_SLEEVE;
+      const vertuoCapsules = vertuoSleeves * CAPSULES_PER_SLEEVE;
+
+      const tier = tierForCapsules(totalCapsules);
+      const next = nextTierAfter(totalCapsules);
+
+      const period = membershipPeriod(accountCreatedAt, new Date());
+      const periodCapsules = await this.capsulesBetween(
+        accountId,
+        period.start,
+        period.end,
+        client,
+      );
+
+      const yearlyHistory = yearlyRes.rows.map((row) => {
+        const capsules = (Number(row.sleeves) || 0) * CAPSULES_PER_SLEEVE;
+        const vertuo = (Number(row.vertuo_sleeves) || 0) * CAPSULES_PER_SLEEVE;
+        const yearTier = tierForCapsules(capsules);
+        return {
+          year: Number(row.year),
+          capsules,
+          orders: Number(row.orders) || 0,
+          tier: yearTier.name,
+          tierLevel: yearTier.level,
+          originalCapsules: capsules - vertuo,
+          vertuoCapsules: vertuo,
+        };
+      });
+
+      const machines = Number(totals.machines) || 0;
+      const vertuoMachines = Number(totals.vertuo_machines) || 0;
+
       return {
-        totalCapsules, totalOrders, currentTier,
-        discountPercent: TIER_DISCOUNTS[currentTier] ?? 0,
+        totalCapsules,
+        originalCapsules,
+        vertuoCapsules,
+        totalOrders: Number(totals.orders) || 0,
+        totalRepairs: Number(repairsRes.rows[0]?.total_repairs) || 0,
+        machineStats: {
+          total: machines,
+          original: Math.max(0, machines - vertuoMachines),
+          vertuo: vertuoMachines,
+        },
+        currentPeriod: {
+          capsules: periodCapsules,
+          startDate: period.start.toISOString(),
+          endDate: period.end.toISOString(),
+          daysRemaining: period.daysRemaining,
+        },
+        currentTier: tier,
+        nextTier: next,
+        yearlyHistory,
+        accountCreatedAt: accountCreatedAt.toISOString(),
+        discountPercent: TIER_DISCOUNTS[tier.name] ?? 0,
         tierThresholds: TIER_THRESHOLDS,
       };
+    } finally { client.release(); }
+  }
+
+  /** Capsules bought between two dates, in capsules rather than sleeves. */
+  private async capsulesBetween(
+    accountId: number,
+    start: Date,
+    end: Date,
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
+  ): Promise<number> {
+    const result = await client.query(
+      `SELECT COALESCE(SUM(oi.quantity), 0) AS sleeves
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+        WHERE o.account_id = $1 AND o.status != 'cancelled' AND oi.product_type = 'capsule'
+          AND o.created_at >= $2 AND o.created_at < $3`,
+      [accountId, start.toISOString(), end.toISOString()],
+    );
+    return (Number(result.rows[0]?.sleeves) || 0) * CAPSULES_PER_SLEEVE;
+  }
+
+  // ── GET /api/orders/consumption-history
+  /**
+   * Monthly consumption, for the Member Status charts.
+   *
+   * The account page asked for this from the day the tab was written and got a 404,
+   * so the graphs never had anything to draw. The points are one per month, with
+   * Original and Vertuo split apart, which is what the charts plot.
+   */
+  async getConsumptionHistory(accountId: number): Promise<unknown> {
+    const pool = this.db.getPool();
+    const client = await pool.connect();
+    try {
+      const [accountRes, monthlyRes] = await Promise.all([
+        client.query(`SELECT created_at FROM accounts WHERE id = $1 LIMIT 1`, [accountId]),
+        client.query(MONTHLY_SPLIT_SQL, [accountId]),
+      ]);
+
+      const accountCreatedAt = new Date(accountRes.rows[0]?.created_at ?? Date.now());
+      const capsules: Array<{ date: string; original_capsules: number; vertuo_capsules: number }> = [];
+      const machines: Array<{ date: string; original_machines: number; vertuo_machines: number }> = [];
+
+      for (const row of monthlyRes.rows) {
+        const month = String(row.month);
+        const sleeves = Number(row.sleeves) || 0;
+        const vertuoSleeves = Number(row.vertuo_sleeves) || 0;
+        const machineCount = Number(row.machines) || 0;
+        const vertuoMachineCount = Number(row.vertuo_machines) || 0;
+
+        capsules.push({
+          date: month,
+          original_capsules: Math.max(0, sleeves - vertuoSleeves) * CAPSULES_PER_SLEEVE,
+          vertuo_capsules: vertuoSleeves * CAPSULES_PER_SLEEVE,
+        });
+        machines.push({
+          date: month,
+          original_machines: Math.max(0, machineCount - vertuoMachineCount),
+          vertuo_machines: vertuoMachineCount,
+        });
+      }
+
+      return { accountCreatedAt: accountCreatedAt.toISOString(), capsules, machines };
     } finally { client.release(); }
   }
 

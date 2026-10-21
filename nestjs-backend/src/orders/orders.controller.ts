@@ -39,6 +39,18 @@ export class OrdersController {
     return this.ordersService.getCapsuleStats(Number(req.user?.["id"]));
   }
 
+  /**
+   * Monthly consumption, for the Member Status charts.
+   *
+   * The account page has asked for this since the tab was written and got a 404, so
+   * the charts never had anything to draw.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get("consumption-history")
+  getConsumptionHistory(@Req() req: AuthenticatedRequest) {
+    return this.ordersService.getConsumptionHistory(Number(req.user?.["id"]));
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get()
   getOrders(@Req() req: AuthenticatedRequest) {
