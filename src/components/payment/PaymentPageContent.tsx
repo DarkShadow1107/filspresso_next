@@ -627,7 +627,7 @@ export default React.memo(function PaymentPageContent() {
 			? `${selectedDestination.name} ships as an explicit exception to the standard EU-only shipment rule.`
 			: `${selectedDestination.name} is covered by the standard EU shipment rule.`;
 	const shippingAutoDetectLabel = subscriptionCheckout
-		? "No delivery address is needed for a subscription."
+		? `You are billed in ${selectedDestination.defaultCurrency}. Nothing is shipped for a subscription.`
 		: selectedDestination.shippingRegion === "eu"
 			? `Auto-detected: ${selectedDestination.name} is in the EU shipping zone.`
 			: `Auto-detected: ${selectedDestination.name} is an approved non-EU shipping exception.`;
@@ -925,17 +925,28 @@ export default React.memo(function PaymentPageContent() {
 				<div className="payment-summary-card">
 					<div className="payment-meta-grid">
 						{/*
-							The shipping destination, only for something that is shipped.
+							The shipping destination stays for a subscription.
 
-							A subscription is delivered to the account, so asking where to send it
-							was a question with no answer -- and the currency is picked from the
-							destination, so hiding the field also means the currency selector has
-							to stand on its own.
+							It was hidden, on the grounds that a subscription is not shipped and
+							so a delivery address is a question with no answer. That was too
+							clever: the destination also chooses the currency, and a subscriber
+							in Germany billed in RON because the field they needed to set the
+							currency had been taken away.
+
+							So the field stays, and what it means changes with the purchase. For
+							merchandise it is where the coffee goes, and shipping is charged. For a
+							subscription it is the country the account is billed in, and nothing is
+							shipped, so nothing is charged for it.
 						*/}
-						{!subscriptionCheckout && (
 						<label className="payment-field payment-span-1 payment-destination-field">
-							<span className="payment-field__title">Shipping destination</span>
-							<p className="payment-field__helper">EU destinations plus Switzerland and Turkey are supported.</p>
+							<span className="payment-field__title">
+								{subscriptionCheckout ? "Billing country" : "Shipping destination"}
+							</span>
+							<p className="payment-field__helper">
+								{subscriptionCheckout
+									? "Sets the currency you are billed in. Nothing is shipped for a subscription."
+									: "EU destinations plus Switzerland and Turkey are supported."}
+							</p>
 							<div
 								className={`payment-input-wrapper payment-custom-dropdown ${isDestinationDropdownOpen ? "is-open" : ""}`}
 								ref={destinationDropdownRef}
@@ -981,7 +992,6 @@ export default React.memo(function PaymentPageContent() {
 							</div>
 							<p className="payment-field__helper payment-field__helper--status">{shippingAutoDetectLabel}</p>
 						</label>
-						)}
 						<label className="payment-field payment-span-1 payment-currency-field">
 							<span className="payment-field__title">Payment currency</span>
 							<p className="payment-field__helper">

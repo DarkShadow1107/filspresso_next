@@ -122,6 +122,10 @@ export default function Navbar() {
 	// Account state: read from sessionStorage (set on signup/login)
 	const [accountName, setAccountName] = useState<string | null>(null);
 	const [accountIcon, setAccountIcon] = useState<string | null>(null);
+	// Whether the account's own picture failed to load. Tracked so the picture can be taken out
+	// of the DOM: a broken image is painted at its natural size, so it sat in the corner of the
+	// circle on top of the initials.
+	const [accountIconFailed, setAccountIconFailed] = useState(false);
 	const lastFailedUrlRef = useRef<string | null>(null);
 	const fallbackAvatarRef = useRef<string | null>(null);
 
@@ -182,6 +186,7 @@ export default function Navbar() {
 				} else {
 					setAccountName(null);
 					setAccountIcon(null);
+					setAccountIconFailed(false);
 					lastFailedUrlRef.current = null;
 					fallbackAvatarRef.current = null;
 				}
@@ -314,15 +319,22 @@ export default function Navbar() {
 									{accountIcon ? (
 										<>
 											{/*
-												The account's own picture, over the initials.
+												The account's own picture, over the generated initials.
 
-												Putting the user's image *on top of* the generated
-												avatar rather than instead of it means a picture that
-												fails to load shows the initials underneath rather than
-												a broken-image glyph. The onError handler cannot do
-												this on its own: it only runs for a URL, so an avatar
-												that is itself a malformed data URL is left exactly
-												as it was, broken.
+												Two things here, both learned from a broken image
+												appearing in the corner of the circle.
+
+												The initials go *underneath* rather than instead of
+												the picture, so a picture that fails shows the
+												initials rather than a gap. And the failing picture
+												is taken out of the DOM rather than swapped for
+												the fallback: a broken image is painted at its
+												natural size, so it sat in the corner of the
+												circle on top of the initials.
+
+												What is kept when it fails is the username, which
+												is the point of the whole slot -- so the failure
+												removes the picture and nothing else.
 											*/}
 											<span
 												style={{
@@ -340,18 +352,15 @@ export default function Navbar() {
 													aria-hidden="true"
 													style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
 												/>
-												<img
-													src={accountIcon}
-													alt="account"
-													className="nav-account-icon"
-													style={{ position: "relative", width: "100%", height: "100%", objectFit: "cover" }}
-													onError={() => {
-														if (accountIcon && !accountIcon.startsWith("data:image/")) {
-															lastFailedUrlRef.current = accountIcon;
-															setAccountIcon(fallbackAvatarRef.current || null);
-														}
-													}}
-												/>
+												{!accountIconFailed && (
+													<img
+														src={accountIcon}
+														alt=""
+														className="nav-account-icon"
+														style={{ position: "relative", width: "100%", height: "100%", objectFit: "cover" }}
+														onError={() => setAccountIconFailed(true)}
+													/>
+												)}
 											</span>
 											<span style={{ display: "inline-block", verticalAlign: "middle" }}>
 												{accountName || label}
