@@ -54,7 +54,9 @@ export default function ModelLoadingBar({ modelKey, state, compact = false }: Mo
 				<div className="model-load-fill" style={{ width: `${progress}%` }} />
 			</div>
 			<span className="model-load-label">
-				Loading {label}
+				{/* The same word llama.cpp's own web UI uses, so the wait reads the
+				    way the rest of the tool does. */}
+				Warming up… {label}
 				{compact ? "" : estimate > 0 ? ` · about ${estimate}s` : ""}
 				{elapsed > 0 ? ` · ${elapsed}s elapsed` : ""}
 				<span className="model-load-pct">{progress}%</span>

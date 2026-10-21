@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+	MODEL_CONTEXT_TOKENS,
 	MODEL_DESCRIPTION_BY_KEY,
 	MODEL_LABEL_BY_KEY,
 	MODEL_MODALITY_BY_KEY,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/modelAccess";
 import BrandLiquidIcon from "@/icons/brand-liquid-icon";
 import LockIcon from "@/icons/lock-icon";
+import { ArrowNarrowDownIcon } from "@/icons";
 
 /**
  * The full model lineup, with each entry marked included or locked for a plan.
@@ -28,6 +30,13 @@ import LockIcon from "@/icons/lock-icon";
  * surface on purpose: the table's job is to mirror the entitlement matrix, and the moment
  * it also quotes the subscription's price it becomes a second place for those terms to live
  * and go stale. They belong on the plans page, which is the one place they are sold.
+ *
+ * ## Why this is a submenu
+ *
+ * It used to be a card at the foot of the page, always open, so the Playground's own
+ * controls were pushed below a table of six models the customer cannot use. It is now a
+ * disclosure under the model picker: the picker is what you use, the lineup is what you
+ * look at when you want to know what else there is.
  */
 
 type Price = { inputPer1M: number; outputPer1M: number };
@@ -69,15 +78,19 @@ export default function PlaygroundModelLineup({
 	/** Only text models can be selected in the Playground. */
 	textOnly = false,
 	compact = false,
+	/** Start open. The Playground's own copy opens it; the paywall's does not. */
+	defaultOpen = false,
 }: {
 	tier: UserSubscriptionTier | null;
 	/** Defaults to the tier's implication, so a caller that has not resolved the real answer degrades conservatively. */
 	access?: SpectreAccessState;
 	textOnly?: boolean;
 	compact?: boolean;
+	defaultOpen?: boolean;
 }) {
 	const resolved = normalizeModelTier(tier ?? "none");
 	const rows = LINEUP.filter((key) => !textOnly || MODEL_MODALITY_BY_KEY[key] === "text");
+	const [open, setOpen] = useState(defaultOpen);
 
 	// Absent prices are simply not shown. A placeholder like "--" next to every row would be
 	// worse than a missing number: it reads as a price nobody has set yet.
@@ -107,78 +120,101 @@ export default function PlaygroundModelLineup({
 
 	return (
 		<section className={`pgm-lineup${compact ? " pgm-lineup-compact" : ""}`} aria-label="Model lineup">
-			{!compact ? <h2 className="pgm-lineup-title">Model lineup</h2> : null}
-			<ul className="pgm-lineup-list">
-				{rows.map((key) => {
-					// Inside the Playground, model choice is a budget decision rather than a
-					// tier one: every model is charged at its API price, so anyone with access
-					// may run any of them. Kafelot keeps its own tier ladder -- the two surfaces
-					// are entitled differently on purpose.
-					const included = hasAccess;
-					const excludedFromAllowance =
-						access === "tier" && Boolean(ALLOWANCE_EXCLUDED[resolved]?.has(key));
+			<button
+				type="button"
+				className="pgm-lineup-toggle"
+				aria-expanded={open}
+				aria-controls="pgm-lineup-panel"
+				onClick={() => setOpen((value) => !value)}
+			>
+				<span className="pgm-lineup-toggle-label">
+					Model lineup
+					<span className="pgm-lineup-toggle-count">{rows.length}</span>
+				</span>
+				<ArrowNarrowDownIcon size={14} className="pgm-lineup-chevron" />
+			</button>
 
-					return (
-						<li key={key} className="pgm-lineup-row" data-included={included}>
-							<span className="pgm-lineup-icon">
-								<BrandLiquidIcon size={16} />
-							</span>
-							<span className="pgm-lineup-main">
-								<span className="pgm-lineup-name">{MODEL_LABEL_BY_KEY[key]}</span>
-								<span className="pgm-lineup-desc">{MODEL_DESCRIPTION_BY_KEY[key]}</span>
-							</span>
-							<span className="pgm-lineup-meta">
-								<span className="pgm-lineup-modality">
-									{MODALITY_LABEL[MODEL_MODALITY_BY_KEY[key]] ?? key}
+			<div id="pgm-lineup-panel" className="pgm-lineup-panel" hidden={!open}>
+				<ul className="pgm-lineup-list">
+					{rows.map((key) => {
+						// Inside the Playground, model choice is a budget decision rather than a
+						// tier one: every model is charged at its API price, so anyone with access
+						// may run any of them. Kafelot keeps its own tier ladder -- the two surfaces
+						// are entitled differently on purpose.
+						const included = hasAccess;
+						const excludedFromAllowance =
+							access === "tier" && Boolean(ALLOWANCE_EXCLUDED[resolved]?.has(key));
+
+						return (
+							<li key={key} className="pgm-lineup-row" data-included={included}>
+								<span className="pgm-lineup-head">
+									<span className="pgm-lineup-icon">
+										<BrandLiquidIcon size={16} />
+									</span>
+									<span className="pgm-lineup-main">
+										<span className="pgm-lineup-name">{MODEL_LABEL_BY_KEY[key]}</span>
+										<span className="pgm-lineup-desc">{MODEL_DESCRIPTION_BY_KEY[key]}</span>
+									</span>
 								</span>
-								{prices[key] && (
-									<span
-										className="pgm-lineup-price"
-										title={
-											`API list price: ${prices[key].inputPer1M.toFixed(2)} RON per 1M input tokens, ` +
-											`${prices[key].outputPer1M.toFixed(2)} RON per 1M output tokens. This is what a message costs ` +
-											`in the Playground, for every plan.` +
-											// The one billing fact that is genuinely plan-specific, kept in the
-											// tooltip rather than on the row: the line-up carries no plan copy at
-											// all, so this is the only place a Max customer can find out that the
-											// 8B will not come out of their allowance.
-											(excludedFromAllowance
-												? " Your plan's allowance does not cover this model -- usage is billed to your wallet."
-												: "")
-										}
-									>
-										API price
-										<b>
-											{prices[key].inputPer1M.toFixed(2)} / {prices[key].outputPer1M.toFixed(2)} RON
-										</b>
+								<span className="pgm-lineup-meta">
+									<span className="pgm-lineup-modality">
+										{MODALITY_LABEL[MODEL_MODALITY_BY_KEY[key]] ?? key}
 									</span>
-								)}
-								{included ? null : (
-									// A lock and nothing else. This table used to spell out the
-									// subscription price and what usage would cost, which put the
-									// add-on's commercial terms in a component whose only job is to
-									// mirror the entitlement matrix -- two sources of truth for the same
-									// numbers, one of them a copy-paste away from going stale.
-									<span
-										className="pgm-lineup-state pgm-lineup-state-out"
-										title="Locked. Subscribe to the Spectre Playground to unlock every model here."
-										aria-label="Locked"
-									>
-										<LockIcon size={13} />
+									{/* The context window is what bounds the reply length, so it
+									    belongs next to the model rather than only in the
+									    max-tokens control. */}
+									<span className="pgm-lineup-context">
+										{MODEL_CONTEXT_TOKENS[key].toLocaleString("en-GB")} ctx
 									</span>
-								)}
-							</span>
-						</li>
-					);
-				})}
-			</ul>
-			<p className="pgm-lineup-foot">
-				{/* Only the operational note. The subscription's price and what usage costs
-				    live on the plans page; repeating them here is how two pages end up
-				    quoting different numbers. */}
-				One model runs at a time on the Playground. Switching loads it first, and the progress bar
-				shows how long that takes.
-			</p>
+									{prices[key] && (
+										<span
+											className="pgm-lineup-price"
+											title={
+												`API list price: ${prices[key].inputPer1M.toFixed(2)} RON per 1M input tokens, ` +
+												`${prices[key].outputPer1M.toFixed(2)} RON per 1M output tokens. This is what a message costs ` +
+												`in the Playground, for every plan.` +
+												// The one billing fact that is genuinely plan-specific, kept in the
+												// tooltip rather than on the row: the line-up carries no plan copy at
+												// all, so this is the only place a Max customer can find out that the
+												// 8B will not come out of their allowance.
+												(excludedFromAllowance
+													? " Your plan's allowance does not cover this model -- usage is billed to your wallet."
+													: "")
+											}
+										>
+											API price
+											<b>
+												{prices[key].inputPer1M.toFixed(2)} / {prices[key].outputPer1M.toFixed(2)} RON
+											</b>
+										</span>
+									)}
+									{included ? null : (
+										// A lock and nothing else. This table used to spell out the
+										// subscription price and what usage would cost, which put the
+										// add-on's commercial terms in a component whose only job is to
+										// mirror the entitlement matrix -- two sources of truth for the same
+										// numbers, one of them a copy-paste away from going stale.
+										<span
+											className="pgm-lineup-state pgm-lineup-state-out"
+											title="Locked. Subscribe to the Spectre Playground to unlock every model here."
+											aria-label="Locked"
+										>
+											<LockIcon size={13} />
+										</span>
+									)}
+								</span>
+							</li>
+						);
+					})}
+				</ul>
+				<p className="pgm-lineup-foot">
+					{/* Only the operational note. The subscription's price and what usage costs
+					    live on the plans page; repeating them here is how two pages end up
+					    quoting different numbers. */}
+					One model runs at a time on the Playground. Switching loads it first, and the progress bar
+					shows how long that takes.
+				</p>
+			</div>
 		</section>
 	);
 }

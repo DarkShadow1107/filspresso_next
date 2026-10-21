@@ -89,6 +89,54 @@ export const MODEL_DESCRIPTION_BY_KEY: Record<ModelKey, string> = {
 	[AUDIO_MODEL_1_5B]: "Speech and audio input/output.",
 };
 
+/**
+ * The context window each model is actually served with, in tokens.
+ *
+ * This is the llama.cpp router's own `ctx-size` per model, taken from
+ * models/router-presets.ini -- the file the server is started with. It is not a
+ * number the UI gets to choose: the server allocates the context, so a request
+ * for more tokens than this is silently truncated by llama.cpp.
+ *
+ * The Playground uses it to bound the max-tokens control, so the slider cannot
+ * offer a value the model cannot hold. `tests/model-context.test.ts` reads the
+ * ini file and fails if this table drifts from it.
+ */
+export const MODEL_CONTEXT_TOKENS: Record<ModelKey, number> = {
+	[TEXT_MODEL_230M]: 8192,
+	[TEXT_MODEL_350M]: 8192,
+	[TEXT_MODEL_1_2B_INSTRUCT]: 16384,
+	[TEXT_MODEL_1_2B_THINKING]: 16384,
+	[TEXT_MODEL_2_6B]: 32768,
+	[TEXT_MODEL_8B]: 16384,
+	[VISION_MODEL_450M]: 16384,
+	[VISION_MODEL_3B]: 16384,
+	[AUDIO_MODEL_1_5B]: 16384,
+};
+
+/**
+ * How much of the context a single reply may take.
+ *
+ * A reply cannot use the whole window: the prompt, the system message and the
+ * conversation so far all live in the same context. The cap is the window
+ * minus what the conversation is allowed to occupy, and it is what the
+ * max-tokens slider is measured against.
+ */
+export const MAX_TOKENS_STEP = 64;
+
+/** The largest reply the model can be asked for, given its context window. */
+export function maxTokensCeilingFor(modelKey: ModelKey): number {
+	const context = MODEL_CONTEXT_TOKENS[modelKey] ?? 8192;
+	// Leave room for the prompt and the history, and round down to a step.
+	const ceiling = Math.floor(context / 2 / MAX_TOKENS_STEP) * MAX_TOKENS_STEP;
+	return Math.max(MAX_TOKENS_STEP, ceiling);
+}
+
+/** The reply length a model starts at: enough to be useful, small enough to be quick. */
+export function defaultMaxTokensFor(modelKey: ModelKey): number {
+	const ceiling = maxTokensCeilingFor(modelKey);
+	return Math.min(512, ceiling);
+}
+
 /** Exported so the Playground can offer every model; each is priced individually. */
 export const ALL_TEXT_MODEL_KEYS: TextModelKey[] = [
 	TEXT_MODEL_230M,

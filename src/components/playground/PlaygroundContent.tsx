@@ -16,9 +16,12 @@ const ron = (value: number) =>
 	`${Number(value || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RON`;
 import ModelLoadingBar from "./ModelLoadingBar";
 import {
+	MODEL_CONTEXT_TOKENS,
 	MODEL_DESCRIPTION_BY_KEY,
 	MODEL_LABEL_BY_KEY,
-	allowedTextModelsForTier,
+	MAX_TOKENS_STEP,
+	defaultMaxTokensFor,
+	maxTokensCeilingFor,
 	normalizeModelTier,
 	tierCanUseThinkingModel,
 	TEXT_MODEL_230M,
@@ -39,10 +42,16 @@ type ChatMessage = {
 	failed?: boolean;
 };
 
-const MIN_TEMPERATURE = 0;
-const MAX_TEMPERATURE = 2;
-const MAX_TOKENS_CEILING = 2048;
+/**
+ * The reply length the max-tokens control starts at.
+ *
+ * 512 is a comfortable answer's worth of text and, on this host, a couple of
+ * seconds of generation rather than minutes.
+ */
+const DEFAULT_MAX_TOKENS = 512;
 
+/** The smallest reply worth asking for. */
+const MIN_MAX_TOKENS = 64;
 
 
 export default function PlaygroundContent() {
@@ -55,8 +64,7 @@ export default function PlaygroundContent() {
 	// Controls
 	const [model, setModel] = useState<TextModelKey | null>(null);
 	const [systemPrompt, setSystemPrompt] = useState("");
-	const [temperature, setTemperature] = useState(0.7);
-	const [maxTokens, setMaxTokens] = useState(512);
+	const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
 	const [thinking, setThinking] = useState(false);
 
 	// Conversation
@@ -126,11 +134,36 @@ export default function PlaygroundContent() {
 	);
 
 
-	// Default to the strongest model the plan allows.
+	// Start on the small model.
+	//
+	// The Playground used to start on the *last* model in the list, which is the
+	// 8B A1B: a 4.9 GB file that takes minutes to load and needs the whole GPU.
+	// The first thing a customer did was wait several minutes for a model they
+	// had not chosen. The small model loads in seconds and answers first.
 	useEffect(() => {
 		if (allowedModels.length === 0) return;
-		setModel((current) => (current && allowedModels.includes(current) ? current : allowedModels[allowedModels.length - 1]));
+		setModel((current) => {
+			if (current && allowedModels.includes(current)) return current;
+			return allowedModels.includes(TEXT_MODEL_230M) ? TEXT_MODEL_230M : allowedModels[0];
+		});
 	}, [allowedModels]);
+
+	// The reply length is bounded by the model's own context window, so the
+	// control can never offer a reply the model has nowhere to put.
+	const maxTokensCeiling = useMemo(
+		() => (model ? maxTokensCeilingFor(model) : DEFAULT_MAX_TOKENS),
+		[model],
+	);
+	const contextTokens = model ? MODEL_CONTEXT_TOKENS[model] : 0;
+
+	// Switching to a model with a smaller window has to pull the current value
+	// back inside it, or the slider would sit past its own end. It goes back to
+	// the default rather than up to the new ceiling, because jumping to 16k
+	// tokens because you changed model is not what anyone meant.
+	useEffect(() => {
+		if (!model || maxTokens <= maxTokensCeiling) return;
+		setMaxTokens(defaultMaxTokensFor(model));
+	}, [model, maxTokens, maxTokensCeiling]);
 
 	// Thinking is MAX/ULTIMATE-only; never leave the toggle on for a lower plan.
 	const thinkingAllowed = tier ? tierCanUseThinkingModel(tier) : false;
@@ -187,9 +220,12 @@ export default function PlaygroundContent() {
 			// out here instead of letting the gateway answer 429 after
 			// AI_QUEUE_WAIT_SECONDS -- the progress bar above is what the user is
 			// watching, so gating the request on it is the whole point of option (b).
-			if (!(await waitUntilLoaded())) {
+			const loaded = await waitUntilLoaded();
+			if (!loaded.ok) {
 				throw new Error(
-					`${MODEL_LABEL_BY_KEY[model]} could not be loaded in time. Please try again.`,
+					loaded.reason === "timeout"
+						? `${MODEL_LABEL_BY_KEY[model]} is still loading. It is a large model and takes several minutes on this machine -- wait a moment and send again.`
+						: `${MODEL_LABEL_BY_KEY[model]} could not be loaded${loaded.error ? `: ${loaded.error}` : ""}. Please try again.`,
 				);
 			}
 
@@ -204,7 +240,6 @@ export default function PlaygroundContent() {
 					message: prompt,
 					system_prompt: systemPrompt,
 					model,
-					temperature,
 					max_tokens: maxTokens,
 					thinking,
 				}),
@@ -347,7 +382,7 @@ try {
 			setStreamingText("");
 			setStreamingReasoning("");
 		}
-	}, [input, streaming, model, systemPrompt, temperature, maxTokens, thinking, nextId, waitUntilLoaded]);
+	}, [input, streaming, model, systemPrompt, maxTokens, thinking, nextId, waitUntilLoaded]);
 
 	const clearTranscript = useCallback(() => {
 		stopStream();
@@ -405,7 +440,8 @@ try {
 						</Link>
 					</div>
 					{upgradeMessage ? <p className="playground-upgrade-error">{upgradeMessage}</p> : null}
-					<PlaygroundModelLineup tier={tier ?? null} access={spectreAccess} textOnly />
+					{/* On the paywall the line-up *is* the argument, so it starts open. */}
+					<PlaygroundModelLineup tier={tier ?? null} access={spectreAccess} textOnly defaultOpen />
 				</section>
 			</main>
 		);
@@ -432,50 +468,64 @@ try {
 			</header>
 
 			<section className="playground-controls" aria-label="Model settings">
-				<label className="playground-field">
-					<span>Model</span>
-					<select
-						value={model ?? ""}
-						onChange={(event) => setModel(event.target.value as TextModelKey)}
-						disabled={streaming}
-					>
-						{allowedModels.map((key) => (
-							<option key={key} value={key}>
-								{MODEL_LABEL_BY_KEY[key]} — {MODEL_DESCRIPTION_BY_KEY[key]}
-							</option>
-						))}
-					</select>
-				</label>
+				<div className="playground-model-column">
+					<label className="playground-field playground-field-model">
+						<span>Model</span>
+						<select
+							value={model ?? ""}
+							onChange={(event) => setModel(event.target.value as TextModelKey)}
+							disabled={streaming}
+						>
+							{allowedModels.map((key) => (
+								<option key={key} value={key}>
+									{MODEL_LABEL_BY_KEY[key]} — {MODEL_DESCRIPTION_BY_KEY[key]}
+								</option>
+							))}
+						</select>
+					</label>
 
-				<label className="playground-field">
+					{/* The line-up is a submenu of the picker, not a table at the foot of
+					    the page: the picker is what you use, and the line-up is what you
+					    open when you want to know what else there is and what it costs. */}
+					<PlaygroundModelLineup tier={tier ?? null} access={spectreAccess} textOnly compact />
+				</div>
+
+				<div className="playground-field playground-field-tokens">
 					<span>
-						Temperature <em>{temperature.toFixed(2)}</em>
+						Max tokens <em>{maxTokens.toLocaleString("en-GB")}</em>{" "}
+						{contextTokens > 0 ? (
+							<small>of {contextTokens.toLocaleString("en-GB")} context</small>
+						) : null}
 					</span>
+					{/* The ceiling is the model's own context window, so the slider
+					    cannot offer a reply the model has nowhere to put. The step is
+					    a whole number of tokens, which is what makes the control
+					    land on a known value instead of an arbitrary one. */}
 					<input
 						type="range"
-						min={MIN_TEMPERATURE}
-						max={MAX_TEMPERATURE}
-						step={0.05}
-						value={temperature}
-						disabled={streaming}
-						onChange={(event) => setTemperature(Number.parseFloat(event.target.value))}
-					/>
-				</label>
-
-				<label className="playground-field">
-					<span>
-						Max tokens <em>{maxTokens}</em>
-					</span>
-					<input
-						type="range"
-						min={64}
-						max={MAX_TOKENS_CEILING}
-						step={64}
+						min={MIN_MAX_TOKENS}
+						max={maxTokensCeiling}
+						step={MAX_TOKENS_STEP}
 						value={maxTokens}
 						disabled={streaming}
 						onChange={(event) => setMaxTokens(Number.parseInt(event.target.value, 10))}
 					/>
-				</label>
+					<input
+						type="number"
+						className="playground-token-input"
+						min={MIN_MAX_TOKENS}
+						max={maxTokensCeiling}
+						step={MAX_TOKENS_STEP}
+						value={maxTokens}
+						disabled={streaming}
+						aria-label="Max tokens"
+						onChange={(event) => {
+							const next = Number.parseInt(event.target.value, 10);
+							if (!Number.isFinite(next)) return;
+							setMaxTokens(Math.min(maxTokensCeiling, Math.max(MIN_MAX_TOKENS, next)));
+						}}
+					/>
+				</div>
 
 				<label className="playground-field playground-field-wide">
 					<span>System prompt</span>
@@ -581,10 +631,6 @@ try {
 					Kafelot allowance
 				</span>
 			</footer>
-
-			{/* The picker above only lists what this plan may run, so the lineup also
-			    shows what exists and what a higher plan would add. */}
-			<PlaygroundModelLineup tier={tier ?? null} access={spectreAccess} textOnly />
 		</main>
 	);
 }

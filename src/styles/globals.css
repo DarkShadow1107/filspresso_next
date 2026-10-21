@@ -283,9 +283,24 @@
 }
 
 /* Consolidated legacy stylesheet to preserve the exact original look across embeds and components. */
-body {
-	background-color: #000000;
-}
+  body {
+  	background-color: #000000;
+  }
+
+  /*
+   * How far down a page must start to clear the fixed navbar.
+   *
+   * The navbar is `position: fixed`, so it does not take space in the flow: a page
+   * that does not reserve room for it starts *under* it, and the first thing on
+   * the page -- a title, a heading, the Playground's own header -- is invisible.
+   *
+   * Measured on this site: 100px on narrow and mid widths, 108px on wide ones.
+   * 120px clears both with room to spare.
+   */
+  :root {
+  	--navbar-clearance: 120px;
+  }
+
 .coffee-page-content,
 .machines-page-content {
 	width: 100%;
@@ -4232,14 +4247,17 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
    apricot text) rather than the sentinel playground's indigo theme.
    --------------------------------------------------------------------------- */
 
-.playground-page {
-	display: flex;
-	flex-direction: column;
-	gap: 16px;
-	width: 100%;
-	max-width: 980px;
-	margin: 0 auto;
-	padding: 24px 20px 32px;
+  .playground-page {
+  	display: flex;
+  	flex-direction: column;
+  	gap: 16px;
+  	width: 100%;
+  	max-width: 980px;
+  	margin: 0 auto;
+  	/* The navbar is fixed, so the page's own header -- the title, the subtitle
+  	   and the Clear button -- was starting underneath it and could not be read.
+  	   The same clearance the account page uses. */
+  	padding: var(--navbar-clearance, 120px) 20px 32px;
 	color: rgb(248, 220, 204);
 }
 
@@ -4594,7 +4612,8 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 		max-width: 100%;
 	}
 	.playground-page {
-		padding: 16px 12px 24px;
+		/* The navbar is still there on a phone, so the top clearance stays. */
+		padding: var(--navbar-clearance, 120px) 12px 24px;
 	}
 }
 
@@ -4625,13 +4644,24 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 	list-style: none;
 }
 
+/* The row is two lines -- the model and its description, then the badges and
+   the price -- rather than one row of columns. A row of columns cannot survive a
+   narrow panel: the price is a single unbreakable number, so it sets the floor for
+   the column it shares, and the model's name ends up wrapping one word per line
+   beside it. */
 .pgm-lineup-row {
-	display: grid;
-	grid-template-columns: 22px 1fr auto;
-	gap: 10px;
-	align-items: center;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
 	padding: 8px 6px;
 	border-radius: 9px;
+}
+
+.pgm-lineup-head {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	min-width: 0;
 }
 
 .pgm-lineup-row[data-included="false"] {
@@ -4666,7 +4696,7 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 	display: flex;
 	gap: 8px;
 	align-items: center;
-	white-space: nowrap;
+	flex-wrap: wrap;
 }
 
 .pgm-lineup-modality {
@@ -4700,13 +4730,9 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 }
 
 @media (max-width: 640px) {
-	.pgm-lineup-row {
-		grid-template-columns: 22px 1fr;
-	}
 
 	.pgm-lineup-meta {
-		grid-column: 2;
-		margin-top: 4px;
+		padding-left: 32px;
 	}
 }
 /* The Playground entry is an <a> rather than a <button> (it navigates), so it
@@ -4828,7 +4854,158 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 	border: 1px solid rgba(255, 255, 255, 0.25);
 	color: rgba(255, 255, 255, 0.8);
 }
-.playground-cta--ghost:hover {
-	border-color: #c4a77d;
-	color: #ffdba8;
-}
+  .playground-cta--ghost:hover {
+  	border-color: #c4a77d;
+  	color: #ffdba8;
+  }
+
+  /* ── Playground: the llama.cpp-style controls ───────────────────────────
+   *
+   * The model picker and the line-up live in one column, because the line-up
+   * is a submenu of the picker rather than a table at the foot of the page.
+   */
+  .playground-model-column {
+  	display: flex;
+  	flex-direction: column;
+  	gap: 8px;
+  	min-width: 0;
+  }
+  .playground-field-model select {
+  	width: 100%;
+  }
+  /* The line-up opens inside the model column, so the column has to be wide
+     enough for a model name and a price to sit side by side. The controls
+     panel is a two-column grid rather than an auto-fit one for the same
+     reason: auto-fit gave the model column the same width as the token
+     control, which is not enough room for the submenu it now carries. */
+  .playground-controls {
+  	grid-template-columns: minmax(300px, 1.7fr) minmax(200px, 1fr);
+  	/* Each field sits at the top of its row. The model column carries the
+  	   line-up submenu, so it is much taller than the token control, and a
+  	   stretched field puts the token control in the middle of the panel. */
+  	align-items: start;
+  }
+  .playground-field-tokens {
+  	display: grid;
+  	grid-template-columns: 1fr 84px;
+  	grid-template-areas:
+  		"label label"
+  		"range number";
+  	gap: 6px 10px;
+  	align-items: center;
+  }
+  .playground-field-tokens > span {
+  	grid-area: label;
+  }
+  .playground-field-tokens > input[type="range"] {
+  	grid-area: range;
+  }
+  .playground-field-tokens > small {
+  	font-size: 0.68rem;
+  	font-weight: 500;
+  	letter-spacing: 0.02em;
+  	text-transform: none;
+  	opacity: 0.55;
+  }
+  .playground-token-input {
+  	grid-area: number;
+  	width: 100%;
+  	padding: 7px 9px;
+  	border-radius: 8px;
+  	border: 1px solid rgba(248, 220, 204, 0.2);
+  	background: rgba(0, 0, 0, 0.35);
+  	color: inherit;
+  	font: inherit;
+  	font-size: 0.82rem;
+  	font-variant-numeric: tabular-nums;
+  }
+  .playground-token-input:focus-visible {
+  	outline: 2px solid rgba(246, 190, 92, 0.7);
+  	outline-offset: 1px;
+  }
+
+  /* ── The line-up as a submenu ───────────────────────────────────────────
+   *
+   * A disclosure under the model picker: the toggle says how many models
+   * there are, and the panel opens underneath. The compact form drops the
+   * card border, because inside the controls panel it is a menu, not a card.
+   *
+   * The row is two lines -- the model and its description, then the badges and
+   * the price -- rather than one row of columns. A row of columns cannot survive
+   * a narrow panel: the price is a single unbreakable number, so it sets the
+   * floor for the column it shares, and the model's name ends up wrapping one
+   * word per line beside it.
+   */
+  .pgm-lineup-toggle {
+  	display: flex;
+  	align-items: center;
+  	justify-content: flex-start;
+  	gap: 8px;
+  	width: 100%;
+  	padding: 6px 2px;
+  	border: 0;
+  	background: transparent;
+  	color: inherit;
+  	font: inherit;
+  	font-size: 0.72rem;
+  	font-weight: 700;
+  	letter-spacing: 0.08em;
+  	text-transform: uppercase;
+  	opacity: 0.7;
+  	cursor: pointer;
+  	transition: opacity 0.15s ease;
+  }
+  .pgm-lineup-toggle:hover {
+  	opacity: 1;
+  }
+  .pgm-lineup-toggle:focus-visible {
+  	outline: 2px solid rgba(246, 190, 92, 0.7);
+  	outline-offset: 2px;
+  	border-radius: 6px;
+  }
+  .pgm-lineup-toggle-label {
+  	display: inline-flex;
+  	align-items: center;
+  	gap: 8px;
+  }
+  .pgm-lineup-toggle-count {
+  	display: inline-flex;
+  	align-items: center;
+  	justify-content: center;
+  	min-width: 20px;
+  	height: 18px;
+  	padding: 0 6px;
+  	border-radius: 999px;
+  	border: 1px solid rgba(250, 204, 144, 0.22);
+  	font-size: 0.66rem;
+  	letter-spacing: 0.02em;
+  	opacity: 0.8;
+  }
+  .pgm-lineup-chevron {
+  	flex-shrink: 0;
+  	transition: transform 0.18s ease;
+  }
+  .pgm-lineup-toggle[aria-expanded="true"] .pgm-lineup-chevron {
+  	transform: rotate(180deg);
+  }
+  .pgm-lineup-panel {
+  	border-top: 1px solid rgba(250, 204, 144, 0.12);
+  	padding-top: 6px;
+  }
+  .pgm-lineup-panel[hidden] {
+  	display: none;
+  }
+  .pgm-lineup-compact {
+  	padding: 0;
+  	border: 0;
+  	border-radius: 0;
+  	background: transparent;
+  }
+  .pgm-lineup-context {
+  	font-size: 0.64rem;
+  	letter-spacing: 0.05em;
+  	text-transform: uppercase;
+  	opacity: 0.55;
+  	white-space: nowrap;
+  }
+
