@@ -17,6 +17,7 @@
 import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 
 const argv = process.argv.slice(2);
 const argOf = (n, d) => {
@@ -39,6 +40,37 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function check(name, ok, detail) {
   checks.push({ name, ok, detail });
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${name.padEnd(52)} ${detail ?? ""}`);
+}
+
+/**
+ * Fixture-only escape hatch: run one statement against the database.
+ *
+ * Some checks need a starting state that the product does not offer a public API for.
+ * Restocking a product is one of them: the concurrent-checkout drill buys eight of
+ * the same capsule, and every run of the drill sold another eight. The product's
+ * stock was therefore a countdown, and once it reached zero the drill failed with
+ * 409 INSUFFICIENT_STOCK on every attempt -- a check that could only fail, and that
+ * was failing for a reason that had nothing to do with what it was checking.
+ *
+ * This is a fixture, not a test of the API: the drill still goes through the public
+ * endpoint for the thing it is actually testing, which is that eight simultaneous
+ * checkouts get eight different order numbers.
+ */
+function psql(sql) {
+  try {
+    return execFileSync(
+      "docker",
+      [
+        "compose", "exec", "-T", "postgres", "psql",
+        "-U", "filspresso_user", "-d", "filspresso",
+        "-v", "ON_ERROR_STOP=1", "-t", "-A", "-c", sql,
+      ],
+      { encoding: "utf8", timeout: 120000 },
+    );
+  } catch (err) {
+    console.log(`  (fixture skipped: ${String(err?.message ?? err).slice(0, 120)})`);
+    return "";
+  }
 }
 
 function rawRequest(path, { method = "GET", headers = {}, body, insecure = false, base = BASE } = {}) {
@@ -323,6 +355,12 @@ async function orderNumbersUniqueUnderConcurrency() {
     users.push(await makeUser("conc", `198.51.100.${(crypto.randomBytes(1)[0] % 250) + 1}`));
   }
   check(`${CONCURRENT_CHECKOUTS} accounts ready`, users.length === CONCURRENT_CHECKOUTS, `${users.length} ready`);
+
+  // Restock before the drill. The drill buys eight of the same capsule and every run
+  // of it sold another eight, so the stock was a countdown that ran out -- after
+  // which the drill failed with INSUFFICIENT_STOCK on every attempt, which has
+  // nothing to do with the order numbers it is here to check.
+  psql("UPDATE coffee_products SET stock = stock + 100 WHERE product_id = 'no20-vertuo';");
 
   // All at once, so the sequence and the UNIQUE constraint are contended for.
   const results = await Promise.all(
