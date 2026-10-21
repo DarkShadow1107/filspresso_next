@@ -7,6 +7,7 @@
 @import "../styles/weather.css";
 @import "../styles/kafelot-privacy.css";
 @import "../styles/legal-pages.css";
+@import "../styles/playground-workspace.css";
 
 :root {
 	--background: #000000;

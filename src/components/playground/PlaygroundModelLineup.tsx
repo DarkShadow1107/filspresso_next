@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
 	MODEL_CONTEXT_TOKENS,
 	MODEL_DESCRIPTION_BY_KEY,
@@ -81,6 +81,7 @@ export default function PlaygroundModelLineup({
 	compact = false,
 	/** Start open. The Playground's own copy opens it; the paywall's does not. */
 	defaultOpen = false,
+	disclosure = true,
 }: {
 	tier: UserSubscriptionTier | null;
 	/** Defaults to the tier's implication, so a caller that has not resolved the real answer degrades conservatively. */
@@ -88,10 +89,12 @@ export default function PlaygroundModelLineup({
 	textOnly?: boolean;
 	compact?: boolean;
 	defaultOpen?: boolean;
+	disclosure?: boolean;
 }) {
 	const resolved = normalizeModelTier(tier ?? "none");
 	const rows = LINEUP.filter((key) => !textOnly || MODEL_MODALITY_BY_KEY[key] === "text");
 	const [open, setOpen] = useState(defaultOpen);
+	const panelId = useId();
 
 	// Absent prices are simply not shown. A placeholder like "--" next to every row would be
 	// worse than a missing number: it reads as a price nobody has set yet.
@@ -120,19 +123,19 @@ export default function PlaygroundModelLineup({
 	const hasAccess = access !== "none";
 
 	return (
-		<section className={`pgm-lineup${compact ? " pgm-lineup-compact" : ""}`} aria-label="Model lineup">
-			<button
+		<section className={`pgm-lineup${compact ? " pgm-lineup-compact" : ""}${!disclosure ? " pgm-lineup-static" : ""}`} aria-label="Model lineup">
+			{disclosure ? <button
 				type="button"
 				className="pgm-lineup-toggle"
 				aria-expanded={open}
-				aria-controls="pgm-lineup-panel"
+				aria-controls={panelId}
 				onClick={() => setOpen((value) => !value)}
 			>
 				<span className="pgm-lineup-toggle-label">API Prices</span>
 				<ArrowNarrowDownIcon size={14} className="pgm-lineup-chevron" />
-			</button>
+			</button> : <h2 className="pgm-lineup-title">Model lineup</h2>}
 
-			<div id="pgm-lineup-panel" className="pgm-lineup-panel" hidden={!open}>
+			<div id={panelId} className="pgm-lineup-panel" hidden={disclosure && !open}>
 				<ul className="pgm-lineup-list">
 					{rows.map((key) => {
 						// Inside the Playground, model choice is a budget decision rather than a

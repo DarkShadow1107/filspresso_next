@@ -137,15 +137,17 @@ export function useModelLoadStatus(modelKey: ModelKey | null | undefined) {
 	 * loading and the answer is to wait, not to give up.
 	 */
 	const waitUntilLoaded = useCallback(
-		async (timeoutMs = LOAD_WAIT_MS): Promise<ModelLoadOutcome> => {
+		async (timeoutMs = LOAD_WAIT_MS, signal?: AbortSignal): Promise<ModelLoadOutcome> => {
+			signal?.throwIfAborted();
 			if (!file) return { ok: true };
 			await ensureLoaded();
 			const deadline = Date.now() + timeoutMs;
 			while (Date.now() < deadline) {
+				signal?.throwIfAborted();
 				try {
 					const res = await fetch(
 						`/api/model-status?model=${encodeURIComponent(file)}`,
-						{ cache: "no-store" },
+						{ cache: "no-store", signal },
 					);
 					if (res.ok) {
 						const data = (await res.json()) as { status?: string; error?: string };
@@ -157,6 +159,7 @@ export function useModelLoadStatus(modelKey: ModelKey | null | undefined) {
 						}
 					}
 				} catch {
+					signal?.throwIfAborted();
 					// Transient network error; the deadline still bounds this loop.
 				}
 				await new Promise((resolve) => setTimeout(resolve, POLL_MS));
