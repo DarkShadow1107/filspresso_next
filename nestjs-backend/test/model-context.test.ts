@@ -95,10 +95,33 @@ describe("the context windows the Playground offers are the ones the server serv
 		}
 	});
 
+	it("every model is served with the same window", () => {
+		// The LFM 2.5 models are all trained for 128K and all served with it. A
+		// model that quietly had a smaller window would be advertised as 128K and
+		// then truncate a long conversation, so the sameness is the point.
+		const sizes = new Set(contextSizesFromPresets().values());
+		assert.equal(sizes.size, 1, `the presets use ${sizes.size} different context sizes`);
+		assert.equal([...sizes][0], 131072, "the models are served with 128K");
+	});
+
 	it("no model claims a context it cannot have", () => {
 		for (const [key, size] of contextSizesFromFrontend()) {
 			assert.ok(size >= 1024, `${key} has an implausible context size of ${size}`);
 			assert.ok(size % 1024 === 0, `${key} has a context size that is not a whole number of KiB`);
 		}
+	});
+});
+
+describe("the context ladder", () => {
+	it("is 16K, 32K, 64K and 128K", () => {
+		// The levels the site is sold in, and the stops of the Playground's
+		// reply-length control.
+		assert.match(FRONTEND, /export const CONTEXT_LEVELS = \[16384, 32768, 65536, 131072\]/);
+	});
+
+	it("writes a context size as a level", () => {
+		// "128K", not "131,072" and not "128 KB".
+		assert.match(FRONTEND, /export function formatContextTokens/);
+		assert.match(FRONTEND, /`\$\{tokens \/ 1024\}K`/);
 	});
 });

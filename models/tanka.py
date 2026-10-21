@@ -38,6 +38,26 @@ AUDIO_MODEL_1_5B = "LFM2.5-Audio-1.5B-Q4_0.gguf"
 # not offered as a chat model: LFM2.5 230M replaced it for the Free plan.
 TEXT_MODEL_MINILM = "MiniLM-L6-v2.gguf"
 
+# The context the Kafelot chat runs with.
+#
+# The models are served with 128K and the Playground uses all of it. The coffee
+# chat is a different surface -- a question, five retrieved facts and an answer
+# -- and it is capped at 32K so the answer's share of the context is predictable
+# and the two surfaces do not end up sharing one number.
+KAFELOT_CHAT_CONTEXT_TOKENS = 32_768
+
+# Characters per token, used to estimate how large a prompt is.
+#
+# Deliberately pessimistic: over-estimating a prompt truncates it early, which
+# is the safe direction, while under-estimating would let a request past the
+# cap it is supposed to be under.
+_CHARS_PER_TOKEN = 3
+
+
+def _estimate_tokens(text: str) -> int:
+    """Roughly how many tokens ``text`` is worth."""
+    return max(0, len(text or "") // _CHARS_PER_TOKEN)
+
 # A warmup request only has to be big enough for the vision preprocessor to
 # accept it. A 1x1 PNG reliably aborts the mmproj graph inside llama.cpp, so
 # the smallest safe side is used instead.
@@ -433,23 +453,37 @@ class TankaModel:
             self._qwen_tokenizer = None
 
     async def _llama_generate_text(
-        self,
-        model_name: str,
-        system_prompt: str,
-        user_prompt: str,
-        max_new_tokens: int,
-        thinking_enabled: bool,
-    ) -> str:
+         self,
+         model_name: str,
+         system_prompt: str,
+         user_prompt: str,
+         max_new_tokens: int,
+         thinking_enabled: bool,
+       ) -> str:
         # Cleared before the call, so a failure leaves zeroes rather than the previous
         # request's numbers -- which would bill the wrong exchange.
         self._last_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+        # The Kafelot chat runs with 32K of context.
+        #
+        # The models themselves are served with 128K, and the Playground uses all
+        # of it. This surface is a coffee helper: a question, five retrieved facts
+        # and an answer. Capping it at 32K keeps the answer's share of the context
+        # predictable, and stops the two surfaces from sharing one number.
+        prompt_tokens = _estimate_tokens(system_prompt) + _estimate_tokens(user_prompt)
+        if prompt_tokens >= KAFELOT_CHAT_CONTEXT_TOKENS:
+            # The prompt alone is over the cap. The question is at the end of it, so
+            # the end is what is kept.
+            keep = KAFELOT_CHAT_CONTEXT_TOKENS * _CHARS_PER_TOKEN
+            user_prompt = user_prompt[-keep:]
+            prompt_tokens = _estimate_tokens(system_prompt) + _estimate_tokens(user_prompt)
+        reply_budget = max(64, KAFELOT_CHAT_CONTEXT_TOKENS - prompt_tokens)
         payload = {
             "model": router_model_id(model_name),
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": max(64, min(max_new_tokens, 8192)),
+            "max_tokens": max(64, min(max_new_tokens, reply_budget, 8192)),
             "temperature": 0.45 if thinking_enabled else 0.65,
             "top_p": 0.9,
             "stream": False,
@@ -609,7 +643,11 @@ class TankaModel:
         payload = {
             "model": router_model_id(selected_model),
             "messages": messages,
-            "max_tokens": max(1, min(int(max_new_tokens), 8192)),
+            # The Playground's reply-length steps are the context levels, and the
+            # models are served with a 128K window, so a reply may be as long as
+            # the top of the ladder. This used to stop at 8192, which silently
+            # truncated a customer who asked for 16K.
+            "max_tokens": max(1, min(int(max_new_tokens), 131_072)),
             "temperature": max(0.0, min(float(temperature), 2.0)),
             "top_p": max(0.0, min(float(top_p), 1.0)),
             "stream": True,

@@ -39,14 +39,13 @@ const DEFAULT_MAX_TOKENS = 512;
 /**
  * The largest reply this route will pass on.
  *
- * It used to be 2048, which was also the Playground's own slider ceiling -- so the
- * two quietly agreed to a number that had nothing to do with the models. The
- * models are served with context windows of 8k to 32k tokens (models/router-presets.ini),
- * and the Playground now offers a reply of up to half the selected model's window.
- * This is the outer bound for the largest of them; the *model's* own window is
- * what actually bounds the reply, and llama.cpp truncates past it.
+ * The reply-length steps are the context levels -- 16K, 32K, 64K, 128K -- and
+ * the models are served with a 128K window, so the largest reply is the top of
+ * the ladder. A reply that long uses the whole context and the prompt is
+ * evicted as it grows, which is llama.cpp's own behaviour and the customer's
+ * call to make.
  */
-const MAX_MAX_TOKENS = 32_768;
+const MAX_MAX_TOKENS = 131_072;
 const DEFAULT_TEMPERATURE = 0.7;
 const MAX_TEMPERATURE = 2;
 
