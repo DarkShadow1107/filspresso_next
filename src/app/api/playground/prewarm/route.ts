@@ -1,150 +1,27 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { resolveAiHost } from "@/lib/server/aiHost";
+import { aiServiceHeaders } from "@/lib/server/aiHeaders";
+import { proxyBackendRequest } from "@/lib/server/backend";
 import { readCallerTier } from "@/lib/server/promptLimits";
 import { resolveSpectreAccess } from "@/lib/server/spectreAccess";
-import {
-	MODEL_FILE_BY_KEY,
-	isVisionModelKey,
-	type ModelKey,
-} from "@/lib/modelAccess";
-import { PLAYGROUND_MINIMUM_TIER } from "@/lib/entitlements";
+import { MODEL_FILE_BY_KEY, isPlaygroundModelKey, isVisionModelKey } from "@/lib/modelAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-/**
- * Pre-loads a model into its llama.cpp slot so the first real prompt does not
- * pay the cold-load cost. Two entry points:
- *
- *   POST { model }  -> schedule the load (idempotent while one is in flight)
- *   GET  ?model=    -> poll current state
- *
- * Warming never consumes a Kafelot prompt because it does not go through the
- * limiter.
- *
- * This route is gated on BOTH the Playground tier and the model's own tier, and
- * both checks are load-bearing:
- *
- * - The Playground tier check was missing here even though it is enforced in
- *   `playground/chat`. Without it any signed-in `free` account could schedule
- *   loads, and because only one model is resident at a time that is a way to
- *   evict the model a paying user is using. It also made the Playground gate
- *   trivially bypassable.
- * - The model tier check alone is not enough for the same reason: it does not
- *   imply Playground access.
- *
- * Both now read the same `PLAYGROUND_MINIMUM_TIER` constant the UI and the chat
- * route use, so the three cannot drift apart again.
- */
-
-const PLAYGROUND_LOCKED = {
-	status: "forbidden",
-	error: "Spectre Playground requires the Spectre subscription (99.99 RON/month) or a MAX/ULTIMATE plan. Model usage is billed separately at API prices.",
-} as const;
-
-/** Returns an error payload when the caller may not use the Playground. */
-
-type WarmupPayload = { status?: string; duration_ms?: number | null };
-
-function json(body: unknown, status = 200) {
-	return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
-}
-
-async function callPython(path: string, init: RequestInit = {}, timeoutMs = 5000) {
-	const host = await resolveAiHost();
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		const response = await fetch(`${host}${path}`, { ...init, cache: "no-store", signal: controller.signal });
-		const text = await response.text();
-		let payload: WarmupPayload | null = null;
-		try {
-			payload = text ? (JSON.parse(text) as WarmupPayload) : null;
-		} catch {
-			payload = { status: "error" };
-		}
-		return { ok: response.ok, status: response.status, payload };
-	} catch {
-		return { ok: false, status: 503, payload: { status: "unavailable" } as WarmupPayload };
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
-function resolveWarmedPayload(payload: WarmupPayload | null, modelKey: ModelKey, tier: string) {
-	return {
-		...(payload ?? {}),
-		model_key: modelKey,
-		tier,
-	};
+export function POST(request: NextRequest) {
+	return proxyBackendRequest(request, "/api/playground/models/load", { timeoutMs: 15_000 });
 }
 
 export async function GET(request: NextRequest) {
-	const tier = await readCallerTier(request);
-	if (!tier) {
-		return json({ status: "unauthorized", error: "Sign in to check model readiness" }, 401);
-	}
-	// Same answer the chat route and the funding endpoint use. Prewarming a model an
-	// account may not send to would load it into memory for nothing, so this gate has to be
-	// the same gate.
-	const access = await resolveSpectreAccess(request);
-	if (!access.hasAccess) return json(PLAYGROUND_LOCKED, 403);
-
-	const requested = (request.nextUrl.searchParams.get("model") || "").trim();
-	if (!requested) {
-		const result = await callPython("/api/warmup");
-		return json(result.payload, result.ok ? 200 : 503);
-	}
-
-	if (!Object.prototype.hasOwnProperty.call(MODEL_FILE_BY_KEY, requested)) {
-		return json({ status: "rejected", error: `unknown model ${requested}` }, 400);
-	}
-	const modelKey = requested as ModelKey;
-
-	const search = new URLSearchParams({
-		model: MODEL_FILE_BY_KEY[modelKey],
-		vision: String(isVisionModelKey(modelKey)),
-	});
-	const result = await callPython(`/api/warmup?${search.toString()}`, {}, 4000);
-
-	return json(resolveWarmedPayload(result.payload, modelKey, tier), result.ok ? 200 : 503);
-}
-
-export async function POST(request: NextRequest) {
-	const tier = await readCallerTier(request);
-	if (!tier) {
-		return json({ status: "unauthorized", error: "Sign in to pre-load models" }, 401);
-	}
-	// Same answer the chat route and the funding endpoint use. Prewarming a model an
-	// account may not send to would load it into memory for nothing, so this gate has to be
-	// the same gate.
-	const access = await resolveSpectreAccess(request);
-	if (!access.hasAccess) return json(PLAYGROUND_LOCKED, 403);
-
-	let body: { model?: unknown } = {};
+	if (!await readCallerTier(request)) return Response.json({ status: "unauthorized" }, { status: 401 });
+	if (!(await resolveSpectreAccess(request)).hasAccess) return Response.json({ status: "forbidden" }, { status: 403 });
+	const model = request.nextUrl.searchParams.get("model") || "";
+	if (!isPlaygroundModelKey(model)) return Response.json({ status: "rejected", error: "UNKNOWN_MODEL" }, { status: 400 });
 	try {
-		body = (await request.json()) as { model?: unknown };
-	} catch {
-		return json({ status: "rejected", error: "Expected a JSON body" }, 400);
-	}
-
-	const requested = typeof body.model === "string" ? body.model.trim() : "";
-	if (!requested || !Object.prototype.hasOwnProperty.call(MODEL_FILE_BY_KEY, requested)) {
-		return json({ status: "rejected", error: `unknown model ${requested}` }, 400);
-	}
-	const modelKey = requested as ModelKey;
-
-	const vision = isVisionModelKey(modelKey);
-	const result = await callPython(
-		"/api/warmup",
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ model: MODEL_FILE_BY_KEY[modelKey], vision }),
-		},
-		4000,
-	);
-
-	return json(resolveWarmedPayload(result.payload, modelKey, tier), result.ok ? 200 : 503);
+		const host = await resolveAiHost();
+		const query = new URLSearchParams({ model: MODEL_FILE_BY_KEY[model], vision: String(isVisionModelKey(model)) });
+		const response = await fetch(`${host}/api/warmup?${query}`, { headers: aiServiceHeaders(), cache: "no-store", signal: AbortSignal.timeout(5000) });
+		return Response.json(await response.json(), { status: response.ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
+	} catch { return Response.json({ status: "unavailable" }, { status: 503 }); }
 }

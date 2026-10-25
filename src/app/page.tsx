@@ -6,12 +6,8 @@ import type { Metadata } from "next";
 type SearchParamsRecord = Record<string, string | string[] | undefined>;
 
 type PageProps = {
-	searchParams?: SearchParamsRecord | Promise<SearchParamsRecord>;
+	searchParams?: Promise<SearchParamsRecord>;
 };
-
-function isPromise<T>(value: unknown): value is Promise<T> {
-	return typeof value === "object" && value !== null && typeof (value as Promise<T>).then === "function";
-}
 
 const pageTitles: Record<PageSlug, string> = {
 	home: "Filspresso",
@@ -28,11 +24,7 @@ const pageTitles: Record<PageSlug, string> = {
 };
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
-	const resolvedSearchParams = searchParams
-		? isPromise<SearchParamsRecord>(searchParams)
-			? await searchParams
-			: searchParams
-		: {};
+	const resolvedSearchParams = (await searchParams) ?? {};
 
 	const rawSlug = resolvedSearchParams.page;
 	const slugValue = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
@@ -59,11 +51,7 @@ const pageLoaders: Record<PageSlug, () => Promise<{ default: ComponentType }>> =
 };
 
 export default async function Page({ searchParams }: PageProps) {
-	const resolvedSearchParams = searchParams
-		? isPromise<SearchParamsRecord>(searchParams)
-			? await searchParams
-			: searchParams
-		: {};
+	const resolvedSearchParams = (await searchParams) ?? {};
 
 	const rawSlug = resolvedSearchParams.page;
 	const slugValue = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;

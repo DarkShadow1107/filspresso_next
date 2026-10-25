@@ -1,0 +1,12 @@
+{
+  "history": [
+    {"text":"Read older file.","tool_calls":[{"id":"older_1","name":"read_file","arguments":"{\"path\":\"main.py\"}"}],"tool_results":[{"tool_call_id":"older_1","content":"untrusted older file source"}]},
+    {"text":"Read latest file.","tool_calls":[{"id":"older_2","name":"read_file","arguments":"{\"path\":\"main.py\"}"}],"tool_results":[{"tool_call_id":"older_2","content":"untrusted latest file source"}]}
+  ],
+  "compaction": {
+    "mode":"balanced","inputLimit":16384,"tokensBefore":12000,"tokensAfter":1000,
+    "compacted":true,"consumedGroups":1,"summary":"Older file read. No write or test was approved.",
+    "usage":{"prompt_tokens":500,"completion_tokens":20}
+  },
+  "usage":{"prompt_tokens":600,"completion_tokens":32}
+}

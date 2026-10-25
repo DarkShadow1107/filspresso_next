@@ -138,32 +138,9 @@ export function formatContextTokens(tokens: number): string {
 	return `${tokens}`;
 }
 
-/**
- * The reply-length steps: the context levels.
- *
- * A reply cannot be longer than the context it shares with the prompt, so the
- * cap on a reply is one of the levels. The steps are the levels rather than
- * arbitrary numbers because that is what the context is sold at, and a control
- * whose stops are the levels says what it is.
- */
-export const MAX_TOKENS_LEVELS: readonly number[] = CONTEXT_LEVELS;
-
-/** How much of the context a single reply may take. */
-export function maxTokensCeilingFor(modelKey: ModelKey): number {
-	const context = MODEL_CONTEXT_TOKENS[modelKey] ?? 131072;
-	// The top of the ladder is the whole window, which is what llama.cpp's own
-	// control offers: a reply that long uses the context, and the prompt is
-	// evicted as it grows. That is the customer's call to make, and the levels
-	// are what they are there to make it with.
-	const largest = MAX_TOKENS_LEVELS[MAX_TOKENS_LEVELS.length - 1];
-	return Math.min(context, largest);
-}
-
-/** The reply length a model starts at: the smallest level. */
-export function defaultMaxTokensFor(modelKey: ModelKey): number {
-	const context = MODEL_CONTEXT_TOKENS[modelKey] ?? 131072;
-	return Math.min(MAX_TOKENS_LEVELS[0], context);
-}
+/** Prompt/history/source budget, independent of the generated answer's length. */
+export const DEFAULT_INPUT_CONTEXT_TOKENS = CONTEXT_LEVELS[0];
+export const DEFAULT_OUTPUT_TOKENS = 2048;
 
 /** Exported so the Playground can offer every model; each is priced individually. */
 export const ALL_TEXT_MODEL_KEYS: TextModelKey[] = [
@@ -176,6 +153,10 @@ export const ALL_TEXT_MODEL_KEYS: TextModelKey[] = [
 ];
 const VISION_MODEL_KEYS: VisionModelKey[] = [VISION_MODEL_450M, VISION_MODEL_3B];
 const AUDIO_MODEL_KEYS: AudioModelKey[] = [AUDIO_MODEL_1_5B];
+export const PLAYGROUND_MODEL_KEYS: ModelKey[] = [...ALL_TEXT_MODEL_KEYS, ...VISION_MODEL_KEYS, ...AUDIO_MODEL_KEYS];
+export function isPlaygroundModelKey(value: string): value is ModelKey {
+	return PLAYGROUND_MODEL_KEYS.includes(value as ModelKey);
+}
 
 const TEXT_MODEL_KEY_SET = new Set<string>(ALL_TEXT_MODEL_KEYS);
 const VISION_MODEL_KEY_SET = new Set<string>(VISION_MODEL_KEYS);

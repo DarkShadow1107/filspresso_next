@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MODEL_FILE_BY_KEY, type ModelKey } from "@/lib/modelAccess";
+import { getOrCreateFingerprint } from "@/lib/fingerprint";
 
 export type ModelLoadStatus = "loaded" | "loading" | "not_loaded" | "unavailable";
 
@@ -55,7 +56,7 @@ export type ModelLoadOutcome =
  * self-referencing `setTimeout(() => poll())` inside a `useCallback` is a hooks
  * violation, and an interval also means exactly one timer per selected model.
  */
-export function useModelLoadStatus(modelKey: ModelKey | null | undefined) {
+export function useModelLoadStatus(modelKey: ModelKey | null | undefined, scope: "kafelot" | "playground" = "kafelot") {
 	const [state, setState] = useState<ModelLoadState>(IDLE);
 	const startedRef = useRef<number>(0);
 	const loadingRef = useRef(false);
@@ -108,17 +109,22 @@ export function useModelLoadStatus(modelKey: ModelKey | null | undefined) {
 
 	/** Ask for the model to be loaded. Resolves immediately; poll for progress. */
 	const ensureLoaded = useCallback(async () => {
-		if (!file) return;
+		if (!file) return { ok: true };
 		startedRef.current = Date.now();
 		loadingRef.current = true;
 		setState((prev) => (prev.status === "loading" ? prev : { status: "loading", progress: 0 }));
 		try {
-			await fetch(`/api/model-status?load=${encodeURIComponent(file)}`, { cache: "no-store" });
-		} catch {
-			// The poll below reports the failure; nothing to do here.
-		}
+			const response = await fetch(scope === "playground" ? "/api/playground/prewarm" : "/api/model-status", {
+				method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", "x-kafelot-fingerprint": getOrCreateFingerprint() }, body: JSON.stringify({ model: modelKey }),
+			});
+			if (!response.ok) {
+				const detail = await response.json().catch(() => ({})) as { message?: string; details?: { message?: string } };
+				return { ok: false, error: detail.details?.message || detail.message || `Model load refused (${response.status}).` };
+			}
+		} catch { return { ok: false, error: "Could not request model loading." }; }
 		void poll();
-	}, [file, poll]);
+		return { ok: true };
+	}, [file, modelKey, scope, poll]);
 
 	/**
 	 * Ensure the model is resident and wait for it.
@@ -140,7 +146,8 @@ export function useModelLoadStatus(modelKey: ModelKey | null | undefined) {
 		async (timeoutMs = LOAD_WAIT_MS, signal?: AbortSignal): Promise<ModelLoadOutcome> => {
 			signal?.throwIfAborted();
 			if (!file) return { ok: true };
-			await ensureLoaded();
+			const load = await ensureLoaded();
+			if (!load.ok) return { ok: false, reason: "unavailable", error: load.error };
 			const deadline = Date.now() + timeoutMs;
 			while (Date.now() < deadline) {
 				signal?.throwIfAborted();

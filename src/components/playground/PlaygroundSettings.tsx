@@ -1,12 +1,14 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ALL_TEXT_MODEL_KEYS, MAX_TOKENS_LEVELS, MODEL_LABEL_BY_KEY, TEXT_MODEL_230M, formatContextTokens, type TextModelKey } from "@/lib/modelAccess";
+import { PLAYGROUND_MODEL_KEYS, CONTEXT_LEVELS, MODEL_LABEL_BY_KEY, TEXT_MODEL_230M, formatContextTokens, type ModelKey } from "@/lib/modelAccess";
 import WorkspaceIcon from "./WorkspaceIcon";
+import { COMPACTION_OPTIONS, type CompactionMode } from "@/lib/playgroundContext";
 
 export type PlaygroundPreferences = {
-	model: TextModelKey;
-	maxTokens: number;
+	model: ModelKey;
+	inputContextTokens: number;
+	compactionMode: CompactionMode;
 	thinking: boolean;
 	textSize: "small" | "standard" | "large";
 	showStats: boolean;
@@ -15,7 +17,8 @@ export type PlaygroundPreferences = {
 
 export const DEFAULT_PREFERENCES: PlaygroundPreferences = {
 	model: TEXT_MODEL_230M,
-	maxTokens: MAX_TOKENS_LEVELS[0],
+	inputContextTokens: CONTEXT_LEVELS[0],
+	compactionMode: "balanced",
 	thinking: false,
 	textSize: "standard",
 	showStats: true,
@@ -53,16 +56,20 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 					{section === "general" && <>
 						<label className="pgw-setting">
 							<span>Default model</span>
-							<select value={draft.model} disabled={streaming} onChange={(event) => setDraft({ ...draft, model: event.target.value as TextModelKey })}>
-								{ALL_TEXT_MODEL_KEYS.map((key) => <option key={key} value={key}>{MODEL_LABEL_BY_KEY[key]}</option>)}
+							<select value={draft.model} disabled={streaming} onChange={(event) => setDraft({ ...draft, model: event.target.value as ModelKey })}>
+								{PLAYGROUND_MODEL_KEYS.map((key) => <option key={key} value={key}>{MODEL_LABEL_BY_KEY[key]}</option>)}
 							</select>
 							<small>All models have a 128K context window. You can also switch models in the composer.</small>
 						</label>
-						<fieldset className="pgw-setting">
-							<legend>Maximum output tokens</legend>
-							<div className="pgw-level-picker">{MAX_TOKENS_LEVELS.map((level) => <button type="button" key={level} aria-pressed={draft.maxTokens === level} disabled={streaming} onClick={() => setDraft({ ...draft, maxTokens: level })}>{formatContextTokens(level)}</button>)}</div>
-							<small>A limit, not a target. The model can finish its answer before reaching it.</small>
-						</fieldset>
+						<label className="pgw-setting">
+							<span>Maximum input tokens</span>
+							<select aria-label="Maximum input tokens" value={draft.inputContextTokens} disabled={streaming} onChange={(event) => setDraft({ ...draft, inputContextTokens: Number(event.target.value) })}>{CONTEXT_LEVELS.map((level) => <option key={level} value={level}>{formatContextTokens(level)}</option>)}</select>
+							<small>Limits the prompt, conversation history, files and project sources. Output length is managed separately.</small>
+						</label>
+						<label className="pgw-setting"><span>Automatic context compaction</span>
+							<select aria-label="Automatic context compaction" value={draft.compactionMode} disabled={streaming} onChange={event => setDraft({ ...draft, compactionMode: event.target.value as CompactionMode })}>{COMPACTION_OPTIONS.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}</select>
+							<small>Summarizes older conversation at the selected threshold. Recent turns and your original transcript are kept. Summary model usage is metered.</small>
+						</label>
 						{thinkingAllowed && <label className="pgw-switch-row"><span><b>Thinking mode</b><small>Show the model’s reasoning alongside its answer.</small></span><input type="checkbox" role="switch" checked={draft.thinking} disabled={streaming} onChange={(event) => setDraft({ ...draft, thinking: event.target.checked })} /></label>}
 						<label className="pgw-switch-row"><span><b>Enter to send</b><small>Use Shift + Enter for a new line.</small></span><input type="checkbox" role="switch" checked={draft.enterToSend} onChange={(event) => setDraft({ ...draft, enterToSend: event.target.checked })} /></label>
 					</>}

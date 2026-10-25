@@ -61,6 +61,7 @@ const eslintConfig = [
 			"src/components/account/sections/ProfileSection.tsx",
 			"src/components/admin/AdminLoginClient.tsx",
 			"src/components/CoffeeRecommender.tsx",
+			"src/components/playground/PlaygroundSources.tsx",
 		],
 		rules: {
 			"@next/next/no-img-element": "off",

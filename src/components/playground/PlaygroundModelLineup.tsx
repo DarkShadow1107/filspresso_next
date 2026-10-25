@@ -60,6 +60,9 @@ const LINEUP: ModelKey[] = [
 	"lfm2_5_1_2b_thinking_q4_k_m",
 	"lfm2_5_2_6b_q4_0",
 	"lfm2_5_8b_a1b_q4_k_m",
+	"lfm2_5_vl_450m_q4_k_m",
+	"lfm2_5_vl_3b_q4_k_m",
+	"lfm2_5_audio_1_5b_q4_0",
 ];
 
 /** Models a Max plan may run but not out of its allowance. See billing-context.ts. */

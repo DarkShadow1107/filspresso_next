@@ -157,7 +157,7 @@ export async function fetchBackendJsonWithTimeout<T>(pathname: string, search = 
 export async function proxyBackendRequest(
 	request: NextRequest,
 	backendPathname: string,
-	options: { timeoutMs?: number; fallback?: () => NextResponse; responseHeaders?: HeadersInit } = {},
+	options: { timeoutMs?: number; fallback?: () => NextResponse; responseHeaders?: HeadersInit; retry?: boolean } = {},
 ) {
 	const timeoutMs = options.timeoutMs ?? 5000;
 	const deadline = Date.now() + timeoutMs;
@@ -167,13 +167,16 @@ export async function proxyBackendRequest(
 		const headers = copyRequestHeaders(request);
 		const body = method !== "GET" && method !== "HEAD" ? await request.arrayBuffer() : null;
 		let response: Response | null = null;
-		const origins = getBackendOrigins();
+		const origins = options.retry === false ? getBackendOrigins().slice(0, 1) : getBackendOrigins();
 
 		for (const origin of origins) {
+			if (request.signal.aborted) break;
 			const remainingMs = deadline - Date.now();
 			if (remainingMs <= 250) break;
 
 			const controller = new AbortController();
+			const onAbort = () => controller.abort();
+			request.signal.addEventListener("abort", onAbort, { once: true });
 			const timeout = setTimeout(() => controller.abort(), Math.max(800, remainingMs));
 
 			try {
@@ -192,6 +195,7 @@ export async function proxyBackendRequest(
 				// Try next origin.
 			} finally {
 				clearTimeout(timeout);
+				request.signal.removeEventListener("abort", onAbort);
 			}
 		}
 
@@ -226,4 +230,44 @@ export async function proxyBackendRequest(
 			{ status: 503, headers: { "Cache-Control": "no-store" } },
 		);
 	}
+}
+
+/** No retry/failover after a mutation: replaying an inference or tool run could bill twice. */
+export async function proxyBackendStream(request: NextRequest, path: string) {
+	const controller = new AbortController();
+	const abort = () => controller.abort();
+	request.signal.addEventListener("abort", abort, { once: true });
+	const timeout = setTimeout(abort, 16 * 60_000);
+	const cleanup = () => { clearTimeout(timeout); request.signal.removeEventListener("abort", abort); };
+	try {
+		if (request.signal.aborted) controller.abort();
+		const chunks: Uint8Array[] = [];
+		let size = 0;
+		if (request.body) {
+			const input = request.body.getReader();
+			try {
+				for (;;) {
+					const { value, done } = await input.read();
+					if (done) break;
+					size += value.byteLength;
+					if (size > 1024 * 1024) { await input.cancel(); cleanup(); return Response.json({ message: "Request exceeds 1 MB." }, { status: 413 }); }
+					chunks.push(value);
+				}
+			} finally { input.releaseLock(); }
+		}
+		const body = Buffer.concat(chunks);
+		const upstream = await fetch(buildBackendUrl(path), { method: request.method, headers: copyRequestHeaders(request), body: body.length ? body : undefined, signal: controller.signal, cache: "no-store" });
+		const headers = new Headers({ "Cache-Control": "no-store", "Content-Type": upstream.headers.get("content-type") || "application/json", "X-Accel-Buffering": "no" });
+		for (const name of ["x-filspresso-request-id", "retry-after"]) { const value = upstream.headers.get(name); if (value) headers.set(name, value); }
+		if (!upstream.body) { cleanup(); return new Response(null, { status: upstream.status, headers }); }
+		const reader = upstream.body.getReader();
+		const stream = new ReadableStream<Uint8Array>({
+			async pull(output) {
+				try { const { value, done } = await reader.read(); if (done) { cleanup(); output.close(); } else output.enqueue(value); }
+				catch (error) { cleanup(); output.error(error); }
+			},
+			async cancel() { abort(); cleanup(); await reader.cancel().catch(() => undefined); },
+		});
+		return new Response(stream, { status: upstream.status, headers });
+	} catch { cleanup(); return Response.json({ error: "BACKEND_UNAVAILABLE", message: "The backend is unavailable or the request was cancelled." }, { status: 503 }); }
 }
