@@ -610,6 +610,66 @@ class TankaModel:
     # Streaming text generation (model playground)
     # ------------------------------------------------------------------
 
+    async def count_input_tokens(self, model_name: str, messages: list[dict], thinking_enabled: bool = False, tools: list[dict] | None = None) -> int:
+        """Measure the actual templated prompt, including history and attached sources."""
+        from models.residency import router_model_id
+        model = router_model_id(model_name)
+        base_url = self._resolve_model_base_url(model_name)
+        template_payload = {
+            "model": model, "messages": messages, "add_generation_prompt": True,
+            "reasoning": "on" if thinking_enabled else "off",
+            **({"tools": tools, "tool_choice": "auto" if tools else "none", "parallel_tool_calls": False} if tools is not None else {}),
+        }
+        if tools is None:
+            response = await self._client.post(base_url + "/apply-template", json=template_payload, headers=self._llama_headers(), timeout=30)
+            response.raise_for_status()
+            template = response.json()
+        else:
+            template = await self._agent_json_post(base_url + "/apply-template", template_payload, 30, 4 * 1_048_576)
+        prompt = template.get("prompt")
+        if not isinstance(prompt, str):
+            raise RuntimeError("The runtime did not return a chat template.")
+        tokenize_payload = {
+            "model": model, "content": prompt, "add_special": True,
+        }
+        if tools is None:
+            response = await self._client.post(base_url + "/tokenize", json=tokenize_payload, headers=self._llama_headers(), timeout=30)
+            response.raise_for_status()
+            tokenized = response.json()
+        else:
+            tokenized = await self._agent_json_post(base_url + "/tokenize", tokenize_payload, 30, 4 * 1_048_576)
+        tokens = tokenized.get("tokens")
+        if not isinstance(tokens, list):
+            raise RuntimeError("The runtime did not return token counts.")
+        return len(tokens)
+
+    async def native_agent_completion(self, model_name: str, messages: list[dict], tools: list[dict], max_tokens: int, temperature: float) -> dict:
+        """Native OpenAI-shaped tool calls only; no text/XML/code-block interpretation."""
+        from models.playground_agent import MAX_BYTES
+        payload = {"model": router_model_id(model_name), "messages": messages, "tools": tools,
+                   "tool_choice": "auto" if tools else "none", "parallel_tool_calls": False,
+                   "max_tokens": max_tokens, "temperature": temperature, "stream": False, "reasoning": "off"}
+        base_url = self._resolve_model_base_url(model_name, vision=False)
+        return await self._agent_json_post(self._llama_chat_url(base_url), payload, 110, MAX_BYTES)
+
+    async def _agent_json_post(self, url: str, payload: dict, read_timeout: float, max_bytes: int) -> dict:
+        from models.playground_agent import AgentError, strict_json
+        async with self._client.stream("POST", url, json=payload, follow_redirects=False,
+                                       headers=self._llama_headers(), timeout=httpx.Timeout(15, read=read_timeout)) as response:
+            response.raise_for_status()
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                if len(body) + len(chunk) > max_bytes:
+                    raise AgentError("Native response exceeded its byte limit.", 502, "INVALID_AGENT_RESPONSE")
+                body.extend(chunk)
+        try:
+            parsed = strict_json(bytes(body))
+            if not isinstance(parsed, dict):
+                raise AgentError()
+            return parsed
+        except AgentError as error:
+            raise AgentError("Native response was not a complete JSON document.", 502, "INVALID_AGENT_RESPONSE") from error
+
     async def stream_text(
         self,
         model_name: str,
@@ -619,6 +679,7 @@ class TankaModel:
         temperature: float = 0.7,
         top_p: float = 0.95,
         thinking_enabled: bool = False,
+        messages_override: list[dict] | None = None,
     ):
         """
         Yield ``(channel, text)`` pairs from llama.cpp's SSE endpoint.
@@ -639,14 +700,14 @@ class TankaModel:
         if system_prompt and system_prompt.strip():
             messages.append({"role": "system", "content": system_prompt.strip()})
         messages.append({"role": "user", "content": user_prompt})
+        if messages_override is not None:
+            messages = messages_override
 
         payload = {
             "model": router_model_id(selected_model),
             "messages": messages,
-            # The Playground's reply-length steps are the context levels, and the
-            # models are served with a 128K window, so a reply may be as long as
-            # the top of the ladder. This used to stop at 8192, which silently
-            # truncated a customer who asked for 16K.
+            # Output is an internal generation budget. The user's context dropdown
+            # limits the measured input separately, before this stream starts.
             "max_tokens": max(1, min(int(max_new_tokens), 131_072)),
             "temperature": max(0.0, min(float(temperature), 2.0)),
             "top_p": max(0.0, min(float(top_p), 1.0)),

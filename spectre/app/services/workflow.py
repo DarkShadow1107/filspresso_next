@@ -217,14 +217,8 @@ _COMPACTION_THRESHOLDS = {"proactive": 0.65, "balanced": 0.80, "aggressive": 0.5
 
 def _compaction_budget(settings: dict[str, Any]) -> tuple[int, int]:
     """Reserve output room while preserving a recent evidence tail on compaction."""
-    context_window = int(settings["context_window"])
-    threshold = _COMPACTION_THRESHOLDS[settings["compaction"]]
-    usable_tokens = max(
-        4_096,
-        int(context_window * threshold) - int(settings["synthesis_tokens"]) - 1_024,
-    )
-    recent_tail_tokens = min(15_000, max(2_000, usable_tokens // 4))
-    return usable_tokens, recent_tail_tokens
+    from app.services.compaction_core import compaction_budget
+    return compaction_budget(int(settings["context_window"]), _COMPACTION_THRESHOLDS[settings["compaction"]], int(settings["synthesis_tokens"]))
 
 
 async def _compact_digest(

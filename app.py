@@ -42,7 +42,7 @@ import psycopg2
 from models.tanka import TankaModel, MODE_DISPLAY_NAMES, VALID_MODES
 from models.gate import MOLECULE_GATE, QueueTimeoutError, budget_after_queue_wait
 from models.residency import ModelBusyError
-from models import websearch
+from models import websearch, playground_context, playground_compaction, playground_agent
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -148,7 +148,8 @@ AI_SERVICE_KEY_HEADER = "x-ai-service-key"
 # The routes that reach a model. Deliberately an allow-list of what needs the key rather than
 # a deny-list of what might: a new inference route added later must opt in by being listed,
 # not opt out by being forgotten.
-AI_PROTECTED_PATHS = frozenset({"/api/chat", "/api/chat/stream", "/api/warmup"})
+AI_PROTECTED_PATHS = frozenset({"/api/chat", "/api/chat/stream", "/api/warmup",
+                              "/api/playground/context/file", "/api/playground/context/github", "/api/playground/agent/turn"})
 
 if not AI_SERVICE_KEY:
     # Printed rather than logged through the logger, because this is read in container logs
@@ -1744,6 +1745,80 @@ async def sse_event_stream(chunks, enable_thinking: bool, model_name: str):
         yield f"data: {json.dumps({'error': str(exc)[:300] or type(exc).__name__})}\n\n"
 
 
+@app.post("/api/playground/context/file")
+async def playground_file_context(request: Request):
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > playground_context.MAX_FILE_BYTES:
+            return json_response({"message": "Choose a file no larger than 20 MB."}, 413)
+    try:
+        result = await playground_context.prepare_file(bytes(data), unquote(request.headers.get("x-file-name", "attachment")), playground_context.MediaReader(tanka))
+        return json_response(result)
+    except playground_context.ContextError as error:
+        return json_response({"message": str(error), "usage": error.usage}, error.status)
+    except Exception as error:
+        logger.warning("Attachment processing failed: %s", type(error).__name__)
+        return json_response({"message": "The file could not be processed. Please retry."}, 503)
+
+
+@app.post("/api/playground/context/github")
+async def playground_github_context(request: Request):
+    data = await read_json(request)
+    try:
+        return json_response(await playground_context.prepare_github(str(data.get("url") or "")))
+    except playground_context.ContextError as error:
+        return json_response({"message": str(error)}, error.status)
+    except Exception as error:
+        logger.warning("GitHub project processing failed: %s", type(error).__name__)
+        return json_response({"message": "The GitHub project could not be fetched right now."}, 503)
+
+
+@app.post("/api/playground/agent/turn")
+async def playground_agent_turn(request: Request):
+    # Unlike legacy development chat, this additive route is NEVER usable without a key.
+    if not AI_SERVICE_KEY:
+        return json_response({"error": "AGENT_DISABLED", "message": "Native agent transport requires a service key."}, 503)
+    try:
+        raw = bytearray()
+        async with asyncio.timeout(15):
+            async for chunk in request.stream():
+                if len(raw) + len(chunk) > playground_agent.MAX_BYTES:
+                    raise playground_agent.AgentError("Agent request exceeds 1 MiB.", 413)
+                raw.extend(chunk)
+        data = playground_agent.strict_json(bytes(raw))
+        playground_agent.require(isinstance(data, dict))
+        model = data.get("text_model")
+        playground_agent.require(isinstance(model, str))
+        if model not in playground_agent.enabled_model_files(TEXT_MODEL_TAGS):
+            return json_response({"error": "AGENT_DISABLED", "message": "This model has no operator-qualified native tool transport."}, 503)
+        playground_agent.validate_request(data)  # Cheap validation before residency/GPU work.
+
+        async def admitted():
+            acquired = False
+            gate = _model_gate_key(model, vision=False)
+            try:
+                async with asyncio.timeout(120):
+                    await tanka.residency.acquire(gate)
+                    acquired = True
+                    return await playground_agent.run_turn(tanka, model, data)
+            finally:
+                if acquired:
+                    await tanka.residency.release(gate)
+        result = await playground_agent.until_disconnect(request, admitted())
+        return json_response(result, headers={"Cache-Control": "no-store"})
+    except playground_agent.AgentError as error:
+        return json_response({"error": error.code, "message": str(error), "usage": error.usage,
+                              "compaction_usage": error.compaction_usage}, error.status)
+    except ModelBusyError:
+        return json_response({"error": "MODEL_BUSY", "message": "The model is busy. No automatic retry was attempted."}, 429)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        logger.warning("Native agent transport failed: %s", type(error).__name__)
+        return json_response({"error": "AGENT_UNAVAILABLE", "message": "Native agent transport is unavailable."}, 503)
+
+
 @app.post("/api/chat/stream")
 async def chat_stream(request: Request):
     """
@@ -1830,10 +1905,43 @@ async def chat_stream(request: Request):
             request_id,
         )
 
+    prepared_messages = None
+    context_event = None
+    if "input_context_tokens" in data:
+        try:
+            input_limit = int(data["input_context_tokens"])
+            if input_limit not in playground_context.INPUT_LEVELS:
+                raise playground_context.ContextError("Choose a 16K, 32K, 64K or 128K input context.")
+            prepared_messages = playground_context.build_messages(message, str(system_prompt), data.get("history", []), data.get("contexts", []))
+            if "compaction_mode" in data:
+                prepared_messages, context_event = await playground_compaction.prepare_context(
+                    tanka, text_model, prepared_messages, input_limit, max_tokens,
+                    str(data["compaction_mode"]), data.get("compact_now") is True, enable_thinking)
+                input_count = context_event["tokensAfter"]
+            else:
+                input_count = await tanka.count_input_tokens(text_model, prepared_messages, thinking_enabled=enable_thinking)
+            if input_count > input_limit:
+                raise playground_context.ContextError(f"This input uses {input_count:,} tokens, exceeding the selected {input_limit // 1024}K context. Remove sources, shorten the conversation or choose a larger context.", 413)
+            if input_count >= 131_072 - 256:
+                raise playground_context.ContextError("The model's 128K window is full. Remove some input so it has room to answer.", 413)
+            # Generation has its own budget. The context selector never sets output tokens.
+            max_tokens = min(max_tokens, max(1, 131_072 - 256 - input_count))
+        except playground_context.ContextError as error:
+            await tanka.residency.release(gate_key)
+            return json_response({"error": "INPUT_CONTEXT_EXCEEDED" if error.status == 413 else "COMPACTION_UNAVAILABLE", "message": str(error), "compaction_usage": getattr(error, "compaction_usage", None)}, error.status)
+        except asyncio.CancelledError:
+            await tanka.residency.release(gate_key)
+            raise
+        except Exception:
+            await tanka.residency.release(gate_key)
+            return json_response({"error": "CONTEXT_UNAVAILABLE", "message": "The input context could not be measured. Please retry."}, 503)
+
     async def _gated_stream():
         # Release the slot on normal completion *and* on client disconnect, which
         # arrives here as a cancellation and previously leaked generation slots.
         try:
+            if context_event is not None:
+                yield f"data: {json.dumps({'context': context_event})}\n\n"
             async for frame in sse_event_stream(
                 tanka.stream_text(
                     text_model,
@@ -1842,6 +1950,7 @@ async def chat_stream(request: Request):
                     max_new_tokens=max_tokens,
                     temperature=temperature,
                     thinking_enabled=enable_thinking,
+                    messages_override=prepared_messages,
                 ),
                 enable_thinking=enable_thinking,
                 model_name=text_model,
@@ -1875,7 +1984,7 @@ async def warmup(request: Request):
     requested_model = str((data or {}).get("model") or "").strip()
     vision = _parse_optional_bool((data or {}).get("vision")) or False
 
-    allowed = VISION_MODEL_TAGS if vision else TEXT_MODEL_TAGS
+    allowed = VISION_MODEL_TAGS if vision else {**TEXT_MODEL_TAGS, **AUDIO_MODEL_TAGS}
     selected = requested_model or (VISION_MODEL_450M if vision else TEXT_MODEL_230M)
 
     known = {name.lower() for name in allowed}
@@ -1956,12 +2065,11 @@ async def model_status(request: Request):
     last load of that model, capped at 95 so it never claims completion before the
     router agrees. The authoritative signal is the router's own /models status.
 
-    Accepts `?load=<model>` to request a load as a side effect, which is the
-    "option b" flow: kick the load off, return immediately, poll this endpoint.
+    Read-only. Loading belongs to the protected POST /api/warmup route.
     """
     requested = (request.query_params.get("load") or "").strip()
     if requested:
-        await tanka.residency.request_load(requested)
+        return json_response({"error": "READ_ONLY_STATUS", "message": "Use the authenticated model-load operation."}, 400)
 
     # Refresh from the router so a swap performed by another worker is reflected.
     await tanka.residency.refresh_residency()

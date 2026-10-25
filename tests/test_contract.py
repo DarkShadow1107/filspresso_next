@@ -403,6 +403,12 @@ def test_warmup_rejects_unknown_model_with_400(client, tanka_stub):
     assert "allowed" in body
 
 
+def test_warmup_accepts_the_selectable_audio_model(client, tanka_stub):
+    response = client.post("/api/warmup", json={"model": "LFM2.5-Audio-1.5B-Q4_0.gguf", "vision": False})
+    assert response.status_code == 200
+    assert _body(response)["status"] in {"warming", "ready", "unavailable"}
+
+
 def test_warmup_rejects_cross_kind_model(client, tanka_stub):
     """A vision GGUF sent as text must be rejected, not silently routed."""
     response = client.post("/api/warmup", json={"model": LFM_VISION_MODEL, "vision": False})

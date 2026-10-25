@@ -30,3 +30,8 @@ py3Dmol>=2.0.4
 # itself, in a slim image, for something that only ever needs to speak HTTP. The adaptive
 # element selection and the text extraction -- the parts worth having -- are in the base.
 scrapling==0.5
+
+# Playground documents and scanned PDFs. Files are read, never executed.
+pypdf>=6.0,<7
+pypdfium2>=4.30,<6
+Pillow>=11.1,<13
