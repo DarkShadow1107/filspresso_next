@@ -52,6 +52,9 @@ public sealed record Entitlement
     [JsonPropertyName("models")]
     public IReadOnlyList<ModelEntry> Models { get; init; } = Array.Empty<ModelEntry>();
 
+    [JsonPropertyName("attachmentModels")]
+    public IReadOnlyList<ModelEntry> AttachmentModels { get; init; } = Array.Empty<ModelEntry>();
+
     [JsonPropertyName("servedAt")]
     public DateTimeOffset ServedAt { get; init; }
 

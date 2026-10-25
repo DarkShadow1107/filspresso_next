@@ -11,7 +11,6 @@ namespace Filspresso.App;
 public sealed partial class SettingsPage : UserControl
 {
     private readonly AppServices _services;
-    private int _maxTokens;
     public event RoutedEventHandler? BackRequested;
     public event RoutedEventHandler? ExportRequested;
     public event RoutedEventHandler? ImportRequested;
@@ -36,13 +35,13 @@ public sealed partial class SettingsPage : UserControl
     {
         DefaultModelBox.SelectedItem = _services.Playground.Catalogue.Models.FirstOrDefault(model => model.ModelKey == preferences.ModelKey)
             ?? _services.Playground.Catalogue.DefaultModel;
-        _maxTokens = preferences.MaxTokens;
+        InputContextBox.SelectedIndex = Math.Max(0, Array.IndexOf(DesktopPreferences.InputLevels, preferences.InputContextTokens));
+        CompactionBox.SelectedIndex = preferences.CompactionMode switch { "permissive" => 0, "aggressive" => 2, _ => 1 };
         ThinkingSwitch.IsEnabled = _services.Entitlement?.Tier is "max" or "ultimate";
         ThinkingSwitch.IsOn = ThinkingSwitch.IsEnabled && preferences.Thinking;
         EnterSwitch.IsOn = preferences.EnterToSend;
         StatisticsSwitch.IsOn = preferences.ShowStatistics;
         TextSizeBox.SelectedIndex = preferences.TextSize switch { 13 => 0, 18 => 2, _ => 1 };
-        RenderLevels();
     }
 
     private void OnSection(object sender, RoutedEventArgs args)
@@ -60,22 +59,6 @@ public sealed partial class SettingsPage : UserControl
         NoticeBar.IsOpen = false;
     }
 
-    private void OnLevel(object sender, RoutedEventArgs args)
-    {
-        _maxTokens = int.Parse((string)((Button)sender).Tag, System.Globalization.CultureInfo.InvariantCulture);
-        RenderLevels();
-    }
-
-    private void RenderLevels()
-    {
-        foreach (var button in new[] { Level16, Level32, Level64, Level128 })
-        {
-            var active = (string)button.Tag == _maxTokens.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            button.Background = (Brush)Application.Current.Resources[active ? "FilspressoAccent" : "FilspressoSurface"];
-            button.Foreground = (Brush)Application.Current.Resources[active ? "FilspressoAccentText" : "FilspressoText"];
-        }
-    }
-
     private void OnSave(object sender, RoutedEventArgs args)
     {
         try
@@ -83,7 +66,8 @@ public sealed partial class SettingsPage : UserControl
             _services.SavePreferences(new DesktopPreferences
             {
                 ModelKey = (DefaultModelBox.SelectedItem as Filspresso.Core.Session.ModelView)?.ModelKey ?? DesktopPreferences.DefaultModel,
-                MaxTokens = _maxTokens,
+                InputContextTokens = DesktopPreferences.InputLevels[Math.Max(0, InputContextBox.SelectedIndex)],
+                CompactionMode = CompactionBox.SelectedIndex switch { 0 => "permissive", 2 => "aggressive", _ => "balanced" },
                 Thinking = ThinkingSwitch.IsEnabled && ThinkingSwitch.IsOn,
                 EnterToSend = EnterSwitch.IsOn,
                 ShowStatistics = StatisticsSwitch.IsOn,

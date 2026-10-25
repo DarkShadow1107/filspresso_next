@@ -38,6 +38,8 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Filspresso Playground is already installed. Remove it before installing this one." />
 
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="FilspressoIcon" SourceFile="$(var.BrandingDir)\Filspresso.ico" />
+    <Property Id="ARPPRODUCTICON" Value="FilspressoIcon" />
 
     <!--
       No separate version Launch here. There was one, checking VersionNT against 603, and it
@@ -165,7 +167,7 @@
     <ComponentGroup Id="Maintenance" Directory="INSTALLFOLDER">
       <Component Id="MaintenanceComponent" Guid="6F3029AD-9573-473D-9904-B20A80B2B119">
         <File Id="MaintenanceExe" Source="$(var.MaintenanceDir)\Uninstall.exe" KeyPath="yes" />
-        <Shortcut Id="UninstallShortcut" Directory="ShortcutsFolder" Name="Uninstall Filspresso Playground" Target="[#MaintenanceExe]" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="UninstallShortcut" Directory="ShortcutsFolder" Name="Uninstall Filspresso Playground" Target="[#MaintenanceExe]" WorkingDirectory="INSTALLFOLDER" Icon="FilspressoIcon" IconIndex="0" />
       </Component>
     </ComponentGroup>
 
@@ -175,6 +177,7 @@
                   Name="Filspresso Playground"
                   Description="A coding agent with every Filspresso model, sandboxed in a Hyper-V virtual machine."
                   Target="[INSTALLFOLDER]Filspresso.Playground.exe"
+                  Icon="FilspressoIcon" IconIndex="0"
                   WorkingDirectory="INSTALLFOLDER" />
         <RemoveFolder Id="RemoveShortcutsFolder" On="uninstall" />
         <RegistryValue Root="HKLM"

@@ -27,6 +27,13 @@ public class SandboxContractTests
     private sealed class RecordingRunner : IPowerShellRunner
     {
         public List<string> Scripts { get; } = new();
+        public bool SupportsStandardInput => true;
+
+        public Task<(int ExitCode, string Output, string Error)> RunWithInputAsync(string script, string standardInput, TimeSpan timeout, CancellationToken cancellationToken = default)
+        {
+            Scripts.Add(script);
+            return Task.FromResult((0, "{\"version\":1,\"ready\":true}", ""));
+        }
 
         public Task<(int ExitCode, string Output, string Error)> RunAsync(
             string script, TimeSpan timeout, CancellationToken cancellationToken = default)
@@ -37,17 +44,17 @@ public class SandboxContractTests
                 return Task.FromResult((0, "CREATED", ""));
             }
 
-            if (script.Contains("'OK'"))
+            if (script.Contains("'PROBE_OK'"))
             {
-                return Task.FromResult((0, "OK", ""));
+                return Task.FromResult((0, "PROBE_OK", ""));
             }
 
-            return Task.FromResult((0, "", ""));
+            return Task.FromResult((0, "DONE", ""));
         }
     }
 
     private static HyperVSandbox NewSandbox(RecordingRunner runner) =>
-        new(runner, @"C:\base\windows.vhdx", @"C:\workspace");
+        new(runner, @"C:\base\windows.vhdx", @"C:\workspace", credentials: new FixtureGuestCredentials());
 
     [Fact]
     public async Task TheVirtualMachineIsCreatedWithNoNetworkAdapter()
@@ -89,6 +96,25 @@ public class SandboxContractTests
         // A path inside is fine.
         Assert.Contains("filspresso-workspace", HyperVSandbox.CombineInsideGuest("project\\main.cs"), StringComparison.OrdinalIgnoreCase);
     }
+
+    [Theory]
+    [InlineData(@"..\filspresso-workspace-escape\secret.txt")]
+    [InlineData(@"C:\filspresso-workspace\file.txt")]
+    [InlineData(@"\\server\share\file.txt")]
+    [InlineData(@"file.txt:stream")]
+    [InlineData(@"C:file.txt")]
+    [InlineData(@"NUL.txt")]
+    [InlineData(@"CONIN$")]
+    [InlineData(@"src\file.")]
+    [InlineData(@"src\file ")]
+    [InlineData(@"src\..\file.txt")]
+    [InlineData("")]
+    public void SiblingsRootedPathsAndWindowsAliasesAreNotGuestWorkspaceFiles(string path) =>
+        Assert.Throws<ArgumentException>(() => HyperVSandbox.CombineInsideGuest(path));
+
+    [Fact]
+    public void GuestFilePathsAreCanonicalRegardlessOfAcceptedRelativeSeparator() =>
+        Assert.Equal(@"C:\filspresso-workspace\src\main.cs", HyperVSandbox.CombineInsideGuest("src/main.cs"));
 
     [Fact]
     public void QuotesInValuesCannotBreakOutOfAString()

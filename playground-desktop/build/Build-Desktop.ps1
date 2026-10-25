@@ -1,5 +1,5 @@
 param(
-    [string]$ProductVersion = '0.2.0',
+    [string]$ProductVersion = '0.3.0',
     [switch]$SkipTests
 )
 $ErrorActionPreference = 'Stop'
@@ -17,6 +17,8 @@ function Invoke-Checked([scriptblock]$Command) {
     if ($LASTEXITCODE -ne 0) { throw "Build command failed with exit code $LASTEXITCODE." }
 }
 
+Invoke-Checked { node "$PSScriptRoot\Generate-Icons.cjs" }
+
 if (-not $SkipTests) {
     Invoke-Checked { dotnet test "$root\Filspresso.Desktop.sln" -c Release -p:PlatformTarget=x64 --nologo }
     Invoke-Checked { & $msbuild "$root\installer\native\Filspresso.Maintenance.Tests.vcxproj" -p:Configuration=Release -p:Platform=x64 -nologo -v:minimal }
@@ -26,7 +28,7 @@ Invoke-Checked { & $msbuild "$root\installer\native\Filspresso.Maintenance.vcxpr
 
 $publish = Join-Path $artifacts 'publish-next'
 Invoke-Checked { & $msbuild "$root\src\Filspresso.App\Filspresso.App.csproj" -restore -t:Publish -p:Configuration=Release -p:Platform=x64 "-p:PublishDir=$publish\" -nologo -v:minimal }
-foreach ($file in @('Filspresso.Playground.pri', 'App.xbf', 'MainWindow.xbf', 'PlaygroundPage.xbf', 'SettingsPage.xbf')) {
+foreach ($file in @('Filspresso.Playground.pri', 'App.xbf', 'MainWindow.xbf', 'PlaygroundPage.xbf', 'RunHistoryPage.xbf', 'AgentReviewPage.xbf', 'AgentWorkspacePage.xbf', 'SettingsPage.xbf', 'Assets\Filspresso.ico', 'Assets\Icons\settings.svg', 'Assets\Icons\github.svg')) {
     if (-not (Test-Path -LiteralPath (Join-Path $publish $file))) { throw "Missing WinUI runtime resource: $file" }
 }
 

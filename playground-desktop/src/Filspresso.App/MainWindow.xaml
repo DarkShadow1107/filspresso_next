@@ -1,20 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Window x:Class="Filspresso.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Filspresso.App">
     <Grid x:Name="Root" Loaded="OnLoaded" RequestedTheme="Dark" Background="{StaticResource FilspressoBackground}" ColumnDefinitions="Auto,*">
         <Border x:Name="Rail" Width="66" Grid.Column="0" Background="{StaticResource FilspressoRail}" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="0,0,1,0" Visibility="Collapsed">
             <Grid RowDefinitions="Auto,*,Auto" Padding="11,18">
                 <StackPanel Spacing="10">
-                    <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Conversations" AutomationProperties.Name="Conversations" Click="OnConversations"><FontIcon Glyph="&#xE8A0;" FontSize="19" /></Button>
-                    <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="New conversation" AutomationProperties.Name="New conversation" Click="OnNewConversation"><FontIcon Glyph="&#xE70F;" FontSize="19" /></Button>
-                    <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Search conversations" AutomationProperties.Name="Search conversations" Click="OnSearch"><SymbolIcon Symbol="Find" /></Button>
-                    <Button x:Name="PricesNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="API Prices" AutomationProperties.Name="API Prices" Click="OnPrices"><FontIcon Glyph="&#xE8D4;" FontSize="19" /></Button>
-                    <Button x:Name="SettingsNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Settings" AutomationProperties.Name="Settings" Click="OnSettings"><SymbolIcon Symbol="Setting" /></Button>
+                    <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Conversations" AutomationProperties.Name="Conversations" Click="OnConversations"><local:SharedIcon IconName="sidebar" /></Button>
+                    <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="New conversation" AutomationProperties.Name="New conversation" Click="OnNewConversation"><local:SharedIcon IconName="new" /></Button>
+                    <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Search conversations" AutomationProperties.Name="Search conversations" Click="OnSearch"><local:SharedIcon IconName="search" /></Button>
+                    <Button x:Name="PricesNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="API Prices" AutomationProperties.Name="API Prices" Click="OnPrices"><local:SharedIcon IconName="prices" /></Button>
+                    <Button x:Name="ActivityNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Recorded activity" AutomationProperties.Name="Recorded activity" Click="OnActivity"><local:SharedIcon IconName="file" /></Button>
+                    <Button x:Name="ReviewNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Agent proposal review" AutomationProperties.Name="Agent proposal review" Click="OnReview"><local:SharedIcon IconName="brain" /></Button>
+                    <Button x:Name="AgentNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Agent conversation" AutomationProperties.Name="Agent conversation" Click="OnAgent"><local:SharedIcon IconName="edit" /></Button>
+                    <Button x:Name="SettingsNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Settings" AutomationProperties.Name="Settings" Click="OnSettings"><local:SharedIcon IconName="settings" /></Button>
                 </StackPanel>
                 <StackPanel Grid.Row="2" Spacing="12">
-                    <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Filspresso on GitHub" AutomationProperties.Name="Filspresso on GitHub" Click="OnGitHub"><FontIcon Glyph="&#xE943;" FontSize="19" /></Button>
-                    <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Your account" AutomationProperties.Name="Your account" Click="OnAccountClick"><SymbolIcon Symbol="Contact" /></Button>
+                    <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Your account" AutomationProperties.Name="Your account" Click="OnAccountClick"><local:SharedIcon IconName="account" /></Button>
                 </StackPanel>
             </Grid>
         </Border>
@@ -25,7 +27,7 @@
                     <TextBlock Text="Spectre Playground" FontSize="13" Foreground="{StaticResource FilspressoMuted}" VerticalAlignment="Center" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="18" VerticalAlignment="Center">
-                    <TextBlock x:Name="Subtitle" Text="Not signed in" FontSize="11" Foreground="{StaticResource FilspressoMuted}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="Subtitle" Text="Not signed in" FontSize="11" MaxWidth="180" TextTrimming="CharacterEllipsis" Foreground="{StaticResource FilspressoMuted}" VerticalAlignment="Center" />
                     <Button x:Name="AccountButton" Content="Sign in" Style="{StaticResource QuietButtonStyle}" Click="OnAccountClick" />
                 </StackPanel>
             </Grid>

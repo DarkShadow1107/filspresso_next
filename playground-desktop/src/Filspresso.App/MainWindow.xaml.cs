@@ -20,6 +20,9 @@ public sealed partial class MainWindow : Window
     private ScrollViewer? _accountHost;
     private PlaygroundPage? _playgroundPage;
     private SettingsPage? _settingsPage;
+    private RunHistoryPage? _runHistoryPage;
+    private AgentReviewPage? _agentReviewPage;
+    private AgentWorkspacePage? _agentWorkspacePage;
     private bool _loaded;
     private bool _refreshing;
 
@@ -39,6 +42,9 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _playgroundPage?.Dispose();
+            _runHistoryPage?.Dispose();
+            _agentReviewPage?.Dispose();
+            _agentWorkspacePage?.Dispose();
             _services.Dispose();
         };
         ShowSignedOut();
@@ -84,6 +90,12 @@ public sealed partial class MainWindow : Window
             _accountPanel.SignOutRequested += async (_, _) =>
             {
                 _playgroundPage?.Dispose();
+                _runHistoryPage?.Dispose();
+                _runHistoryPage = null;
+                _agentReviewPage?.Dispose();
+                _agentReviewPage = null;
+                _agentWorkspacePage?.Dispose();
+                _agentWorkspacePage = null;
                 await _services.Auth.SignOutAsync();
                 _playgroundPage = null;
                 _accountPanel = null;
@@ -136,6 +148,9 @@ public sealed partial class MainWindow : Window
         }
         try
         {
+            _runHistoryPage?.CancelPendingRequests();
+            _agentReviewPage?.CancelPendingRequests();
+            _agentWorkspacePage?.CancelPendingRequests();
             _accountHost ??= new ScrollViewer
             {
                 Content = _accountPanel,
@@ -194,7 +209,36 @@ public sealed partial class MainWindow : Window
     private void SetSection(string section)
     {
         if (_playgroundPage is null) return;
-        PricesNav.Background = SettingsNav.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        if ((section == "review" || section == "agent") && _services.Playground.IsSending)
+        { EntitlementBar.Message = "Finish or stop Chat generation before opening proposal review."; EntitlementBar.IsOpen = true; return; }
+        _runHistoryPage?.CancelPendingRequests();
+        _agentReviewPage?.CancelPendingRequests();
+        _agentWorkspacePage?.CancelPendingRequests();
+        PricesNav.Background = SettingsNav.Background = ActivityNav.Background = ReviewNav.Background = AgentNav.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        if (section == "agent")
+        {
+            _agentWorkspacePage ??= new AgentWorkspacePage(_services);
+            ContentFrame.Content = _agentWorkspacePage;
+            AgentNav.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoSurface"];
+            _agentWorkspacePage.Reload(_playgroundPage.SavedSessionUuid);
+            return;
+        }
+        if (section == "review")
+        {
+            _agentReviewPage ??= new AgentReviewPage(_services);
+            ContentFrame.Content = _agentReviewPage;
+            ReviewNav.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoSurface"];
+            _agentReviewPage.Reload(_playgroundPage.SavedSessionUuid);
+            return;
+        }
+        if (section == "activity")
+        {
+            _runHistoryPage ??= new RunHistoryPage(_services);
+            ContentFrame.Content = _runHistoryPage;
+            ActivityNav.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoSurface"];
+            _ = _runHistoryPage.RefreshAsync(_playgroundPage.SavedSessionUuid);
+            return;
+        }
         if (section == "settings")
         {
             _settingsPage?.Reload();
@@ -209,11 +253,12 @@ public sealed partial class MainWindow : Window
 
     private void OnSettings(object? sender, RoutedEventArgs args) => SetSection("settings");
     private void OnPrices(object sender, RoutedEventArgs args) => SetSection("prices");
+    private void OnActivity(object sender, RoutedEventArgs args) => SetSection("activity");
+    private void OnReview(object sender, RoutedEventArgs args) => SetSection("review");
+    private void OnAgent(object sender, RoutedEventArgs args) => SetSection("agent");
     private void OnNewConversation(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.NewConversation(); }
     private void OnConversations(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(false); }
     private void OnSearch(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(true); }
-    private async void OnGitHub(object sender, RoutedEventArgs args) =>
-        await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/DarkShadow1107/filspresso_next"));
 
     private void ShowError(Exception error)
     {

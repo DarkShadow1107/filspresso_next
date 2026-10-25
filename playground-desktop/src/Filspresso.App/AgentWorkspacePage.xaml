@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="Filspresso.App.AgentWorkspacePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer>
+        <StackPanel Padding="28,16,28,32" Spacing="14" MaxWidth="1100" HorizontalAlignment="Stretch">
+            <TextBlock Text="Agent conversation" FontSize="28" />
+            <TextBlock x:Name="ModelInfo" TextWrapping="Wrap" FontSize="12" />
+            <TextBlock Text="Ask questions and discuss the project in one conversation. The agent can ask interactive questions with choices or your own answer. Clarification is separate from execution consent." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
+            <TextBlock Text="Execution runs only inside an operator-qualified, disposable local Hyper-V guest with no network adapter, never the host shell and never hosted Docker. Inference is hosted. Every write/command needs its own fresh approval; clarification answers never approve anything." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="CheckButton" Content="Check native availability" Click="OnCheck" Style="{StaticResource QuietButtonStyle}" />
+                <Button x:Name="StopButton" Content="Stop / interrupt" Click="OnStop" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+                <Button x:Name="NewButton" Content="New agent conversation" Click="OnNew" Style="{StaticResource QuietButtonStyle}" />
+            </StackPanel>
+            <Border BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="10" Padding="14">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="Local Hyper-V sandbox" FontSize="18" />
+                    <TextBlock x:Name="ExecutionStatus" TextWrapping="Wrap" FontSize="12" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="EnableExecutionButton" Content="Start sandbox" Click="OnEnableExecution" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+                        <Button x:Name="DiscardSandboxButton" Content="Discard sandbox" Click="OnDiscardSandbox" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <TextBlock x:Name="Status" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" FontSize="12" />
+            <TextBlock x:Name="Error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" Foreground="{StaticResource FilspressoAccent}" FontSize="12" />
+            <ComboBox x:Name="ModeBox" Header="Conversation mode" SelectedIndex="0" HorizontalAlignment="Stretch">
+                <ComboBoxItem Content="Plan · clarification, questions and read-only sandbox tools" />
+                <ComboBoxItem Content="Build · writes and commands, each with its own approval" />
+            </ComboBox>
+            <Border BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="10" Padding="14">
+                <StackPanel x:Name="CheckpointPanel" Spacing="10">
+                    <TextBlock Text="Project baseline, writes and reviewed checkpoints" FontSize="18" />
+                    <TextBlock Text="Import a local project as the baseline. Agent writes inside the sandbox are journaled against it and exported only after you review them. Commands can still alter guest files; only journaled writes are exported. Nothing is applied to this project folder except through an explicit export you review first." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="ImportButton" Content="Import project baseline…" Click="OnImportProject" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+                        <Button x:Name="ExportButton" Content="Export reviewed changes…" Click="OnExportCheckpoints" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+                    </StackPanel>
+                    <StackPanel x:Name="CheckpointList" Spacing="6" />
+                    <TextBlock x:Name="CheckpointSummary" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
+                    <Expander x:Name="DiffExpander" Visibility="Collapsed" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <TextBox x:Name="DiffBox" IsReadOnly="True" TextWrapping="NoWrap" AcceptsReturn="True" MaxHeight="400" FontSize="12" FontFamily="Consolas" />
+                    </Expander>
+                </StackPanel>
+            </Border>
+            <StackPanel x:Name="Activity" Spacing="12" />
+            <Border x:Name="QuestionBorder" Visibility="Collapsed" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="10" Padding="16">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="The agent has questions" FontSize="20" />
+                    <TextBlock Text="Your answers clarify the request. They never approve file changes or commands." TextWrapping="Wrap" FontSize="12" />
+                    <StackPanel x:Name="QuestionFields" Spacing="14" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="Submit answers" Click="OnAnswer" Style="{StaticResource QuietButtonStyle}" />
+                        <Button Content="Dismiss and stop" Click="OnDismiss" Style="{StaticResource QuietButtonStyle}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border x:Name="ApprovalBorder" Visibility="Collapsed" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="10" Padding="16">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Separate execution approval" FontSize="20" />
+                    <TextBlock x:Name="ApprovalText" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Consolas" FontSize="12" />
+                    <CheckBox x:Name="ReviewedAction" Content="I reviewed this exact action and workspace." />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="Approve once" Click="OnApprove" Style="{StaticResource QuietButtonStyle}" />
+                        <Button Content="Deny this action" Click="OnDeny" Style="{StaticResource QuietButtonStyle}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <TextBox x:Name="PromptBox" Header="Message or follow-up" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100" MaxLength="8000" TextChanged="OnPromptChanged" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="SendButton" Content="Send · metered agent turns" Click="OnSend" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+                <Button x:Name="QueueButton" Content="Queue one follow-up · metered" Click="OnQueue" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+                <Button x:Name="CancelQueueButton" Content="Cancel queued follow-up" Click="OnCancelQueue" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+            </StackPanel>
+            <TextBlock Text="Queued messages are sent only after successful completion, never after stop/failure. To change direction now, stop, wait for cleanup, and start a new conversation. Every model follow-up and summary is billed. The bounded transcript stays client-local; recorded activity retains metadata, not these questions or answers." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -46,6 +46,7 @@ public partial class App : Application
                 ? new MainWindow()
                 : new UnsupportedPlatformWindow(requirement);
 
+            _window.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Filspresso.ico"));
             _window.Activate();
         }
         catch (Exception error)

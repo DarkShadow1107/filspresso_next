@@ -12,11 +12,15 @@ on:
     paths:
       - "playground-desktop/**"
       - "public/fonts/poppins-*.ttf"
+      - "src/icons/**"
+      - "public/images/Logo_filspresso.png"
       - ".github/workflows/playground-desktop.yml"
   pull_request:
     paths:
       - "playground-desktop/**"
       - "public/fonts/poppins-*.ttf"
+      - "src/icons/**"
+      - "public/images/Logo_filspresso.png"
       - ".github/workflows/playground-desktop.yml"
   workflow_dispatch:
 
@@ -60,10 +64,18 @@ jobs:
           dotnet tool install --global wix --version 5.0.2
           wix extension add --global WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install shared icon renderer dependencies
+        run: npm ci
+
       - name: Test, publish and build the installer
         # The same entry point as a local release: includes the native uninstaller and
         # its cleanup tests, bundled fonts, and a check for the WinUI runtime resources.
-        run: ./playground-desktop/build/Build-Desktop.ps1 -ProductVersion "0.2.$env:GITHUB_RUN_NUMBER"
+        run: ./playground-desktop/build/Build-Desktop.ps1 -ProductVersion "0.3.$env:GITHUB_RUN_NUMBER"
 
       - name: Verify the MSI produced a package
         shell: pwsh

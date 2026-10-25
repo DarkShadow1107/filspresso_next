@@ -1,316 +1,434 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Globalization;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Filspresso.Core.Tools;
 
 namespace Filspresso.Sandbox;
 
 /// <summary>
-/// A Hyper-V virtual machine, used as the sandbox for generated code.
+/// Explicitly configured, offline Hyper-V sessions, not connected to chat. Only trusted
+/// administration runs on the host; generated scripts are decoded/executed in the guest.
+/// Image provisioning, race-proof file containment, descendant lifetime and live validation
+/// remain release gates. The absence of a network adapter alone does not prove this executor safe.
 /// </summary>
-/// <remarks>
-/// ## The design, and the one property that matters
-///
-/// The virtual machine is created with **no network adapter**. Not a disabled one, not a
-/// filtered one -- none at all. PowerShell Direct, which is how the harness controls it, runs
-/// over the hypervisor's VMBus rather than over a network, so the session stays fully
-/// controllable with no route off the machine.
-/// <para>
-/// That is stronger than a policy. Generated code cannot exfiltrate what it reads, cannot
-/// fetch a payload to execute, and cannot reach the host's network, because there is nothing
-/// to reach. A low-integrity process or a container would have to *forbid* the network; here
-/// there is no network to forbid.
-/// </para>
-/// <para>
-/// The cost is that the model cannot search the web from inside the sandbox. It does not
-/// have to: the web tools run on the host, and the harness writes their results into the
-/// sandbox as files. The sandbox never gains a socket.
-/// </para>
-///
-/// ## What runs in it
-///
-/// The Windows Sandbox feature is deliberately not used. It is single-instance, it destroys
-/// all state when it closes, and it has no scripting interface, so a coding agent that needs
-/// a project directory to survive between turns cannot have one. A differencing disk on a
-/// Hyper-V VM gives each session its own copy of a clean base image, disposable on teardown,
-/// and scriptable.
-/// </para>
-/// </remarks>
 public sealed class HyperVSandbox : ISandbox
 {
     private readonly IPowerShellRunner _runner;
     private readonly string _baseImagePath;
     private readonly string _workspaceRoot;
     private readonly TimeSpan _commandTimeout;
-    private readonly Dictionary<Guid, string> _sessions = new();
+    private readonly TimeSpan _readinessTimeout;
+    private readonly TimeSpan _cleanupTimeout;
+    private readonly IGuestCredentialProvider? _credentials;
+    private readonly ConcurrentDictionary<Guid, ManagedSession> _sessions = new();
+    private int _starting;
+    public const int MaxSessions = 2;
+    /// <summary>Guest single-file budget, mirrored from the guest scripts for host-side checks.</summary>
+    public const int MaxSandboxFileBytes = HyperVGuestScripts.MaxFileBytes;
 
-    public HyperVSandbox(
-        IPowerShellRunner runner,
-        string baseImagePath,
-        string workspaceRoot,
-        TimeSpan? commandTimeout = null)
+    private sealed class ManagedSession(Guid id, string name, string disk)
+    {
+        internal readonly Guid Id = id;
+        internal readonly string Name = name;
+        internal readonly string Disk = disk;
+        internal readonly SemaphoreSlim Operation = new(1, 1);
+        internal readonly SemaphoreSlim Cleanup = new(1, 1);
+        internal readonly CancellationTokenSource Lifetime = new();
+        internal readonly TaskCompletionSource StartupFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal bool CreationTransportUnconfirmed;
+        internal int State = (int)SandboxState.Starting;
+        internal string? Failure;
+    }
+
+    public HyperVSandbox(IPowerShellRunner runner, string baseImagePath, string workspaceRoot,
+        TimeSpan? commandTimeout = null, IGuestCredentialProvider? credentials = null,
+        TimeSpan? readinessTimeout = null, TimeSpan? cleanupTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentException.ThrowIfNullOrWhiteSpace(baseImagePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
-
+        if (!Path.IsPathFullyQualified(baseImagePath) || !Path.IsPathFullyQualified(workspaceRoot) ||
+            baseImagePath.StartsWith(@"\\", StringComparison.Ordinal) || workspaceRoot.StartsWith(@"\\", StringComparison.Ordinal) ||
+            !Path.GetExtension(baseImagePath).Equals(".vhdx", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Configure a local, absolute Windows VHDX image and state directory.");
         _runner = runner;
-        _baseImagePath = baseImagePath;
-        _workspaceRoot = workspaceRoot;
+        _baseImagePath = Path.GetFullPath(baseImagePath);
+        _workspaceRoot = Path.GetFullPath(workspaceRoot);
+        _credentials = credentials;
         _commandTimeout = commandTimeout ?? TimeSpan.FromMinutes(5);
+        _readinessTimeout = readinessTimeout ?? TimeSpan.FromMinutes(2);
+        _cleanupTimeout = cleanupTimeout ?? TimeSpan.FromSeconds(30);
+        if (_commandTimeout <= TimeSpan.Zero || _commandTimeout > TimeSpan.FromMinutes(5) ||
+            _readinessTimeout <= TimeSpan.Zero || _readinessTimeout > TimeSpan.FromMinutes(5) ||
+            _cleanupTimeout <= TimeSpan.Zero || _cleanupTimeout > TimeSpan.FromSeconds(30))
+            throw new ArgumentOutOfRangeException(nameof(commandTimeout), "Sandbox timeouts must be positive and bounded.");
     }
 
-    /// <summary>
-    /// Whether Hyper-V is usable here at all.
-    /// </summary>
-    /// <remarks>
-    /// Checked and reported rather than discovered by failing later: a machine without the
-    /// Hyper-V role is a supported configuration that cannot run the Playground, and the user
-    /// deserves to be told which of the two it is.
-    /// </remarks>
     public async Task<(bool Available, string Reason)> ProbeAsync(CancellationToken cancellationToken = default)
     {
-        var (exitCode, output, _) = await _runner.RunAsync(
-            "if (Get-Command New-VM -ErrorAction SilentlyContinue) { 'OK' } else { 'MISSING' }",
-            TimeSpan.FromSeconds(30),
-            cancellationToken).ConfigureAwait(false);
-
-        if (exitCode != 0 || !output.Contains("OK", StringComparison.Ordinal))
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_credentials is null || !_runner.SupportsStandardInput)
+            return (false, "Configure dedicated guest credentials and a private-input PowerShell transport first.");
+        const string probe = """
+            $ErrorActionPreference = 'Stop'
+            try {
+                Get-Command New-VM, New-VHD, Get-VHD, Invoke-Command, Set-VMFirmware -ErrorAction Stop | Out-Null
+                $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+                if (-not ([Security.Principal.WindowsPrincipal]::new($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 1 }
+                if ((Get-Service vmms -ErrorAction Stop).Status -ne 'Running') { exit 1 }
+                'PROBE_OK'
+            } catch { exit 1 }
+            """;
+        try
         {
-            return (false, "The Hyper-V role is not installed, so the sandbox cannot be created.");
+            var result = await _runner.RunAsync(probe, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return result.ExitCode == 0 && result.Output.Trim() == "PROBE_OK" ? (true, string.Empty) :
+                (false, "Hyper-V administration is unavailable. Check the role, running VM management service and administrator rights.");
         }
-
-        var (adminExit, adminOutput, _) = await _runner.RunAsync(
-            "$id = [Security.Principal.WindowsIdentity]::GetCurrent(); " +
-            "(New-Object Security.Principal.WindowsPrincipal $id).IsInRole(" +
-            "[Security.Principal.WindowsBuiltInRole]::Administrator)",
-            TimeSpan.FromSeconds(30),
-            cancellationToken).ConfigureAwait(false);
-
-        if (adminExit == 0 && adminOutput.Trim().Equals("False", StringComparison.OrdinalIgnoreCase))
-        {
-            return (false, "Creating a virtual machine needs administrator rights.");
-        }
-
-        return (true, string.Empty);
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception) { return (false, "Hyper-V availability could not be verified."); }
     }
 
     public async Task<SandboxSessionInfo> StartAsync(string name, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Interlocked.CompareExchange(ref _starting, 1, 0) != 0) throw new SandboxPolicyException("Sandbox startup is already in progress.");
+        try
+        {
+            if (_sessions.Count >= MaxSessions) throw new SandboxPolicyException("Stop an existing or failed sandbox before starting another.");
+            return await StartCoreAsync(name, cancellationToken).ConfigureAwait(false);
+        }
+        finally { Interlocked.Exchange(ref _starting, 0); }
+    }
+
+    private async Task<SandboxSessionInfo> StartCoreAsync(string name, CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-
+        var credential = await GetCredentialAsync(cancellationToken).ConfigureAwait(false);
         var (available, reason) = await ProbeAsync(cancellationToken).ConfigureAwait(false);
-        if (!available)
-        {
-            throw new InvalidOperationException(reason);
-        }
-
-        // The name is generated rather than taken from the caller: it ends up as a Hyper-V
-        // object name, and a name with a quote in it is a quoting problem in every command
-        // that touches it afterwards.
+        if (!available) throw new InvalidOperationException(reason);
         var vmName = $"filspresso-{Guid.NewGuid():N}";
-        var differencingDisk = Path.Combine(_workspaceRoot, $"{vmName}.vhdx");
-
-        // No -SwitchName, and no Connect-VMNetworkAdapter afterwards. That omission is the
-        // sandbox's whole security property, so it is stated in the comment on the line that
-        // would otherwise look like an oversight.
-        var create = $@"
-$ErrorActionPreference = 'Stop'
-if (-not (Test-Path -LiteralPath '{Escape(_baseImagePath)}')) {{ throw 'the base image is missing' }}
-if (-not (Test-Path -LiteralPath '{Escape(differencingDisk)}')) {{
-    New-VHD -Path '{Escape(differencingDisk)}' -ParentPath '{Escape(_baseImagePath)}' -Dynamic | Out-Null
-}}
-$vm = New-VM -Name '{vmName}' -MemoryStartupBytes 2GB -VHDPath '{Escape(differencingDisk)}' -Generation 2
-$vm | Set-VMMemory -DynamicMemoryEnabled $true -MinimumBytes 1GB -MaximumBytes 4GB
-# No network adapter is ever attached. The session is controlled over PowerShell Direct,
-# which travels the hypervisor's VMBus, so the machine stays scriptable with no route off
-# the host. This is the property the whole design rests on, so it is asserted rather than
-# assumed.
-if ($vm.NetworkAdapters.Count -ne 0) {{
-    $vm.NetworkAdapters | Remove-VMNetworkAdapter
-}}
-$vm | Set-VMFirmware -EnableSecureBoot On -BootOrder @([Microsoft.HyperV.VirtualMachineFirmwareBootOrderSource]::BootOrder)
-Start-VM -Name '{vmName}' | Out-Null
-'CREATED'
-";
-        var (exitCode, output, error) = await _runner.RunAsync(create, TimeSpan.FromMinutes(5), cancellationToken)
-            .ConfigureAwait(false);
-
-        if (exitCode != 0 || !output.Contains("CREATED", StringComparison.Ordinal))
+        var session = new ManagedSession(Guid.NewGuid(), vmName, Path.Combine(_workspaceRoot, $"{vmName}.vhdx"));
+        _sessions[session.Id] = session; // Partial creation must remain discoverable if teardown fails.
+        using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, session.Lifetime.Token);
+        var create = $$"""
+            $ErrorActionPreference = 'Stop'
+            if (-not (Test-Path -LiteralPath '{{Escape(_baseImagePath)}}' -PathType Leaf)) { throw 'Base image missing' }
+            if ((Get-Item -LiteralPath '{{Escape(_baseImagePath)}}' -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Image is a reparse point' }
+            $base = Get-VHD -Path '{{Escape(_baseImagePath)}}' -ErrorAction Stop
+            if ($base.Attached -or $base.VhdType -eq 'Differencing') { throw 'Use an unattached provisioned base image' }
+            New-Item -ItemType Directory -Path '{{Escape(_workspaceRoot)}}' -Force | Out-Null
+            if ((Get-Item -LiteralPath '{{Escape(_workspaceRoot)}}' -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'State directory is a reparse point' }
+            New-VHD -Path '{{Escape(session.Disk)}}' -ParentPath '{{Escape(_baseImagePath)}}' -Differencing | Out-Null
+            $vm = New-VM -Name '{{vmName}}' -Path '{{Escape(_workspaceRoot)}}' -MemoryStartupBytes 2GB -VHDPath '{{Escape(session.Disk)}}' -Generation 2
+            $vm | Set-VMMemory -DynamicMemoryEnabled $true -MinimumBytes 1GB -MaximumBytes 4GB
+            $vm | Set-VMProcessor -Count 2
+            $vm | Set-VM -AutomaticStartAction Nothing -AutomaticStopAction TurnOff -CheckpointType Disabled
+            # Remove even disconnected adapters. No virtual switch is configured.
+            Get-VMNetworkAdapter -VMName '{{vmName}}' | Remove-VMNetworkAdapter -Confirm:$false
+            if (@(Get-VMNetworkAdapter -VMName '{{vmName}}').Count -ne 0) { throw 'Adapter removal failed' }
+            $bootDisk = Get-VMHardDiskDrive -VMName '{{vmName}}' | Select-Object -First 1
+            $vm | Set-VMFirmware -EnableSecureBoot On -FirstBootDevice $bootDisk
+            Start-VM -Name '{{vmName}}' | Out-Null
+            'CREATED'
+            """;
+        try
         {
-            throw new InvalidOperationException($"The sandbox could not be created: {error.Trim()}");
+            var result = await _runner.RunAsync(create, TimeSpan.FromMinutes(5), startup.Token).ConfigureAwait(false);
+            startup.Token.ThrowIfCancellationRequested();
+            if (result.ExitCode != 0 || result.Output.Trim() != "CREATED") throw new InvalidOperationException();
+            using var ready = CancellationTokenSource.CreateLinkedTokenSource(startup.Token);
+            ready.CancelAfter(_readinessTimeout);
+            for (;;)
+            {
+                ready.Token.ThrowIfCancellationRequested();
+                try
+                {
+                    var response = await DirectAsync(session, HyperVGuestScripts.Ready, credential, TimeSpan.FromSeconds(15), ready.Token).ConfigureAwait(false);
+                    if (response.TryGetProperty("ready", out var flag) && flag.ValueKind == JsonValueKind.True) break;
+                }
+                catch (OperationCanceledException) when (ready.IsCancellationRequested) { throw; }
+                catch (Exception) { /* Retry readiness only; never create another VM for an ambiguous result. */ }
+                await Task.Delay(TimeSpan.FromMilliseconds(250), ready.Token).ConfigureAwait(false);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Interlocked.CompareExchange(ref session.State, (int)SandboxState.Ready, (int)SandboxState.Starting) != (int)SandboxState.Starting)
+                throw new OperationCanceledException(startup.Token);
+            return Info(session);
         }
-
-        var id = Guid.NewGuid();
-        _sessions[id] = vmName;
-        return new SandboxSessionInfo(id, vmName, SandboxState.Ready, 0, null);
+        catch (Exception exception)
+        {
+            session.CreationTransportUnconfirmed = exception is PowerShellProcessCleanupException;
+            session.StartupFinished.TrySetResult();
+            var cleaned = await TryStopAsync(session).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new InvalidOperationException(cleaned ? "Sandbox startup or guest readiness failed; partial resources were discarded." :
+                "Sandbox startup failed and cleanup could not be confirmed. Inspect the failed session before retrying.");
+        }
+        finally { session.StartupFinished.TrySetResult(); }
     }
 
-    public async Task<ToolResult> RunAsync(
-        Guid sessionId,
-        string command,
-        string arguments,
-        string? workingDirectory = null,
-        TimeSpan? timeout = null,
-        CancellationToken cancellationToken = default)
+    public async Task<ToolResult> RunAsync(Guid sessionId, string command, string arguments, string? workingDirectory = null,
+        TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(command);
-        var vmName = Resolve(sessionId);
-
-        // The command is written into a script file inside the session and run from there,
-        // rather than passed as an argument. PowerShell's argument quoting is a maze, and a
-        // command that is mangled by quoting is a command that ran something else.
-        var script = $@"
-$ErrorActionPreference = 'Continue'
-Set-Location -LiteralPath '{Escape(workingDirectory ?? "C:\\")}'
-{command} {arguments}
-exit $LASTEXITCODE
-";
-        var (exitCode, output, error) = await _runner.RunAsync(
-            $"Invoke-Command -VMName '{vmName}' -ScriptBlock {{ {ToBase64(script)} }}",
-            timeout ?? _commandTimeout,
-            cancellationToken).ConfigureAwait(false);
-
-        return new ToolResult(
-            ExitCode: exitCode,
-            StandardOutput: output,
-            StandardError: error,
-            Duration: timeout ?? _commandTimeout,
-            TimedOut: false);
+        if (string.IsNullOrWhiteSpace(command) || command.Length + (long)(arguments?.Length ?? 0) > 8000)
+            throw new SandboxPolicyException("Choose a nonempty command of at most 8000 characters.");
+        var duration = timeout ?? _commandTimeout;
+        if (duration <= TimeSpan.Zero || duration > _commandTimeout) throw new SandboxPolicyException("Command timeout exceeds sandbox policy.");
+        var directory = workingDirectory is null ? HyperVGuestScripts.Root : CombineInsideGuest(workingDirectory);
+        var clock = Stopwatch.StartNew();
+        try
+        {
+            var result = await InGuestAsync(sessionId, HyperVGuestScripts.Run(command, arguments ?? string.Empty, directory, duration), duration, root =>
+            {
+                if (!root.TryGetProperty("exitCode", out var code) || !code.TryGetInt32(out var exit) ||
+                    !root.TryGetProperty("stdout", out var stdout) || stdout.ValueKind != JsonValueKind.String ||
+                    !root.TryGetProperty("stderr", out var stderr) || stderr.ValueKind != JsonValueKind.String ||
+                    !ReadBoolean(root, "timedOut", out var timedOut) || !ReadBoolean(root, "outputLimited", out var limited))
+                    throw new InvalidDataException();
+                var output = stdout.GetString()!; var error = stderr.GetString()!;
+                if (output.Length + (long)error.Length > HyperVGuestScripts.MaxCommandOutput || limited) throw new PowerShellOutputLimitException();
+                if (timedOut) throw new TimeoutException();
+                return new ToolResult(exit, output, error, TimeSpan.Zero, false);
+            }, cancellationToken).ConfigureAwait(false);
+            return result with { Duration = clock.Elapsed };
+        }
+        catch (TimeoutException)
+        { return new ToolResult(-1, string.Empty, "Command time limit reached; the sandbox was discarded.", clock.Elapsed, true); }
     }
 
-    public async Task<string> WriteFileAsync(
-        Guid sessionId,
-        string relativePath,
-        ReadOnlyMemory<byte> contents,
-        CancellationToken cancellationToken = default)
+    public async Task<string> WriteFileAsync(Guid sessionId, string relativePath, ReadOnlyMemory<byte> contents, CancellationToken cancellationToken = default)
     {
-        var vmName = Resolve(sessionId);
         var full = CombineInsideGuest(relativePath);
-
-        // Base64 through the PowerShell Direct channel: the bytes are written by a command
-        // that decodes them, so there is no encoding to get wrong on the way in and no
-        // quoting to get wrong on the way through.
-        var payload = Convert.ToBase64String(contents.ToArray());
-        var script = $@"
-$bytes = [Convert]::FromBase64String('{payload}')
-$dir = Split-Path -Parent '{Escape(full)}'
-if ($dir) {{ New-Item -ItemType Directory -Path $dir -Force | Out-Null }}
-[System.IO.File]::WriteAllBytes('{Escape(full)}', $bytes)
-'WROTE'
-";
-        var (exitCode, output, error) = await _runner.RunAsync(
-            $"Invoke-Command -VMName '{vmName}' -ScriptBlock {{ {ToBase64(script)} }}",
-            _commandTimeout,
-            cancellationToken).ConfigureAwait(false);
-
-        if (exitCode != 0 || !output.Contains("WROTE", StringComparison.Ordinal))
+        if (contents.Length > HyperVGuestScripts.MaxFileBytes) throw new SandboxPolicyException("Sandbox files are limited to 256 KiB.");
+        return await InGuestAsync(sessionId, HyperVGuestScripts.Write(full, contents), _commandTimeout, root =>
         {
-            throw new InvalidOperationException($"The file could not be written: {error.Trim()}");
-        }
-
-        return full;
+            if (!root.TryGetProperty("written", out var flag) || flag.ValueKind != JsonValueKind.True) throw new InvalidDataException();
+            return full;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<string> ReadFileAsync(
-        Guid sessionId,
-        string relativePath,
-        CancellationToken cancellationToken = default)
+    public async Task<string> ReadFileAsync(Guid sessionId, string relativePath, CancellationToken cancellationToken = default)
     {
-        var vmName = Resolve(sessionId);
         var full = CombineInsideGuest(relativePath);
-        var script = $@"
-if (Test-Path -LiteralPath '{Escape(full)}') {{
-    [Convert]::ToBase64String([System.IO.File]::ReadAllBytes('{Escape(full)}'))
-}} else {{
-    'MISSING'
-}}
-";
-        var (exitCode, output, _) = await _runner.RunAsync(
-            $"Invoke-Command -VMName '{vmName}' -ScriptBlock {{ {ToBase64(script)} }}",
-            _commandTimeout,
-            cancellationToken).ConfigureAwait(false);
-
-        if (exitCode != 0)
+        return await InGuestAsync(sessionId, HyperVGuestScripts.Read(full), _commandTimeout, root =>
         {
-            throw new InvalidOperationException("The file could not be read.");
-        }
+            if (root.TryGetProperty("missing", out var missing) && missing.ValueKind == JsonValueKind.True) throw new MissingGuestFileException();
+            if (!root.TryGetProperty("bytes", out var value) || value.ValueKind != JsonValueKind.String || value.GetString() is not { Length: <= 349_528 } encoded)
+                throw new InvalidDataException();
+            var bytes = Convert.FromBase64String(encoded);
+            if (bytes.Length > HyperVGuestScripts.MaxFileBytes) throw new InvalidDataException();
+            return Encoding.UTF8.GetString(bytes);
+        }, cancellationToken).ConfigureAwait(false);
+    }
 
-        var trimmed = output.Trim();
-        if (trimmed == "MISSING" || trimmed.Length == 0)
+    /// <summary>
+    /// Lists one workspace-relative directory in the guest. Null or empty lists the workspace
+    /// root. A missing directory is reported, not an error the model must be silent about.
+    /// </summary>
+    public async Task<GuestListing> ListFilesAsync(Guid sessionId, string? relativePath, CancellationToken cancellationToken = default)
+    {
+        var full = string.IsNullOrEmpty(relativePath) ? HyperVGuestScripts.Root : CombineInsideGuest(relativePath);
+        return await InGuestAsync(sessionId, HyperVGuestScripts.List(full), _commandTimeout, root =>
         {
-            throw new FileNotFoundException($"No such file in the sandbox: {relativePath}");
-        }
+            if (root.TryGetProperty("missing", out var missing) && missing.ValueKind == JsonValueKind.True) throw new MissingGuestFileException();
+            if (!root.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array ||
+                !ReadBoolean(root, "truncated", out var truncated))
+                throw new InvalidDataException();
+            var result = new List<GuestListingEntry>(entries.GetArrayLength());
+            foreach (var entry in entries.EnumerateArray())
+            {
+                var parsed = ParseEntry(entry, result);
+                if (result.Any(previous => previous.Name.Equals(parsed.Name, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidDataException();
+                result.Add(parsed);
+            }
+            return new GuestListing(result, truncated);
+        }, cancellationToken).ConfigureAwait(false);
+    }
 
-        return Encoding.UTF8.GetString(Convert.FromBase64String(trimmed));
+    private static GuestListingEntry ParseEntry(JsonElement entry, List<GuestListingEntry> parsed)
+    {
+        if (entry.ValueKind != JsonValueKind.Object ||
+            !entry.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String ||
+            name.GetString() is not { Length: > 0 and <= 240 } relative ||
+            !WorkspacePath.IsRelativeFile(relative) ||
+            !entry.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException();
+        var isDirectory = kind.GetString() switch
+        {
+            "dir" => true,
+            "file" => false,
+            _ => throw new InvalidDataException(),
+        };
+        if (isDirectory) return new GuestListingEntry(relative, true, 0);
+        if (!entry.TryGetProperty("bytes", out var size) || size.ValueKind != JsonValueKind.Number ||
+            !size.TryGetInt64(out var bytes) || bytes is < 0 or > HyperVGuestScripts.MaxFileBytes)
+            throw new InvalidDataException();
+        return new GuestListingEntry(relative, false, bytes);
+    }
+
+    private async Task<T> InGuestAsync<T>(Guid sessionId, string script, TimeSpan timeout, Func<JsonElement, T> parse, CancellationToken caller)
+    {
+        caller.ThrowIfCancellationRequested();
+        if (!_sessions.TryGetValue(sessionId, out var session)) throw new SandboxPolicyException("No such active sandbox session.");
+        if (!await session.Operation.WaitAsync(0, caller).ConfigureAwait(false)) throw new SandboxPolicyException("This sandbox already has an operation in progress.");
+        var dispatched = false;
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(caller, session.Lifetime.Token);
+        operation.CancelAfter(timeout);
+        try
+        {
+            if (Interlocked.CompareExchange(ref session.State, (int)SandboxState.Busy, (int)SandboxState.Ready) != (int)SandboxState.Ready)
+                throw new SandboxPolicyException("The sandbox is not ready or was invalidated.");
+            var credential = await GetCredentialAsync(operation.Token).ConfigureAwait(false);
+            operation.Token.ThrowIfCancellationRequested();
+            dispatched = true;
+            var root = await DirectAsync(session, script, credential, timeout, operation.Token).ConfigureAwait(false);
+            operation.Token.ThrowIfCancellationRequested();
+            return parse(root);
+        }
+        catch (MissingGuestFileException) { throw new FileNotFoundException("No such file in the sandbox."); }
+        catch (Exception exception)
+        {
+            var timedOut = operation.IsCancellationRequested && !caller.IsCancellationRequested && !session.Lifetime.IsCancellationRequested;
+            var cleaned = (!dispatched && !timedOut) || await TryStopAsync(session).ConfigureAwait(false);
+            caller.ThrowIfCancellationRequested();
+            if (!cleaned) throw new SandboxCleanupException();
+            if (exception is SandboxPolicyException && !dispatched) throw;
+            if (exception is PowerShellOutputLimitException) throw new PowerShellOutputLimitException();
+            if (exception is TimeoutException || timedOut) throw new TimeoutException("Guest operation time limit reached; sandbox discarded.");
+            throw new InvalidOperationException(dispatched ? "Guest operation failed; the sandbox was discarded." : "Guest operation could not be started.");
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref session.State, (int)SandboxState.Ready, (int)SandboxState.Busy);
+            session.Operation.Release();
+        }
+    }
+
+    private async Task<NetworkCredential> GetCredentialAsync(CancellationToken caller)
+    {
+        if (_credentials is null || !_runner.SupportsStandardInput) throw new SandboxPolicyException("Dedicated guest credentials and a private-input transport are required.");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(caller);
+        deadline.CancelAfter(TimeSpan.FromSeconds(15));
+        try
+        {
+            var value = await _credentials.GetCredentialAsync(deadline.Token).WaitAsync(deadline.Token).ConfigureAwait(false);
+            var user = string.IsNullOrEmpty(value?.Domain) ? value?.UserName : value.Domain + "\\" + value.UserName;
+            if (string.IsNullOrWhiteSpace(user) || user.Length > 256 || user.Any(char.IsControl) || value?.Password is not { Length: > 0 and <= 1024 } password)
+                throw new SandboxPolicyException("Configure nonempty credentials for the provisioned guest image.");
+            return new NetworkCredential(user, password);
+        }
+        catch (OperationCanceledException) when (caller.IsCancellationRequested) { throw; }
+        catch (Exception) { throw new SandboxPolicyException("Dedicated guest credentials could not be loaded."); }
+    }
+
+    private async Task<JsonElement> DirectAsync(ManagedSession session, string script, NetworkCredential credential, TimeSpan timeout, CancellationToken token)
+    {
+        // JSON and encoded guest source are data on stdin. Neither password nor generated
+        // source appears in the host command line, model context, or diagnostic exception.
+        var input = JsonSerializer.Serialize(new { user = credential.UserName, password = credential.Password, script = ToBase64(script) });
+        var result = await _runner.RunWithInputAsync(HyperVGuestScripts.Direct(session.Name), input, timeout, token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        if (result.ExitCode != 0) throw new InvalidOperationException("PowerShell Direct failed.");
+        using var document = JsonDocument.Parse(result.Output, new JsonDocumentOptions { MaxDepth = 8 });
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("version", out var version) || !version.TryGetInt32(out var number) || number != 1)
+            throw new InvalidDataException();
+        return root.Clone();
     }
 
     public async Task StopAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
-        if (!_sessions.Remove(sessionId, out var vmName))
-        {
-            // Stopping something already stopped is a success, not an error: teardown runs
-            // from a crash handler as well as from a clean exit, and it has to be safe to call
-            // twice.
-            return;
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_sessions.TryGetValue(sessionId, out var session)) await StopSessionAsync(session).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+    }
 
-        // The virtual machine is stopped and removed, and the differencing disk with it. The
-        // disk is what makes the session disposable; leaving it would fill the disk over
-        // time and would keep the previous session's files on the machine.
-        var teardown = $@"
-$ErrorActionPreference = 'SilentlyContinue'
-Stop-VM -Name '{vmName}' -Force
-Remove-VM -Name '{vmName}' -Force
-Get-VHD -Path (Get-VM -Name '{vmName}' -ErrorAction SilentlyContinue).Path | Remove-VHD -Force
-'DONE'
-";
-        await _runner.RunAsync(teardown, TimeSpan.FromMinutes(2), cancellationToken).ConfigureAwait(false);
+    private async Task<bool> TryStopAsync(ManagedSession session)
+    {
+        try { await StopSessionAsync(session).ConfigureAwait(false); return true; }
+        catch (Exception) { return false; }
+    }
+
+    private async Task StopSessionAsync(ManagedSession session)
+    {
+        // Invalidate BEFORE teardown or waiting for the cleanup lock. Never restore Ready
+        // from an operation's finally block once cancellation/teardown has begun.
+        session.Failure = "Sandbox teardown is in progress or could not be confirmed.";
+        Volatile.Write(ref session.State, (int)SandboxState.Failed);
+        try { session.Lifetime.Cancel(); } catch (AggregateException) { /* Teardown must still run if a transport callback fails. */ }
+        using var deadline = new CancellationTokenSource(_cleanupTimeout);
+        var entered = false;
+        try
+        {
+            await session.Cleanup.WaitAsync(deadline.Token).ConfigureAwait(false); entered = true;
+            if (!_sessions.ContainsKey(session.Id)) return;
+            await session.StartupFinished.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
+            var teardown = $$"""
+                $ErrorActionPreference = 'Stop'
+                $vm = Get-VM -ErrorAction Stop | Where-Object { $_.Name -eq '{{session.Name}}' }
+                if ($null -ne $vm) {
+                    if ($vm.State -ne 'Off') { $vm | Stop-VM -TurnOff -Force -Confirm:$false }
+                    $vm | Remove-VM -Force -Confirm:$false
+                }
+                if (Get-VM -ErrorAction Stop | Where-Object { $_.Name -eq '{{session.Name}}' }) { throw 'VM removal not confirmed' }
+                $disk = '{{Escape(session.Disk)}}'
+                if (Test-Path -LiteralPath $disk -ErrorAction Stop) {
+                    if ((Get-Item -LiteralPath $disk -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Disk is a reparse point' }
+                    Remove-Item -LiteralPath $disk -Force -ErrorAction Stop
+                }
+                if (Test-Path -LiteralPath $disk -ErrorAction Stop) { throw 'Disk removal not confirmed' }
+                'DONE'
+                """;
+            var result = await _runner.RunAsync(teardown, _cleanupTimeout, deadline.Token).ConfigureAwait(false);
+            if (result.ExitCode != 0 || result.Output.Trim() != "DONE" || session.CreationTransportUnconfirmed) throw new SandboxCleanupException();
+            _sessions.TryRemove(session.Id, out _);
+        }
+        catch (Exception) { throw new SandboxCleanupException(); }
+        finally { if (entered) session.Cleanup.Release(); }
     }
 
     public Task<IReadOnlyList<SandboxSessionInfo>> ListAsync(CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<SandboxSessionInfo> sessions = _sessions
-            .Select(pair => new SandboxSessionInfo(pair.Key, pair.Value, SandboxState.Ready, 0, null))
-            .ToArray();
-
-        return Task.FromResult(sessions);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<IReadOnlyList<SandboxSessionInfo>>(_sessions.Values.Select(Info).ToArray());
     }
 
-    private string Resolve(Guid sessionId) =>
-        _sessions.TryGetValue(sessionId, out var name)
-            ? name
-            : throw new InvalidOperationException($"No such sandbox session: {sessionId}");
+    private static SandboxSessionInfo Info(ManagedSession session) => new(session.Id, session.Name, (SandboxState)Volatile.Read(ref session.State), 0, session.Failure);
+    private sealed class MissingGuestFileException : Exception { }
+    private static bool ReadBoolean(JsonElement root, string name, out bool value)
+    {
+        value = false;
+        if (!root.TryGetProperty(name, out var field) || field.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return false;
+        value = field.GetBoolean(); return true;
+    }
 
-    /// <summary>
-    /// Where a file goes inside the guest.
-    /// </summary>
-    /// <remarks>
-    /// Fixed to a path inside the guest, and the path is *combined* rather than
-    /// concatenated, so a relative path with `..` in it cannot climb out of the workspace. The
-    /// guest has no network, but it does have a filesystem, and the workspace directory is the
-    /// boundary.
-    /// </remarks>
+    /// <summary>Lexical containment only; guest reparse-point checks are also required.</summary>
     internal static string CombineInsideGuest(string relativePath)
     {
-        const string root = @"C:\filspresso-workspace";
-        var combined = Path.GetFullPath(Path.Combine(root, relativePath));
-        if (!combined.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-        {
+        var normalized = relativePath?.Replace('\\', '/');
+        if (!WorkspacePath.IsRelativeFile(normalized)) throw new ArgumentException("Choose a relative file path inside the sandbox workspace.", nameof(relativePath));
+        var combined = Path.GetFullPath(Path.Combine(HyperVGuestScripts.Root, normalized!.Replace('/', Path.DirectorySeparatorChar)));
+        if (!combined.StartsWith(HyperVGuestScripts.Root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("The path must stay inside the sandbox workspace.", nameof(relativePath));
-        }
-
         return combined;
     }
 
-    /// <summary>Escape a value for a single-quoted PowerShell string.</summary>
     internal static string Escape(string value) => value.Replace("'", "''");
+    internal static string ToBase64(string script) => Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+}
 
-    /// <summary>Wrap a script so it survives being nested inside a script block.</summary>
-    internal static string ToBase64(string script) =>
-        Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+public sealed class SandboxCleanupException : Exception
+{
+    public SandboxCleanupException() : base("Sandbox teardown could not be confirmed. The session is invalidated; retry Stop or perform manual cleanup.") { }
 }

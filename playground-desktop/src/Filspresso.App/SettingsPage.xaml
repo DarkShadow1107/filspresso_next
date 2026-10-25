@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <UserControl x:Class="Filspresso.App.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Filspresso.App">
     <ScrollViewer>
         <Grid Padding="38,16,38,36" MaxWidth="1120" HorizontalAlignment="Stretch" RowDefinitions="Auto,Auto,*" RowSpacing="28">
             <Button Content="← Back to chat" Click="OnBack" Style="{StaticResource QuietButtonStyle}" />
             <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="14">
-                <SymbolIcon Symbol="Setting" Foreground="{StaticResource FilspressoAccent}" />
+                <local:SharedIcon IconName="settings" Width="28" Height="28" />
                 <TextBlock Text="Settings" FontSize="29" />
             </StackPanel>
             <Grid Grid.Row="2" ColumnDefinitions="200,*" ColumnSpacing="36">
@@ -22,16 +22,12 @@
                         <ComboBox x:Name="DefaultModelBox" Header="Default model" HorizontalAlignment="Stretch" DisplayMemberPath="Label" AutomationProperties.Name="Default model" />
                         <TextBlock Text="Every model has a 128K context window. You can also switch models inside the composer." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
                         <StackPanel Spacing="12">
-                            <TextBlock Text="Maximum output tokens" />
-                            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
-                                <Button x:Name="Level16" Content="16K" Tag="16384" Click="OnLevel" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
-                                <Button x:Name="Level32" Content="32K" Tag="32768" Click="OnLevel" Grid.Column="1" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
-                                <Button x:Name="Level64" Content="64K" Tag="65536" Click="OnLevel" Grid.Column="2" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
-                                <Button x:Name="Level128" Content="128K" Tag="131072" Click="OnLevel" Grid.Column="3" HorizontalAlignment="Stretch" Style="{StaticResource QuietButtonStyle}" />
-                            </Grid>
-                            <TextBlock Text="A limit, not a target. The model can finish before reaching it." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
+                            <ComboBox x:Name="InputContextBox" Header="Maximum input tokens" AutomationProperties.Name="Maximum input tokens" HorizontalAlignment="Stretch"><ComboBoxItem Content="16K" /><ComboBoxItem Content="32K" /><ComboBoxItem Content="64K" /><ComboBoxItem Content="128K" /></ComboBox>
+                            <TextBlock Text="Limits the prompt, conversation history, attachments and project sources. Output length is managed separately." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
                         </StackPanel>
                         <ToggleSwitch x:Name="ThinkingSwitch" Header="Thinking mode" OnContent="Show reasoning" OffContent="Answer only" />
+                        <ComboBox x:Name="CompactionBox" Header="Automatic context compaction" AutomationProperties.Name="Automatic context compaction" HorizontalAlignment="Stretch"><ComboBoxItem Content="Permissive · 80%" /><ComboBoxItem Content="Balanced · 65% (default)" /><ComboBoxItem Content="Aggressive · 45%" /></ComboBox>
+                        <TextBlock Text="Summarizes older history at the selected threshold, preserving recent turns and the original transcript. Summary model usage is metered." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
                         <ToggleSwitch x:Name="EnterSwitch" Header="Enter to send" OnContent="Shift + Enter inserts a new line" OffContent="Ctrl + Enter sends" />
                     </StackPanel>
                     <StackPanel x:Name="DisplayPanel" Spacing="26" Visibility="Collapsed">

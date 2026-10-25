@@ -13,8 +13,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\..\tests\fixtures\playground-agent.json" Link="Fixtures\playground-agent.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\tests\fixtures\playground-agent-compaction.json" Link="Fixtures\playground-agent-compaction.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\tests\fixtures\playground-question.json" Link="Fixtures\playground-question.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Filspresso.Core\Filspresso.Core.csproj" />
     <ProjectReference Include="..\..\src\Filspresso.Sandbox\Filspresso.Sandbox.csproj" />
+    <ProjectReference Include="..\..\src\Filspresso.Harness\Filspresso.Harness.csproj" />
     <!--
       Compiled in rather than referenced. The store is Win32 interop, and referencing the
       whole App project would drag the WinUI runtime into a test that only needs the vault.

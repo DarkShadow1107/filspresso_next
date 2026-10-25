@@ -16,6 +16,7 @@ public sealed record MessageUsage(int InputTokens, int OutputTokens, decimal? Es
 /// <summary>One step of a message being sent.</summary>
 public abstract record PlaygroundEvent
 {
+    public sealed record Context(ContextState State) : PlaygroundEvent;
     /// <summary>A piece of the answer.</summary>
     public sealed record Say(string Text) : PlaygroundEvent;
 
@@ -179,8 +180,14 @@ public sealed class PlaygroundSession
         string prompt,
         string modelKey,
         double temperature = 0.7,
-        int maxTokens = 16_384,
+        int maxTokens = 2048,
         bool thinking = false,
+        int inputContextTokens = 16_384,
+        IReadOnlyList<PreparedSource>? contexts = null,
+        IReadOnlyList<ChatTurn>? history = null,
+        string compactionMode = "balanced",
+        bool compactNow = false,
+        string? sessionUuid = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
@@ -217,11 +224,15 @@ public sealed class PlaygroundSession
             StreamUpdate.Completed? completion = null;
 
             await foreach (var update in _api
-                .StreamChatAsync(_auth.Current.AccessToken, modelKey, prompt, null, temperature, maxTokens, thinking, cancellationToken)
+                .StreamChatAsync(_auth.Current.AccessToken, modelKey, prompt, null, temperature, maxTokens, thinking,
+                    inputContextTokens, contexts, history, compactionMode, compactNow, sessionUuid, cancellationToken)
                 .ConfigureAwait(false))
             {
                 switch (update)
                 {
+                    case StreamUpdate.Context context:
+                        yield return new PlaygroundEvent.Context(context.State);
+                        break;
                     case StreamUpdate.Delta delta:
                         yield return new PlaygroundEvent.Say(delta.Text);
                         break;

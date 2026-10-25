@@ -76,6 +76,7 @@ public enum PlaygroundAvailability
 
     /// <summary>The network or the server could not be reached at all.</summary>
     Unreachable,
+    InputContextExceeded,
 }
 
 public static class PlaygroundAvailabilityExtensions
@@ -84,12 +85,11 @@ public static class PlaygroundAvailabilityExtensions
     /// What this state means for whether a message can be sent.
     /// </summary>
     /// <remarks>
-    /// Only <see cref="PlaygroundAvailability.Ready"/> allows a send. Unknown does not: the
-    /// pre-flight has to have run and said yes, and letting an unverified state through is
-    /// how a locked account ends up sending.
+    /// Ready allows sending. An input-context refusal also permits a corrected retry;
+    /// entitlement and affordability are checked again before inference. Unknown does not.
     /// </remarks>
     public static bool AllowsSending(this PlaygroundAvailability availability) =>
-        availability == PlaygroundAvailability.Ready;
+        availability is PlaygroundAvailability.Ready or PlaygroundAvailability.InputContextExceeded;
 
     /// <summary>Whether the user needs to do something before this becomes Ready again.</summary>
     public static bool NeedsUserAction(this PlaygroundAvailability availability) => availability is
@@ -114,6 +114,7 @@ public static class PlaygroundAvailabilityExtensions
         ApiError.ModelBusy => PlaygroundAvailability.ModelBusy,
         ApiError.Upstream => PlaygroundAvailability.ModelUnavailable,
         ApiError.RateLimited => PlaygroundAvailability.RateLimited,
+        ApiError.InputContextExceeded => PlaygroundAvailability.InputContextExceeded,
         _ => PlaygroundAvailability.Unreachable,
     };
 }

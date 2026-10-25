@@ -103,9 +103,10 @@ public class PlaygroundSessionTests
         using (api)
         {
             var events = new List<PlaygroundEvent>();
-            await foreach (var item in session.SendAsync("hello", "test-model", maxTokens: 131072, thinking: true)) events.Add(item);
+            await foreach (var item in session.SendAsync("hello", "test-model", inputContextTokens: 131072, thinking: true)) events.Add(item);
             using var payload = System.Text.Json.JsonDocument.Parse(sent!);
-            Assert.Equal(131072, payload.RootElement.GetProperty("max_tokens").GetInt32());
+            Assert.Equal(131072, payload.RootElement.GetProperty("input_context_tokens").GetInt32());
+            Assert.Equal(2048, payload.RootElement.GetProperty("max_tokens").GetInt32());
             Assert.True(payload.RootElement.GetProperty("thinking").GetBoolean());
             Assert.Equal("Think first", Assert.Single(events.OfType<PlaygroundEvent.Think>()).Text);
             Assert.Equal("Answer", Assert.Single(events.OfType<PlaygroundEvent.Say>()).Text);

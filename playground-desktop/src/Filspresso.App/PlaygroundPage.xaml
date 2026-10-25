@@ -5,19 +5,35 @@
     xmlns:local="using:Filspresso.App">
     <Grid ColumnDefinitions="Auto,*">
         <Border x:Name="ConversationsPane" Visibility="Collapsed" Width="248" Background="{StaticResource FilspressoRail}" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="0,0,1,0" Padding="16">
-            <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="16">
+            <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" RowSpacing="16">
                 <TextBlock Text="Conversations" FontSize="16" />
                 <Button Grid.Row="1" Content="+ New conversation" Click="OnNewConversation" Style="{StaticResource QuietButtonStyle}" HorizontalAlignment="Stretch" />
                 <TextBox x:Name="ConversationSearch" Grid.Row="2" PlaceholderText="Search conversations…" AutomationProperties.Name="Search conversations" TextChanged="OnSearchChanged" />
                 <ListView x:Name="ConversationsList" Grid.Row="3" SelectionChanged="OnConversationSelected" DisplayMemberPath="Title" SelectionMode="Single" />
-                <TextBlock Grid.Row="4" Text="This session only. Export a conversation to keep a copy." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
+                <TextBlock Grid.Row="4" x:Name="ServerSessionsCaption" Text="Saved on the server" FontSize="12" Foreground="{StaticResource FilspressoAccent}" Visibility="Collapsed" />
+                <ListView x:Name="ServerSessionsList" Grid.Row="5" SelectionMode="None" Visibility="Collapsed" MaxHeight="240">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="0" /></Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="2">
+                                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Padding="4,7" Click="OnServerSessionChosen" Tag="{Binding}" ToolTipService.ToolTip="Resume with its compacted context" AutomationProperties.Name="Resume saved conversation">
+                                    <TextBlock Text="{Binding Title}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                </Button>
+                                <Button Grid.Column="1" Tag="{Binding}" Click="OnServerSessionForgotten" Style="{StaticResource RailButtonStyle}" Width="26" Height="26" ToolTipService.ToolTip="Forget this saved conversation and its history" AutomationProperties.Name="Forget saved conversation"><local:SharedIcon IconName="trash" Width="14" Height="14" /></Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <TextBlock Grid.Row="6" Text="This session only. Export a conversation to keep a copy. A conversation saved on the server resumes with its preferences and compaction checkpoint; transcripts stay on this PC." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
             </Grid>
         </Border>
         <Grid Grid.Column="1" RowDefinitions="Auto,*">
             <InfoBar x:Name="StateBar" Grid.Row="0" IsOpen="False" IsClosable="False" Margin="28,8" />
             <Grid x:Name="ChatLayout" Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" MaxWidth="950" Margin="44,16,44,8" VerticalAlignment="Center" HorizontalAlignment="Stretch" RowSpacing="8">
                 <StackPanel x:Name="WelcomePanel" Grid.Row="0" HorizontalAlignment="Center" Margin="0,0,0,32" Spacing="10">
-                    <FontIcon Glyph="&#xE8A5;" Foreground="{StaticResource FilspressoAccent}" FontSize="29" Margin="0,0,0,10" />
+                    <local:SharedIcon IconName="model" Width="30" Height="30" Margin="0,0,0,10" />
                     <TextBlock Text="Hello there" FontSize="34" HorizontalAlignment="Center" />
                     <TextBlock Text="What would you like to explore?" FontSize="14" Foreground="{StaticResource FilspressoMuted}" HorizontalAlignment="Center" />
                 </StackPanel>
@@ -32,6 +48,7 @@
                                     <StackPanel Spacing="10">
                                         <Expander Header="Thinking" Visibility="{Binding ReasoningVisibility}" HorizontalAlignment="Stretch"><TextBlock Text="{Binding Reasoning}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="12" Foreground="{StaticResource FilspressoMuted}" /></Expander>
                                         <local:MessageContent Text="{Binding Text}" TextSize="{Binding TextSize}" />
+                                        <TextBlock Text="{Binding SourceNames}" Foreground="{StaticResource FilspressoMuted}" FontSize="10" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <StackPanel Orientation="Horizontal" Spacing="12" Visibility="{Binding MetadataVisibility}">
@@ -39,42 +56,80 @@
                                     <TextBlock Text="{Binding Metadata}" FontSize="10" Foreground="{StaticResource FilspressoMuted}" VerticalAlignment="Center" />
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="4" Visibility="{Binding ActionsVisibility}">
-                                    <Button Tag="{Binding}" Click="OnCopyMessage" ToolTipService.ToolTip="Copy message" AutomationProperties.Name="Copy message" Style="{StaticResource RailButtonStyle}" Width="30" Height="30"><SymbolIcon Symbol="Copy" /></Button>
-                                    <Button Tag="{Binding}" Click="OnEditMessage" ToolTipService.ToolTip="Edit prompt" AutomationProperties.Name="Edit prompt" Visibility="{Binding EditVisibility}" Style="{StaticResource RailButtonStyle}" Width="30" Height="30"><SymbolIcon Symbol="Edit" /></Button>
-                                    <Button Tag="{Binding}" Click="OnRegenerate" ToolTipService.ToolTip="Regenerate response" AutomationProperties.Name="Regenerate response" Visibility="{Binding RegenerateVisibility}" Style="{StaticResource RailButtonStyle}" Width="30" Height="30"><SymbolIcon Symbol="Refresh" /></Button>
-                                    <Button Tag="{Binding}" Click="OnDeleteMessage" ToolTipService.ToolTip="Delete message" AutomationProperties.Name="Delete message" Style="{StaticResource RailButtonStyle}" Width="30" Height="30"><SymbolIcon Symbol="Delete" /></Button>
+                                    <Button Tag="{Binding}" Click="OnCopyMessage" ToolTipService.ToolTip="Copy message" AutomationProperties.Name="Copy message" Style="{StaticResource RailButtonStyle}" Width="30" Height="30"><local:SharedIcon IconName="copy" Width="17" Height="17" /></Button>
+                                    <Button Tag="{Binding}" Click="OnEditMessage" ToolTipService.ToolTip="Edit prompt" AutomationProperties.Name="Edit prompt" Visibility="{Binding EditVisibility}" Style="{StaticResource RailButtonStyle}" Width="30" Height="30"><local:SharedIcon IconName="edit" Width="17" Height="17" /></Button>
+                                    <Button Tag="{Binding}" Click="OnRegenerate" ToolTipService.ToolTip="Regenerate response" AutomationProperties.Name="Regenerate response" Visibility="{Binding RegenerateVisibility}" Style="{StaticResource RailButtonStyle}" Width="30" Height="30"><local:SharedIcon IconName="retry" Width="17" Height="17" /></Button>
+                                    <Button Tag="{Binding}" Click="OnDeleteMessage" ToolTipService.ToolTip="Delete message" AutomationProperties.Name="Delete message" Style="{StaticResource RailButtonStyle}" Width="30" Height="30"><local:SharedIcon IconName="trash" Width="17" Height="17" /></Button>
                                 </StackPanel>
                             </StackPanel>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
                 <Border Grid.Row="2" x:Name="PromptPanel" Background="{StaticResource FilspressoSurface}" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="22" Padding="18,14">
-                    <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="12">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12">
                         <Grid x:Name="EditingPanel" Visibility="Collapsed" ColumnDefinitions="*,Auto">
                             <TextBlock Text="Editing prompt. Sending replaces its response and later messages." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoAccent}" />
                             <Button Grid.Column="1" Content="Cancel edit" Click="OnCancelEdit" Style="{StaticResource QuietButtonStyle}" />
                         </Grid>
-                        <TextBox x:Name="PromptBox" Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" MaxHeight="200" MaxLength="8000" PlaceholderText="Type a message…" AutomationProperties.Name="Message" TextChanged="OnPromptChanged" KeyDown="OnPromptKeyDown" Background="Transparent" BorderThickness="0" Padding="0" />
-                        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
-                            <Button Content="+" FontSize="22" Width="34" Height="34" CornerRadius="17" Background="#39302C" BorderThickness="0" Padding="0" AutomationProperties.Name="Conversation actions">
+                        <ScrollViewer Grid.Row="1" MaxHeight="230" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="8">
+                            <ItemsControl x:Name="SourcesList">
+                                <ItemsControl.ItemTemplate><DataTemplate>
+                                    <Border Background="{StaticResource FilspressoSubtleSurface}" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,7">
+                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9">
+                                            <local:SharedIcon IconName="{Binding IconName}" Width="18" Height="18" />
+                                            <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding Status}" FontSize="10" TextWrapping="Wrap" Foreground="{StaticResource FilspressoMuted}" /></StackPanel>
+                                            <Button Grid.Column="2" Tag="{Binding}" Click="OnRemoveSource" Style="{StaticResource RailButtonStyle}" Width="26" Height="26" AutomationProperties.Name="Remove source"><local:SharedIcon IconName="close" Width="14" Height="14" /></Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel x:Name="SuggestionsPanel" Spacing="6" />
+                            </StackPanel>
+                        </ScrollViewer>
+                        <TextBox x:Name="PromptBox" Grid.Row="2" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" MaxHeight="200" MaxLength="8000" PlaceholderText="Type a message…" AutomationProperties.Name="Message" TextChanged="OnPromptChanged" KeyDown="OnPromptKeyDown" Background="Transparent" BorderThickness="0" Padding="0" />
+                        <Grid Grid.Row="3" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
+                            <Button x:Name="AttachButton" Width="34" Height="34" CornerRadius="17" Background="#39302C" BorderThickness="0" Padding="0" AutomationProperties.Name="Attach files" ToolTipService.ToolTip="Import files"><local:SharedIcon IconName="plus" />
                                 <Button.Flyout><MenuFlyout>
-                                    <MenuFlyoutItem Text="New conversation" Click="OnNewConversation" />
-                                    <MenuFlyoutItem Text="Export conversation" Click="OnExportConversation" />
-                                    <MenuFlyoutItem Text="Import conversation" Click="OnImportConversation" />
-                                    <MenuFlyoutItem Text="Settings" Click="OnSettings" />
+                                    <MenuFlyoutItem Text="Media" IsEnabled="False" />
+                                    <MenuFlyoutItem Text="Images · PNG, JPEG, WebP, GIF, BMP, TIFF" Tag=".png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff" Click="OnAttachFiles" />
+                                    <MenuFlyoutItem Text="Videos · MP4, WebM, MOV, MKV, AVI" Tag=".mp4,.webm,.mov,.mkv,.avi" Click="OnAttachFiles" />
+                                    <MenuFlyoutItem Text="Audio · MP3, WAV, M4A, FLAC, OGG, AAC, Opus" Tag=".mp3,.wav,.m4a,.flac,.ogg,.aac,.opus" Click="OnAttachFiles" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="Documents" IsEnabled="False" />
+                                    <MenuFlyoutItem Text="PDFs · PDF documents and scans" Tag=".pdf" Click="OnAttachFiles" />
+                                    <MenuFlyoutItem Text="Word documents · DOCX, ODT" Tag=".docx,.odt" Click="OnAttachFiles" />
+                                    <MenuFlyoutItem Text="Presentations · PPTX, ODP" Tag=".pptx,.odp" Click="OnAttachFiles" />
+                                    <MenuFlyoutItem Text="Excel and spreadsheets · XLSX, ODS, CSV, TSV" Tag=".xlsx,.ods,.csv,.tsv" Click="OnAttachFiles" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="Files and projects" IsEnabled="False" />
+                                    <MenuFlyoutItem Text="Other files · Text, code, ZIP and more" Tag="*" Click="OnAttachFiles" />
                                 </MenuFlyout></Button.Flyout>
                             </Button>
-                            <Button x:Name="ContextButton" Grid.Column="1" Content="16K / 128K" Click="OnSettings" FontSize="10" Background="Transparent" BorderThickness="0" Foreground="{StaticResource FilspressoMuted}" Padding="4" AutomationProperties.Name="Context settings" />
-                            <ToggleButton x:Name="ThinkingButton" Grid.Column="3" Content="Think" FontSize="10" Padding="8,4" Click="OnThinkingChanged" VerticalAlignment="Center" />
-                            <ComboBox x:Name="ModelBox" Grid.Column="4" Width="235" MinHeight="32" SelectionChanged="OnModelChanged" DisplayMemberPath="Label" FontSize="11" VerticalAlignment="Center" AutomationProperties.Name="Model" />
-                            <Grid Grid.Column="5">
-                                <Button x:Name="SendButton" Content="↑" FontSize="22" Width="36" Height="36" Padding="0" CornerRadius="18" Click="OnSend" IsEnabled="False" Background="{StaticResource FilspressoAccent}" Foreground="{StaticResource FilspressoAccentText}" AutomationProperties.Name="Send message" />
-                                <Button x:Name="CancelButton" Content="■" FontSize="16" Width="36" Height="36" Padding="0" CornerRadius="18" Click="OnStop" Visibility="Collapsed" Background="{StaticResource FilspressoAccent}" Foreground="{StaticResource FilspressoAccentText}" AutomationProperties.Name="Stop generation" />
+                            <Button x:Name="GithubButton" Grid.Column="1" Width="34" Height="34" Background="Transparent" BorderThickness="0" Padding="0" AutomationProperties.Name="Add GitHub project" ToolTipService.ToolTip="Add GitHub project" Click="OnAddGithub"><local:SharedIcon IconName="github" /></Button>
+                            <Button x:Name="ContextButton" Grid.Column="2" Content="16K" FontSize="10" Background="Transparent" BorderThickness="0" Foreground="{StaticResource FilspressoMuted}" Padding="4" AutomationProperties.Name="Input context" ToolTipService.ToolTip="Maximum input tokens">
+                                <Button.Flyout><MenuFlyout>
+                                    <MenuFlyoutItem Text="16K" Tag="16384" Click="OnInputContext" />
+                                    <MenuFlyoutItem Text="32K" Tag="32768" Click="OnInputContext" />
+                                    <MenuFlyoutItem Text="64K" Tag="65536" Click="OnInputContext" />
+                                    <MenuFlyoutItem Text="128K" Tag="131072" Click="OnInputContext" />
+                                </MenuFlyout></Button.Flyout>
+                            </Button>
+                            <ToggleButton x:Name="ThinkingButton" Grid.Column="4" Padding="8,4" Click="OnThinkingChanged" VerticalAlignment="Center" AutomationProperties.Name="Thinking mode" ToolTipService.ToolTip="Thinking mode"><local:SharedIcon IconName="brain" Width="18" Height="18" /></ToggleButton>
+                            <ComboBox x:Name="ModelBox" Grid.Column="5" Width="235" MinHeight="32" SelectionChanged="OnModelChanged" DisplayMemberPath="Label" FontSize="11" VerticalAlignment="Center" AutomationProperties.Name="Model" />
+                            <Grid Grid.Column="6">
+                                <Button x:Name="SendButton" Width="36" Height="36" Padding="0" CornerRadius="18" Click="OnSend" IsEnabled="False" Background="{StaticResource FilspressoAccent}" Foreground="{StaticResource FilspressoAccentText}" AutomationProperties.Name="Send message"><local:SharedIcon IconName="send" Tone="dark" /></Button>
+                                <Button x:Name="CancelButton" Width="36" Height="36" Padding="0" CornerRadius="18" Click="OnStop" Visibility="Collapsed" Background="{StaticResource FilspressoAccent}" Foreground="{StaticResource FilspressoAccentText}" AutomationProperties.Name="Stop generation"><local:SharedIcon IconName="stop" Tone="dark" /></Button>
                             </Grid>
                         </Grid>
                     </Grid>
                 </Border>
                 <StackPanel Grid.Row="3" Spacing="5" Margin="0,4,0,8">
+                    <TextBlock Text="Model: hosted · Code suggestions: not executed in chat" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
+                    <TextBlock x:Name="ContextHint" Text="Context is measured before generation · Balanced compaction at 65%" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
+                    <TextBlock x:Name="SessionResumeHint" TextWrapping="Wrap" TextAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
+                    <Button x:Name="CompactButton" Content="Compact next send" Click="OnCompactNext" HorizontalAlignment="Center" Style="{StaticResource QuietButtonStyle}" />
+                    <Expander x:Name="ContextSummaryPanel" Header="Context compaction checkpoint" Visibility="Collapsed" HorizontalAlignment="Stretch"><ScrollViewer MaxHeight="180"><TextBlock x:Name="ContextSummary" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="11" /></ScrollViewer></Expander>
                     <TextBlock x:Name="BalanceHint" Text="Direct model access · 128K context" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
                     <TextBlock x:Name="PriceHint" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" TextAlignment="Center" />
                 </StackPanel>

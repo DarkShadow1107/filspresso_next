@@ -26,6 +26,7 @@
     <RootNamespace>Filspresso.App</RootNamespace>
     <AssemblyName>Filspresso.Playground</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>$(MSBuildThisFileDirectory)..\..\artifacts\branding\Filspresso.ico</ApplicationIcon>
 
     <!-- Unpacked: no package identity, which is the whole point. -->
     <WindowsPackageType>None</WindowsPackageType>
@@ -65,6 +66,15 @@
       <WinUiPublishResource Include="$(TargetDir)*.xbf;$(TargetDir)$(AssemblyName).pri" />
     </ItemGroup>
     <Copy SourceFiles="@(WinUiPublishResource)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="GenerateSharedIcons" BeforeTargets="PrepareForBuild">
+    <Exec Command="node &quot;$(MSBuildThisFileDirectory)..\..\build\Generate-Icons.cjs&quot;" />
+    <ItemGroup>
+      <SharedSvg Include="$(MSBuildThisFileDirectory)..\..\artifacts\shared-icons\*.svg" />
+      <Content Include="@(SharedSvg)" Link="Assets\Icons\%(SharedSvg.Filename)%(SharedSvg.Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+      <Content Include="$(MSBuildThisFileDirectory)..\..\artifacts\branding\Filspresso.ico" Link="Assets\Filspresso.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
   </Target>
 
 </Project>

@@ -41,6 +41,10 @@ public sealed record ToolResult(
     TimeSpan Duration,
     bool TimedOut);
 
+/// <summary>One bounded directory listing of the guest workspace.</summary>
+public sealed record GuestListing(IReadOnlyList<GuestListingEntry> Entries, bool Truncated);
+public sealed record GuestListingEntry(string Name, bool IsDirectory, long Bytes);
+
 /// <summary>
 /// The boundary a tool call is not allowed to cross.
 /// </summary>
@@ -72,8 +76,9 @@ public interface ISandbox
     /// Runs a command inside the session and waits.
     /// </summary>
     /// <param name="workingDirectory">
-    /// Null means the sandbox's own workspace, not a host path. The sandbox has no access to
-    /// the host filesystem, so a host path here is a bug rather than a fallback.
+    /// Null means the sandbox's own workspace; non-null must be workspace-relative, never
+    /// a host path. This API does not grant consent: a production adapter must enforce mode
+    /// and per-action approval before calling it.
     /// </param>
     Task<ToolResult> RunAsync(
         Guid sessionId,
@@ -102,7 +107,8 @@ public interface ISandbox
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Destroys the session. Idempotent, and safe to call from a crash handler.
+    /// Invalidates and destroys the session. Idempotent after confirmed teardown. Failure
+    /// must remain visible and retryable; killing a remoting client alone is not guest cleanup.
     /// </summary>
     Task StopAsync(Guid sessionId, CancellationToken cancellationToken = default);
 
