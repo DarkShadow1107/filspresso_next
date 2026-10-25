@@ -7,6 +7,8 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using Filspresso.Core.Storage;
+using Filspresso.Core.Tools;
+using System.Text;
 
 namespace Filspresso.Sandbox;
 
@@ -31,11 +33,11 @@ public sealed record HyperVQualificationReceipt(
     IReadOnlyList<string> Checks)
 {
     public const int MaxJsonBytes = 65_536;
-    public static readonly string[] RequiredChecks =
-    [
+    public static IReadOnlyList<string> RequiredChecks { get; } = Array.AsReadOnly(new[]
+    {
         "hyper-v-admin", "image-hash-verified", "image-unattached", "guest-ready",
         "no-network-adapter", "workspace-fenced", "cleanup-confirmed",
-    ];
+    });
     public static readonly TimeSpan MaxAge = TimeSpan.FromDays(30);
 
     private static readonly Regex Hex32 = new(@"\A[0-9a-f]{32}\z", RegexOptions.CultureInvariant);
@@ -53,7 +55,7 @@ public sealed record HyperVQualificationReceipt(
     {
         receipt = null;
         reason = "The qualification receipt is invalid.";
-        if (raw is null || raw.Length > MaxJsonBytes) return false;
+        if (raw is null || raw.Length > MaxJsonBytes || Encoding.UTF8.GetByteCount(raw) > MaxJsonBytes) return false;
         try
         {
             using var document = JsonDocument.Parse(raw, new JsonDocumentOptions
@@ -118,6 +120,11 @@ public sealed record HyperVQualificationReceipt(
 
 public static class HyperVQualification
 {
+    // The seven-check receipt predates descendant/race/recovery qualification. It must not
+    // activate unfinished security code. Remove only with reviewed implementation + real
+    // hostile-guest qualification; no environment variable can waive these release gates.
+    public static bool ExecutionReleaseReady => false;
+    public static string ReleaseBlocker => "Desktop execution is release-blocked: guest handle containment, descendant/job limits and durable crash recovery are not yet qualified. A seven-check receipt alone cannot enable it.";
     /// <summary>Default storage under the same local data root the desktop client already owns.</summary>
     public static string DefaultReceiptPath => Path.Combine(DesktopDataPaths.UserDataDirectory, "qualification", "hyper-v.json");
 
@@ -130,10 +137,9 @@ public static class HyperVQualification
     public static string DefaultGuestCredentialTarget => "Filspresso.Playground.HyperVGuest";
 
     /// <summary>
-    /// Re-checks the qualified image against the disk: present, local, not a reparse point,
-    /// same byte length, and not modified after qualification. This is a bounded check, not
-    /// a proof — the receipt records the SHA-256 measured at qualification time; a changed
-    /// image invalidates the receipt rather than being caught here byte-for-byte.
+    /// Re-checks the actual bytes against the recorded SHA-256 through an exclusive,
+    /// no-follow handle with pinned local ancestors. Call off the UI thread for large images.
+    /// This check alone cannot prevent modification after the handle is released.
     /// </summary>
     public static (bool Ok, string Reason) VerifyImage(HyperVQualificationReceipt receipt, string? path = null)
     {
@@ -141,19 +147,23 @@ public static class HyperVQualification
         var location = path is { Length: > 0 } ? path : receipt.ImagePath;
         try
         {
-            if (!Path.IsPathFullyQualified(location) || !location.EndsWith(".vhdx", StringComparison.OrdinalIgnoreCase))
+            if (!location.EndsWith(".vhdx", StringComparison.OrdinalIgnoreCase))
                 return (false, "The qualified image path is not a local .vhdx path.");
+            using var pinned = new PinnedLocalPath(Path.GetDirectoryName(PinnedLocalPath.Normalize(location))!);
+            using var stream = pinned.OpenFile(Path.GetFileName(location));
             var information = new FileInfo(location);
             if (!information.Exists) return (false, "The qualified image file is missing.");
             if ((information.Attributes & FileAttributes.ReparsePoint) != 0)
                 return (false, "The qualified image path is a reparse point.");
-            if (information.Length != receipt.ImageBytes)
+            if (stream.Length != receipt.ImageBytes)
                 return (false, "The image size no longer matches the qualification receipt.");
             if (information.LastWriteTimeUtc > receipt.CreatedUtc.AddMinutes(2))
                 return (false, "The image was modified after qualification; re-run the qualification script.");
+            if (!Convert.ToHexStringLower(SHA256.HashData(stream)).Equals(receipt.ImageSha256, StringComparison.Ordinal))
+                return (false, "The image SHA-256 no longer matches the qualification receipt.");
             return (true, string.Empty);
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
         {
             return (false, "The qualified image could not be read.");
         }
@@ -169,15 +179,16 @@ public static class HyperVQualification
         try
         {
             if (!File.Exists(location)) return (null, "Desktop execution is not qualified: run Qualify-HyperVExecution.ps1 first.");
-            using var stream = new FileStream(location, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var reader = new StreamReader(stream);
-            var raw = reader.ReadToEnd();
-            if (reader.Peek() >= 0) return (null, "The qualification receipt file has unexpected trailing content.");
+            using var pinned = new PinnedLocalPath(Path.GetDirectoryName(PinnedLocalPath.Normalize(location))!);
+            using var stream = pinned.OpenFile(Path.GetFileName(location));
+            if (stream.Length > HyperVQualificationReceipt.MaxJsonBytes) return (null, "The qualification receipt exceeds the byte limit.");
+            var bytes = new byte[checked((int)stream.Length)]; stream.ReadExactly(bytes);
+            var raw = new UTF8Encoding(false, true).GetString(bytes);
             if (!HyperVQualificationReceipt.TryParse(raw, out var receipt, out var reason)) return (null, reason);
             if (receipt is null || !receipt.IsCurrentMachine()) return (null, "The qualification receipt was produced on another machine.");
             return (receipt, string.Empty);
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
         {
             return (null, "The qualification receipt could not be read safely.");
         }

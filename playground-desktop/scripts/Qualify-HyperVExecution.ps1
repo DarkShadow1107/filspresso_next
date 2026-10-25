@@ -61,21 +61,20 @@ param(
     # Two vCPU and 1-4 GB dynamic memory match the client's own sandbox sizing for the
     # disposable conversation VM. The qualification VM uses the same bound.
     [Parameter(Mandatory = $false)]
-    [int]$ProcessorCount = 2,
+    [ValidateRange(2, 2)][int]$ProcessorCount = 2,
     [Parameter(Mandatory = $false)]
-    [long]$MinimumMemoryBytes = 1GB,
+    [ValidateRange(1073741824, 1073741824)][long]$MinimumMemoryBytes = 1GB,
     [Parameter(Mandatory = $false)]
-    [long]$MaximumMemoryBytes = 4GB,
+    [ValidateRange(4294967296, 4294967296)][long]$MaximumMemoryBytes = 4GB,
     [Parameter(Mandatory = $false)]
-    [int]$GuestReadySeconds = 300
+    [ValidateRange(15, 300)][int]$GuestReadySeconds = 300
 )
 
 $ErrorActionPreference = 'Stop'
 $script:Checks = New-Object System.Collections.Generic.List[string]
 
 function Exit-Qualification([string]$gate, [string]$reason) {
-    Write-Error "Gate '$gate' failed: $reason"
-    exit 1
+    throw "Gate '$gate' failed: $reason"
 }
 
 function Get-CanonicalMachineId {
@@ -149,13 +148,13 @@ function Assert-ImageUnattached {
 
 function New-QualificationSession {
     Write-Host 'Gate 4/7: no-network-adapter'
-    $root = Join-Path ([IO.Path]::Combine([Environment]::GetFolderPath('LocalApplicationData'), 'Filspresso', 'Playground', 'qualification')) 'tmp'
+    $name = 'filspresso-qualify-' + [Guid]::NewGuid().ToString('N')
+    $root = Join-Path ([IO.Path]::Combine([Environment]::GetFolderPath('LocalApplicationData'), 'Filspresso', 'Playground', 'qualification')) $name
     New-Item -ItemType Directory -Path $root -Force | Out-Null
     if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
         Exit-Qualification 'no-network-adapter' "The qualification state directory is a reparse point: $root"
     }
     $script:StateRoot = $root
-    $name = 'filspresso-qualify-' + [Guid]::NewGuid().ToString('N')
     $script:VmName = $name
     $script:DiskPath = Join-Path $root ($name + '.vhdx')
 
@@ -171,7 +170,7 @@ if ((Get-Service vmms -ErrorAction Stop).Status -ne "Running") { exit 1 }
 "PROBE_OK"
 '@
     } catch { }
-    $probeLine = @($probe -split '\r?\n' | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -Last 1)
+    $probeLine = $probe -split '\r?\n' | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -Last 1
     if ($probeLine -isnot [string] -or $probeLine.Trim() -ne 'PROBE_OK') {
         Exit-Qualification 'no-network-adapter' 'The child PowerShell probe could not confirm Hyper-V administration.'
     }
@@ -258,11 +257,13 @@ function Assert-WorkspaceFencing {
 function Assert-Cleanup {
     Write-Host 'Gate 7/7: cleanup-confirmed'
     try {
-        $vm = Get-VM -Name $script:VmName -ErrorAction Stop
-        if ($vm.State -ne 'Off') { $vm | Stop-VM -TurnOff -Force -Confirm:$false -ErrorAction Stop }
-        $vm | Remove-VM -Force -Confirm:$false -ErrorAction Stop
+        $vm = Get-VM -ErrorAction Stop | Where-Object Name -EQ $script:VmName
+        if ($null -ne $vm) {
+            if ($vm.State -ne 'Off') { $vm | Stop-VM -TurnOff -Force -Confirm:$false -ErrorAction Stop }
+            $vm | Remove-VM -Force -Confirm:$false -ErrorAction Stop
+        }
     } catch { Exit-Qualification 'cleanup-confirmed' "VM teardown failed: $($_.Exception.Message)" }
-    foreach ($left in Get-VM -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'filspresso-qualify-*' }) {
+    foreach ($left in Get-VM -ErrorAction Stop | Where-Object { $_.Name -eq $script:VmName }) {
         Exit-Qualification 'cleanup-confirmed' "A leftover qualification VM remained: $($left.Name)"
     }
     if (Test-Path -LiteralPath $script:DiskPath) {
@@ -271,7 +272,9 @@ function Assert-Cleanup {
         }
     }
     if (Test-Path -LiteralPath $script:DiskPath) { Exit-Qualification 'cleanup-confirmed' 'The differencing disk removal was not confirmed.' }
-    try { Remove-Item -LiteralPath $script:StateRoot -Force -Recurse -ErrorAction Stop } catch { }
+    # Only this invocation's randomly named directory, never a shared tmp tree.
+    if (Test-Path -LiteralPath $script:StateRoot) { Remove-Item -LiteralPath $script:StateRoot -Force -Recurse -ErrorAction Stop }
+    if (Test-Path -LiteralPath $script:StateRoot) { Exit-Qualification 'cleanup-confirmed' 'The private state directory remained.' }
     $script:Checks.Add('cleanup-confirmed')
 }
 
@@ -327,7 +330,7 @@ public static class FilspressoCredWrite {
                 throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "CredWriteW failed.");
             }
         } finally {
-            if (blob != IntPtr.Zero) { Marshal.FreeHGlobal(blob); }
+            if (blob != IntPtr.Zero) { Marshal.ZeroFreeGlobalAllocUnicode(blob); }
         }
     }
 }
@@ -342,21 +345,11 @@ Measure-Image
 Assert-ImageUnattached
 try {
     New-QualificationSession
-    $script:ReceiptStub = $true
     Wait-GuestReady
     Assert-WorkspaceFencing
 } finally {
-    if ($null -ne (Get-Variable -Name VmName -Scope Script -ErrorAction SilentlyContinue)) {
-        Get-VM -Name $script:VmName -ErrorAction SilentlyContinue | ForEach-Object {
-            if ($_.State -ne 'Off') { $_ | Stop-VM -TurnOff -Force -Confirm:$false -ErrorAction SilentlyContinue }
-            $_ | Remove-VM -Force -Confirm:$false -ErrorAction SilentlyContinue
-        }
-        if ($null -ne $script:DiskPath -and (Test-Path -LiteralPath $script:DiskPath)) {
-            Remove-Item -LiteralPath $script:DiskPath -Force -ErrorAction SilentlyContinue
-        }
-    }
+    if ($null -ne (Get-Variable -Name VmName -Scope Script -ErrorAction SilentlyContinue)) { Assert-Cleanup }
 }
-Assert-Cleanup
 Save-GuestCredentialToVault
 
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
@@ -374,11 +367,11 @@ $directory = [IO.Path]::Combine([Environment]::GetFolderPath('LocalApplicationDa
 New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $path = Join-Path $directory 'hyper-v.json'
 $json = $receipt | ConvertTo-Json -Depth 3
-# Only the user can read the receipt; the app treats it as evidence, never as consent.
+# This is local environment-smoke evidence, NOT a release attestation or consent.
 [IO.File]::WriteAllText($path, $json, [Text.UTF8Encoding]::new($false))
 Write-Host ''
 Write-Host "All seven gates passed. Receipt written: $path"
-Write-Host 'The desktop client will offer sandbox tools on next launch.'
+Write-Warning 'Desktop execution remains release-blocked. These checks do not qualify reparse races, descendants/job controls or durable crash recovery.'
 if (-not $SaveGuestCredential) {
     Write-Host 'Remember to provision the guest credential, e.g.:'
     Write-Host ('  .\Qualify-HyperVExecution.ps1 -ImagePath <path> -GuestCredential (Get-Credential) -SaveGuestCredential')

@@ -34,6 +34,7 @@ public sealed class AgentConversationSession : IDisposable
     public AgentConversationSession(IAgentServices services)
     {
         _services = services;
+        if (services is HyperVAgentServices execution) execution.AttachConsent(_consent);
         _questions.Changed += OnInteractionChanged; _consent.Changed += OnInteractionChanged;
     }
     private void OnInteractionChanged(object? sender, EventArgs args) => Notify();
@@ -118,7 +119,9 @@ public sealed class AgentConversationSession : IDisposable
             _queued = null; _stopping = _active is not null; _active?.Cancel();
             if (clearPrivateState) { _revision++; _conversation.Clear(); _events.Clear(); _key = null; _error = string.Empty; _requiresReset = false; _truncated = false; }
         }
-        _questions.Dismiss(); _consent.Clear(); Notify();
+        _questions.Dismiss(); _consent.Clear();
+        if (_services is HyperVAgentServices execution) execution.RevokeApprovals();
+        Notify();
     }
     public bool NewConversation()
     {
@@ -140,7 +143,8 @@ public sealed class AgentConversationSession : IDisposable
         public AgentWorkspace? Workspace => owner._services.Workspace;
         public Task<AgentModelReply> SendAsync(AgentModelRequest request, CancellationToken cancellationToken = default) => owner._services.SendAsync(request, cancellationToken);
         public Task<QuestionDecision> AskAsync(QuestionChallenge question, CancellationToken cancellationToken = default) => owner._questions.RequestAsync(question, cancellationToken);
-        public Task<AgentApprovalDecision> ApproveAsync(AgentApproval approval, CancellationToken cancellationToken = default) => owner._consent.RequestAsync(approval, cancellationToken);
+        public Task<AgentApprovalDecision> ApproveAsync(AgentApproval approval, CancellationToken cancellationToken = default) =>
+            owner._services is HyperVAgentServices ? owner._services.ApproveAsync(approval, cancellationToken) : owner._consent.RequestAsync(approval, cancellationToken);
         public Task<ToolResult> InvokeAsync(AgentWorkspace workspace, ToolCall call, CancellationToken cancellationToken = default) => owner._services.InvokeAsync(workspace, call, cancellationToken);
         public Task<bool> AbortAsync(AgentWorkspace workspace, CancellationToken cancellationToken = default) => owner._services.AbortAsync(workspace, cancellationToken);
     }

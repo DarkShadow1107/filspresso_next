@@ -1,5 +1,10 @@
 # Filspresso Playground for Windows
 
+**Beta-6:** local project review/explorer/text artifacts work without a VM; desktop code
+execution is release-blocked pending guest containment/job/crash implementation and real
+qualification. See [`../docs/playground-beta6-qualification.md`](../docs/playground-beta6-qualification.md).
+Use `scripts/Test-PlaygroundReadiness.ps1` for read-only single-device diagnostics.
+
 The native WinUI 3 client for the Spectre Playground. Models run through the metered
 desktop gateway; credentials remain in Windows Credential Manager.
 

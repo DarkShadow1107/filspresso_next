@@ -59,8 +59,10 @@ public static class GenericCredentialVault
                     throw new InvalidOperationException("The stored guest credential blob is not usable.");
                 if (string.IsNullOrWhiteSpace(secret)) return null;
                 var user = credential.UserName is { Length: > 0 and <= 256 } name ? name.Trim() : string.Empty;
-                var targetName = string.IsNullOrWhiteSpace(credential.TargetName) ? target : credential.TargetName!;
-                return new NetworkCredential(user, secret, targetName);
+                if (string.IsNullOrWhiteSpace(user) || user.Any(char.IsControl))
+                    throw new InvalidOperationException("The stored guest user name is not usable.");
+                // TargetName identifies the vault row, NOT a Windows account domain.
+                return new NetworkCredential(user, secret);
             }
             return null;
         }

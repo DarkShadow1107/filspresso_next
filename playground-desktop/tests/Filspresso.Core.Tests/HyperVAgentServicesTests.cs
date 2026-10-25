@@ -51,12 +51,20 @@ public sealed class HyperVAgentServicesTests
             throw new InvalidOperationException("Model turns are transport-owned; the adapter never sends.");
     }
 
-    private static HyperVAgentServices Compose(StubHyperVRunner runner, HyperVSandbox? sandbox = null, ProjectCheckpoints? checkpoints = null) =>
+    private static HyperVAgentServices Compose(StubHyperVRunner runner, HyperVSandbox? sandbox = null, ProjectCheckpoints? checkpoints = null, AgentConsentQueue? consent = null) =>
         new(new StubTransport(), sandbox ?? runner.Sandbox(), new HyperVQualificationReceipt(
             @"C:\base\windows.vhdx", new string('a', 64), 2L * 1024 * 1024, 2,
             DateTimeOffset.UtcNow, HyperVQualification.MachineId, HyperVQualificationReceipt.RequiredChecks),
             checkpoints ?? Baseline(("src/main.py", "print('one')")),
-            executionQualified: true, executionStatus: "fixture-qualified");
+            executionQualified: true, executionStatus: "fixture-qualified", consent: consent);
+
+    private static async Task Approve(HyperVAgentServices services, AgentConsentQueue consent, ToolCall call)
+    {
+        var approval = new AgentApproval(Guid.NewGuid(), services.Workspace!, call, call.Name == "run_command" ? ToolEffect.Execution : ToolEffect.Mutation);
+        var pending = services.ApproveAsync(approval);
+        Assert.True(consent.Decide(approval.Id, true));
+        Assert.True((await pending).Approved);
+    }
 
     private static readonly ToolCall WriteCall =
         new("call_w", "write_file", "{\"path\":\"src/main.py\",\"contents\":\"print('two')\"}");
@@ -132,10 +140,14 @@ public sealed class HyperVAgentServicesTests
     {
         var runner = Runner();
         var checkpoints = Baseline(("src/main.py", "print('one')"));
-        using var services = Compose(runner, checkpoints: checkpoints);
+        using var consent = new AgentConsentQueue();
+        using var services = Compose(runner, checkpoints: checkpoints, consent: consent);
         await services.EnsureWorkspaceAsync();
         var workspace = services.Workspace!;
+        await Assert.ThrowsAsync<SandboxPolicyException>(() => services.InvokeAsync(workspace, WriteCall));
+        await Approve(services, consent, WriteCall);
         var result = await services.InvokeAsync(workspace, WriteCall);
+        await Assert.ThrowsAsync<SandboxPolicyException>(() => services.InvokeAsync(workspace, WriteCall));
         Assert.Equal(0, result.ExitCode);
         var change = checkpoints.Changes.Single(change => change.Path == "src/main.py");
         Assert.Contains("-print('one')", change.Diff, StringComparison.Ordinal);
@@ -146,7 +158,8 @@ public sealed class HyperVAgentServicesTests
     public async Task ReadListAndRunDispatchThroughTheGuestTransportOnly()
     {
         var runner = Runner();
-        using var services = Compose(runner);
+        using var consent = new AgentConsentQueue();
+        using var services = Compose(runner, consent: consent);
         await services.EnsureWorkspaceAsync();
         var workspace = services.Workspace!;
 
@@ -157,8 +170,9 @@ public sealed class HyperVAgentServicesTests
         Assert.Equal(0, listing.ExitCode);
         Assert.Empty(listing.StandardOutput); // empty fixture listing
 
-        var run = await services.InvokeAsync(workspace, new ToolCall("c", "run_command",
-            "{\"command\":\"python\",\"arguments\":\"-V\",\"directory\":\"src\",\"timeoutSeconds\":60}"));
+        var call = new ToolCall("run_c", "run_command", "{\"command\":\"python\",\"arguments\":\"-V\",\"directory\":\"src\",\"timeoutSeconds\":60}");
+        await Approve(services, consent, call);
+        var run = await services.InvokeAsync(workspace, call);
         Assert.Equal(0, run.ExitCode);
         Assert.Contains("hello 界", run.StandardOutput, StringComparison.Ordinal);
         Assert.Contains("diagnostic", run.StandardError, StringComparison.Ordinal);
@@ -166,16 +180,12 @@ public sealed class HyperVAgentServicesTests
     }
 
     [Fact]
-    public async Task OversizedBaselineSeedContentIsRefusedBeforeAnyGuestWrite()
+    public void OversizedBaselineIsRefusedBeforeSandboxStartup()
     {
         var runner = Runner();
-        var checkpoints = Baseline(("src/big.cpp", new string('x', HyperVSandbox.MaxSandboxFileBytes + 1)));
-        using var services = Compose(runner, checkpoints: checkpoints);
-        var (ok, error) = await services.EnsureWorkspaceAsync();
-        Assert.False(ok);
-        Assert.Contains("per-file sandbox limit", error, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(services.Workspace);
-        Assert.DoesNotContain(runner.GuestCalls, call => call.Source.Contains("written", StringComparison.Ordinal));
+        Assert.Throws<InvalidOperationException>(() => Baseline(("src/big.cpp", new string('x', HyperVSandbox.MaxSandboxFileBytes + 1))));
+        Assert.Empty(runner.GuestCalls);
+        Assert.Empty(runner.HostScripts);
     }
 
     [Fact]
@@ -221,5 +231,32 @@ public sealed class HyperVAgentServicesTests
         await Assert.ThrowsAsync<SandboxPolicyException>(() => services.InvokeAsync(workspace, WriteCall));
         var (ok, _) = await services.EnsureWorkspaceAsync();
         Assert.False(ok);
+    }
+
+    [Fact]
+    public async Task CleanupFailureIsRetainedBlocksStartupAndCanBeRetried()
+    {
+        var runner = Runner(); using var services = Compose(runner);
+        await services.EnsureWorkspaceAsync();
+        var failCleanup = true;
+        runner.OnHost = (script, _) => StubHyperVRunner.Reply(script.Contains("Remove-VM", StringComparison.Ordinal) && failCleanup ? "FAILED" : "DONE");
+        Assert.False(await services.DiscardWorkspaceAsync()); Assert.True(services.NeedsCleanup);
+        Assert.False((await services.EnsureWorkspaceAsync()).Ok);
+        failCleanup = false;
+        Assert.True(await services.DiscardWorkspaceAsync()); Assert.False(services.NeedsCleanup);
+    }
+
+    [Fact]
+    public async Task ApprovalDoesNotAuthorizeChangedArgumentsOrAnotherExecutionLocation()
+    {
+        var runner = Runner(); using var consent = new AgentConsentQueue();
+        using var services = Compose(runner, consent: consent); await services.EnsureWorkspaceAsync();
+        var workspace = services.Workspace!; await Approve(services, consent, WriteCall);
+        await Assert.ThrowsAsync<SandboxPolicyException>(() => services.InvokeAsync(workspace with { Location = CodeLocation.HostedDocker }, WriteCall));
+        await Assert.ThrowsAsync<SandboxPolicyException>(() => services.InvokeAsync(workspace, WriteCall with { ArgumentsJson = "{\"path\":\"src/main.py\",\"contents\":\"changed\"}" }));
+        await Assert.ThrowsAsync<SandboxPolicyException>(() => services.InvokeAsync(workspace, WriteCall));
+        var before = runner.GuestCalls.Count;
+        await Assert.ThrowsAsync<SandboxPolicyException>(() => services.InvokeAsync(workspace, new("invalid", "write_file", "{\"path\":\"a\",\"contents\":\"x\",\"extra\":true}")));
+        Assert.Equal(before, runner.GuestCalls.Count);
     }
 }

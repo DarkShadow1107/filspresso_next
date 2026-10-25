@@ -41,11 +41,15 @@ public sealed class ProjectCheckpoints
     };
 
     private readonly object _gate = new();
-    private readonly Dictionary<string, string> _baseline = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _current = new(StringComparer.Ordinal);
+    private static readonly UTF8Encoding Utf8 = new(false, true);
+    private readonly Dictionary<string, string> _baseline = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _current = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ProjectChange> _changes = new();
+    private bool _hasBaseline;
+    private PreparedExport? _prepared;
+    private sealed record PreparedExport(CheckpointExportPlan Public, IReadOnlyDictionary<string, byte[]> Contents, IReadOnlyDictionary<string, byte[]?> Expected);
 
-    public bool HasBaseline { get { lock (_gate) return _baseline.Count > 0; } }
+    public bool HasBaseline { get { lock (_gate) return _hasBaseline; } }
     public int ChangeCount { get { lock (_gate) return _changes.Count; } }
 
     public IReadOnlyList<ProjectChange> Changes
@@ -73,7 +77,7 @@ public sealed class ProjectCheckpoints
 
     public void Reset()
     {
-        lock (_gate) { _baseline.Clear(); _current.Clear(); _changes.Clear(); }
+        lock (_gate) { _baseline.Clear(); _current.Clear(); _changes.Clear(); _hasBaseline = false; _prepared = null; }
     }
 
     /// <summary>Registers the imported baseline files (workspace-relative path → source text).</summary>
@@ -82,15 +86,25 @@ public sealed class ProjectCheckpoints
         ArgumentNullException.ThrowIfNull(files);
         lock (_gate)
         {
-            if (_baseline.Count > 0) throw new InvalidOperationException("A baseline is already installed. Start a new conversation to import another project.");
+            if (_hasBaseline || _changes.Count > 0) throw new InvalidOperationException("A baseline is already installed or writes exist. Reset before importing another project.");
             if (files.Count > MaxFiles) throw new InvalidOperationException($"A project import is limited to {MaxFiles} files.");
+            var staged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            long total = 0;
             foreach (var file in files)
             {
                 if (file.Path is not { Length: > 0 } path || !WorkspacePath.IsRelativeFile(path))
                     throw new InvalidOperationException($"\"{file.Path}\" is not a relative workspace path.");
-                if (!_current.TryAdd(path, file.Contents) || !_baseline.TryAdd(path, file.Contents))
+                if (path.Equals(".filspresso-export-manifest.json", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The export manifest name is reserved.");
+                var size = Utf8.GetByteCount(file.Contents);
+                total += size;
+                if (size > MaxFileBytes || total > MaxTotalBytes) throw new InvalidOperationException("The baseline exceeds project byte limits.");
+                if (!staged.TryAdd(path, file.Contents) || staged.Keys.Any(other => !other.Equals(path, StringComparison.OrdinalIgnoreCase) &&
+                    (other.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase) || path.StartsWith(other + "/", StringComparison.OrdinalIgnoreCase))))
                     throw new InvalidOperationException($"\"{file.Path}\" is already tracked.");
             }
+            foreach (var file in staged) { _baseline.Add(file.Key, file.Value); _current.Add(file.Key, file.Value); }
+            _hasBaseline = true;
+            _prepared = null;
         }
     }
 
@@ -102,13 +116,22 @@ public sealed class ProjectCheckpoints
         var content = next ?? string.Empty;
         lock (_gate)
         {
-            var previous = _current.TryGetValue(relative, out var value) ? value : string.Empty;
-            var previousBytes = Encoding.UTF8.GetBytes(previous);
-            var nextBytes = Encoding.UTF8.GetBytes(content);
+            if (_changes.Count >= 1024) throw new InvalidOperationException("The journal limit was reached; export and reset before continuing.");
+            if (relative.Equals(".filspresso-export-manifest.json", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The export manifest name is reserved.");
+            var existed = _current.TryGetValue(relative, out var value);
+            if ((!existed && _current.Count >= MaxFiles) || _current.Keys.Any(other =>
+                other.StartsWith(relative + "/", StringComparison.OrdinalIgnoreCase) || relative.StartsWith(other + "/", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("File-count limit or file/directory collision.");
+            var previous = value ?? string.Empty;
+            var previousBytes = Utf8.GetBytes(previous);
+            var nextBytes = Utf8.GetBytes(content);
+            if (nextBytes.Length > MaxFileBytes || _current.Values.Sum(item => (long)Utf8.GetByteCount(item)) - previousBytes.Length + nextBytes.Length > MaxTotalBytes)
+                throw new InvalidOperationException("The write exceeds project byte limits.");
             _current[relative] = content;
             _changes.Add(new(_changes.Count + 1, relative, UnifiedDiff.Compute(previous, content, relative),
-                previousBytes.Length == 0 ? null : Convert.ToHexStringLower(SHA256.HashData(previousBytes)),
+                !existed ? null : Convert.ToHexStringLower(SHA256.HashData(previousBytes)),
                 Convert.ToHexStringLower(SHA256.HashData(nextBytes))));
+            _prepared = null;
         }
     }
 
@@ -120,14 +143,17 @@ public sealed class ProjectCheckpoints
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
             throw new InvalidOperationException($"The project directory does not exist: {directory}");
         var files = new List<string>();
-        Walk(new DirectoryInfo(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)), depth: 0, files);
+        var directories = 0;
+        Walk(new DirectoryInfo(PinnedLocalPath.Normalize(directory)), depth: 0, files, ref directories);
         files.Sort(StringComparer.Ordinal);
         if (files.Count > MaxFiles) throw new InvalidOperationException($"The project exceeds {MaxFiles} importable files; tighten the tree or import a subset.");
         return files;
     }
 
-    private static void Walk(DirectoryInfo directory, int depth, List<string> files)
+    private static void Walk(DirectoryInfo directory, int depth, List<string> files, ref int directories)
     {
+        if (++directories > 2048) throw new InvalidOperationException("The import exceeds the directory enumeration budget.");
+        using var pinned = new PinnedLocalPath(directory.FullName);
         if (depth > 16) throw new InvalidOperationException("The project nesting depth exceeds bounded-import policy.");
         if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
             throw new InvalidOperationException($"\"{directory.FullName}\" is a reparse point; bounded imports never follow links.");
@@ -135,10 +161,16 @@ public sealed class ProjectCheckpoints
         {
             if (SkippedDirectories.Contains(child.Name, StringComparer.OrdinalIgnoreCase)
                 || child.Name.StartsWith(".", StringComparison.Ordinal)) continue;
-            Walk(child, depth + 1, files);
+            Walk(child, depth + 1, files, ref directories);
         }
         foreach (var file in directory.EnumerateFiles())
-            if (IsImportable(file.FullName)) files.Add(file.FullName);
+        {
+            if (!IsImportable(file.FullName)) continue;
+            using var stream = pinned.OpenFile(file.Name);
+            if (stream.Length > MaxFileBytes) throw new InvalidOperationException("A project file exceeds the per-file import limit.");
+            files.Add(file.FullName);
+            if (files.Count > MaxFiles) throw new InvalidOperationException("The project exceeds the file-count limit.");
+        }
     }
 
     public static bool IsImportable(string fullPath)
@@ -148,7 +180,9 @@ public sealed class ProjectCheckpoints
         try { if (new DirectoryInfo(directory).Attributes.HasFlag(FileAttributes.Hidden)) return false; }
         catch (DirectoryNotFoundException) { return false; }
         var name = Path.GetFileName(fullPath);
-        if (SkippedFiles.Contains(name, StringComparer.OrdinalIgnoreCase)) return false;
+        if (SkippedFiles.Contains(name, StringComparer.OrdinalIgnoreCase) || name.StartsWith(".env.", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith(".key", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".pem", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("credentials.json", StringComparison.OrdinalIgnoreCase)) return false;
         // Size is deliberately NOT filtered here: ImportPlan fails loud on oversized files
         // instead of silently importing a baseline that is missing them.
         return ImportableExtensions.Contains(Path.GetExtension(fullPath)) ||
@@ -163,12 +197,16 @@ public sealed class ProjectCheckpoints
         long total = 0;
         foreach (var fullPath in paths)
         {
-            using var stream = File.OpenRead(fullPath);
+            using var pinned = new PinnedLocalPath(Path.GetDirectoryName(fullPath)!);
+            using var stream = pinned.OpenFile(Path.GetFileName(fullPath));
             if (stream.Length > MaxFileBytes) throw new InvalidOperationException($"\"{fullPath}\" exceeds the per-file import limit.");
             total += stream.Length;
             if (total > MaxTotalBytes) throw new InvalidOperationException($"The project exceeds the {MaxTotalBytes}-byte import limit.");
-            using var reader = new StreamReader(stream, new UTF8Encoding(false, false), detectEncodingFromByteOrderMarks: true);
-            files.Add(new(Relative(fullPath, directory), reader.ReadToEnd()));
+            var bytes = new byte[checked((int)stream.Length)];
+            stream.ReadExactly(bytes);
+            var text = Utf8.GetString(bytes); // retain BOM/CRLF exactly; reject non-UTF-8/binary
+            if (text.Contains('\0')) throw new InvalidOperationException("Binary files cannot form a text baseline.");
+            files.Add(new(Relative(fullPath, directory), text));
         }
         return files;
     }
@@ -184,14 +222,18 @@ public sealed class ProjectCheckpoints
     /// <summary>Validates the destination and returns writable entries and conflicts. No disk writes.</summary>
     public CheckpointExportPlan Prepare(string destinationRoot)
     {
-        if (string.IsNullOrWhiteSpace(destinationRoot) || !Path.IsPathFullyQualified(destinationRoot) ||
-            destinationRoot.StartsWith(@"\\", StringComparison.Ordinal))
-            throw new InvalidOperationException("Choose a local absolute destination directory, not a network share or device path.");
+        destinationRoot = PinnedLocalPath.Normalize(destinationRoot);
+        // The picker supplies an existing directory. Never create a destination on Prepare.
+        using var root = new PinnedLocalPath(destinationRoot);
         lock (_gate)
         {
             var entries = new List<ExportEntry>();
             var conflicts = new List<ExportConflict>();
-            foreach (var grouped in _changes.GroupBy(change => change.Path, StringComparer.Ordinal))
+            var contents = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            var expected = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase);
+            if (File.Exists(Path.Combine(destinationRoot, ".filspresso-export-manifest.json")) || Directory.Exists(Path.Combine(destinationRoot, ".filspresso-export-manifest.json")))
+                conflicts.Add(new(".filspresso-export-manifest.json", "An export manifest already exists. Choose a new destination; it will not be overwritten."));
+            foreach (var grouped in _changes.GroupBy(change => change.Path, StringComparer.OrdinalIgnoreCase))
             {
                 var path = grouped.Key;
                 var previous = _baseline.TryGetValue(path, out var value) ? value : string.Empty;
@@ -204,60 +246,114 @@ public sealed class ProjectCheckpoints
                     conflicts.Add(new(path, "The destination path is an existing directory."));
                 else
                 {
-                    var previousBytes = Encoding.UTF8.GetBytes(previous);
-                    var nextBytes = Encoding.UTF8.GetBytes(next);
+                    var previousBytes = Utf8.GetBytes(previous);
+                    var nextBytes = Utf8.GetBytes(next);
                     var previousDigest = Convert.ToHexStringLower(SHA256.HashData(previousBytes));
                     var candidate = TryReadCandidate(destination);
-                    if (candidate is { } bytes && !bytes.AsSpan().SequenceEqual(previousBytes))
+                    if (candidate is { } bytes && (!_baseline.ContainsKey(path) || !bytes.AsSpan().SequenceEqual(previousBytes)))
                         conflicts.Add(new(path, bytes.Length == 0
                             ? "An empty file already occupies the destination where the sandbox baseline stores content."
                             : $"A different file already occupies the destination. Its sha256 is {Convert.ToHexStringLower(SHA256.HashData(bytes))}; the sandbox base is {previousDigest}."));
-                    else entries.Add(new(path, previousDigest, Convert.ToHexStringLower(SHA256.HashData(nextBytes)), nextBytes.Length, destination));
+                    else
+                    {
+                        entries.Add(new(path, previousDigest, Convert.ToHexStringLower(SHA256.HashData(nextBytes)), nextBytes.Length, destination));
+                        contents.Add(path, nextBytes);
+                        expected.Add(path, candidate);
+                    }
                 }
             }
-            return new(destinationRoot, entries, conflicts);
+            var plan = new CheckpointExportPlan(destinationRoot, entries.AsReadOnly(), conflicts.AsReadOnly());
+            _prepared = new(plan, contents, expected);
+            return plan;
         }
     }
 
-    /// <summary>Applies the prepared plan all-or-nothing and returns the byte-exact manifest.</summary>
+    /// <summary>
+    /// Applies only this instance's latest unchanged one-shot plan. Locks/revalidates all files
+    /// before modifying content, restores bytes on ordinary exceptions. NOT a crash-atomic
+    /// multi-file transaction: power loss/process termination still requires external backups.
+    /// </summary>
     public CheckpointExportManifest Apply(CheckpointExportPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        if (plan.Conflicts.Count > 0) throw new InvalidOperationException("Resolve every listed conflict before applying an export.");
-        if (plan.Entries.Count == 0) throw new InvalidOperationException("The plan has no entries to apply.");
-        Directory.CreateDirectory(plan.DestinationRoot);
-        var manifestEntries = new List<ExportEntry>(plan.Entries.Count);
-        foreach (var entry in plan.Entries)
+        lock (_gate)
         {
-            var target = entry.DestinationPath!;
-            var directory = Path.GetDirectoryName(target)!;
-            Directory.CreateDirectory(directory);
-            if ((new DirectoryInfo(directory).Attributes & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint)
-                throw new InvalidOperationException($"A destination directory contains a reparse point: {directory}");
-            if (!Current.TryGetValue(entry.Path, out var next)) throw new InvalidOperationException($"\"{entry.Path}\" is not tracked.");
-            var interim = target + ".filspresso-partial";
-            File.WriteAllText(interim, next, new UTF8Encoding(false, false));
-            File.Move(interim, target, overwrite: true);
-            manifestEntries.Add(new(entry.Path, entry.PreviousSha256, entry.NextSha256, entry.Bytes, null));
+            if (plan.Conflicts.Count > 0) throw new InvalidOperationException("Resolve every listed conflict before applying an export.");
+            if (plan.Entries.Count == 0) throw new InvalidOperationException("The plan has no entries to apply.");
+            if (_prepared is not { } prepared || !ReferenceEquals(prepared.Public, plan))
+                throw new InvalidOperationException("Export plan is foreign, stale, changed or already consumed. Review a new plan.");
+            _prepared = null; // never retry a partially applied plan
+            var pins = new List<PinnedLocalPath>();
+            var opened = new List<(string Path, FileStream Stream, byte[]? Previous, byte[] Next)>();
+            var modified = false;
+            var completed = false;
+            try
+            {
+                var root = new PinnedLocalPath(plan.DestinationRoot); pins.Add(root);
+                // Reserve the manifest first, without overwriting any pre-existing file.
+                var manifestFile = root.OpenFile(".filspresso-export-manifest.json", FileAccess.ReadWrite, createNew: true);
+                var manifest = new CheckpointExportManifest(1, plan.DestinationRoot, DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    plan.Entries.Select(entry => entry with { DestinationPath = null }).ToArray());
+                opened.Add((Path.Combine(plan.DestinationRoot, ".filspresso-export-manifest.json"), manifestFile, null,
+                    Utf8.GetBytes(JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }))));
+                foreach (var entry in plan.Entries)
+                {
+                    var target = entry.DestinationPath!;
+                    var pin = new PinnedLocalPath(Path.GetDirectoryName(target)!, create: true); pins.Add(pin);
+                    var before = prepared.Expected[entry.Path];
+                    var stream = pin.OpenFile(Path.GetFileName(target), FileAccess.ReadWrite, createNew: before is null);
+                    opened.Add((target, stream, before, prepared.Contents[entry.Path]));
+                    if (before is not null)
+                    {
+                        if (stream.Length != before.Length) throw new InvalidOperationException("A destination changed after review.");
+                        var actual = new byte[before.Length]; stream.ReadExactly(actual);
+                        if (!actual.AsSpan().SequenceEqual(before)) throw new InvalidOperationException("A destination changed after review.");
+                    }
+                }
+                modified = true;
+                // Manifest last: its existence alone is NOT completion evidence; parse it.
+                foreach (var file in opened.Skip(1).Concat(opened.Take(1))) Write(file.Stream, file.Next);
+                completed = true;
+                return manifest;
+            }
+            catch (Exception original)
+            {
+                if (modified)
+                {
+                    try { foreach (var file in opened.Where(file => file.Previous is not null)) Write(file.Stream, file.Previous!); }
+                    catch (Exception rollback) { throw new AggregateException("Export failed and rollback could not be confirmed. Restore from your backup; do not retry blindly.", original, rollback); }
+                }
+                throw;
+            }
+            finally
+            {
+                foreach (var file in opened) file.Stream.Dispose();
+                try
+                {
+                    if (!completed)
+                        foreach (var file in opened.Where(file => file.Previous is null)) File.Delete(file.Path);
+                }
+                finally { foreach (var pin in pins.AsEnumerable().Reverse()) pin.Dispose(); }
+            }
         }
-        var manifest = new CheckpointExportManifest(1, plan.DestinationRoot, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), manifestEntries);
-        var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(Path.Combine(plan.DestinationRoot, ".filspresso-export-manifest.json"), json, new UTF8Encoding(false));
-        return manifest;
     }
+
+    private static void Write(FileStream stream, byte[] bytes)
+    { stream.Position = 0; stream.Write(bytes); stream.SetLength(bytes.Length); stream.Flush(flushToDisk: true); }
 
     private static byte[]? TryReadCandidate(string path)
     {
         try
         {
-            if (!File.Exists(path)) return null;
-            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var pinned = new PinnedLocalPath(Path.GetDirectoryName(path)!);
+            using var stream = pinned.OpenFile(Path.GetFileName(path));
             if (stream.Length > MaxFileBytes) throw new InvalidOperationException($"The conflicting destination file is larger than bounded policy: {path}");
             var buffer = new byte[stream.Length];
             stream.ReadExactly(buffer);
             return buffer;
         }
         catch (DirectoryNotFoundException) { return null; }
+        catch (FileNotFoundException) { return null; }
     }
 }
 
@@ -278,9 +374,10 @@ public static class UnifiedDiff
 
     public static string Compute(string? previous, string? next, string path)
     {
-        if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("The diff path must be a nonempty workspace path.");
+        if (!WorkspacePath.IsRelativeFile(path)) throw new InvalidOperationException("The diff path must be a relative workspace path.");
         var before = Lines(previous);
         var after = Lines(next);
+        if (string.Equals(previous ?? "", next ?? "", StringComparison.Ordinal)) return string.Empty;
         var ops = (long)before.Length * after.Length <= MaxCells ? Split(before, after) : WholeFile(before, after);
         // Identical content leaves an all-context op stream; the empty diff then means nothing changed.
         if (ops.Count > 0 && ops.All(op => op.Kind == '=')) ops.Clear();
@@ -288,8 +385,15 @@ public static class UnifiedDiff
         return $"--- a/{path}\n+++ b/{path}\n" + Format(ops, before, after);
     }
 
-    private static string[] Lines(string? value) =>
-        string.IsNullOrEmpty(value) ? Array.Empty<string>() : value.Replace("\r", string.Empty).Split('\n', StringSplitOptions.None);
+    private static string[] Lines(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return [];
+        var result = new List<string>(); var start = 0;
+        for (var index = 0; index < value.Length; index++)
+            if (value[index] == '\n') { result.Add(value[start..(index + 1)]); start = index + 1; }
+        if (start < value.Length) result.Add(value[start..]);
+        return result.ToArray();
+    }
 
     private static List<(char Kind, int Before, int After)> WholeFile(string[] before, string[] after)
     {
@@ -379,12 +483,9 @@ public static class UnifiedDiff
             for (var index = begin; index < stop; index++)
             {
                 var (kind, beforeLine, afterLine) = ops[index];
-                output.Append(kind switch
-                {
-                    '-' => $"-{before[beforeLine]}\n",
-                    '+' => $"+{after[afterLine]}\n",
-                    _ => $" {before[beforeLine]}\n",
-                });
+                var line = kind == '+' ? after[afterLine] : before[beforeLine];
+                output.Append(kind == '=' ? ' ' : kind).Append(line);
+                if (!line.EndsWith('\n')) output.Append("\n\\ No newline at end of file\n");
             }
         }
         return output.ToString();

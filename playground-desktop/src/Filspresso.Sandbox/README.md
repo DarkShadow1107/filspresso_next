@@ -1,4 +1,12 @@
-# Hyper-V execution library — not enabled in the app
+# Hyper-V execution library — release-blocked
+
+**Beta-6:** `HyperVAgentServices` and approval UI exist, but application composition now
+explicitly blocks execution while guest handle containment, jobs/descendants and durable
+crash recovery remain unfinished. An old seven-check receipt cannot bypass this. See
+`docs/playground-beta6-qualification.md` for corrections to earlier enablement claims.
+`GenericCredentialVault`/`VaultGuestCredentials` read an operator-provisioned credential;
+the app never creates that guest credential. Image verification measures actual SHA-256.
+The historical paragraphs below describe the pre-release library, not readiness to ship.
 
 `HyperVSandbox` implements `ISandbox`. It does not grant execution approval and is not
 connected to chat or the agent loop. A future adapter must enforce capability, account/session

@@ -35,11 +35,13 @@ public sealed class ProjectCheckpointsTests
     }
 
     [Fact]
-    public void BaselineAcceptsNestedPathsAndKeepsCaseDistinctEntries()
+    public void BaselineRejectsCaseAliasesAtomicallyAndAcceptsNestedPaths()
     {
         var checkpoints = new ProjectCheckpoints();
-        checkpoints.SetBaseline([Snap("b/cs.py", "1"), Snap("B/CS.py", "2"), Snap("src/组件.py", "3")]);
-        Assert.Equal(3, checkpoints.Current.Count);
+        Assert.Throws<InvalidOperationException>(() => checkpoints.SetBaseline([Snap("b/cs.py", "1"), Snap("B/CS.py", "2")]));
+        Assert.Empty(checkpoints.Current);
+        checkpoints.SetBaseline([Snap("b/cs.py", "1"), Snap("src/组件.py", "3")]);
+        Assert.Equal(2, checkpoints.Current.Count);
         Assert.Equal("3", checkpoints.Current["src/组件.py"]);
         checkpoints.Reset();
         Assert.False(checkpoints.HasBaseline);
@@ -206,31 +208,34 @@ public sealed class UnifiedDiffTests
         var hunks = Regex.Matches(diff, @"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@$", RegexOptions.Multiline);
         var headers = Regex.Matches(diff, @"^(--- a/|\+\+\+ b/).+", RegexOptions.Multiline).Count;
         Assert.Equal(2, headers);
-        var beforeLines = before.Length == 0 ? [] : before.Split('\n');
+        var beforeLines = Regex.Matches(before, "[^\\n]*\\n|[^\\n]+$").Select(match => match.Value).ToArray();
         var position = 0;
         var output = new List<string>();
         for (var hunkIndex = 0; hunkIndex < hunks.Count; hunkIndex++)
         {
             var match = hunks[hunkIndex];
-            var hunkStart = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) - 1;
+            var oldCount = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+            var hunkStart = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) - (oldCount == 0 ? 0 : 1);
             while (position < hunkStart) { output.Add(beforeLines[position]); position++; }
             var from = match.Index + match.Length;
             var to = hunkIndex + 1 < hunks.Count ? hunks[hunkIndex + 1].Index : diff.Length;
             var consumed = 0;
-            foreach (var line in diff[from..to].Split('\n'))
+            var body = diff[from..to].TrimStart('\n').Split('\n');
+            for (var index = 0; index < body.Length; index++)
             {
+                var line = body[index];
                 if (line.Length == 0) continue;
-                if (line.StartsWith("--- a/", StringComparison.Ordinal) || line.StartsWith("+++", StringComparison.Ordinal) ||
-                    line.StartsWith("@@", StringComparison.Ordinal)) break;
+                var content = line[1..] + "\n";
+                if (index + 1 < body.Length && body[index + 1] == "\\ No newline at end of file") { content = line[1..]; index++; }
                 if (line[0] == '+')
                 {
-                    output.Add(line[1..]);
+                    output.Add(content);
                 }
                 else
                 {
                     Assert.True(position < beforeLines.Length, "The diff consumed past the end of the previous text.");
-                    Assert.Equal(beforeLines[position], line[1..]);
-                    if (line[0] == ' ') output.Add(line[1..]); // context survives; deletions do not
+                    Assert.Equal(beforeLines[position], content);
+                    if (line[0] == ' ') output.Add(content);
                     position++;
                     consumed++;
                 }
@@ -239,7 +244,7 @@ public sealed class UnifiedDiffTests
             Assert.Equal(expected, consumed);
         }
         while (position < beforeLines.Length) { output.Add(beforeLines[position]); position++; }
-        return string.Join('\n', output);
+        return string.Concat(output);
     }
 
     private static string Diff(string previous, string next) => UnifiedDiff.Compute(previous, next, "src/example.py");
@@ -256,14 +261,14 @@ public sealed class UnifiedDiffTests
     public void MiddleEditProducesAContextWindow()
     {
         Check("a\nb\nc", "a\nX\nc",
-            "--- a/src/example.py\n+++ b/src/example.py\n@@ -1,3 +1,3 @@\n a\n-b\n+X\n c\n");
+            "--- a/src/example.py\n+++ b/src/example.py\n@@ -1,3 +1,3 @@\n a\n-b\n+X\n c\n\\ No newline at end of file\n");
     }
 
     [Fact]
     public void AppendDeleteAndEmptyEdgesProduceStandardHeaders()
     {
-        Check("a", "a\nb", "--- a/src/example.py\n+++ b/src/example.py\n@@ -1,1 +1,2 @@\n a\n+b\n");
-        Check("a\nb", "a", "--- a/src/example.py\n+++ b/src/example.py\n@@ -1,2 +1,1 @@\n a\n-b\n");
+        Check("a", "a\nb");
+        Check("a\nb", "a");
         Check("alpha\nbeta\ngamma", "alpha\nbeta\ngamma\ndelta");
         Check("", "one");
         Check("one", "");
@@ -302,10 +307,12 @@ public sealed class UnifiedDiffTests
     }
 
     [Fact]
-    public void IdenticalContentYieldsNoDiffAndCRLFIsNormalised()
+    public void IdenticalContentYieldsNoDiffAndLineEndingsRemainByteExact()
     {
         Assert.Equal(string.Empty, Diff("a\nb\nc", "a\nb\nc"));
-        Assert.Equal(string.Empty, Diff("a\r\nb\r\nc", "a\nb\nc"));
+        Check("a\r\nb\r\nc", "a\nb\nc");
+        Check("x", "x\n"); Check("x\n", "x"); Check("\n", "");
+        Check("++header\n", "---body\n");
         Assert.Throws<InvalidOperationException>(() => UnifiedDiff.Compute("a", "b", ""));
         Assert.Throws<InvalidOperationException>(() => UnifiedDiff.Compute("a", "b", " "));
     }

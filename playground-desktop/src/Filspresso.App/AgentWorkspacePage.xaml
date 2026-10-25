@@ -11,7 +11,7 @@
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button x:Name="CheckButton" Content="Check native availability" Click="OnCheck" Style="{StaticResource QuietButtonStyle}" />
                 <Button x:Name="StopButton" Content="Stop / interrupt" Click="OnStop" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
-                <Button x:Name="NewButton" Content="New agent conversation" Click="OnNew" Style="{StaticResource QuietButtonStyle}" />
+                <Button x:Name="NewButton" Content="New conversation / change mode · retain project" Click="OnNew" Style="{StaticResource QuietButtonStyle}" />
             </StackPanel>
             <Border BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="10" Padding="14">
                 <StackPanel Spacing="10">
@@ -36,7 +36,10 @@
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <Button x:Name="ImportButton" Content="Import project baseline…" Click="OnImportProject" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
                         <Button x:Name="ExportButton" Content="Export reviewed changes…" Click="OnExportCheckpoints" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+                        <Button x:Name="ArtifactButton" Content="Export local text artifact…" Click="OnExportArtifact" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
                     </StackPanel>
+                    <TextBlock Text="Local file explorer · inert source preview, not rendered HTML or execution" FontSize="12" />
+                    <StackPanel x:Name="ProjectFiles" Spacing="4" />
                     <StackPanel x:Name="CheckpointList" Spacing="6" />
                     <TextBlock x:Name="CheckpointSummary" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
                     <Expander x:Name="DiffExpander" Visibility="Collapsed" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">

@@ -1,8 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using Filspresso.Core.Tools;
 using Filspresso.Harness;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -20,6 +25,8 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private ProjectCheckpoints? _checkpoints;
     private HyperVAgentServices? _execution;
     private CancellationTokenSource? _checking;
+    private CancellationTokenSource? _starting;
+    private bool _projectBusy;
     private readonly List<(List<ToggleButton> Options, TextBox Custom)> _answers = new();
     private Guid? _questionId, _approvalId;
     private string? _account, _model, _session, _compaction, _executionStatus, _startingProgress;
@@ -54,16 +61,17 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         if (_disposed || _conversation is null) return;
         var state = _conversation.Snapshot; var available = _transport?.SupportsConversation == true && _transport.SupportsModel(_model ?? string.Empty);
         var started = _execution?.Workspace is not null;
-        CheckButton.IsEnabled = NewButton.IsEnabled = _active && !state.Busy && _checking is null;
-        StopButton.IsEnabled = _active && (state.Busy || _checking is not null) && !state.Stopping;
+        CheckButton.IsEnabled = NewButton.IsEnabled = _active && !state.Busy && _checking is null && !_projectBusy && !_startingSandbox;
+        StopButton.IsEnabled = _active && (state.Busy || _checking is not null || _startingSandbox) && !state.Stopping;
         ModeBox.IsEnabled = _active && !state.Busy && state.CompletedTurns == 0 && !state.RequiresReset;
-        SendButton.IsEnabled = _active && available && !state.Busy && !state.RequiresReset && _checking is null && !string.IsNullOrWhiteSpace(PromptBox.Text);
+        SendButton.IsEnabled = _active && available && !state.Busy && !state.RequiresReset && _checking is null && !_startingSandbox && !_projectBusy && !string.IsNullOrWhiteSpace(PromptBox.Text);
         QueueButton.IsEnabled = _active && state.Busy && !state.Stopping && state.QueuedMessage is null && !string.IsNullOrWhiteSpace(PromptBox.Text);
         CancelQueueButton.IsEnabled = state.QueuedMessage is not null;
         EnableExecutionButton.IsEnabled = _active && !state.Busy && !_startingSandbox && _checking is null && _execution is { ExecutionQualified: true } execution && !started;
-        DiscardSandboxButton.IsEnabled = _active && !state.Busy && !_startingSandbox && started;
-        ImportButton.IsEnabled = _active && !state.Busy && _checkpoints is { } checkpoints && !checkpoints.HasBaseline && !started;
-        ExportButton.IsEnabled = _active && !state.Busy && _checkpoints is { } journal && journal.ChangeCount > 0;
+        DiscardSandboxButton.IsEnabled = _active && !state.Busy && !_startingSandbox && (started || _execution?.NeedsCleanup == true);
+        ImportButton.IsEnabled = _active && !state.Busy && !_projectBusy && !_startingSandbox && _checkpoints is { } checkpoints && !checkpoints.HasBaseline && !started;
+        ExportButton.IsEnabled = _active && !state.Busy && !_projectBusy && !_startingSandbox && _checkpoints is { } journal && journal.ChangeCount > 0;
+        ArtifactButton.IsEnabled = _active && !state.Busy && !_projectBusy && !_startingSandbox && _checkpoints?.HasBaseline == true;
         Status.Text = _startingSandbox && _startingProgress is { Length: > 0 } ? _startingProgress :
             _checking is not null ? "Checking qualified native model availability…" : state.Stopping ? "Stopping; a new turn cannot start until cleanup finishes." :
             state.Question is not null ? "Waiting for clarification, not execution consent." : state.Approval is not null ? "Waiting for separate, exact-action execution consent." :
@@ -100,6 +108,14 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
             ApprovalText.Text = state.Approval is { } approval ? $"{approval.Call.Name} · {approval.Effect} · Workspace {approval.Workspace.Id}\n{approval.Call.ArgumentsJson}\nCommands may change/delete sandbox files. This decision applies only to this exact action." : string.Empty;
         }
         RenderCheckpoints();
+        ProjectFiles.Children.Clear();
+        if (_checkpoints is { } project)
+            foreach (var file in project.Current)
+            {
+                var view = new Button { Content = file.Key };
+                view.Click += (_, _) => { DiffExpander.Visibility = Visibility.Visible; DiffExpander.IsExpanded = true; DiffBox.Text = file.Value; };
+                ProjectFiles.Children.Add(view);
+            }
     }
     private void RenderCheckpoints()
     {
@@ -169,75 +185,109 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     }
     private async void OnSend(object sender, RoutedEventArgs args)
     {
-        if (!_active || _conversation is not { } conversation || _transport?.SupportsConversation != true || !_transport.SupportsModel(_model ?? string.Empty)) return;
+        if (!_active || _projectBusy || _startingSandbox || _conversation is not { } conversation || _transport?.SupportsConversation != true || !_transport.SupportsModel(_model ?? string.Empty)) return;
         var turn = CurrentTurn(); PromptBox.Text = string.Empty; await conversation.SendAsync(turn); _ = RefreshBalanceAsync();
     }
     private async Task RefreshBalanceAsync() { using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8)); try { await _services.Playground.RefreshAsync(timeout.Token); } catch (Exception) { } }
     private void OnQueue(object sender, RoutedEventArgs args) { if (_conversation?.QueueFollowUp(CurrentTurn()) == true) PromptBox.Text = string.Empty; }
     private void OnCancelQueue(object sender, RoutedEventArgs args) => _conversation?.CancelQueued();
-    private void OnStop(object sender, RoutedEventArgs args) { _checking?.Cancel(); _conversation?.Stop(); }
+    private void OnStop(object sender, RoutedEventArgs args) { _checking?.Cancel(); _starting?.Cancel(); _conversation?.Stop(); }
     private void OnNew(object sender, RoutedEventArgs args) { if (_conversation?.NewConversation() == true) { PromptBox.Text = string.Empty; Render(); } }
     private void OnPromptChanged(object sender, TextChangedEventArgs args) { if (_conversation is not null) Render(); }
     private async void OnEnableExecution(object sender, RoutedEventArgs args)
     {
         if (!_active || _disposed) return;
         if (_execution is not { } execution || execution.Workspace is not null || _startingSandbox) return;
-        _startingSandbox = true; Render(); // once this returns, _execution is HyperVAgentServices and Workspace may or may not be null
+        using var starting = new CancellationTokenSource(TimeSpan.FromMinutes(5)); _starting = starting;
+        _startingSandbox = true; Render();
         try
         {
-            var (ok, error) = await execution.EnsureWorkspaceAsync(cancellationToken: default, report: text => DispatcherQueue.TryEnqueue(() =>
+            var (ok, error) = await execution.EnsureWorkspaceAsync(cancellationToken: starting.Token, report: text => DispatcherQueue.TryEnqueue(() =>
             {
-                if (!_disposed) { _startingProgress = text; Render(); }
+                if (!_disposed && _active && ReferenceEquals(_execution, execution)) { _startingProgress = text; Render(); }
             }));
-            if (!ok && ReferenceEquals(_execution, execution)) { Error.Text = error; }
+            if (!ok && ReferenceEquals(_execution, execution)) { _availabilityError = error; }
         }
         catch (OperationCanceledException) { }
         catch (Exception failure) { Error.Text = "The sandbox could not start. " + failure.Message; }
         finally
         {
-            _startingSandbox = false; _startingProgress = null;
-            DispatcherQueue.TryEnqueue(() => { if (!_disposed) Render(); });
+            if (ReferenceEquals(_starting, starting)) { _starting = null; _startingSandbox = false; _startingProgress = null; Render(); }
         }
     }
     private async void OnDiscardSandbox(object sender, RoutedEventArgs args)
     {
         if (!_active || _execution is not { } execution || _startingSandbox) return;
-        try { await execution.DiscardWorkspaceAsync(); } catch (Exception) { }
+        try { if (!await execution.DiscardWorkspaceAsync()) _availabilityError = "Sandbox cleanup could not be confirmed. Do not start another sandbox; retry discard or request operator recovery."; }
+        catch (Exception) { _availabilityError = "Sandbox cleanup failed."; }
         _viewedChange = null; Render();
     }
     private async void OnImportProject(object sender, RoutedEventArgs args)
     {
-        if (!_active || _conversation?.Snapshot.Busy == true || _checkpoints is not { } checkpoints || checkpoints.HasBaseline) return;
-        var folder = await PickProjectFolderAsync();
-        if (string.IsNullOrEmpty(folder)) return;
+        if (!_active || _projectBusy || _startingSandbox || _conversation?.Snapshot.Busy == true || _checkpoints is not { } checkpoints || checkpoints.HasBaseline) return;
+        _projectBusy = true; Render();
         try
         {
-            checkpoints.SetBaseline(ProjectCheckpoints.ImportPlan(folder));
-            Error.Text = $"Baseline imported from \"{folder}\". The sandbox seeds it when you start it.";
+            var folder = await PickProjectFolderAsync();
+            if (string.IsNullOrEmpty(folder) || !_active || !ReferenceEquals(_checkpoints, checkpoints)) return;
+            var imported = await Task.Run(() => ProjectCheckpoints.ImportPlan(folder));
+            if (!_active || !ReferenceEquals(_checkpoints, checkpoints)) return;
+            checkpoints.SetBaseline(imported);
+            _availabilityError = $"Local baseline imported ({imported.Count} files). It is not uploaded to inference or executed.";
         }
-        catch (Exception failure) { Error.Text = "The project import was refused. " + failure.Message; }
-        Render();
+        catch (Exception failure) { if (ReferenceEquals(_checkpoints, checkpoints)) _availabilityError = "The project import was refused. " + failure.Message; }
+        finally { if (ReferenceEquals(_checkpoints, checkpoints)) { _projectBusy = false; Render(); } }
     }
     private async void OnExportCheckpoints(object sender, RoutedEventArgs args)
     {
-        if (!_active || _conversation?.Snapshot.Busy == true || _checkpoints is not { } checkpoints || checkpoints.ChangeCount == 0) return;
-        var folder = await PickProjectFolderAsync();
-        if (string.IsNullOrEmpty(folder)) return;
+        if (!_active || _projectBusy || _startingSandbox || _conversation?.Snapshot.Busy == true || _checkpoints is not { } checkpoints || checkpoints.ChangeCount == 0) return;
+        _projectBusy = true; Render();
         try
         {
+            var folder = await PickProjectFolderAsync();
+            if (string.IsNullOrEmpty(folder) || !_active || !ReferenceEquals(_checkpoints, checkpoints)) return;
             var plan = checkpoints.Prepare(folder);
             if (plan.Conflicts.Count > 0)
             {
-                Error.Text = $"Export blocked: {plan.Conflicts.Count} conflict(s). " +
+                _availabilityError = $"Export blocked: {plan.Conflicts.Count} conflict(s). " +
                     string.Join(" | ", plan.Conflicts.Take(3).Select(conflict => $"{conflict.Path}: {conflict.Reason}"));
                 Render();
                 return;
             }
+            var exact = string.Join("\n", plan.Entries.Select(entry => $"{entry.Path} · {entry.Bytes} bytes · sha256 {entry.NextSha256}"));
+            var confirm = new ContentDialog { XamlRoot = XamlRoot, Title = "Apply this exact checkpoint once?", PrimaryButtonText = "Apply reviewed files once", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close,
+                Content = new ScrollViewer { MaxHeight = 400, Content = Text($"Destination: {folder}\nExisting files must match the imported baseline. Keep a backup: this is not crash-atomic.\n{exact}") } };
+            if (await confirm.ShowAsync() != ContentDialogResult.Primary || !_active || !ReferenceEquals(_checkpoints, checkpoints)) return;
             var manifest = checkpoints.Apply(plan);
-            Error.Text = $"Exported {manifest.Written.Count} file(s) to \"{folder}\" with a manifest.";
+            _availabilityError = $"Exported {manifest.Written.Count} file(s) to \"{folder}\" with a manifest.";
         }
-        catch (Exception failure) { Error.Text = "The export was refused. " + failure.Message; }
-        Render();
+        catch (Exception failure) { if (ReferenceEquals(_checkpoints, checkpoints)) _availabilityError = "The export was refused. " + failure.Message; }
+        finally { if (ReferenceEquals(_checkpoints, checkpoints)) { _projectBusy = false; Render(); } }
+    }
+
+    private async void OnExportArtifact(object sender, RoutedEventArgs args)
+    {
+        if (!_active || _projectBusy || _conversation?.Snapshot.Busy == true || _checkpoints is not { } checkpoints) return;
+        _projectBusy = true; Render();
+        try
+        {
+            var files = checkpoints.Current.Select(file =>
+            {
+                var bytes = new UTF8Encoding(false, true).GetBytes(file.Value);
+                return new { path = file.Key, text = file.Value, bytes = bytes.Length, sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)) };
+            }).OrderBy(file => file.path, StringComparer.Ordinal).ToArray();
+            var artifact = new { version = 1, kind = "filspresso-text-project", files, totalBytes = files.Sum(file => file.bytes) };
+            var folder = await PickProjectFolderAsync();
+            if (string.IsNullOrEmpty(folder) || !_active || !ReferenceEquals(_checkpoints, checkpoints)) return;
+            var name = $"filspresso-project-{Guid.NewGuid():N}.json";
+            var confirm = new ContentDialog { XamlRoot = XamlRoot, Title = "Export local text artifact?", Content = Text($"Create {name} in {folder}? Contains {files.Length} source files and SHA-256 hashes. Nothing is executed or uploaded."), PrimaryButtonText = "Create artifact once", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+            if (await confirm.ShowAsync() != ContentDialogResult.Primary || !_active || !ReferenceEquals(_checkpoints, checkpoints)) return;
+            using var pinned = new PinnedLocalPath(folder); using var output = pinned.OpenFile(name, FileAccess.ReadWrite, createNew: true);
+            output.Write(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(artifact))); output.Flush(true);
+            _availabilityError = $"Artifact created: {name}. Local tracked text only; not a live guest filesystem capture.";
+        }
+        catch (Exception error) { if (ReferenceEquals(_checkpoints, checkpoints)) _availabilityError = "Artifact export failed: " + error.Message; }
+        finally { if (ReferenceEquals(_checkpoints, checkpoints)) { _projectBusy = false; Render(); } }
     }
     private async Task<string?> PickProjectFolderAsync()
     {
@@ -265,10 +315,19 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private void OnDeny(object sender, RoutedEventArgs args) { if (_approvalId is { } id) _conversation?.Decide(id, false); }
     private void OnAccountChanged(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => { if (!_disposed && (!_services.Auth.IsSignedIn || !string.Equals(_account, _services.Auth.Current?.Email, StringComparison.OrdinalIgnoreCase))) CancelPendingRequests(); });
     private void OnPreferencesChanged(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => { if (!_disposed && _active && (_services.Preferences.ModelKey != _model || _services.Preferences.InputContextTokens != _context || _services.Preferences.CompactionMode != _compaction)) Reload(_session); });
-    public void CancelPendingRequests() { _active = false; _checking?.Cancel(); _conversation?.Stop(true); PromptBox.Text = string.Empty; Render(); }
+    public void CancelPendingRequests()
+    {
+        _active = false; Release(); PromptBox.Text = string.Empty;
+        Activity.Children.Clear(); ProjectFiles.Children.Clear(); CheckpointList.Children.Clear(); QuestionFields.Children.Clear();
+        ApprovalText.Text = DiffBox.Text = CheckpointSummary.Text = string.Empty;
+        QuestionBorder.Visibility = ApprovalBorder.Visibility = DiffExpander.Visibility = Visibility.Collapsed;
+        SendButton.IsEnabled = EnableExecutionButton.IsEnabled = ImportButton.IsEnabled = ExportButton.IsEnabled = ArtifactButton.IsEnabled = false;
+        Status.Text = "Account/view invalidated. Pending work was cancelled; sandbox disposal was requested.";
+    }
     private void Release()
     {
         _checking?.Cancel(); _checking = null;
+        _starting?.Cancel(); _starting = null; _projectBusy = false;
         if (_conversation is not null) { _conversation.Changed -= OnChanged; _conversation.Dispose(); _conversation = null; }
         if (_execution is not null) { _execution.Dispose(); _execution = null; } // stops a live sandbox in the background
         _transport?.Dispose(); _transport = null; _questionId = _approvalId = null; _answers.Clear();

@@ -24,7 +24,7 @@ namespace Filspresso.Harness;
 /// Every write performed through <c>write_file</c> is journaled into
 /// <see cref="ProjectCheckpoints"/> against the imported project baseline, so reviewed
 /// changes can be exported to the real project only after human review. Commands run from
-/// the guest can still modify guest files outside that journal; the export thereforeo
+/// the guest can still modify guest files outside that journal; the export therefore
 /// covers recorded writes, and guests are disposable by design.
 /// </para>
 /// </remarks>
@@ -91,16 +91,21 @@ public sealed class HyperVAgentServices : IAgentServices, IDisposable
     private Guid? _workspaceId;
     private Task<(bool Ok, string Error)>? _startup;
     private bool _disposed;
+    private AgentConsentQueue? _consent;
+    private readonly Dictionary<string, ToolCall> _approved = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _consumed = new(StringComparer.Ordinal);
+    private Guid? _cleanupPending;
 
     /// <summary>True only when composition verified a current receipt and the image.</summary>
     public bool ExecutionQualified { get; }
 
     /// <summary>Local, non-authoritative status text for the screen.</summary>
     public string ExecutionStatus { get; }
+    public bool NeedsCleanup { get { lock (_gate) return _cleanupPending is not null; } }
 
     public HyperVAgentServices(INativeAgentModelTransport transport, HyperVSandbox sandbox,
         HyperVQualificationReceipt receipt, ProjectCheckpoints checkpoints,
-        bool executionQualified, string executionStatus)
+        bool executionQualified, string executionStatus, AgentConsentQueue? consent = null)
     {
         ArgumentNullException.ThrowIfNull(transport);
         ArgumentNullException.ThrowIfNull(sandbox);
@@ -114,6 +119,33 @@ public sealed class HyperVAgentServices : IAgentServices, IDisposable
         _checkpoints = checkpoints;
         ExecutionQualified = executionQualified;
         ExecutionStatus = executionStatus;
+        _consent = consent;
+    }
+
+    internal void AttachConsent(AgentConsentQueue consent)
+    { lock (_gate) { if (_consent is not null && !ReferenceEquals(_consent, consent)) throw new InvalidOperationException("Consent is already bound."); _consent = consent; } }
+    internal void RevokeApprovals() { lock (_gate) _approved.Clear(); }
+
+    public async Task<AgentApprovalDecision> ApproveAsync(AgentApproval approval, CancellationToken cancellationToken = default)
+    {
+        AgentConsentQueue? consent;
+        lock (_gate)
+        {
+            if (_disposed || approval.Workspace.Location != CodeLocation.HyperV || approval.Workspace.Id != _workspaceId ||
+                _consumed.Count >= 4096 || _consumed.Contains(approval.Call.Id) || !_tools.Any(tool => tool.Name == approval.Call.Name && tool.Effect == approval.Effect &&
+                    tool.Effect is ToolEffect.Mutation or ToolEffect.Execution && tool.Parameters.TryValidate(approval.Call.ArgumentsJson, out _)))
+                return new(approval.Id, false);
+            consent = _consent;
+        }
+        if (consent is null) return new(approval.Id, false);
+        var decision = await consent.RequestAsync(approval, cancellationToken).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (_disposed || cancellationToken.IsCancellationRequested || _workspaceId != approval.Workspace.Id || !decision.Approved || decision.ApprovalId != approval.Id)
+                return new(approval.Id, false);
+            _approved[approval.Call.Id] = approval.Call;
+            return decision;
+        }
     }
 
     /// <summary>The workspace the model sees; null until an explicit start succeeds.</summary>
@@ -138,6 +170,8 @@ public sealed class HyperVAgentServices : IAgentServices, IDisposable
         lock (_gate)
         {
             if (_disposed) return Task.FromResult((false, "Execution services were discarded."));
+            if (!ExecutionQualified) return Task.FromResult((false, "Execution was not qualified."));
+            if (_cleanupPending is not null) return Task.FromResult((false, "Previous sandbox cleanup is unconfirmed. Retry discard before starting another."));
             if (_workspaceId is not null) return Task.FromResult((true, string.Empty));
             if (_startup is { IsCompleted: false }) return Task.FromResult((false, "A sandbox start is already in progress."));
             var run = RunStartupAsync(cancellationToken, report);
@@ -181,12 +215,27 @@ public sealed class HyperVAgentServices : IAgentServices, IDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (started is { } leaked) { try { await _sandbox.StopAsync(leaked).ConfigureAwait(false); } catch { } }
+            if (started is { } leaked)
+            {
+                lock (_gate) { _cleanupPending = leaked; _workspaceId = null; }
+                await AbortAsync(new(leaked, CodeLocation.HyperV)).ConfigureAwait(false);
+            }
             throw;
         }
         catch (Exception error)
         {
-            if (started is { } partial) { try { await _sandbox.StopAsync(partial).ConfigureAwait(false); } catch { } }
+            if (started is null)
+            {
+                // Startup can fail before returning its id while retaining a failed library
+                // session. Keep it recoverable rather than creating another VM blindly.
+                var retained = await _sandbox.ListAsync().ConfigureAwait(false);
+                lock (_gate) _cleanupPending = retained.FirstOrDefault()?.Id;
+            }
+            if (started is { } partial)
+            {
+                lock (_gate) { _cleanupPending = partial; _workspaceId = null; }
+                await AbortAsync(new(partial, CodeLocation.HyperV)).ConfigureAwait(false);
+            }
             return (false, error is SandboxPolicyException
                 ? $"The sandbox refused to start: {error.Message}"
                 : "The Hyper-V sandbox could not start or the imported project could not be seeded. " + error.Message);
@@ -201,8 +250,14 @@ public sealed class HyperVAgentServices : IAgentServices, IDisposable
         Guid current;
         lock (_gate)
         {
-            if (_disposed || _workspaceId is not { } active || workspace.Id != active)
+            if (_disposed || workspace.Location != CodeLocation.HyperV || _workspaceId is not { } active || workspace.Id != active)
                 throw new SandboxPolicyException("This tool call is not authorized for the active sandbox.");
+            var tool = _tools.FirstOrDefault(tool => tool.Name == call.Name);
+            if (tool is null || tool.Effect == ToolEffect.Interaction || !tool.Parameters.TryValidate(call.ArgumentsJson, out _))
+                throw new SandboxPolicyException("Unregistered or invalid tool arguments.");
+            if (tool.Effect != ToolEffect.ReadOnly &&
+                (!_approved.Remove(call.Id, out var approved) || approved != call || !_consumed.Add(call.Id)))
+                throw new SandboxPolicyException("Fresh exact-action consent is required by the executor.");
             current = active;
         }
         switch (call.Name)
@@ -251,17 +306,23 @@ public sealed class HyperVAgentServices : IAgentServices, IDisposable
         Guid id;
         lock (_gate)
         {
-            if (_workspaceId is not { } current || workspace.Id != current) return false;
-            id = current; _workspaceId = null;
+            if (workspace.Location != CodeLocation.HyperV || (workspace.Id != _workspaceId && workspace.Id != _cleanupPending)) return false;
+            id = workspace.Id; _cleanupPending = id; _workspaceId = null; _approved.Clear();
         }
-        try { await _sandbox.StopAsync(id, cancellationToken).ConfigureAwait(false); return true; }
+        try
+        {
+            await _sandbox.StopAsync(id, cancellationToken).ConfigureAwait(false);
+            lock (_gate) if (_cleanupPending == id) _cleanupPending = null;
+            return true;
+        }
         catch { return false; }
     }
 
     /// <summary>Explicit user discard from the screen; separate from consent denial.</summary>
     public Task<bool> DiscardWorkspaceAsync(CancellationToken cancellationToken = default)
     {
-        var workspace = Workspace;
+        AgentWorkspace? workspace;
+        lock (_gate) workspace = (_workspaceId ?? _cleanupPending) is { } id ? new(id, CodeLocation.HyperV) : null;
         return workspace is null ? Task.FromResult(false) : AbortAsync(workspace, cancellationToken);
     }
 
@@ -321,8 +382,9 @@ public sealed class HyperVAgentServices : IAgentServices, IDisposable
             if (_disposed) return;
             _disposed = true;
             startup = _startup;
-            live = _workspaceId;
+            live = _workspaceId ?? _cleanupPending;
             _workspaceId = null;
+            _approved.Clear();
         }
         _ = Task.Run(async () =>
         {

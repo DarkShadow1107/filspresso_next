@@ -192,10 +192,28 @@ public sealed class HyperVQualificationTests
     [Fact]
     public void DefaultPathsStayUnderTheUserDataRoot()
     {
+        Assert.False(HyperVQualification.ExecutionReleaseReady);
         Assert.EndsWith("qualification\\hyper-v.json", HyperVQualification.DefaultReceiptPath, StringComparison.OrdinalIgnoreCase);
         Assert.EndsWith("sandbox", HyperVQualification.DefaultSandboxRoot, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Filspresso.Playground.HyperVGuest", HyperVQualification.DefaultGuestCredentialTarget);
         if (HyperVQualification.MachineId.Length > 0)
             Assert.Matches(@"\A[0-9a-f]{32}\z", HyperVQualification.MachineId);
+    }
+
+    [Fact]
+    public void SameSizeSameTimestampImageTamperingIsDetectedByHash()
+    {
+        var (root, imagePath) = QualifiedImage();
+        try
+        {
+            var bytes = File.ReadAllBytes(imagePath);
+            var receipt = new HyperVQualificationReceipt(imagePath, Digest(bytes), bytes.LongLength, 2,
+                DateTimeOffset.UtcNow, HyperVQualification.MachineId, HyperVQualificationReceipt.RequiredChecks);
+            var stamp = File.GetLastWriteTimeUtc(imagePath);
+            bytes[0] ^= 1; File.WriteAllBytes(imagePath, bytes); File.SetLastWriteTimeUtc(imagePath, stamp);
+            var result = HyperVQualification.VerifyImage(receipt);
+            Assert.False(result.Ok); Assert.Contains("SHA-256", result.Reason);
+        }
+        finally { root.Delete(true); }
     }
 }

@@ -87,6 +87,11 @@ public sealed class AppServices : IDisposable
     /// </remarks>
     public IAgentServices CreateAgentServices(INativeAgentModelTransport transport, ProjectCheckpoints checkpoints, out string executionStatus)
     {
+        if (!HyperVQualification.ExecutionReleaseReady)
+        {
+            executionStatus = HyperVQualification.ReleaseBlocker;
+            return new QuestionOnlyAgentServices(transport);
+        }
         var (receipt, reason) = HyperVQualification.TryLoadVerified();
         if (receipt is not { } qualified)
         {
