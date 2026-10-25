@@ -1,5 +1,13 @@
 # Playground enhancement plan
 
+**Current Beta-6 status:** see [`docs/playground-beta6-qualification.md`](docs/playground-beta6-qualification.md).
+Historical milestones below are not release approval. Desktop execution is release-blocked
+while guest containment/job/crash code remains unfinished, regardless of an old receipt.
+Export now has pinned-handle preflight, one-shot plans and ordinary-error rollback, **not
+crash-atomic all-or-nothing semantics**. The connected web explorer, per-file imports, text
+artifacts and inert source previews are delivered; live application preview and mid-command
+redirection remain open.
+
 ## Confirmed product decisions
 
 - Execute this plan incrementally, preserving existing web/desktop chat and user changes.

@@ -1,5 +1,12 @@
 # Conversation-first agent workflow — execution checklist
 
+**Beta-6 correction:** current evidence and exact open items are in
+[`playground-beta6-qualification.md`](playground-beta6-qualification.md). Older checked
+qualification rows describe initial software, not a security sign-off. Desktop execution
+remains release-blocked even with an old receipt. Export is not crash-atomic. Same-sandbox web
+exploration, per-file imports, local observations, JSON artifacts and inert source previews
+are delivered; live application preview and mid-command retained-workload redirection are not.
+
 This checklist extends `ENHANCEMENT.md`. Checked code/tests are not live model,
 Hyper-V, production Docker, or installer qualification. Preserve existing work.
 
@@ -16,7 +23,7 @@ Hyper-V, production Docker, or installer qualification. Preserve existing work.
 ## Separate execution consent
 - [x] Exact proposed action/workspace and fresh consent UI remain separate from questions.
 - [x] Independent desktop adapter enforcement (`HyperVAgentServices`): workspace-bound tool dispatch, per-call consent via `AgentConsentQueue`, quarantine on interrupted execution. Stub-tested; live Hyper-V qualification remains separate.
-- [x] Original-project application requires separate exact-checkpoint review (`ProjectCheckpoints.Prepare`/`Apply`, all-or-nothing with sha256 conflict detection and `.filspresso-export-manifest.json`).
+- [x] Original-project application requires separate exact-checkpoint review (one-shot plans, pinned/exclusive preflight, byte conflicts and ordinary-error rollback with a manifest). Not crash-atomic.
 
 ## Projects and sandbox
 - [x] Bounded imports, baseline snapshots, change list and unified diffs/checkpoints (`ProjectCheckpoints`, deterministic LCS diff, ≤256 files/≤256 KiB/≤8 MiB/depth ≤16, no reparse points).
@@ -24,8 +31,9 @@ Hyper-V, production Docker, or installer qualification. Preserve existing work.
 - [x] Desktop credential storage, image trust and Hyper-V execution adapter (`GenericCredentialVault`, `HyperVQualificationReceipt` machine-bound gate, `Qualify-HyperVExecution.ps1` seven-gate receipt).
 - [ ] Race-proof guest containment, descendant/resource controls and crash recovery.
 - [ ] Qualified desktop composition, never hosted Docker or a host-shell fallback.
-- [ ] Integrated constrained hosted web workspaces.
-- [ ] Bounded artifacts and securely isolated previews.
+- [x] Same-sandbox web explorer, individually approved text imports and local before/after observations.
+- [x] Bounded text-project JSON artifacts with SHA-256 and inert source previews in both clients.
+- [ ] Binary artifacts and securely isolated live application previews (source display is not execution).
 
 ## Qualification/release (keep disabled until verified)
 - [ ] Actual model/template/runtime, tokenizer, billing and cancellation checks.

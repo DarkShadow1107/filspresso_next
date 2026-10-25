@@ -1,5 +1,13 @@
 # Native agents — proposals, gated hosted actions and paired compaction
 
+**Beta-6:** see [`playground-beta6-qualification.md`](playground-beta6-qualification.md).
+Desktop adapter/UI exist but application composition **release-blocks execution** until
+guest race containment, jobs/descendants and durable crash recovery are implemented and
+qualified. Earlier seven-check receipt enablement descriptions below are historical, not a
+bypass. Web same-sandbox explorer, per-file import consent, local checkpoint observations,
+bounded JSON artifacts and non-executing source previews are now available behind the
+existing hosted execution gates. A source preview is not a live application preview.
+
 ## Delivered boundary
 
 - JWT-guarded, throttled `GET /api/playground/agent/capabilities` and

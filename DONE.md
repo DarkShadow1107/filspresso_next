@@ -1,5 +1,28 @@
 # Filspresso Playground — implementation handoff
 
+## Beta-6 current status — 2026-10-25
+
+Branch `Beta-6-Playground` starts at `6ecfd20`. The earlier “all gates green” wording
+meant fixtures/builds, **not release approval**. See
+[`docs/playground-beta6-qualification.md`](docs/playground-beta6-qualification.md) for
+single-device diagnostics, implemented changes, commands and explicit unfinished items.
+
+Beta-6 hardens project import/export with pinned Windows handles, exact one-shot plans,
+preflight locking/revalidation, ordinary-error rollback and explicit review confirmation.
+It independently enforces desktop tool approval, fixes vault account handling, verifies
+actual image SHA-256 and **release-blocks desktop execution** until guest race/job/crash
+protection is implemented and qualified. The old seven-check receipt cannot bypass this.
+
+Connected web explorer/per-file imports/checkpoint observations, compatible bounded JSON
+artifacts with SHA-256, inert source previews, and explicit conversation/mode reset retaining
+project files are delivered. These are not live application previews or mid-command
+redirection. Export is **not crash-atomic**; earlier “all-or-nothing” claims are superseded.
+
+Verification: **428 desktop**, **103 web client**, **344 Nest**, **123 selected Python** tests;
+real Docker lifecycle/crash and Docker/PostgreSQL fixture-agent smokes pass. Isolated Next
+build and unsigned MSI packaging pass. Native maintenance fixtures pass; elevated installed
+MSI install/upgrade/uninstall and real Hyper-V/model qualification were not performed.
+
 This document records the completed Playground work and gives the next developer a map of the UI, source-processing pipeline, model selection, billing boundaries, build outputs, and verification commands.
 
 ## Current conversation/question checkpoint — 2026-10-25 (roadmap is not complete)
