@@ -1,0 +1,39 @@
+# Global & Git
+.git/
+.github/
+.vscode/
+*.log
+
+# JavaScript / Next.js / NestJS Dependencies & Builds
+**/node_modules/
+.next/
+dist/
+build/
+out/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Python Virtual Environments & Caches
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Large Model / Data Folders (Crucial for AI projects)
+**/models/
+
+# Additional build artifacts and caches
+*.tsbuildinfo
+**/target/
+coverage/
+.vercel/
+.turbo/
+
+# Runtime and test output
+logs/
+tests/logs/

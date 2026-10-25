@@ -2,7 +2,16 @@
 
 Filspresso Next is a full-stack coffee commerce platform that combines e-commerce, AI assistance, and IoT-ready machine orchestration.
 
-It is built with Next.js (App Router), NestJS, PostgreSQL, Redis, a Python AI service (Flask + Tanka model stack), and polyglot domain services in Java, Kotlin, and Go.
+It is built with Next.js (App Router), NestJS, PostgreSQL, Redis, a Python AI service (FastAPI + Tanka model stack), and polyglot domain services in Java, Kotlin, and Go.
+
+Playground enhancement status and remaining work: [ENHANCEMENT.md](ENHANCEMENT.md).
+Optional hosted Docker execution setup: [playground-sandbox/README.md](playground-sandbox/README.md).
+Both Playground clients offer capability-gated **proposal-only agent review**. The web also
+has a separate, deployment-gated **agent sandbox workspace** with signed one-shot actions,
+fresh approval for each write/command and paired-history compaction. Desktop execution is
+not connected or qualified. Native models and hosted agent dispatch remain default-disabled;
+Markdown/code blocks never execute. See
+[the native-agent boundary](docs/playground-native-agent.md).
 
 ## 0. Architecture Decision Snapshot
 

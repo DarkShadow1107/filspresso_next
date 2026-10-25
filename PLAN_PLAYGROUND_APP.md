@@ -4,9 +4,9 @@ A Windows desktop client for the Spectre Playground: a coding harness with real
 sandboxing, gated behind a Spectre subscription, metered through the same wallet the
 web app uses.
 
-**Status:** Phases 0-4 **done**. Phase 5 (the signing pipeline) is written but unsigned.
+**Status correction:** Backend auth/billing, chat, bounded loop cores, default-disabled native transport and proposal-only review are delivered. A separate **web** agent workspace now composes signed one-shot server actions, fresh per-write/command approval, metadata-only trusted outcomes and paired-history compaction. Real Docker/PostgreSQL fixture-agent and broker crash/restart checks pass; no live model/runtime was qualified. The **desktop** still composes proposal review only, with execution approval disabled and no guest adapter. Hyper-V qualification, full workspace diffs/checkpoints/artifacts/previews and elevated installer exercises remain open. Signing is intentionally deferred; unsigned MSI releases remain supported. See `ENHANCEMENT.md`.
 
-Phase 4 delivered: a Hyper-V sandbox with **no network adapter at all**, controlled over
+Phase 4 library design: a Hyper-V sandbox with **no network adapter at all**, controlled over
 PowerShell Direct, and the web tools running on the host so the model can search without the
 sandbox ever gaining a socket.
 
@@ -17,6 +17,13 @@ chooser and always creates a dedicated `Filspresso Playground` directory. Its bu
 `Uninstall.exe` and the Windows Settings removal path share a current-user cleanup action
 for preferences/logs and Credential Manager session/device entries; upgrades preserve them.
 The release build now explicitly includes WinUI's PRI/XBF resources and the bundled fonts.
+
+Desktop 0.3 corrects those levels to **input context**, independent of the output budget.
+Both clients now attach documents/media and public GitHub project snapshots through a shared
+authenticated preparation service. Input is measured against the real model tokenizer,
+including history and source content. Media analysis is metered; source limits are reported.
+Native SVGs are generated from `src/icons` TSX components, and the app/installer/shortcuts
+use a multi-resolution Filspresso icon.
 
 Phase 2 delivered: a dedicated sign-in and connect screen, MFA in the same flow, DPAPI-backed
 credential storage in Windows Credential Manager, a session manager that refreshes before expiry
@@ -61,10 +68,10 @@ end to end, including a real metered generation).
 | --- | --- |
 | Where models run | Hosted, via a **new backend gateway**. Not local, not hybrid. |
 | Credential | **Device grant** returning real access + refresh tokens in the response body. |
-| Packaging | **MSI** (WiX v5), signed. WinUI 3 **unpacked**. Not MSIX. |
+| Packaging | **MSI** (WiX v5), currently unsigned. WinUI 3 **unpacked**. Not MSIX. |
 | Sandbox | **Hyper-V VM per session, Windows 10 Pro / 11 Pro only.** Windows Home is blocked. |
 | Sandbox control channel | **PowerShell Direct** over the hypervisor VMBus, with **no network adapter attached**. |
-| Signing | Signed, EV preferred. MSI also gets an Authenticode signature. |
+| Signing | Deferred indefinitely; unsigned MSI is supported and its unknown-publisher warning is disclosed. |
 | Distribution | Entitlement-gated download route; not a guessable static URL. |
 | Auth throttling | Re-keyed per account + device, with a separate refresh budget. |
 
@@ -298,7 +305,25 @@ and after every completed generation.
 
 ---
 
-## Phase 4 — Harness and sandbox (done)
+## Phase 4 — Harness and sandbox (proposal UI delivered; execution integration pending)
+
+The library now enforces schema validation, Chat/Plan/Build policy, per-action consent,
+bounded calls/turns/context/output/time and fail-closed execution cleanup. Hyper-V transport
+now has explicit private-input guest credentials, script decoding, readiness and retryable
+VM/disk teardown, covered by fake-hypervisor and real PowerShell transport/parser tests. No production
+adapter enables this loop in the app. `NativeAgentTransport` and the shared metered native
+API now support proposal-only review with Plan/Build selectors, explicit capability checks,
+single-flight bounded turns, immutable inert receipts, cancellation/stale-response guards and
+disabled execution approval. No chat history, attachments or fabricated tool results are sent.
+Review never starts a VM, connects a workspace or executes a tool; it is cleared on relevant
+navigation/settings/account changes. The API defaults to no enabled models; no catalogue
+model/runtime combination has been qualified live. See `docs/playground-native-agent.md`.
+The shared native API now compacts older complete call/result groups at the selected
+80%/65%/45% threshold; desktop transport validates its inspectable receipts and includes
+summary output in the same bounded token budget. The web's new hosted action transport
+is not a desktop execution fallback: desktop code must still run only in qualified Hyper-V.
+The sandbox topology below describes the intended boundary, not a claim
+that VM provisioning, guest file containment or cancellation have been validated live.
 
 ### The sandbox
 
@@ -375,11 +400,9 @@ a plain HTTP client -- so the search never depends on one provider alone.
 
 - **MSI** built by GitHub Actions on `windows-latest`, which is required: the WinUI XAML
   compiler and the Windows App SDK are Windows-only and do not build in a Linux container.
-- **Signed.** The MSI is Authenticode-signed, which removes the "unknown publisher"
-  prompt that makes an installer look malicious. A **purchased code-signing certificate**
-  is still required — I cannot issue one, and a self-signed certificate produces an
-  installer SmartScreen actively warns about. The pipeline takes a `.pfx` from a secret.
-  EV is worth it for reputation, OV works functionally.
+- **Signing deferred.** The supported MSI is currently unsigned and Windows may show
+  unknown-publisher/SmartScreen warnings. No purchased certificate or signing setup is a
+  release gate. The optional pipeline signing job remains available for a future decision.
 - **Gated download**: a Next route verifies Spectre entitlement, then redirects to a
   short-lived signed URL. The package is never at a guessable path and never in the repo.
 
@@ -389,8 +412,8 @@ a plain HTTP client -- so the search never depends on one provider alone.
 
 - **Home users cannot use the app at all.** Deliberate, but it is a real revenue and
   support cost.
-- **Code-signing certificate cost and renewal** are ongoing, and the signing step blocks a
-  clean first install without one.
+- **Unsigned installer warnings** remain expected while signing is deferred; they must be
+  disclosed rather than described as a signed/trusted-publisher release.
 - **Login throttling** is keyed per account + device after 0.4; a per-IP ceiling remains
   as a second layer.
 - **No payment provider is wired.** "Can pay" currently means "has money in the
