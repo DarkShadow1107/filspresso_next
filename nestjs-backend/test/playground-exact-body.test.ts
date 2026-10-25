@@ -44,7 +44,7 @@ test("mounted Nest pipes preserve exact agent/action/source bodies while ordinar
 			assert.deepEqual(observed.at(-1), exact);
 		}
 		const source = { path: "main.py", text: "  indented source\n\n" };
-		await request(app.getHttpServer()).put(`/api/playground/sandbox/${id}/file`).send(source).expect(200);
+        await request(app.getHttpServer()).put(`/api/playground/sandbox/${id}/file`).send({ ...source, approved: true }).expect(200);
 		assert.deepEqual(observed.at(-1), source);
 		await request(app.getHttpServer()).post("/ordinary-trim-fixture").send({ name: "  still trimmed  " }).expect(201, { name: "still trimmed" });
 	} finally { await app.close(); }

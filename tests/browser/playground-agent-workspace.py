@@ -4,6 +4,7 @@ Build first: node playground-sandbox/Build-AgentBrowserFixture.cjs
 Run: python tests/browser/playground-agent-workspace.py
 """
 import functools
+import hashlib
 import http.server
 import json
 import os
@@ -29,6 +30,7 @@ identity = str(uuid.uuid4())
 requests = []
 challenges = {}
 turn = 0
+project_files = {"main.py": '<script>window.__agent_injected=1</script><img src="https://preview-exfil.invalid/">'}
 question_fixture = json.loads((pathlib.Path(__file__).resolve().parents[1] / "fixtures/playground-question.json").read_text(encoding="utf-8"))
 
 
@@ -47,6 +49,16 @@ def respond(route):
         data = {"id": identity, "location": "hosted-docker", "workspace": "/workspace", "network": "disabled", "ephemeral": True, "policyVersion": 2}
     elif request.method == "DELETE":
         data = {"stopped": True}
+    elif path == f"sandbox/{identity}/files":
+        data = {"files": sorted(project_files)}
+    elif path.startswith(f"sandbox/{identity}/file?"):
+        from urllib.parse import parse_qs, urlparse
+        selected = parse_qs(urlparse(request.url).query)["path"][0]
+        data = {"path": selected, "text": project_files[selected]}
+    elif path == f"sandbox/{identity}/file" and request.method == "PUT":
+        assert body["approved"] is True
+        project_files[body["path"]] = body["text"]
+        data = {"path": body["path"], "bytes": len(body["text"].encode("utf-8"))}
     elif path == "agent/turn":
         calls = [{"id": "question_1", "name": "question", "arguments": json.dumps(question_fixture["form"])}] if turn == 0 else [
             {"id": "write_1", "name": "write_file", "arguments": json.dumps({"path": "main.py", "text": '<script>window.__agent_injected=1</script>'})},
@@ -83,7 +95,7 @@ try:
         page = browser.new_page()
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
-        page.add_init_script("localStorage.setItem('account_profile',JSON.stringify({email:'fixture@example.invalid'}))")
+        page.add_init_script("if (window === window.top) localStorage.setItem('account_profile',JSON.stringify({email:'fixture@example.invalid'}))")
         page.route("**/api/playground/**", respond)
         page.goto(f"http://127.0.0.1:{server.server_port}")
         expect(page.get_by_role("heading", name="Agent sandbox workspace")).to_be_visible()
@@ -125,15 +137,49 @@ try:
         page.get_by_role("button", name="Run agent · metered follow-ups").click()
         expect(page.get_by_text("Run finished · 1 model turns / 0 tools · 10 generated tokens", exact=True)).to_be_visible()
         assert len([1 for _, path, _ in requests if path.endswith("/execute")]) == 2
+        explorer = page.get_by_role("region", name="Agent project explorer")
+        explorer.get_by_role("button", name="Inspect project files").click()
+        explorer.get_by_role("button", name="main.py", exact=True).click()
+        frame = page.frame_locator('iframe[title="Isolated source preview"]')
+        expect(frame.locator("pre")).to_contain_text("<script>window.__agent_injected=1</script>")
+        expect(frame.locator("script")).to_have_count(0)
+        assert page.evaluate("window.__agent_injected || null") is None
+        explorer.get_by_label("Select local UTF-8 project files · not uploaded yet").set_input_files([
+            {"name": "a.txt", "mimeType": "text/plain", "buffer": "café 界\r\n".encode("utf-8")},
+            {"name": "b.txt", "mimeType": "text/plain", "buffer": b"second"},
+        ])
+        upload = explorer.get_by_role("button", name="Approve this file upload once")
+        expect(upload).to_be_disabled()
+        assert not any(method == "PUT" for method, _, _ in requests)
+        explorer.get_by_role("checkbox", name="I reviewed this exact path and contents.").check()
+        upload.click()
+        expect(explorer.get_by_text("Replace /workspace/b.txt.", exact=False)).to_be_visible()
+        expect(upload).to_be_disabled()
+        expect(explorer.get_by_role("checkbox")).not_to_be_checked()
+        explorer.get_by_role("checkbox").check(); upload.click()
+        expect(upload).not_to_be_visible()
+        explorer.get_by_role("button", name="Inspect project files").click()
+        expect(explorer.get_by_role("button", name="a.txt", exact=True)).to_be_visible()
+        with page.expect_download() as downloading:
+            explorer.get_by_role("button", name="Download bounded project + SHA-256 manifest").click()
+        download = downloading.value
+        download.save_as(str(directory / "project-artifact.json"))
+        artifact = json.loads((directory / "project-artifact.json").read_text(encoding="utf-8"))
+        for file in artifact["files"]:
+            assert file["sha256"] == hashlib.sha256(file["text"].encode("utf-8")).hexdigest()
+        page.get_by_role("button", name="New conversation / change mode · retain project").click()
+        page.get_by_label("Agent workspace mode").select_option("plan")
+        expect(explorer.get_by_role("button", name="a.txt", exact=True)).to_be_visible()
         # Account invalidation clears local state and discards, rather than showing old receipts.
         with page.expect_request(lambda request: request.method == "DELETE" and "/api/playground/sandbox/" in request.url):
             page.evaluate("localStorage.setItem('account_profile',JSON.stringify({email:'different@example.invalid'})); window.dispatchEvent(new Event('session-update'))")
         expect(page.get_by_text("Run finished · 3 model turns / 3 tools · 30 generated tokens", exact=True)).not_to_be_visible()
         expect(page.get_by_role("button", name="Start fresh hosted sandbox")).to_be_disabled()
+        expect(explorer).not_to_be_visible()
         assert any(method == "DELETE" for method, _, _ in requests)
         assert errors == [], errors
         browser.close()
-        print("PASS: mounted StrictMode Chromium UI, structured choice/multiple/custom questions, separate fresh per-action approval, continuous paired conversation, inert content, and account-change discard. APIs/model are fixtures.")
+        print("PASS: mounted StrictMode questions/approvals/conversation, same-sandbox explorer, per-file import consent, SHA-256 artifact download, inert isolated source preview, retained project across mode reset and account-change discard. APIs/model are fixtures.")
 finally:
     server.shutdown()
     server.server_close()

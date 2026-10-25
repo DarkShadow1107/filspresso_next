@@ -38,8 +38,8 @@ let PlaygroundSandboxController = class PlaygroundSandboxController {
         return this.sandboxes.request(Number(req.user?.id), "GET", `/sandboxes/${identity(id)}/file?${new URLSearchParams({ path })}`);
     }
     write(req, id, body) {
-        if (typeof body?.path !== "string" || body.path.length > 240 || typeof body.text !== "string" || Buffer.byteLength(body.text) > 256 * 1024)
-            throw new common_1.BadRequestException("Choose a workspace path and UTF-8 text no larger than 256 KiB");
+        if (body?.approved !== true || typeof body.path !== "string" || body.path.length > 240 || typeof body.text !== "string" || Buffer.byteLength(body.text) > 256 * 1024)
+            throw new common_1.BadRequestException("Review and approve this exact file write once; maximum 256 KiB UTF-8 text");
         return this.sandboxes.request(Number(req.user?.id), "PUT", `/sandboxes/${identity(id)}/file`, { path: body.path, text: body.text });
     }
     async run(req, id, body, res) {

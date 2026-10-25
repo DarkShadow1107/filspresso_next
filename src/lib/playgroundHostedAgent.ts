@@ -4,12 +4,13 @@ import { AgentConsentQueue } from "./playgroundAgentConsent";
 import { AgentQuestionQueue, type QuestionChallenge, type QuestionDecision } from "./playgroundQuestions";
 import { buildProposalReview, type ReviewContext, type ReviewMode } from "./playgroundAgentReview";
 import { isPlaygroundModelKey, isVisionModelKey, isAudioModelKey } from "./modelAccess";
+import { validateProject, type ProjectFile } from "./playgroundProject";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const EXEC = /^exec-[0-9a-f]{24}$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 function freeze<T>(value: T): T { if (value && typeof value === "object") { for (const child of Object.values(value)) freeze(child); Object.freeze(value); } return value; }
-type Json = (path: string, method: "GET" | "POST" | "DELETE", body: unknown, signal: AbortSignal, timeoutMs: number, version?: boolean) => Promise<Record<string, unknown>>;
+type Json = (path: string, method: "GET" | "POST" | "PUT" | "DELETE", body: unknown, signal: AbortSignal, timeoutMs: number, version?: boolean) => Promise<Record<string, unknown>>;
 export type HostedAgentIo = { models: typeof nativeAgentModels; turn: typeof nativeAgentTurn; json: Json };
 const defaultIo: HostedAgentIo = { models: nativeConversationModels, turn: nativeAgentTurn,
 	json: (path, method, body, signal, timeoutMs, version = true) => readAgentJson(path, { method, ...(body !== undefined ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) }, signal, timeoutMs, version) };
@@ -94,7 +95,7 @@ export class HostedAgentServices implements AgentLoopServices {
 }
 
 export type HostedAgentSnapshot = {
-	phase: "idle" | "checking" | "creating" | "ready" | "running" | "awaiting_approval" | "awaiting_question" | "complete" | "failed" | "stopping";
+	phase: "idle" | "checking" | "creating" | "inspecting" | "ready" | "running" | "awaiting_approval" | "awaiting_question" | "complete" | "failed" | "stopping";
 	models: readonly string[]; executionEnabled: boolean; workspace: AgentWorkspace | null; quarantined: AgentWorkspace | null;
 	creationPending: boolean;
 	pendingApproval: AgentApproval | null; pendingQuestion: QuestionChallenge | null; conversationTurns: number; requiresReset: boolean; queuedPrompt: string | null; events: readonly AgentLoopEvent[]; error: string;
@@ -124,6 +125,58 @@ export class HostedAgentWorkspace {
 		this.unsubscribe = this.consent.subscribe(changed); this.unsubscribeQuestions = this.questions.subscribe(changed);
 	}
 	getSnapshot = () => this.state;
+	/** An explicit read-only observation of the SAME sandbox the agent uses. No model turn,
+	 * approval or write is created. Reads are sequential observations, not a filesystem-wide
+	 * atomic snapshot; other authenticated clients must not edit this sandbox concurrently. */
+	async captureProject(): Promise<readonly ProjectFile[]> {
+		const workspace = this.state.workspace;
+		if (!workspace || this.state.quarantined) throw new Error("No reusable sandbox is connected.");
+		const previousPhase = this.state.phase;
+		const job = this.begin("inspecting"); if (!job) throw new Error("Wait for the current operation to finish.");
+		const { controller, revision } = job;
+		const timer = setTimeout(() => controller.abort(), 60_000);
+		try {
+			const listing = await this.io.json(`/api/playground/sandbox/${workspace.id}/files`, "GET", undefined, controller.signal, 20_000, false);
+			if (!Array.isArray(listing.files) || listing.files.length > 256 || listing.files.some(path => typeof path !== "string")) throw new Error("Workspace listing is invalid or exceeds 256 files.");
+			validateProject(listing.files.map(path => ({ path, text: "" })));
+			const files: ProjectFile[] = [];
+			for (const path of listing.files as string[]) {
+				if (!this.current(controller, revision)) throw new Error("Workspace changed during inspection.");
+				const file = await this.io.json(`/api/playground/sandbox/${workspace.id}/file?${new URLSearchParams({ path })}`, "GET", undefined, controller.signal, 20_000, false);
+				if (file.path !== path || typeof file.text !== "string") throw new Error("Invalid workspace file response.");
+				files.push({ path, text: file.text }); validateProject(files);
+			}
+			if (!this.current(controller, revision)) throw new Error("Workspace changed during inspection.");
+			return validateProject(files);
+		} finally {
+			clearTimeout(timer);
+			if (this.active === controller && this.revision === revision) { this.active = null; this.publish({ ...this.state, phase: previousPhase }); }
+		}
+	}
+	newConversation(): boolean {
+		if (this.active || this.state.creationPending || this.state.quarantined || this.state.requiresReset) return false;
+		this.consent.clear(); this.questions.dismiss(); this.conversation = []; this.conversationKey = null; this.queued = null;
+		this.publish({ ...this.state, conversationTurns: 0, queuedPrompt: null, pendingApproval: null, pendingQuestion: null,
+			events: [...this.state.events, { kind: "message", text: "New conversation boundary: prior model context was explicitly cleared. Sandbox files are retained; no approvals are retained." }].slice(-256) as AgentLoopEvent[] });
+		return true;
+	}
+	async uploadReviewedFile(file: ProjectFile, reviewed: boolean): Promise<void> {
+		const workspace = this.state.workspace;
+		if (reviewed !== true || !workspace || this.state.quarantined || this.state.requiresReset) throw new Error("Review this exact write in a reusable workspace first.");
+		const [validated] = validateProject([file]);
+		const previousPhase = this.state.phase; const job = this.begin("inspecting");
+		if (!job) throw new Error("Wait for the current operation to finish.");
+		const { controller, revision } = job;
+		try {
+			const reply = await this.io.json(`/api/playground/sandbox/${workspace.id}/file`, "PUT", { ...validated, approved: true }, controller.signal, 20_000, false);
+			if (!this.current(controller, revision)) throw new Error("Workspace changed during upload.");
+			if (reply.path !== validated.path || reply.bytes !== new TextEncoder().encode(validated.text).length) throw new Error("Unconfirmed write result. Inspect files before continuing.");
+		} catch (error) {
+			// A lost write response is ambiguous, never an automatically retryable upload.
+			if (this.current(controller, revision)) this.publish({ ...this.state, requiresReset: true, error: "File upload was unconfirmed. Inspect/export and discard the sandbox; no retry was attempted." });
+			throw error;
+		} finally { if (this.current(controller, revision)) { this.active = null; this.publish({ ...this.state, phase: previousPhase }); } }
+	}
 	subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
 	private publish(state: HostedAgentSnapshot) { this.state = freeze(state); if (!this.disposed) for (const listener of this.listeners) listener(); }
 	private current(controller: AbortController, revision: number) { return !this.disposed && !controller.signal.aborted && this.active === controller && this.revision === revision; }

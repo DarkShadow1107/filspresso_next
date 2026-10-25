@@ -15,6 +15,7 @@ export default function PlaygroundRuntime({ open }: { open: boolean }) {
 	const [original, setOriginal] = useState("");
 	const [command, setCommand] = useState("python3 main.py");
 	const [approved, setApproved] = useState(false);
+	const [writeApproved, setWriteApproved] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [running, setRunning] = useState(false);
 	const [output, setOutput] = useState("");
@@ -41,26 +42,27 @@ export default function PlaygroundRuntime({ open }: { open: boolean }) {
 	const refresh = async (id: string) => { const body = await request(`/${id}/files`); setFiles(body.files || []); };
 	const start = () => perform(async () => {
 		const result = await request("", { method: "POST" }) as Sandbox;
-		setSandbox(result); setOriginal(""); setApproved(false); setFiles([]); setOutput("");
+		setSandbox(result); setOriginal(""); setApproved(false); setWriteApproved(false); setFiles([]); setOutput("");
 		setStatus("Hosted Docker sandbox ready. No command has run."); record("Created isolated hosted workspace /workspace (network disabled).");
 	});
 	const stop = () => perform(async () => {
 		if (!sandbox) return;
 		try { await request(`/${sandbox.id}`, { method: "DELETE" }); }
 		catch (failure) { if (!(failure && typeof failure === "object" && "status" in failure && failure.status === 404)) throw failure; }
-		abort.current?.abort(); setSandbox(null); setRunning(false); setApproved(false); setFiles([]);
+		abort.current?.abort(); setSandbox(null); setRunning(false); setApproved(false); setWriteApproved(false); setFiles([]);
 		setStatus("Sandbox stopped. Its temporary files were discarded."); record("Stopped sandbox and all its processes.");
 	});
 	const save = () => perform(async () => {
-		if (!sandbox || mode !== "build") return;
-		await request(`/${sandbox.id}/file`, { method: "PUT", body: JSON.stringify({ path, text }) });
+		if (!sandbox || mode !== "build" || !writeApproved) return;
+		setWriteApproved(false);
+		await request(`/${sandbox.id}/file`, { method: "PUT", body: JSON.stringify({ path, text, approved: true }) });
 		setOriginal(text); record(`Saved /workspace/${path}`); await refresh(sandbox.id);
 	});
 	const read = (selected: string) => perform(async () => {
 		if (!sandbox) return;
 		if (text !== original) throw new Error("Save the current draft before opening another file.");
 		const body = await request(`/${sandbox.id}/file?${new URLSearchParams({ path: selected })}`);
-		setPath(body.path); setText(body.text); setOriginal(body.text); record(`Read /workspace/${body.path}`);
+		setPath(body.path); setText(body.text); setOriginal(body.text); setWriteApproved(false); record(`Read /workspace/${body.path}`);
 	});
 	const run = async () => {
 		if (!sandbox || mode !== "build" || !approved || busy || running || text !== original) return;
@@ -104,14 +106,15 @@ export default function PlaygroundRuntime({ open }: { open: boolean }) {
 		<header><h2>Execution workspace</h2><span>Inference: hosted AI · Code: {sandbox ? "hosted Docker" : "not running"}</span></header>
 		<p>Manual execution, separate from chat. Python 3.11 and POSIX shell · no network · 512 MB RAM · 30s per command. Files are temporary: idle workspaces expire after 15 minutes and all workspaces after 1 hour. Download anything you need to keep.</p>
 		<div className="pgw-runtime-actions">
-			<label>Workspace mode <select value={mode} disabled={running} onChange={event => { setMode(event.target.value as typeof mode); setApproved(false); }}><option value="inspect">Inspect · read only</option><option value="build">Build · explicit execution</option></select></label>
+			<label>Workspace mode <select value={mode} disabled={running} onChange={event => { setMode(event.target.value as typeof mode); setApproved(false); setWriteApproved(false); }}><option value="inspect">Inspect · read only</option><option value="build">Build · explicit execution</option></select></label>
 			{!sandbox ? <button type="button" className="pgw-outlined-button" disabled={busy} onClick={start}>Start hosted sandbox</button> : <><button type="button" className="pgw-outlined-button" disabled={busy} onClick={stop}>{running ? "Cancel and discard sandbox" : "Stop and discard sandbox"}</button><button type="button" className="pgw-text-button" disabled={busy || running} onClick={() => perform(() => refresh(sandbox.id))}>Refresh files</button></>}
 		</div>
 		<p role="status">{status}</p>{error && <p role="alert">{error}</p>}
 		{sandbox && <div className="pgw-runtime-workspace"><nav aria-label="Workspace files"><b>/workspace</b>{files.map(file => <button key={file} type="button" title={file} disabled={busy || running} onClick={() => read(file)}>{file}</button>)}{!files.length && <p>No saved files.</p>}</nav><div>
-			<label>Workspace-relative file path<input aria-label="Workspace file path" value={path} disabled={busy || running || mode !== "build"} maxLength={240} onChange={event => { setPath(event.target.value); setApproved(false); }} /></label>
-			<textarea aria-label="Workspace file editor" spellCheck={false} value={text} disabled={busy || running || mode !== "build"} onChange={event => { setText(event.target.value); setApproved(false); }} />
-			<div className="pgw-runtime-actions"><button type="button" className="pgw-outlined-button" disabled={busy || running || mode !== "build"} onClick={save}>Save to sandbox</button><button type="button" className="pgw-text-button" onClick={() => setChanges(!changes)}>Review draft changes</button><button type="button" className="pgw-text-button" onClick={() => { const url = URL.createObjectURL(new Blob([text], { type: "text/plain" })); const link = document.createElement("a"); link.href = url; link.download = path.split("/").at(-1) || "file.txt"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>Download draft</button></div>
+			<label>Workspace-relative file path<input aria-label="Workspace file path" value={path} disabled={busy || running || mode !== "build"} maxLength={240} onChange={event => { setPath(event.target.value); setApproved(false); setWriteApproved(false); }} /></label>
+			<textarea aria-label="Workspace file editor" spellCheck={false} value={text} disabled={busy || running || mode !== "build"} onChange={event => { setText(event.target.value); setApproved(false); setWriteApproved(false); }} />
+			<label><input type="checkbox" checked={writeApproved} disabled={busy || running || mode !== "build"} onChange={event => setWriteApproved(event.target.checked)} />I reviewed this exact path and contents. Approve one sandbox write.</label>
+			<div className="pgw-runtime-actions"><button type="button" className="pgw-outlined-button" disabled={busy || running || mode !== "build" || !writeApproved} onClick={save}>Save to sandbox</button><button type="button" className="pgw-text-button" onClick={() => setChanges(!changes)}>Review draft changes</button><button type="button" className="pgw-text-button" onClick={() => { const url = URL.createObjectURL(new Blob([text], { type: "text/plain" })); const link = document.createElement("a"); link.href = url; link.download = path.split("/").at(-1) || "file.txt"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>Download draft</button></div>
 			{changes && <div className="pgw-runtime-diff"><div><b>Last saved/read version</b><pre>{original || "(new file)"}</pre></div><div><b>Draft · not executed</b><pre>{text}</pre></div></div>}
 			<label>Command · runs in /workspace<input aria-label="Sandbox command" value={command} disabled={busy || running || mode !== "build"} maxLength={4000} onChange={event => { setCommand(event.target.value); setApproved(false); }} /></label>
 			<label className="pgw-runtime-approval"><input type="checkbox" checked={approved} disabled={busy || running || mode !== "build"} onChange={event => setApproved(event.target.checked)} />I approve running this command in the hosted sandbox.</label>

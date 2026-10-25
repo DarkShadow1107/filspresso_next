@@ -7,6 +7,7 @@ import type { ReviewContext, ReviewMode } from "@/lib/playgroundAgentReview";
 import { MODEL_LABEL_BY_KEY, formatContextTokens, isPlaygroundModelKey } from "@/lib/modelAccess";
 import type { AgentApproval } from "@/lib/playgroundAgentLoop";
 import PlaygroundAgentQuestion from "./PlaygroundAgentQuestion";
+import PlaygroundProjectPanel from "./PlaygroundProjectPanel";
 
 /** Keyed by a fresh challenge: a second rapid click/key-repeat cannot approve a newly
  * arrived action without a separate review acknowledgement. Nothing renders as HTML. */
@@ -26,7 +27,7 @@ export default function PlaygroundAgentWorkspace({ context }: { context: ReviewC
 	const [workspace] = React.useState(() => new HostedAgentWorkspace());
 	const state = React.useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot);
 	const [mode, setMode] = React.useState<ReviewMode>("plan"); const [prompt, setPrompt] = React.useState("");
-	const busy = ["checking", "creating", "running", "awaiting_approval", "awaiting_question", "stopping"].includes(state.phase);
+	const busy = ["checking", "creating", "inspecting", "running", "awaiting_approval", "awaiting_question", "stopping"].includes(state.phase);
 	React.useEffect(() => () => { void workspace.stop(true); }, [workspace, context.model, context.inputContextTokens, context.sessionUuid, context.compactionMode]);
 	React.useEffect(() => {
 		const identity = () => { try { const value = readAccountSession(); return value?.email || value?.username || null; } catch { return null; } };
@@ -47,9 +48,11 @@ export default function PlaygroundAgentWorkspace({ context }: { context: ReviewC
 			<button type="button" className="pgw-outlined-button" disabled={busy} onClick={() => void workspace.check()}>Check agent availability</button>
 			<button type="button" className="pgw-outlined-button" disabled={busy || !state.executionEnabled || !state.models.includes(context.model) || !!state.workspace || !!state.quarantined} onClick={() => void workspace.startSandbox()}>Start fresh hosted sandbox</button>
 			<button type="button" className="pgw-outlined-button" disabled={state.phase === "stopping" || (!busy && !state.workspace && !state.quarantined)} onClick={() => void workspace.stop()}>{state.quarantined ? "Retry discard" : "Stop and discard sandbox"}</button>
+			<button type="button" className="pgw-outlined-button" disabled={busy || state.requiresReset || !!state.quarantined} onClick={() => { if (workspace.newConversation()) setPrompt(""); }}>New conversation / change mode · retain project</button>
 		</div>
 		<p role="status">{state.phase === "checking" ? "Checking qualified model/executor availability…" : state.phase === "creating" ? "Creating an isolated temporary sandbox…" : state.phase === "running" ? "Agent running; subsequent model turns are metered." : state.phase === "awaiting_question" ? "Waiting for your clarification answers. No execution approval is implied." : state.phase === "awaiting_approval" ? "Waiting for your decision. No proposed mutation/command runs before approval." : state.phase === "stopping" ? "Discarding the actual sandbox workload…" : state.executionEnabled ? "Hosted action transport configured. Each proposal still requires server verification and a one-shot claim." : "Agent execution is disabled by default. Operator-qualified native models, action signing and a qualified broker are required."}</p>
 		{state.error && <p role="alert">{state.error}</p>}
+		{state.workspace && <PlaygroundProjectPanel key={state.workspace.id} workspace={workspace} busy={busy} />}
 		<form onSubmit={event => { event.preventDefault(); void workspace.run(context, mode, prompt); }}>
 			<label>Agent mode<select aria-label="Agent workspace mode" disabled={busy || state.conversationTurns > 0} value={mode} onChange={event => setMode(event.target.value as ReviewMode)}><option value="plan">Plan · workspace reads</option><option value="build">Build · fresh approval for writes/commands</option></select></label>
 			<label>Agent request or follow-up<textarea aria-label="Agent workspace request" rows={4} maxLength={8000} disabled={state.phase === "stopping"} value={prompt} onChange={event => setPrompt(event.target.value)} /></label>

@@ -209,3 +209,45 @@ test("question dismissal clears queued requests and requires a fresh sandbox ins
 	assert.equal(state.workspace.getSnapshot().requiresReset, true); assert.equal(state.workspace.getSnapshot().queuedPrompt, null);
 	await state.workspace.run(context, "build", "Must not send"); assert.equal(state.replies.length, 0); await state.workspace.stop();
 });
+
+test("integrated explorer observes the agent's same sandbox, excludes invalid paths and clears late reads on stop", async () => {
+	const state = setup(); const json = state.io.json;
+	state.io.json = async (...args) => {
+		if (args[0].endsWith("/files")) return { files: ["main.py", "results.txt"] };
+		if (args[0].includes("/file?")) { const path = new URL(args[0], "http://fixture").searchParams.get("path"); return { path, text: path === "main.py" ? "print(1)\n" : "command-produced output" }; }
+		return json(...args);
+	};
+	await state.workspace.check(); await state.workspace.startSandbox();
+	const files = await state.workspace.captureProject(); assert.equal(files[1].text, "command-produced output");
+	const delayed = deferred<Record<string, unknown>>();
+	state.io.json = async (...args) => args[0].endsWith("/files") ? delayed.promise : json(...args);
+	const inspecting = state.workspace.captureProject(); await state.workspace.stop(true);
+	delayed.resolve({ files: ["../outside.txt"] }); await assert.rejects(inspecting);
+	assert.equal(state.workspace.getSnapshot().workspace, null); assert.deepEqual(state.workspace.getSnapshot().models, []);
+});
+
+test("new conversation changes mode without deleting project files or reusing prior context/approvals", async () => {
+	const state = setup(); const requests: Parameters<HostedAgentIo["turn"]>[0][] = [];
+	state.io.turn = async request => { requests.push(request); return response(); };
+	await state.workspace.check(); await state.workspace.startSandbox();
+	await state.workspace.run(context, "build", "First"); assert.equal(state.workspace.newConversation(), true);
+	await state.workspace.run(context, "plan", "Different direction");
+	assert.equal(requests[1].mode, "plan"); assert.deepEqual(requests[1].conversation ?? [], []);
+	assert.equal(state.workspace.getSnapshot().workspace?.id, sandboxId);
+	assert.equal(state.posts.some(post => post.method === "DELETE"), false); await state.workspace.stop();
+});
+
+test("local imports require a distinct explicit per-file approval and never retry lost uploads", async () => {
+	const state = setup(); await state.workspace.check(); await state.workspace.startSandbox();
+	await assert.rejects(state.workspace.uploadReviewedFile({ path: "a.txt", text: "x" }, false));
+	const json = state.io.json;
+	state.io.json = async (...args) => {
+		if (args[1] === "PUT") { state.posts.push({ path: args[0], method: args[1], body: args[2] }); throw new Error("Lost write receipt"); }
+		return json(...args);
+	};
+	await assert.rejects(state.workspace.uploadReviewedFile({ path: "a.txt", text: "x" }, true));
+	assert.equal(state.posts.filter(post => post.method === "PUT").length, 1);
+	assert.equal(state.workspace.getSnapshot().requiresReset, true);
+	await assert.rejects(state.workspace.uploadReviewedFile({ path: "a.txt", text: "x" }, true));
+	assert.equal(state.posts.filter(post => post.method === "PUT").length, 1); await state.workspace.stop();
+});
