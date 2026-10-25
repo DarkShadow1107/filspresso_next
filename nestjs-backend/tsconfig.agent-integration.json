@@ -1,0 +1,10 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"rootDir": "..",
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"noEmit": true
+	},
+	"include": ["test/integration/playground-agent-smoke.ts"],
+	"exclude": ["node_modules", "dist"]
+}

@@ -198,26 +198,24 @@ let DesktopController = class DesktopController {
                 includesUsage: addons_service_2.SPECTRE_ADDON_SUMMARY.includesUsage,
             },
             models,
+            attachmentModels: ["lfm2_5_vl_450m_q4_k_m", "lfm2_5_audio_1_5b_q4_0"].map((modelKey) => {
+                const price = (0, model_pricing_1.resolveTokenPrice)(modelKey, "playground");
+                return { modelKey, label: price.label, ...(0, model_pricing_1.effectiveRates)(price) };
+            }),
             // The app polls this after every generation. Stamped so it can tell a fresh answer
             // from a cached one without trusting its own clock against the server's.
             servedAt: new Date().toISOString(),
         };
     }
     /**
-     * Every text model, with the price this account would pay and whether it may run it.
-     *
-     * The desktop harness is a coding surface, so the list is the same six text models the
-     * web Playground offers -- not the vision or audio models, which have no place in that
-     * surface and whose prices would be quoted for something the app cannot send.
+     * Every selectable model, including Vision and Audio recommendations for imported media,
+     * with the price this account would pay and whether it may run it.
      *
      * Locked models are listed rather than omitted, with their price attached. The app needs
      * to show what exists and what it would cost, and a hidden model cannot do either.
      */
     modelCatalogue(accessSource, tier, walletCanGenerate, allowanceRemainingRon) {
-        // The Playground's own text-model list, not every priced model: the vision and audio
-        // models are priced for other surfaces and have no place in a coding harness, and a
-        // price quoted for a model the app cannot send is worse than no price at all.
-        return (0, text_models_1.playgroundTextModelKeys)()
+        return (0, text_models_1.playgroundModelKeys)()
             .filter((modelKey) => modelKey in model_pricing_1.MODEL_TOKEN_PRICING)
             .map((modelKey) => {
             const price = (0, model_pricing_1.resolveTokenPrice)(modelKey, "playground");

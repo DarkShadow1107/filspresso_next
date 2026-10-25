@@ -1,4 +1,5 @@
-import { Injectable, PipeTransform } from "@nestjs/common";
+import { Injectable, PipeTransform, type ArgumentMetadata } from "@nestjs/common";
+import { EXACT_PLAYGROUND_BODY } from "./exact-playground-body";
 
 /**
  * Recursively trim every string in a payload.
@@ -62,7 +63,8 @@ function trimDeep(value: unknown, depth = 0): { value: unknown; changed: boolean
 
 @Injectable()
 export class TrimStringsPipe implements PipeTransform {
-	transform(value: unknown): unknown {
+	transform(value: unknown, metadata?: ArgumentMetadata): unknown {
+		if (metadata?.type === "custom" && metadata.data === EXACT_PLAYGROUND_BODY) return value;
 		return trimDeep(value).value;
 	}
 }

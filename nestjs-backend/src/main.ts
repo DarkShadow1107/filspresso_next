@@ -127,6 +127,8 @@ const BULK_JSON_BODY_BYTES = (() => {
 // Registered first so it wins for that path; the global parser below is then a no-op
 // for it, because a body can only be parsed once.
 app.use("/api/health/services/events/bulk", json({ limit: `${BULK_JSON_BODY_BYTES}b`, strict: true }));
+// Prepared source text and history are independently bounded by the input-context validator.
+app.use("/api/desktop/chat/stream", json({ limit: "4mb", strict: true }));
 app.use(json({ limit: `${MAX_JSON_BODY_BYTES}b`, strict: true }));
 	app.use(urlencoded({ extended: true, limit: `${MAX_JSON_BODY_BYTES}b` }));
 	app.use(compression({ level: 6, threshold: 1024 }));

@@ -17,6 +17,7 @@ export type FetchOptions = {
   timeoutMs?: number;
   /** Reject rather than buffer a response larger than this. */
   maxBytes?: number;
+  signal?: AbortSignal;
   /**
    * How redirects are handled. Defaults to the platform's own behaviour, which is to follow
    * them.
@@ -58,6 +59,9 @@ export function readIntEnv(name: string, fallback: number, min: number, max: num
 export async function fetchBounded(url: string, options: FetchOptions = {}): Promise<Response> {
   const timeoutMs = options.timeoutMs ?? readIntEnv("UPSTREAM_TIMEOUT_MS", 8000, 500, 60000);
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  options.signal?.addEventListener("abort", abort, { once: true });
+  if (options.signal?.aborted) controller.abort();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
@@ -72,14 +76,15 @@ export async function fetchBounded(url: string, options: FetchOptions = {}): Pro
       // Read the declared length once. When it is present and within budget the body can
       // be handed back untouched; when it is missing (chunked) the cap can only be
       // enforced while streaming.
-      const declared = Number(response.headers.get("content-length"));
-      if (Number.isFinite(declared)) {
-        if (declared > options.maxBytes) {
-          throw new UpstreamTooLargeError(url, options.maxBytes);
+      const rawLength = response.headers.get("content-length");
+      const declared = rawLength === null ? NaN : Number(rawLength);
+        if (Number.isFinite(declared)) {
+          if (declared > options.maxBytes) {
+            void response.body?.cancel().catch(() => undefined);
+            throw new UpstreamTooLargeError(url, options.maxBytes);
         }
-        return response;
       }
-      return await rebufferWithCap(response, url, options.maxBytes);
+      return await rebufferWithCap(response, url, options.maxBytes, controller.signal);
     }
 
     return response;
@@ -91,27 +96,37 @@ export async function fetchBounded(url: string, options: FetchOptions = {}): Pro
     throw e;
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abort);
   }
 }
 
 /** Copy a response body, failing once the byte budget is exceeded. */
-async function rebufferWithCap(response: Response, url: string, maxBytes: number): Promise<Response> {
+async function rebufferWithCap(response: Response, url: string, maxBytes: number, signal: AbortSignal): Promise<Response> {
   const body = response.body;
   if (!body) return response;
 
   const reader = body.getReader();
+  let abort!: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => reject(new DOMException("Upstream request aborted", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
   const chunks: Uint8Array[] = [];
   let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
+  try { for (;;) {
+    const { done, value } = await Promise.race([reader.read(), cancelled]);
     if (done) break;
     if (!value) continue;
     total += value.byteLength;
     if (total > maxBytes) {
-      await reader.cancel().catch(() => undefined);
       throw new UpstreamTooLargeError(url, maxBytes);
     }
     chunks.push(value);
+  } } finally {
+    signal.removeEventListener("abort", abort);
+    void reader.cancel().catch(() => undefined);
+    try { reader.releaseLock(); } catch { /* A cancelled read may still be settling. */ }
   }
 
   const merged = new Uint8Array(total);

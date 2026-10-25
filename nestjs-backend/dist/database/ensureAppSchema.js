@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ensureAppSchema = ensureAppSchema;
+const playground_agent_actions_schema_1 = require("../desktop/playground-agent-actions.schema");
 async function ensureAppSchema(pool) {
     const client = await pool.connect();
     try {
@@ -87,6 +88,50 @@ async function ensureAppSchema(pool) {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+        // ---- Durable Playground state (see data/migrations/2026-10-playground-run-events.sql) ----
+        //
+        // Both tables are also declared in the migration file above; this is the boot path that
+        // makes them exist before the first record/interview/sweep touches them, exactly like
+        // the kafelot tables at the top of this file.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS playground_sessions (
+        id BIGSERIAL PRIMARY KEY,
+        account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        session_uuid UUID NOT NULL UNIQUE,
+        title TEXT NOT NULL DEFAULT 'New conversation',
+        model_key TEXT NOT NULL,
+        input_context_tokens INTEGER NOT NULL DEFAULT 16384,
+        compaction_mode TEXT NOT NULL DEFAULT 'balanced'
+          CHECK (compaction_mode IN ('permissive', 'balanced', 'aggressive')),
+        active_context JSONB NOT NULL DEFAULT '{}'::jsonb,
+        source_references JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        is_active BOOLEAN NOT NULL DEFAULT TRUE
+      )
+    `);
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS playground_run_events (
+        id BIGSERIAL PRIMARY KEY,
+        account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL,
+        session_uuid UUID,
+        scope TEXT NOT NULL DEFAULT 'playground' CHECK (scope IN ('desktop', 'playground')),
+        kind TEXT NOT NULL,
+        sequence_number INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'complete' CHECK (status IN ('pending', 'complete', 'failed')),
+        model_key TEXT,
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_playground_run_events_sequence ON playground_run_events(run_id, sequence_number)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_playground_run_events_account ON playground_run_events(account_id, created_at DESC)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_playground_run_events_session ON playground_run_events(session_uuid) WHERE session_uuid IS NOT NULL`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_playground_run_events_retention ON playground_run_events(created_at)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_playground_sessions_account ON playground_sessions(account_id, is_active, updated_at DESC)`);
+        await client.query(playground_agent_actions_schema_1.AGENT_ACTIONS_SCHEMA);
         await client.query(`
       CREATE TABLE IF NOT EXISTS security_event_ledger (
         id BIGSERIAL PRIMARY KEY,

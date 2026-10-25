@@ -51,6 +51,10 @@ function readIntEnv(name, fallback, min, max) {
 async function fetchBounded(url, options = {}) {
     const timeoutMs = options.timeoutMs ?? readIntEnv("UPSTREAM_TIMEOUT_MS", 8000, 500, 60000);
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted)
+        controller.abort();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const response = await fetch(url, {
@@ -64,14 +68,15 @@ async function fetchBounded(url, options = {}) {
             // Read the declared length once. When it is present and within budget the body can
             // be handed back untouched; when it is missing (chunked) the cap can only be
             // enforced while streaming.
-            const declared = Number(response.headers.get("content-length"));
+            const rawLength = response.headers.get("content-length");
+            const declared = rawLength === null ? NaN : Number(rawLength);
             if (Number.isFinite(declared)) {
                 if (declared > options.maxBytes) {
+                    void response.body?.cancel().catch(() => undefined);
                     throw new UpstreamTooLargeError(url, options.maxBytes);
                 }
-                return response;
             }
-            return await rebufferWithCap(response, url, options.maxBytes);
+            return await rebufferWithCap(response, url, options.maxBytes, controller.signal);
         }
         return response;
     }
@@ -85,28 +90,45 @@ async function fetchBounded(url, options = {}) {
     }
     finally {
         clearTimeout(timer);
+        options.signal?.removeEventListener("abort", abort);
     }
 }
 /** Copy a response body, failing once the byte budget is exceeded. */
-async function rebufferWithCap(response, url, maxBytes) {
+async function rebufferWithCap(response, url, maxBytes, signal) {
     const body = response.body;
     if (!body)
         return response;
     const reader = body.getReader();
+    let abort;
+    const cancelled = new Promise((_, reject) => {
+        abort = () => reject(new DOMException("Upstream request aborted", "AbortError"));
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted)
+            abort();
+    });
     const chunks = [];
     let total = 0;
-    for (;;) {
-        const { done, value } = await reader.read();
-        if (done)
-            break;
-        if (!value)
-            continue;
-        total += value.byteLength;
-        if (total > maxBytes) {
-            await reader.cancel().catch(() => undefined);
-            throw new UpstreamTooLargeError(url, maxBytes);
+    try {
+        for (;;) {
+            const { done, value } = await Promise.race([reader.read(), cancelled]);
+            if (done)
+                break;
+            if (!value)
+                continue;
+            total += value.byteLength;
+            if (total > maxBytes) {
+                throw new UpstreamTooLargeError(url, maxBytes);
+            }
+            chunks.push(value);
         }
-        chunks.push(value);
+    }
+    finally {
+        signal.removeEventListener("abort", abort);
+        void reader.cancel().catch(() => undefined);
+        try {
+            reader.releaseLock();
+        }
+        catch { /* A cancelled read may still be settling. */ }
     }
     const merged = new Uint8Array(total);
     let offset = 0;

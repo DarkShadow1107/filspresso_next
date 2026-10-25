@@ -50,23 +50,27 @@ const billing_service_1 = require("../billing/billing.service");
 const addons_service_1 = require("../billing/addons.service");
 const tier_allowance_1 = require("../billing/tier-allowance");
 const text_models_1 = require("./text-models");
+const httpClient_1 = require("../common/utils/httpClient");
+const playground_agent_contract_1 = require("./playground-agent-contract");
 const desktop_policy_1 = require("./desktop-policy");
+const input_context_1 = require("./input-context");
+const playground_run_events_service_1 = require("./playground-run-events.service");
+const playground_agent_tickets_service_1 = require("./playground-agent-tickets.service");
 /** Mirrors the web route's clamps, so the two surfaces cannot disagree on what is legal. */
 const MAX_MESSAGE_LENGTH = 8000;
 const MAX_SYSTEM_PROMPT_LENGTH = 2000;
-// The native client offers the same 16K / 32K / 64K / 128K levels as the web UI.
+// Legacy output API ceiling; the native input dropdown is validated separately.
 const MAX_MAX_TOKENS = 131_072;
-const DEFAULT_MAX_TOKENS = 512;
+const DEFAULT_MAX_TOKENS = 2048;
 const MAX_TEMPERATURE = 2;
 const DEFAULT_TEMPERATURE = 0.7;
 /**
- * The metered inference path for the desktop client.
+ * Shared metered inference for desktop and web Playground clients.
  *
  * This exists because there was nowhere else for a native client to send a request. The web
- * Playground is a Next route (`src/app/api/playground/chat/route.ts`) that calls the Python
- * AI service directly, and that service is published on port 5000 with no authentication at
- * all. A desktop client pointed at it would generate for free, unmetered, with no
- * entitlement check anywhere in the path.
+ * Playground formerly called Python directly. Both clients now use this gateway: the
+ * backend owns entitlement, affordability and settlement, and internal inference carries
+ * the AI service key. Native tool proposals use a separate, default-disabled turn contract.
  *
  * So the order of operations is the whole design, and it is deliberately the order the
  * authoritative Kafelot choke point uses (`kafelot.controller.ts:188-211`):
@@ -85,10 +89,128 @@ const DEFAULT_TEMPERATURE = 0.7;
 let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayService {
     billing;
     addons;
+    events;
+    actionTickets;
     logger = new common_1.Logger(DesktopGatewayService_1.name);
-    constructor(billing, addons) {
+    // The event recorder is optional on purpose: a stream that cannot record must still
+    // stream, and every existing test that constructs this service by hand keeps working.
+    // The module injects it when available; the service's own record() never throws into a
+    // stream path either way.
+    constructor(billing, addons, events, actionTickets) {
         this.billing = billing;
         this.addons = addons;
+        this.events = events;
+        this.actionTickets = actionTickets;
+    }
+    /** One durable entry. Fire and move on: the recorder has the fail-open contract. */
+    record(accountId, runId, kind, options = {}) {
+        try {
+            void Promise.resolve(this.events?.record(accountId, runId, kind, options)).catch(() => this.logger.warn("Run event recording failed."));
+        }
+        catch {
+            this.logger.warn("Run event recording failed.");
+        }
+    }
+    /** Explicit operator-qualified transport allowlist. Empty by default; never inferred from text. */
+    agentModels() {
+        if (!process.env.AI_SERVICE_KEY?.trim())
+            return [];
+        const files = new Set((process.env.PLAYGROUND_AGENT_MODEL_FILES || "").split(",").map(file => file.trim()).filter(Boolean));
+        return (0, text_models_1.playgroundTextModelKeys)().filter(key => files.has((0, text_models_1.playgroundModelFile)(key)));
+    }
+    /** One terminal native turn. It proposes actions but has no executor, approval, or host shell. */
+    async agentTurn(accountId, tier, raw, scope, signal) {
+        let request;
+        try {
+            request = (0, playground_agent_contract_1.validateAgentRequest)(raw);
+        }
+        catch {
+            return { kind: "refused", status: 400, error: "INVALID_AGENT_CONTRACT", message: "Invalid or oversized native agent request." };
+        }
+        if (!this.agentModels().includes(request.model))
+            return { kind: "refused", status: 503, error: "AGENT_DISABLED", message: "This model has no operator-qualified native tool transport. Plain chat remains available." };
+        const requestId = `dsk-${crypto.randomBytes(12).toString("hex")}`;
+        const options = { sessionUuid: request.session_uuid ?? null, modelKey: request.model, scope };
+        const refusal = (status, error, message) => {
+            this.record(accountId, requestId, "generation.refused", { ...options, payload: { protocol: "native-v1", error, status } });
+            return { kind: "refused", requestId, status, error, message };
+        };
+        const gate = await this.refuse(accountId, tier, request.model);
+        if (gate.refusal)
+            return refusal(gate.refusal.status, gate.refusal.error, gate.refusal.message);
+        if (signal?.aborted)
+            return refusal(503, "AGENT_CANCELLED", "The agent turn was cancelled.");
+        this.record(accountId, requestId, "generation.started", { ...options, payload: { protocol: "native-v1", mode: request.mode, scope, tool_count: request.tools.length, round: request.history.length } });
+        let response;
+        let body;
+        try {
+            response = await (0, httpClient_1.fetchBounded)(`${this.aiHost()}/api/playground/agent/turn`, {
+                method: "POST", headers: { ...this.upstreamHeaders(), Accept: "application/json" }, signal,
+                timeoutMs: playground_agent_contract_1.AGENT_TIMEOUT_MS, maxBytes: playground_agent_contract_1.AGENT_MAX_BYTES, redirect: "error",
+                body: JSON.stringify({ ...request, text_model: (0, text_models_1.playgroundModelFile)(request.model), request_id: requestId }),
+            });
+            body = await response.json();
+        }
+        catch {
+            return refusal(503, "AGENT_UNAVAILABLE", "Native agent transport failed or was cancelled. No automatic retry was attempted.");
+        }
+        const document = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+        const compaction = document.compaction && typeof document.compaction === "object" ? document.compaction : {};
+        const summaryUsage = (0, playground_agent_contract_1.agentUsage)(response.ok ? compaction.usage : document.compaction_usage);
+        const totalUsage = (0, playground_agent_contract_1.agentUsage)(document.usage);
+        const usage = response.ok && summaryUsage && totalUsage ? (0, playground_agent_contract_1.agentUsage)({ prompt_tokens: totalUsage.prompt_tokens - summaryUsage.prompt_tokens,
+            completion_tokens: totalUsage.completion_tokens - summaryUsage.completion_tokens }) : totalUsage;
+        let settlementFailed = false;
+        if (summaryUsage) {
+            try {
+                await this.billing.recordUsage({ accountId, tier, modelKey: request.model, scope, accessSource: gate.accessSource, requestId: `${requestId}-compaction`,
+                    usage: { inputTokens: summaryUsage.prompt_tokens, outputTokens: summaryUsage.completion_tokens } });
+                this.record(accountId, requestId, "settlement.succeeded", { ...options, payload: { scope: "compaction", ...summaryUsage } });
+            }
+            catch {
+                settlementFailed = true;
+                this.record(accountId, requestId, "settlement.failed", { ...options, status: "failed", payload: { scope: "compaction", reason: "record_usage_failed" } });
+            }
+        }
+        // Even an invalid/truncated native answer can consume model tokens. Settle reported
+        // work once, but never release proposals after a failed settlement or invalid reply.
+        if (usage) {
+            this.record(accountId, requestId, "generation.finished", { ...options, payload: { protocol: "native-v1", usage_reported: true, ...usage } });
+            try {
+                await this.billing.recordUsage({ accountId, tier, modelKey: request.model, scope, accessSource: gate.accessSource, requestId,
+                    usage: { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens } });
+                this.record(accountId, requestId, "settlement.succeeded", { ...options, payload: { scope: "generation", ...usage } });
+            }
+            catch {
+                settlementFailed = true;
+                this.record(accountId, requestId, "settlement.failed", { ...options, status: "failed", payload: { scope: "generation", reason: "record_usage_failed" } });
+                // The MODEL work completed; a failed charge must not rewrite that fact as a
+                // generation failure in replay. The API still fails closed before proposals.
+            }
+        }
+        if (settlementFailed)
+            return { kind: "refused", requestId, status: 503, error: "BILLING_UNAVAILABLE", message: "The agent turn could not be settled. No tool proposal was released." };
+        if (!response.ok) {
+            const status = response.status === 400 || response.status === 413 ? response.status : response.status === 429 || response.status === 503 ? 503 : 502;
+            return refusal(status, document.error === "AGENT_DISABLED" ? "AGENT_DISABLED" : document.error === "MODEL_BUSY" ? "MODEL_BUSY" : "AGENT_TURN_FAILED", "Native agent turn was refused or invalid. No proposal was released. Context/tool pairs were not silently dropped.");
+        }
+        let reply;
+        try {
+            reply = (0, playground_agent_contract_1.validateAgentReply)(document, request);
+        }
+        catch {
+            return refusal(502, "INVALID_AGENT_RESPONSE", "The native response was invalid or unmetered. No tool proposal was released.");
+        }
+        if (reply.compaction?.compacted)
+            this.record(accountId, requestId, "context.compacted", { ...options, payload: { protocol: "native-v1", mode: reply.compaction.mode,
+                    input_limit: reply.compaction.inputLimit, tokens_before: reply.compaction.tokensBefore, tokens_after: reply.compaction.tokensAfter, consumed_groups: reply.compaction.consumedGroups } });
+        if (signal?.aborted)
+            return refusal(503, "AGENT_CANCELLED", "The agent turn was cancelled after generation.");
+        for (const call of reply.tool_calls)
+            this.record(accountId, requestId, "tool.proposed", { ...options,
+                payload: { tool_call_id: call.id, name: call.name, argument_bytes: Buffer.byteLength(call.arguments, "utf8"), executed: false, mode: request.mode } });
+        const tickets = this.actionTickets?.issue(accountId, request, reply, requestId, scope) ?? [];
+        return { kind: "completed", requestId, payload: { ...reply, runId: requestId, settlement: "succeeded", ...(tickets.length ? { action_tickets: tickets } : {}) } };
     }
     /** Where the AI service lives. In-network by name; loopback when the backend runs bare. */
     aiHost() {
@@ -196,10 +318,9 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
      * `requestId` is generated here rather than accepted from the client. The client has no
      * reason to choose it and every reason to reuse one: a stable key is exactly what makes
      * the report idempotent, and a client-supplied value would let a retry be shaped to look
-     * like a different request. The web route passes `requestId: null` and leans on the
-     * stream firing once; this path does not have to accept that.
+     * like a different request. Both clients receive the same server-owned ID contract.
      */
-    async streamChat(res, accountId, tier, body) {
+    async streamChat(res, accountId, tier, body, scope = "desktop") {
         const modelKey = String(body?.model ?? body?.modelKey ?? "").trim();
         const modelFile = (0, text_models_1.playgroundModelFile)(modelKey);
         if (!modelFile) {
@@ -214,18 +335,52 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
         if (!message) {
             return { kind: "refused", status: 400, error: "MESSAGE_REQUIRED", message: "message is required" };
         }
+        let inputContext = {};
+        try {
+            inputContext = (0, input_context_1.readInputContext)(body);
+        }
+        catch (error) {
+            return { kind: "refused", status: 400, error: "INVALID_INPUT_CONTEXT", message: error instanceof Error ? error.message : "Invalid input context." };
+        }
+        // The run id is minted before the money gate, so every gate outcome has the same
+        // shape a customer can replay. It is deliberately minted *after* the validation
+        // checks above: a client that sent an impossible model or empty message gets its
+        // 400 and nothing more -- durable history starts where the server starts spending.
+        // Conversation linkage, if any, is validated client-supplied data -- an invalid uuid
+        // means the events simply have none, never that a run is anonymous-but-guessable.
+        const requestId = `dsk-${crypto.randomBytes(12).toString("hex")}`;
+        const sessionUuid = (0, playground_run_events_service_1.normalizeSessionUuid)(body?.session_uuid ?? body?.sessionUuid);
+        // Collect every refusal through one helper so the durable record of "this run was
+        // refused" can never drift from the refusal actually returned.
+        const refusal = (status, error, message) => {
+            this.record(accountId, requestId, "generation.refused", { payload: { status, error, message, model: modelKey, scope }, sessionUuid, modelKey });
+            return { kind: "refused", status, error, message };
+        };
         // Resolved once, then passed down explicitly. Holding it on the service instance would
         // be a race: Nest services are singletons, so two streams in flight would overwrite each
         // other's access source and one of them would be billed from the wrong pot -- an add-on
         // customer charged at their tier's allowance rate, or the reverse.
         const gate = await this.refuse(accountId, tier, modelKey);
         if (gate.refusal)
-            return gate.refusal;
+            return refusal(gate.refusal.status, gate.refusal.error, gate.refusal.message);
         const accessSource = gate.accessSource;
         // Thinking is restricted by plan, and it is decided from the server's own tier rather
         // than the request -- the same reasoning as the web route.
         const enableThinking = (body?.thinking === true || body?.thinking === "true") && this.tierAllowsThinking(tier);
-        const requestId = `dsk-${crypto.randomBytes(12).toString("hex")}`;
+        // Recorded before the gateway call: a run that dies connecting is still a run.
+        this.record(accountId, requestId, "generation.started", {
+            payload: {
+                model: modelKey,
+                tier,
+                scope,
+                input_context_tokens: inputContext.input_context_tokens,
+                compaction_mode: inputContext.compaction_mode,
+                compact_now: inputContext.compact_now === true,
+                thinking: enableThinking,
+            },
+            sessionUuid,
+            modelKey,
+        });
         // An explicit AbortController rather than AbortSignal.timeout, to match how every
         // other service in this backend bounds its outbound calls (and to satisfy the
         // phase7-bounded-io invariant, which is right to insist that a timeout is visible in
@@ -235,7 +390,8 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
         // runs for minutes, and the thing that must never happen is a socket left open
         // indefinitely holding a connection from the pool.
         const upstreamController = new AbortController();
-        const upstreamTimeout = setTimeout(() => upstreamController.abort(), Number(process.env.DESKTOP_STREAM_TIMEOUT_MS || "300000"));
+        res.once?.("close", () => upstreamController.abort());
+        const upstreamTimeout = setTimeout(() => upstreamController.abort(), Number(process.env.DESKTOP_STREAM_TIMEOUT_MS || "960000"));
         let upstream;
         try {
             upstream = await fetch(`${this.aiHost()}/api/chat/stream`, {
@@ -244,6 +400,7 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
                 signal: upstreamController.signal,
                 body: JSON.stringify({
                     message,
+                    ...inputContext,
                     system_prompt: this.clampText(body?.system_prompt ?? body?.systemPrompt, MAX_SYSTEM_PROMPT_LENGTH),
                     text_model: modelFile,
                     temperature: this.clampNumber(body?.temperature, 0, MAX_TEMPERATURE, DEFAULT_TEMPERATURE),
@@ -258,15 +415,18 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
         catch (err) {
             clearTimeout(upstreamTimeout);
             this.logger.error(`desktop upstream fetch failed for account ${accountId}: ${err instanceof Error ? err.message : String(err)}`);
-            return {
-                kind: "refused",
-                status: 502,
-                error: "UPSTREAM_UNAVAILABLE",
-                message: "The model service could not be reached.",
-            };
+            return refusal(502, "UPSTREAM_UNAVAILABLE", "The model service could not be reached.");
         }
         if (!upstream.ok || !upstream.body) {
             clearTimeout(upstreamTimeout);
+            const detail = await upstream.json().catch(() => ({}));
+            if (detail.compaction_usage)
+                await this.settleCompaction(detail.compaction_usage, accountId, tier, modelKey, requestId, accessSource, scope, sessionUuid);
+            if (detail.error === "COMPACTION_UNAVAILABLE")
+                return refusal(503, detail.error || "COMPACTION_UNAVAILABLE", detail.message || "Compaction failed; your original history was preserved.");
+            if (upstream.status === 400 || upstream.status === 413) {
+                return refusal(upstream.status, detail.error || "INPUT_CONTEXT_EXCEEDED", detail.message || "The selected input context was exceeded.");
+            }
             // 429 from the model service means its single llama.cpp slot is busy -- usually
             // because a model swap is loading, which takes minutes. That is a retryable
             // condition and not a failure, and it gets its own code so the client can say
@@ -275,20 +435,10 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
             // the model finishes loading underneath them.
             if (upstream.status === 429) {
                 this.logger.warn(`desktop model service is busy for account ${accountId}`);
-                return {
-                    kind: "refused",
-                    status: 503,
-                    error: "MODEL_BUSY",
-                    message: "The model is being loaded. Please try again in a moment.",
-                };
+                return refusal(503, "MODEL_BUSY", "The model is being loaded. Please try again in a moment.");
             }
             this.logger.warn(`desktop upstream returned HTTP ${upstream.status} for account ${accountId}`);
-            return {
-                kind: "refused",
-                status: 502,
-                error: "UPSTREAM_ERROR",
-                message: "The model service could not complete that request.",
-            };
+            return refusal(502, "UPSTREAM_ERROR", "The model service could not complete that request.");
         }
         res.status(200);
         res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -302,7 +452,7 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
         // `await`ed before returning: the controller has already handed the socket over, and
         // the meter has to keep reading after this method's caller believes it is finished.
         try {
-            await this.pipeAndMeter(res, upstream.body, accountId, tier, modelKey, requestId, accessSource);
+            await this.pipeAndMeter(res, upstream.body, accountId, tier, modelKey, requestId, accessSource, scope, sessionUuid);
         }
         finally {
             // Cleared here rather than left to fire: a five-minute timer outliving its request
@@ -318,11 +468,13 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
      * one would lose the done frame, and a lost done frame means a completed generation that
      * nobody is charged for -- the customer got the tokens and the meter never saw them.
      */
-    async pipeAndMeter(res, upstreamBody, accountId, tier, modelKey, requestId, accessSource) {
+    async pipeAndMeter(res, upstreamBody, accountId, tier, modelKey, requestId, accessSource, scope = "desktop", sessionUuid = null) {
         const reader = upstreamBody.getReader();
         const decoder = new TextDecoder();
         let pending = "";
         let metered = false;
+        let compactionMetered = false;
+        let compactionRecorded = false;
         const billIfDone = async (line) => {
             const trimmed = line.trim();
             if (!trimmed.startsWith("data:"))
@@ -330,6 +482,8 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
             const payload = trimmed.slice(5).trim();
             if (!payload || payload === "[DONE]")
                 return;
+            // The compaction block's field names are whatever the Python side chose to emit;
+            // only the ones replay cares about are read, and everything is clamped on record.
             let event;
             try {
                 event = JSON.parse(payload);
@@ -337,20 +491,47 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
             catch {
                 return;
             }
+            if (event.context) {
+                // Recorded once per run, whether or not a summary actually came out: a run
+                // whose compaction was attempted but found nothing older to fold is a
+                // different replay from one that never tried.
+                if (!compactionRecorded) {
+                    compactionRecorded = true;
+                    this.record(accountId, requestId, "context.compacted", {
+                        payload: {
+                            compacted: event.context.compacted === true,
+                            input_limit: event.context.inputLimit,
+                            tokens_before: event.context.tokensBefore,
+                            tokens_after: event.context.tokensAfter,
+                            summary: typeof event.context.summary === "string" ? event.context.summary : undefined,
+                        },
+                        sessionUuid,
+                        modelKey,
+                    });
+                }
+                if (event.context.usage && !compactionMetered) {
+                    compactionMetered = true;
+                    await this.settleCompaction(event.context.usage, accountId, tier, modelKey, requestId, accessSource, scope, sessionUuid);
+                }
+            }
             if (!event.done || metered)
                 return;
             const usage = readUsageBlock(event.usage);
-            if (!usage)
+            // Finished is recorded even when the usage block never arrived: done is a fact
+            // about the generation, and a run that shows completed without settlement is a
+            // different diagnostic from one that shows neither.
+            if (!usage || (usage.inputTokens <= 0 && usage.outputTokens <= 0)) {
+                this.record(accountId, requestId, "generation.finished", { payload: { usage_reported: false }, sessionUuid, modelKey });
                 return;
-            if (usage.inputTokens <= 0 && usage.outputTokens <= 0)
-                return;
+            }
+            this.record(accountId, requestId, "generation.finished", { payload: { usage_reported: true, input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }, sessionUuid, modelKey });
             metered = true;
             try {
                 await this.billing.recordUsage({
                     accountId,
                     modelKey,
                     usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
-                    scope: "desktop",
+                    scope,
                     // Supplied from the server's own resolution, never from the request. The pot
                     // depends on which product granted access: an add-on holder pays from the
                     // wallet alone, and a Max customer draws on their allowance.
@@ -360,6 +541,7 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
                     // retried report for this stream cannot charge twice.
                     requestId,
                 });
+                this.record(accountId, requestId, "settlement.succeeded", { payload: { scope: "generation", input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }, sessionUuid, modelKey });
             }
             catch (err) {
                 // The customer already has their tokens. Failing the stream now would take
@@ -367,6 +549,7 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
                 // generation stands. A lost charge is an accounting problem; a withdrawn
                 // answer is a worse one.
                 this.logger.error(`desktop usage metering failed for request ${requestId} (account ${accountId}): ${err instanceof Error ? err.message : String(err)}`);
+                this.record(accountId, requestId, "settlement.failed", { payload: { scope: "generation", reason: "record_usage_failed" }, sessionUuid, modelKey, status: "failed" });
             }
         };
         try {
@@ -374,19 +557,23 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
                 const { done, value } = await reader.read();
                 if (done)
                     break;
-                if (value)
-                    res.write(Buffer.from(value));
                 pending += decoder.decode(value ?? new Uint8Array(), { stream: true });
                 const lines = pending.split("\n");
                 // The last element is either an empty string or an incomplete line; either way
                 // it stays for the next read.
                 pending = lines.pop() ?? "";
-                for (const line of lines)
+                for (const line of lines) {
                     await billIfDone(line);
+                    if (!res.destroyed)
+                        res.write(`${line}\n`);
+                }
             }
             pending += decoder.decode();
-            for (const line of pending.split("\n"))
+            for (const line of pending.split("\n")) {
                 await billIfDone(line);
+                if (line && !res.destroyed)
+                    res.write(`${line}\n\n`);
+            }
         }
         catch (err) {
             this.logger.warn(`desktop stream aborted for request ${requestId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -401,6 +588,19 @@ let DesktopGatewayService = DesktopGatewayService_1 = class DesktopGatewayServic
             res.end();
         }
     }
+    async settleCompaction(raw, accountId, tier, modelKey, requestId, accessSource, scope, sessionUuid = null) {
+        const usage = readUsageBlock(raw);
+        if (!usage || usage.inputTokens + usage.outputTokens === 0)
+            return;
+        try {
+            await this.billing.recordUsage({ accountId, tier, modelKey, usage, scope, accessSource, requestId: `${requestId}-compaction` });
+            this.record(accountId, requestId, "settlement.succeeded", { payload: { scope: "compaction", input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }, sessionUuid, modelKey });
+        }
+        catch (error) {
+            this.logger.error(`Compaction settlement failed for ${requestId}: ${error instanceof Error ? error.message : String(error)}`);
+            this.record(accountId, requestId, "settlement.failed", { payload: { scope: "compaction", reason: "record_usage_failed" }, sessionUuid, modelKey, status: "failed" });
+        }
+    }
     /** Thinking is reserved for the two top plans, mirroring the shared frontend table. */
     tierAllowsThinking(tier) {
         const t = String(tier || "").toLowerCase();
@@ -411,7 +611,9 @@ exports.DesktopGatewayService = DesktopGatewayService;
 exports.DesktopGatewayService = DesktopGatewayService = DesktopGatewayService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [billing_service_1.BillingService,
-        addons_service_1.AddonsService])
+        addons_service_1.AddonsService,
+        playground_run_events_service_1.PlaygroundRunEventsService,
+        playground_agent_tickets_service_1.PlaygroundAgentTicketsService])
 ], DesktopGatewayService);
 /**
  * Read a token count out of an upstream usage block.

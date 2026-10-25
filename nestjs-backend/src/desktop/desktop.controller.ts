@@ -6,7 +6,7 @@ import { AddonsService } from "../billing/addons.service";
 import { SPECTRE_ADDON_SUMMARY } from "../billing/addons.service";
 import { MODEL_TOKEN_PRICING, effectiveRates, resolveTokenPrice } from "../billing/model-pricing";
 import { canUseSpectre } from "../billing/tier-allowance";
-import { playgroundTextModelKeys } from "./text-models";
+import { playgroundModelKeys } from "./text-models";
 import { DesktopGatewayService } from "./desktop-gateway.service";
 import { DesktopInstallerService } from "./desktop-installer.service";
 import { desktopModelAccess } from "./desktop-policy";
@@ -199,6 +199,10 @@ export class DesktopController {
 				includesUsage: SPECTRE_ADDON_SUMMARY.includesUsage,
 			},
 			models,
+			attachmentModels: ["lfm2_5_vl_450m_q4_k_m", "lfm2_5_audio_1_5b_q4_0"].map((modelKey) => {
+				const price = resolveTokenPrice(modelKey, "playground");
+				return { modelKey, label: price.label, ...effectiveRates(price) };
+			}),
 			// The app polls this after every generation. Stamped so it can tell a fresh answer
 			// from a cached one without trusting its own clock against the server's.
 			servedAt: new Date().toISOString(),
@@ -206,11 +210,8 @@ export class DesktopController {
 	}
 
 	/**
-	 * Every text model, with the price this account would pay and whether it may run it.
-	 *
-	 * The desktop harness is a coding surface, so the list is the same six text models the
-	 * web Playground offers -- not the vision or audio models, which have no place in that
-	 * surface and whose prices would be quoted for something the app cannot send.
+	 * Every selectable model, including Vision and Audio recommendations for imported media,
+	 * with the price this account would pay and whether it may run it.
 	 *
 	 * Locked models are listed rather than omitted, with their price attached. The app needs
 	 * to show what exists and what it would cost, and a hidden model cannot do either.
@@ -221,10 +222,7 @@ export class DesktopController {
 		walletCanGenerate: boolean,
 		allowanceRemainingRon: number,
 	) {
-		// The Playground's own text-model list, not every priced model: the vision and audio
-		// models are priced for other surfaces and have no place in a coding harness, and a
-		// price quoted for a model the app cannot send is worse than no price at all.
-		return playgroundTextModelKeys()
+		return playgroundModelKeys()
 			.filter((modelKey) => modelKey in MODEL_TOKEN_PRICING)
 			.map((modelKey) => {
 				const price = resolveTokenPrice(modelKey, "playground");

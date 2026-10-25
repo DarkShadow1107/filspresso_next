@@ -16,13 +16,14 @@ ENV PYTHONUNBUFFERED=1
 # only appears when a 2D render is actually attempted, so it is invisible to the
 # /api/health probe and to the Python import check. fonts-dejavu-core gives
 # fontconfig at least one usable face so atom labels are not blank.
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
     wget \
     libcairo2 \
     libglib2.0-0 \
     libfontconfig1 \
     fonts-dejavu-core \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system appgroup && useradd --system --gid appgroup --create-home appuser
@@ -30,7 +31,7 @@ RUN groupadd --system appgroup && useradd --system --gid appgroup --create-home 
 # Install runtime Python dependencies for the AI gateway only.
 COPY requirements.ai.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir -r requirements.ai.txt
+    pip install --timeout 120 --retries 5 --prefer-binary -r requirements.ai.txt
 
 # Copy AI source files. Listed explicitly rather than copying models/ wholesale,
 # because models/ also holds multi-gigabyte GGUF weights and tokeniser data that
@@ -43,6 +44,11 @@ COPY models/tanka.py ./models/tanka.py
 COPY models/gate.py ./models/gate.py
 COPY models/residency.py ./models/residency.py
 COPY models/websearch.py ./models/websearch.py
+COPY models/playground_context.py ./models/playground_context.py
+COPY models/playground_compaction.py ./models/playground_compaction.py
+COPY models/playground_agent.py ./models/playground_agent.py
+COPY models/playground_questions.py ./models/playground_questions.py
+COPY spectre/app/services/compaction_core.py ./spectre/app/services/compaction_core.py
 
 RUN mkdir -p /app/public/images/icons /tmp \
     && chown -R appuser:appgroup /app /tmp

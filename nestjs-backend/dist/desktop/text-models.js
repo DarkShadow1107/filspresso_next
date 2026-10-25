@@ -1,26 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PLAYGROUND_TEXT_MODEL_FILES = exports.PLAYGROUND_TEXT_MODEL_KEYS = void 0;
+exports.PLAYGROUND_TEXT_MODEL_FILES = exports.PLAYGROUND_MEDIA_MODEL_FILES = exports.PLAYGROUND_TEXT_MODEL_KEYS = void 0;
 exports.playgroundTextModelKeys = playgroundTextModelKeys;
 exports.isPlaygroundTextModel = isPlaygroundTextModel;
+exports.playgroundModelKeys = playgroundModelKeys;
 exports.playgroundModelFile = playgroundModelFile;
 /**
- * The text models the Spectre Playground offers.
- *
- * Why the backend keeps its own copy. `MODEL_TOKEN_PRICING` prices all nine served models:
- * six text, two vision, one audio. The Playground -- web and desktop alike -- exposes only
- * the text six, because the other three have no surface in it. The authoritative modality
- * map lives in the frontend (`src/lib/modelAccess.ts`), which this package cannot import, so
- * the list is restated here.
- *
- * Restated lists drift. That is not a risk accepted here, it is a risk that fails a test:
- * `desktop-catalogue.test.ts` reads the frontend source and asserts this set matches
- * `TEXT_MODEL_KEYS` exactly. Adding a model to one side without the other breaks the build,
- * not a customer's session.
- *
- * Deriving the set from the pricing table's key names -- "everything without `vl_` or
- * `audio_`" -- was the alternative and was rejected: it makes a naming convention load
- * bearing. Renaming a model would silently change which models the product sells.
+ * The Playground's explicitly mapped models: six text, two Vision-Language, one Audio.
+ * The text subset is retained for modality-specific callers; the full catalogue supports
+ * media-import recommendations. Tests check every GGUF mapping against the frontend table.
  */
 exports.PLAYGROUND_TEXT_MODEL_KEYS = [
     "lfm2_5_230m_q4_k_m",
@@ -36,6 +24,15 @@ function playgroundTextModelKeys() {
 }
 function isPlaygroundTextModel(modelKey) {
     return exports.PLAYGROUND_TEXT_MODEL_KEYS.includes(modelKey);
+}
+exports.PLAYGROUND_MEDIA_MODEL_FILES = {
+    lfm2_5_vl_450m_q4_k_m: "LFM2.5-VL-450M-Q4_K_M.gguf",
+    lfm2_5_vl_3b_q4_k_m: "LFM2.5-VL-3B-Q4_K_M.gguf",
+    lfm2_5_audio_1_5b_q4_0: "LFM2.5-Audio-1.5B-Q4_0.gguf",
+};
+/** Text, Vision-Language and Audio are selectable when working with imported media. */
+function playgroundModelKeys() {
+    return [...exports.PLAYGROUND_TEXT_MODEL_KEYS, ...Object.keys(exports.PLAYGROUND_MEDIA_MODEL_FILES)];
 }
 /**
  * Model key to GGUF filename, as the AI service expects it on `/api/chat/stream`.
@@ -55,7 +52,7 @@ exports.PLAYGROUND_TEXT_MODEL_FILES = {
 };
 /** The GGUF filename for a model key, or null when the key is not a Playground model. */
 function playgroundModelFile(modelKey) {
-    if (!isPlaygroundTextModel(modelKey))
-        return null;
-    return exports.PLAYGROUND_TEXT_MODEL_FILES[modelKey] ?? null;
+    if (isPlaygroundTextModel(modelKey))
+        return exports.PLAYGROUND_TEXT_MODEL_FILES[modelKey] ?? null;
+    return Object.prototype.hasOwnProperty.call(exports.PLAYGROUND_MEDIA_MODEL_FILES, modelKey) ? exports.PLAYGROUND_MEDIA_MODEL_FILES[modelKey] : null;
 }

@@ -8,6 +8,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TrimStringsPipe = void 0;
 const common_1 = require("@nestjs/common");
+const exact_playground_body_1 = require("./exact-playground-body");
 /**
  * Recursively trim every string in a payload.
  *
@@ -64,7 +65,9 @@ function trimDeep(value, depth = 0) {
     return { value, changed: false };
 }
 let TrimStringsPipe = class TrimStringsPipe {
-    transform(value) {
+    transform(value, metadata) {
+        if (metadata?.type === "custom" && metadata.data === exact_playground_body_1.EXACT_PLAYGROUND_BODY)
+            return value;
         return trimDeep(value).value;
     }
 };

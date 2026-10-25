@@ -143,6 +143,8 @@ async function bootstrap() {
     // Registered first so it wins for that path; the global parser below is then a no-op
     // for it, because a body can only be parsed once.
     app.use("/api/health/services/events/bulk", (0, express_1.json)({ limit: `${BULK_JSON_BODY_BYTES}b`, strict: true }));
+    // Prepared source text and history are independently bounded by the input-context validator.
+    app.use("/api/desktop/chat/stream", (0, express_1.json)({ limit: "4mb", strict: true }));
     app.use((0, express_1.json)({ limit: `${MAX_JSON_BODY_BYTES}b`, strict: true }));
     app.use((0, express_1.urlencoded)({ extended: true, limit: `${MAX_JSON_BODY_BYTES}b` }));
     app.use((0, compression_1.default)({ level: 6, threshold: 1024 }));

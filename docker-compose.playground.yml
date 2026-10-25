@@ -1,0 +1,40 @@
+# Optional hosted execution overlay. Set a random PLAYGROUND_SANDBOX_KEY (32+ chars).
+# Use a dedicated/rootless daemon via PLAYGROUND_DOCKER_SOCKET in production.
+services:
+    sandbox-runtime:
+        profiles: [build-sandbox]
+        image: filspresso-playground-runtime:dev
+        build:
+            context: .
+            dockerfile: playground-sandbox/Dockerfile.runtime
+    playground-sandbox:
+        build:
+            context: .
+            dockerfile: playground-sandbox/Dockerfile
+        environment:
+            PLAYGROUND_SANDBOX_KEY: ${PLAYGROUND_SANDBOX_KEY:?Set a random 32+ character sandbox service key}
+            PLAYGROUND_SANDBOX_IMAGE: filspresso-playground-runtime:dev
+            PLAYGROUND_SANDBOX_NAMESPACE: ${PLAYGROUND_SANDBOX_NAMESPACE:-}
+        volumes:
+            - ${PLAYGROUND_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+        read_only: true
+        tmpfs:
+            - /tmp:size=16m
+        cap_drop: [ALL]
+        security_opt: [no-new-privileges:true]
+        pids_limit: 128
+        mem_limit: 256m
+        cpus: 0.5
+        restart: unless-stopped
+        # No published port. Only the application backend calls this service.
+    backend:
+        environment:
+            PLAYGROUND_SANDBOX_URL: http://playground-sandbox:8095
+            PLAYGROUND_SANDBOX_KEY: ${PLAYGROUND_SANDBOX_KEY:?Set a random 32+ character sandbox service key}
+            # Native models and agent dispatch stay closed unless explicitly qualified/enabled.
+            PLAYGROUND_AGENT_MODEL_FILES: ${PLAYGROUND_AGENT_MODEL_FILES:-}
+            PLAYGROUND_AGENT_EXECUTION_ENABLED: ${PLAYGROUND_AGENT_EXECUTION_ENABLED:-false}
+            PLAYGROUND_AGENT_ACTION_KEY: ${PLAYGROUND_AGENT_ACTION_KEY:-}
+    ai:
+        environment:
+            PLAYGROUND_AGENT_MODEL_FILES: ${PLAYGROUND_AGENT_MODEL_FILES:-}
