@@ -4,6 +4,7 @@ import { DesktopWebController } from "./desktop-web.controller";
 import { DesktopWebService } from "./desktop-web.service";
 import { DesktopGatewayService } from "./desktop-gateway.service";
 import { DesktopInstallerService } from "./desktop-installer.service";
+import { DesktopInstallerRegistryService } from "./desktop-installer-registry.service";
 import { BillingModule } from "../billing/billing.controller";
 import { PlaygroundContextController } from "./playground-context.controller";
 import { PlaygroundContextService } from "./playground-context.service";
@@ -34,6 +35,6 @@ import { PlaygroundAgentActionsController } from "./playground-agent-actions.con
 @Module({
 	imports: [BillingModule],
 	controllers: [DesktopController, DesktopWebController, PlaygroundContextController, PlaygroundController, PlaygroundSandboxController, PlaygroundSessionsController, PlaygroundAgentController, PlaygroundAgentActionsController],
-	providers: [DesktopGatewayService, DesktopWebService, DesktopInstallerService, PlaygroundContextService, PlaygroundSandboxService, PlaygroundRunEventsService, PlaygroundSessionsService, PlaygroundAgentTicketsService, PlaygroundAgentActionsService],
+	providers: [DesktopGatewayService, DesktopWebService, DesktopInstallerService, DesktopInstallerRegistryService, PlaygroundContextService, PlaygroundSandboxService, PlaygroundRunEventsService, PlaygroundSessionsService, PlaygroundAgentTicketsService, PlaygroundAgentActionsService],
   })
   export class DesktopModule {}

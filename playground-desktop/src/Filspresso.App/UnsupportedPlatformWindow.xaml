@@ -12,7 +12,7 @@
     -->
     <Grid Padding="32" RowDefinitions="Auto,Auto,Auto" Background="{StaticResource FilspressoBackground}" RequestedTheme="Dark">
         <TextBlock
-            Text="This Windows edition is not supported"
+            Text="This Windows installation is not supported"
             Style="{StaticResource TitleTextBlockStyle}"
             TextWrapping="Wrap" />
 
@@ -29,6 +29,6 @@
             TextWrapping="Wrap"
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
             Style="{StaticResource CaptionTextBlockStyle}"
-            Text="The Playground runs the code it generates inside a Hyper-V virtual machine, with no network connection to your computer. Windows Home does not include Hyper-V, so that boundary cannot be provided there." />
+            Text="Use a supported Windows x64 client, build 19041 or newer. Home supports inspection and separately verified native restricted mode. Windows Sandbox VM execution additionally needs Windows 11 24H2+, a supported Pro/Enterprise/Education edition, virtualization and the updated Sandbox client. Installation is not execution approval." />
     </Grid>
 </Window>

@@ -61,6 +61,19 @@ export const PER_ROUTE_RATE_LIMITS = {
 	// the one endpoint a model can be talked into calling repeatedly, so it gets its own
 	// budget rather than sharing the global one.
 	"POST /api/desktop/web": { limit: 20, ttlMs: 5 * MINUTE, name: "desktop-web" },
+	// The 80 MB installer stream. The cheapest abuse on the whole API in bandwidth terms,
+	// so it is the tightest of these rules: a handful of downloads per window covers any
+	// legitimate reinstall loop, and the ack gate means every download is also a
+	// deliberate click. Separate budget because it must never share one with cheap reads.
+	"GET /api/desktop/download": { limit: 4, ttlMs: 15 * MINUTE, name: "desktop-download" },
+	// One click of the warning checkbox. Tighter than the download so a scripted client
+	// cannot hammer acknowledgements, loose enough that a refresh of the popup page
+	// never locks a real user out of downloading.
+	"POST /api/desktop/installer/ack": { limit: 10, ttlMs: 15 * MINUTE, name: "desktop-installer-ack" },
+	// The desktop app's system-report check-in. A few times per session, not per request:
+	// loose enough for launch plus version-change refreshes, tight enough that a rogue
+	// build cannot use it as a write amplifier.
+	"POST /api/desktop/device-state": { limit: 30, ttlMs: 5 * MINUTE, name: "desktop-device-state" },
 	"POST /api/admin/login": { limit: 10, ttlMs: 15 * MINUTE, name: "admin-login" },
 	"POST /api/admin/mfa": { limit: 10, ttlMs: 15 * MINUTE, name: "admin-mfa" },
 	"POST /api/orders": { limit: 20, ttlMs: 60 * MINUTE, name: "orders-create" },

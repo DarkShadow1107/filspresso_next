@@ -1,8 +1,14 @@
 # Filspresso Playground for Windows
 
-**Beta-6:** local project review/explorer/text artifacts work without a VM; desktop code
-execution is release-blocked pending guest containment/job/crash implementation and real
-qualification. See [`../docs/playground-beta6-qualification.md`](../docs/playground-beta6-qualification.md).
+**Current desktop:** Inspect imported text without a VM; create and execute code in an
+explicitly started **Windows Sandbox** copy; review command/file diffs before applying them.
+No custom VHDX or guest password. Web lookup uses a separately approved authenticated
+backend tool; command networking remains disabled. Automated Build with Windows Sandbox
+requires Windows 11 24H2+, Sandbox setup and genuine live qualification. On other machines,
+a separately verified **native restricted isolation** mode is an explicit, weaker opt-in
+(shared host kernel, not a VM); it is never entered automatically, and there is no host
+shell, WSL or Docker fallback. See
+[`../docs/playground-windows-sandbox.md`](../docs/playground-windows-sandbox.md).
 Use `scripts/Test-PlaygroundReadiness.ps1` for read-only single-device diagnostics.
 
 The native WinUI 3 client for the Spectre Playground. Models run through the metered
@@ -39,6 +45,12 @@ Poppins font as the web Playground:
   work. Entry is refused during Chat generation. Cancellation may still consume billed tokens.
 - **Settings** includes General, Display and Import/Export. Input-context levels are 16K,
   32K, 64K and 128K; this limit includes the prompt, history and attached sources.
+  General offers an **experimental, default-off** per-conversation spend ceiling
+  (`AgentSessionSpendCapRon`): when on, the agent stops proposing tools once the
+  conversation's client-side cost estimate reaches the ceiling. The estimate is computed
+  on this device from the token usage each reply reported and the prices your entitlement
+  resolves; the server still meters every turn, so this is a convenience bound, not a
+  billing control. Starting a new conversation grants a fresh budget.
 - Automatic compaction offers Permissive (80%), Balanced (65%, default) and Aggressive
   (45%). The last exact context measurement and an inspectable compaction summary appear
   below the composer. Original messages remain available; summary inference is metered.
@@ -97,7 +109,14 @@ uninstaller and branded MSI, then atomically replaces:
 
 `playground-desktop/artifacts/Filspresso.Playground.msi`
 
-That is the file served by **Download Desktop App** on the web Playground.
+Promote that output to the served publication with
+`playground-desktop/build/Publish-DesktopInstaller.ps1`, which copies the MSI into
+`desktop-installers/<version>/`, re-verifies it against the build manifest, writes the
+per-version `package-manifest.json` and updates the committed `desktop-installers/index.json`.
+That is the publication the backend serves to **Download Desktop App** on the web
+Playground (mounted at `DESKTOP_INSTALLER_DIR`; the service re-verifies each served copy
+against its manifest before streaming). The MSI payload is gitignored; the manifests and
+the index are committed so a checkout without the binaries still records what was published.
 
 ### Sources and input limits
 
@@ -135,9 +154,38 @@ Normal preferences are stored in
 `%LOCALAPPDATA%\Filspresso\Playground\preferences.json`. Access/refresh tokens and the
 device identity are not stored in that JSON file.
 
-The installer and app retain the Windows 10/11 Pro-or-equivalent Hyper-V edition
-requirement. The sandbox implementation and host-side web tools are separate libraries;
-the chat/review interfaces do not enable unfinished agent-execution controls.
+The installer and app retain their Pro-or-equivalent edition requirement. Older supported
+Windows builds allow inspection; automated Build requires Windows 11 24H2+ with the updated
+Windows Sandbox client and successful live verification. The app does not enable features
+or elevate itself. See `../docs/playground-windows-sandbox.md` for current behavior.
+
+Preferences additionally accept:
+
+| Preference | Purpose |
+| --- | --- |
+| `AgentSessionSpendCapRon` | **Experimental, default off.** Per-conversation spend ceiling in RON (≤ 10 000, positive). A null value is off and no gate is created. Client-side estimate only; the server is never told about it and still meters every turn. |
+
+### Update notice and device check-in
+
+Once per run, after the first successful entitlement load, the app records this machine's
+facts against the account (**POST /api/desktop/device-state**: Windows edition, build and
+update-build-revision, the running app version and the device identity) and asks the server
+what it would publish today (**GET /api/desktop/installer**). The facts become the account
+page's "Playground installed on" line; the published version is compared numerically with
+the running build, and when the account has Spectre access and a newer build exists the
+Agent workspace shows a passive notice naming the version. The notice is information only:
+nothing is downloaded, elevated, restarted or installed by the app, and the account page
+explains how to get the build. The whole pass is fire-and-forget — a refusal or network
+failure suppresses the notice and never blocks or errors the entitlement flow the user is
+waiting on. Facts that the machine could not read are reported as "not reported"
+(omitted), never as zero.
+
+### Historical native-agent integration notes
+
+The notes below describe earlier checkpoints. The current **Agent conversation** view uses
+the bounded loop with imported-text inspection or a separately started Windows Sandbox VM.
+The separate **Agent proposal review** view remains inert. Current execution and qualification
+rules are in the Windows Sandbox document, not the older custom-VHDX paragraphs below.
 
 The `Filspresso.Harness` library now contains a tested bounded loop and strict tool
 schemas. Chat/Plan/Build policy, fresh per-action approval, complete tool/result groups,

@@ -30,7 +30,7 @@ internal sealed class StubHyperVRunner : IPowerShellRunner
     public bool SupportsStandardInput => true;
     internal static Task<(int, string, string)> Reply(string json, int exit = 0) => Task.FromResult((exit, json, ""));
     internal static Task<(int, string, string)> Completed(int exit = 0, bool timedOut = false, bool limited = false) =>
-        Reply(JsonSerializer.Serialize(new { version = 1, exitCode = exit, stdout = "hello 界", stderr = "diagnostic", timedOut, outputLimited = limited }));
+        Reply(JsonSerializer.Serialize(new { version = 1, exitCode = exit, stdout = "hello 界", stderr = "diagnostic", timedOut, outputLimited = limited, descendantsClean = true }));
     public Task<(int ExitCode, string Output, string Error)> RunAsync(string script, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         HostScripts.Add(script);
@@ -46,7 +46,16 @@ internal sealed class StubHyperVRunner : IPowerShellRunner
             return OnReady?.Invoke(source, cancellationToken) ?? Reply("{\"version\":1,\"ready\":true}");
         return OnOperation?.Invoke(source, cancellationToken) ?? Completed();
     }
-    internal HyperVSandbox Sandbox(TimeSpan? readiness = null) => new(this, @"C:\base\windows.vhdx", @"C:\state", credentials: new FixtureGuestCredentials(), readinessTimeout: readiness);
+    internal HyperVSandbox Sandbox(TimeSpan? readiness = null) => new(this, @"C:\base\windows.vhdx", @"C:\state", credentials: new FixtureGuestCredentials(), readinessTimeout: readiness, recoveryJournal: new MemoryRecoveryJournal());
+}
+
+internal sealed class MemoryRecoveryJournal : IHyperVRecoveryJournal
+{
+    private readonly List<HyperVRecoveryRecord> _records = new();
+    public IDisposable Acquire() => new System.IO.MemoryStream();
+    public IReadOnlyList<HyperVRecoveryRecord> Read() => _records.ToArray();
+    public void Add(HyperVRecoveryRecord record) => _records.Add(record);
+    public void Remove(Guid id) => _records.RemoveAll(record => record.Id == id);
 }
 
 public sealed class HyperVSandboxLifecycleTests
@@ -372,7 +381,7 @@ public sealed class HyperVSandboxLifecycleTests
         await sandbox.WriteFileAsync(session.Id, "src/quoted'file.txt", new byte[262_144]);
         var call = runner.GuestCalls.Last();
         Assert.True(call.Input.Length < PowerShellRunner.MaxInputCharacters);
-        Assert.Contains("ReparsePoint", call.Source); Assert.Contains("Assert-WorkspacePath $path", call.Source);
+        Assert.Contains("Open-WorkspaceDirectory", call.Source); Assert.Contains("$fence.Open", call.Source);
         Assert.Contains("quoted''file.txt", call.Source);
         var count = runner.GuestCalls.Count;
         await Assert.ThrowsAsync<SandboxPolicyException>(() => sandbox.WriteFileAsync(session.Id, "a.txt", new byte[262_145]));

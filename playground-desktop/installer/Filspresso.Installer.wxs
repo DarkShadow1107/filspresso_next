@@ -117,20 +117,13 @@
     </Property>
 
     <!--
-      Every edition that carries the Hyper-V role, spelled out. MSI has no way to test "is
-      this one of a set" without enumerating it, so this list is the rule.
-
-      `Core` is Windows Home, not Professional, and is deliberately absent from this list.
-      It is the consumer SKU, and it has no Hyper-V role — including it would wave through
-      exactly the machines this requirement exists to exclude.
-
-      `Client` appears only in the InstallationType fallback. It is the consumer SKU and has no
-      Hyper-V role, so it is listed to be *refused* by omission — it is not in the accepted
-      set, and the fallback branch exists only to give the message something to show.
+      Installation is not VM qualification. Home/Core and the Client fallback can use
+      inspection and explicitly qualified native isolation. Windows Sandbox retains its
+      own edition/feature/client checks. Unknown and Server editions remain excluded.
     -->
     <Launch
-        Condition="Installed OR ((FILSPRESSO_BUILD &gt;= 19041) AND ((FILSPRESSO_EDITION = &quot;Professional&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalN&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalEducation&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalWorkstation&quot;) OR (FILSPRESSO_EDITION = &quot;Enterprise&quot;) OR (FILSPRESSO_EDITION = &quot;EnterpriseS&quot;) OR (FILSPRESSO_EDITION = &quot;Education&quot;) OR (FILSPRESSO_EDITION = &quot;IoTEnterprise&quot;)))"
-        Message="Filspresso Playground needs Windows 10 Pro or Windows 11 Pro.&#13;&#10;&#13;&#10;This machine reports the [FILSPRESSO_EDITION] edition, build [FILSPRESSO_BUILD].&#13;&#10;&#13;&#10;The Playground runs the code it generates inside a Hyper-V virtual machine with no network connection to your computer. Windows Home does not include Hyper-V, so that boundary cannot be provided there." />
+        Condition="Installed OR ((FILSPRESSO_BUILD &gt;= 19041) AND ((FILSPRESSO_EDITION = &quot;Home&quot;) OR (FILSPRESSO_EDITION = &quot;HomeSingleLanguage&quot;) OR (FILSPRESSO_EDITION = &quot;Core&quot;) OR (FILSPRESSO_EDITION = &quot;CoreN&quot;) OR (FILSPRESSO_EDITION = &quot;CoreCountrySpecific&quot;) OR (FILSPRESSO_EDITION = &quot;CoreSingleLanguage&quot;) OR (FILSPRESSO_EDITION = &quot;Client&quot;) OR (FILSPRESSO_EDITION = &quot;Professional&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalN&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalEducation&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalEducationN&quot;) OR (FILSPRESSO_EDITION = &quot;ProfessionalWorkstation&quot;) OR (FILSPRESSO_EDITION = &quot;Enterprise&quot;) OR (FILSPRESSO_EDITION = &quot;EnterpriseN&quot;) OR (FILSPRESSO_EDITION = &quot;EnterpriseS&quot;) OR (FILSPRESSO_EDITION = &quot;EnterpriseSN&quot;) OR (FILSPRESSO_EDITION = &quot;Education&quot;) OR (FILSPRESSO_EDITION = &quot;EducationN&quot;) OR (FILSPRESSO_EDITION = &quot;IoTEnterprise&quot;)))"
+        Message="Filspresso Playground requires Windows x64, Windows 10 version 2004 (build 19041) or newer, on a supported Home, Pro, Enterprise or Education client edition.&#13;&#10;&#13;&#10;This machine reports [FILSPRESSO_EDITION], build [FILSPRESSO_BUILD].&#13;&#10;&#13;&#10;Inspection does not require execution setup. Native restricted mode is a separately verified, shared-kernel opt-in. Windows Sandbox VM execution requires Windows 11 24H2+, a supported Pro/Enterprise/Education edition, virtualization, the feature and updated client. Neither mode is enabled just by installing." />
 
     <!--
       No separate execute-sequence condition is needed. WiX schedules LaunchConditions in
@@ -175,7 +168,7 @@
       <Component Id="AppShortcutComponent" Guid="29F605CE-0F86-410D-9F43-F389F9231DB0">
         <Shortcut Id="AppShortcut"
                   Name="Filspresso Playground"
-                  Description="A coding agent with every Filspresso model, sandboxed in a Hyper-V virtual machine."
+                  Description="Inspect repositories and create code in an isolated Windows Sandbox workspace."
                   Target="[INSTALLFOLDER]Filspresso.Playground.exe"
                   Icon="FilspressoIcon" IconIndex="0"
                   WorkingDirectory="INSTALLFOLDER" />

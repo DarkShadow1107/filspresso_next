@@ -58,7 +58,7 @@ public sealed class AgentConsentQueue : IDisposable
     public void Dispose() { lock (_gate) _disposed = true; Clear(); }
 
     private static bool Valid(AgentApproval approval) => approval.Id != Guid.Empty && approval.Workspace is { } workspace && workspace.Id != Guid.Empty && Enum.IsDefined(workspace.Location) &&
-        approval.Effect is ToolEffect.Mutation or ToolEffect.Execution && approval.Call is { } call && call.Id is { Length: > 0 and <= 64 } &&
+        approval.Call is { } call && (approval.Effect is ToolEffect.Mutation or ToolEffect.Execution || (approval.Effect == ToolEffect.ReadOnly && call.Name is "web_search" or "web_fetch")) && call.Id is { Length: > 0 and <= 64 } &&
         call.Id.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-') && ToolArgumentSchema.IsIdentifier(call.Name) &&
         call.ArgumentsJson is { Length: <= ToolArgumentSchema.MaxArgumentBytes };
 }

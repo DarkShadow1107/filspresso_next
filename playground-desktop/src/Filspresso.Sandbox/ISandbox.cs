@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 
 namespace Filspresso.Sandbox;
 
+public enum ExecutionIsolation { WindowsSandbox, NativeRestricted }
+
 /// <summary>Lifecycle of one sandboxed session.</summary>
 public enum SandboxState
 {
@@ -45,6 +47,19 @@ public sealed record ToolResult(
 public sealed record GuestListing(IReadOnlyList<GuestListingEntry> Entries, bool Truncated);
 public sealed record GuestListingEntry(string Name, bool IsDirectory, long Bytes);
 
+/// <summary>Bounded file tools shared by VM backends. No host-directory executor exists.</summary>
+public interface IWorkspaceSandbox : ISandbox, IDisposable
+{
+    Task<GuestListing> ListFilesAsync(Guid sessionId, string? relativePath, CancellationToken cancellationToken = default);
+}
+
+public sealed record SandboxTextFile(string Path, string Contents);
+public interface ISandboxSnapshot
+{
+    Task<IReadOnlyList<SandboxTextFile>> CaptureAsync(Guid sessionId, IReadOnlyCollection<string> trackedPaths,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// The boundary a tool call is not allowed to cross.
 /// </summary>
@@ -59,16 +74,8 @@ public interface ISandbox
     /// Creates and boots a session.
     /// </summary>
     /// <remarks>
-    /// The contract is that a session has <b>no network adapter at all</b>. Control runs
-    /// over PowerShell Direct, which travels the hypervisor's VMBus rather than a network, so
-    /// the session is fully scriptable and simultaneously has no route to the host, the LAN or
-    /// the internet. Exfiltration is not prevented by a policy the payload cannot see; it is
-    /// not reachable.
-    /// <para>
-    /// That is the whole reason for choosing a VM over a restricted token or a container. A
-    /// generated process in a low-integrity sandbox can still resolve DNS and open a socket;
-    /// here there is nothing to resolve and nothing to open.
-    /// </para>
+    /// Generated commands have no network access. Hyper-V omits adapters; Windows Sandbox
+    /// explicitly disables networking. Web lookup is a separate authenticated backend tool.
     /// </remarks>
     Task<SandboxSessionInfo> StartAsync(string name, CancellationToken cancellationToken = default);
 
@@ -92,8 +99,7 @@ public interface ISandbox
     /// Copies a file in, and returns the sandbox path.
     /// </summary>
     /// <remarks>
-    /// Over PowerShell Direct, byte by byte. Slow, and irrelevant next to the boot cost of the
-    /// VM it runs in.
+    /// Only the VM workspace is writable, never the user's original project.
     /// </remarks>
     Task<string> WriteFileAsync(
         Guid sessionId,

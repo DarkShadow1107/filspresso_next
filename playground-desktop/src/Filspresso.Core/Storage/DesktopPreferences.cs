@@ -32,6 +32,19 @@ public sealed record DesktopPreferences
     public bool ShowStatistics { get; init; } = true;
     public int TextSize { get; init; } = 15;
 
+    /// <summary>
+    /// EXPERIMENTAL and DEFAULT OFF: a per-conversation ceiling in RON after which the agent
+    /// stops proposing tools.
+    /// </summary>
+    /// <remarks>
+    /// Null (the value an untouched preferences file yields) is off. The estimate is computed
+    /// client-side from usage the server reported, so it can drift from the server's own
+    /// settlement by fractions of a cent; the server is never told about the cap and the cap
+    /// is never a billing discount. Anything non-positive or implausible normalises back to
+    /// off rather than to a number the user did not set.
+    /// </remarks>
+    public decimal? AgentSessionSpendCapRon { get; init; }
+
     public DesktopPreferences Normalize() => this with
     {
         ModelKey = KnownModels.Contains(ModelKey, StringComparer.Ordinal) ? ModelKey : DefaultModel,
@@ -39,6 +52,7 @@ public sealed record DesktopPreferences
         LegacyMaxTokens = null,
         CompactionMode = CompactionMode is "permissive" or "aggressive" ? CompactionMode : "balanced",
         TextSize = TextSize is 13 or 15 or 18 ? TextSize : 15,
+        AgentSessionSpendCapRon = AgentSessionSpendCapRon is { } cap && cap is > 0 and <= 10_000 ? cap : null,
     };
 
     public static string[] KnownModels =>

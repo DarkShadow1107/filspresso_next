@@ -6,8 +6,9 @@
         <StackPanel Padding="28,16,28,32" Spacing="14" MaxWidth="1100" HorizontalAlignment="Stretch">
             <TextBlock Text="Agent conversation" FontSize="28" />
             <TextBlock x:Name="ModelInfo" TextWrapping="Wrap" FontSize="12" />
+            <TextBlock x:Name="UpdateNotice" Visibility="Collapsed" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
             <TextBlock Text="Ask questions and discuss the project in one conversation. The agent can ask interactive questions with choices or your own answer. Clarification is separate from execution consent." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
-            <TextBlock Text="Execution runs only inside an operator-qualified, disposable local Hyper-V guest with no network adapter, never the host shell and never hosted Docker. Inference is hosted. Every write/command needs its own fresh approval; clarification answers never approve anything." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
+            <TextBlock Text="Inspect imported text, then create/test code in Windows Sandbox (preferred) or explicitly opt in to native restricted mode (shared host kernel, not a VM). Both work on a copy, with offline commands and separate approved web tools. No VHDX, guest password, silent downgrade or unrestricted shell retry." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button x:Name="CheckButton" Content="Check native availability" Click="OnCheck" Style="{StaticResource QuietButtonStyle}" />
                 <Button x:Name="StopButton" Content="Stop / interrupt" Click="OnStop" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
@@ -15,24 +16,30 @@
             </StackPanel>
             <Border BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="10" Padding="14">
                 <StackPanel Spacing="10">
-                    <TextBlock Text="Local Hyper-V sandbox" FontSize="18" />
+                    <TextBlock Text="Build workspace · choose the isolation boundary" FontSize="18" />
+                    <ComboBox x:Name="IsolationBox" Header="Execution isolation (fixed while a workspace is active)" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="OnIsolationChanged">
+                        <ComboBoxItem Content="Windows Sandbox VM · preferred · separate Windows kernel" />
+                        <ComboBoxItem Content="Native restricted · opt-in fallback · shared host Windows kernel" />
+                    </ComboBox>
+                    <TextBlock Text="Native mode is NOT Codex MXC or a VM: it uses AppContainer, a private desktop and process limits. Commands cannot use the network; environment and user PATH are scrubbed. System/public application resources may remain readable; host-installed tools are not guaranteed to work. Verify the chosen mode, then approve starting a workspace." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
                     <TextBlock x:Name="ExecutionStatus" TextWrapping="Wrap" FontSize="12" />
                     <StackPanel Orientation="Horizontal" Spacing="12">
-                        <Button x:Name="EnableExecutionButton" Content="Start sandbox" Click="OnEnableExecution" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
+                        <Button x:Name="VerifySandboxButton" Content="Verify Sandbox setup…" Click="OnVerifySandbox" Style="{StaticResource QuietButtonStyle}" />
+                        <Button x:Name="EnableExecutionButton" Content="Start fresh Build workspace" Click="OnEnableExecution" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
                         <Button x:Name="DiscardSandboxButton" Content="Discard sandbox" Click="OnDiscardSandbox" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
                     </StackPanel>
                 </StackPanel>
             </Border>
             <TextBlock x:Name="Status" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" FontSize="12" />
             <TextBlock x:Name="Error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" Foreground="{StaticResource FilspressoAccent}" FontSize="12" />
-            <ComboBox x:Name="ModeBox" Header="Conversation mode" SelectedIndex="0" HorizontalAlignment="Stretch">
+            <ComboBox x:Name="ModeBox" Header="Conversation mode" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="OnModeChanged">
                 <ComboBoxItem Content="Plan · clarification, questions and read-only sandbox tools" />
                 <ComboBoxItem Content="Build · writes and commands, each with its own approval" />
             </ComboBox>
             <Border BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="10" Padding="14">
                 <StackPanel x:Name="CheckpointPanel" Spacing="10">
                     <TextBlock Text="Project baseline, writes and reviewed checkpoints" FontSize="18" />
-                    <TextBlock Text="Import a local project as the baseline. Agent writes inside the sandbox are journaled against it and exported only after you review them. Commands can still alter guest files; only journaled writes are exported. Nothing is applied to this project folder except through an explicit export you review first." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
+                    <TextBlock Text="Import local text or start empty to create code. Both isolation modes work on a staged copy, never your original repository. File writes and command-generated text edits appear below for review. Apply reviewed files to a chosen folder only with separate confirmation; conflicts are refused. Deletions require manual application. Back up important work." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <Button x:Name="ImportButton" Content="Import project baseline…" Click="OnImportProject" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />
                         <Button x:Name="ExportButton" Content="Export reviewed changes…" Click="OnExportCheckpoints" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" />

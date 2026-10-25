@@ -27,14 +27,16 @@ public sealed class AgentConversationSession : IDisposable
     private CancellationTokenSource? _active;
     private Turn? _queued;
     private string? _key;
+    private readonly ISessionSpendGate? _spendGate;
     private string _error = string.Empty;
     private bool _stopping, _requiresReset, _disposed, _truncated;
     private int _revision;
     public event EventHandler? Changed;
-    public AgentConversationSession(IAgentServices services)
+    public AgentConversationSession(IAgentServices services, ISessionSpendGate? spendGate = null)
     {
         _services = services;
-        if (services is HyperVAgentServices execution) execution.AttachConsent(_consent);
+        _spendGate = spendGate;
+        if (services is IAgentConsentBinding execution) execution.AttachConsent(_consent);
         _questions.Changed += OnInteractionChanged; _consent.Changed += OnInteractionChanged;
     }
     private void OnInteractionChanged(object? sender, EventArgs args) => Notify();
@@ -63,8 +65,13 @@ public sealed class AgentConversationSession : IDisposable
         CancellationTokenSource active; int revision;
         lock (_gate)
         {
-            if (_disposed || _active is not null) return;
-            if (_requiresReset || (_key is not null && Key(turn) != _key) || _conversation.Count >= 16)
+            // The experiment never turns itself on: a null gate is the default and this check
+            // is skipped. Once reached, no further run of this conversation starts, because
+            // every model round spends whether or not it proposes a tool.
+            if (_spendGate is { } spendGate && spendGate.Reached)
+            { _error = "Session spend cap reached (experimental, client-side estimate). Start a new conversation to continue."; active = null!; revision = 0; }
+            else if (_disposed || _active is not null) return;
+            else if (_requiresReset || (_key is not null && Key(turn) != _key) || _conversation.Count >= 16)
             { _error = "Start a new conversation before changing mode/model or continuing a stopped/limited context."; active = null!; revision = 0; }
             else
             {
@@ -77,7 +84,7 @@ public sealed class AgentConversationSession : IDisposable
         var completed = false; Turn? queued = null;
         try
         {
-            await foreach (var item in new AgentLoop(new Services(this)).RunAsync(turn, active.Token).ConfigureAwait(false))
+            await foreach (var item in new AgentLoop(new Services(this), spendGate: _spendGate).RunAsync(turn, active.Token).ConfigureAwait(false))
             {
                 lock (_gate)
                 {
@@ -120,15 +127,16 @@ public sealed class AgentConversationSession : IDisposable
             if (clearPrivateState) { _revision++; _conversation.Clear(); _events.Clear(); _key = null; _error = string.Empty; _requiresReset = false; _truncated = false; }
         }
         _questions.Dismiss(); _consent.Clear();
-        if (_services is HyperVAgentServices execution) execution.RevokeApprovals();
+        if (_services is IAgentConsentBinding execution) execution.RevokeApprovals();
         Notify();
     }
     public bool NewConversation()
     {
         // A started sandbox is independent of conversation history; resetting the turn
-        // history never discards it. Use DiscardWorkspaceAsync for that.
+        // history never discards it. Use DiscardWorkspaceAsync for that. The spend gate is
+        // a per-conversation budget, so the fresh history is also a fresh budget.
         lock (_gate) { if (_active is not null) return false; }
-        Stop(true); return true;
+        Stop(true); _spendGate?.Reset(); return true;
     }
     public void Dispose()
     {
@@ -144,7 +152,7 @@ public sealed class AgentConversationSession : IDisposable
         public Task<AgentModelReply> SendAsync(AgentModelRequest request, CancellationToken cancellationToken = default) => owner._services.SendAsync(request, cancellationToken);
         public Task<QuestionDecision> AskAsync(QuestionChallenge question, CancellationToken cancellationToken = default) => owner._questions.RequestAsync(question, cancellationToken);
         public Task<AgentApprovalDecision> ApproveAsync(AgentApproval approval, CancellationToken cancellationToken = default) =>
-            owner._services is HyperVAgentServices ? owner._services.ApproveAsync(approval, cancellationToken) : owner._consent.RequestAsync(approval, cancellationToken);
+            owner._services is IAgentConsentBinding ? owner._services.ApproveAsync(approval, cancellationToken) : owner._consent.RequestAsync(approval, cancellationToken);
         public Task<ToolResult> InvokeAsync(AgentWorkspace workspace, ToolCall call, CancellationToken cancellationToken = default) => owner._services.InvokeAsync(workspace, call, cancellationToken);
         public Task<bool> AbortAsync(AgentWorkspace workspace, CancellationToken cancellationToken = default) => owner._services.AbortAsync(workspace, cancellationToken);
     }

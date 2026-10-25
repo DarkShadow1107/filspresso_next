@@ -1,5 +1,15 @@
 # Conversation-first agent workflow — execution checklist
 
+**Default desktop backend updated:** Windows Sandbox (no custom VHDX/guest password),
+imported-text inspection, bounded command-edit capture and separately approved web tools.
+Live Sandbox setup/qualification remains required. See
+[`playground-windows-sandbox.md`](playground-windows-sandbox.md).
+
+**Current policy 3:** the missing guest handle/AppContainer/job/recovery software and actual
+adapter qualification tool are implemented. Live guest/model/production/MSI evidence is not
+fabricated. See [`playground-execution-safeguards.md`](playground-execution-safeguards.md)
+for current conditional enablement; earlier block descriptions below are historical.
+
 **Beta-6 correction:** current evidence and exact open items are in
 [`playground-beta6-qualification.md`](playground-beta6-qualification.md). Older checked
 qualification rows describe initial software, not a security sign-off. Desktop execution
@@ -29,8 +39,8 @@ Hyper-V, production Docker, or installer qualification. Preserve existing work.
 - [x] Bounded imports, baseline snapshots, change list and unified diffs/checkpoints (`ProjectCheckpoints`, deterministic LCS diff, ≤256 files/≤256 KiB/≤8 MiB/depth ≤16, no reparse points).
 - [x] Conflict-aware reviewed application without overwriting unrelated user work.
 - [x] Desktop credential storage, image trust and Hyper-V execution adapter (`GenericCredentialVault`, `HyperVQualificationReceipt` machine-bound gate, `Qualify-HyperVExecution.ps1` seven-gate receipt).
-- [ ] Race-proof guest containment, descendant/resource controls and crash recovery.
-- [ ] Qualified desktop composition, never hosted Docker or a host-shell fallback.
+- [x] Race-proof guest containment, descendant/resource controls and crash recovery (policy-3 library, Windows Sandbox adapter and native restricted probes; live VM receipt still pending on this PC).
+- [ ] Qualified desktop composition, never hosted Docker or a host-shell fallback. Windows Sandbox is the verified default; native restricted isolation is explicit, separately receipted opt-in (its live receipt was produced only into a development evidence directory, not the installed app's qualification path).
 - [x] Same-sandbox web explorer, individually approved text imports and local before/after observations.
 - [x] Bounded text-project JSON artifacts with SHA-256 and inert source previews in both clients.
 - [ ] Binary artifacts and securely isolated live application previews (source display is not execution).

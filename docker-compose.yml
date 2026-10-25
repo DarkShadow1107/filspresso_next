@@ -265,18 +265,22 @@ services:
             SERVICE_ASSERTION_PRIVATE_KEY_FILE: ${SERVICE_ASSERTION_PRIVATE_KEY_FILE:-}
             # Where the desktop client's Windows installer sits.
             #
-            # The installer is produced and signed by the desktop project's own CI, and
-            # the backend only hands it out. The path is configuration because the
-            # deployment decides where the artefact is mounted; a missing file is a
-            # 503 ("not published yet"), not a 404.
-            DESKTOP_INSTALLER_PATH: ${DESKTOP_INSTALLER_PATH:-/app/downloads/Filspresso.Playground.msi}
+            # The installer is produced by the desktop project's own build and promoted
+            # into desktop-installers/<version>/ by Publish-DesktopInstaller.ps1; the
+            # backend only hands it out, and re-verifies each copy against its manifest
+            # before streaming. The directory is configuration because the deployment
+            # decides where the artefact is mounted; an unpublished app is a 503, not a 404.
+            # DESKTOP_INSTALLER_PATH still overrides everything with a single-file legacy
+            # layout, but the directory scan is the supported shape.
+            DESKTOP_INSTALLER_DIR: ${DESKTOP_INSTALLER_DIR:-/app/downloads}
         volumes:
             # Mount product images so the backend can read/write images (admin uploads)
             - ./public/images:/public/images
             - ./secrets:/app/secrets:ro
-            # The desktop installer, read-only. Mounted from the desktop project's
-            # artefacts directory, which is where the release build puts the MSI.
-            - ./playground-desktop/artifacts:/app/downloads:ro
+            # The desktop installer, read-only. Repo-root desktop-installers/ holds one
+            # versioned directory per release; the MSI payloads are gitignored and re-landed
+            # from each build by the publish script, while the manifests are committed.
+            - ./desktop-installers:/app/downloads:ro
         ports:
             # Loopback only, not 0.0.0.0.
             #

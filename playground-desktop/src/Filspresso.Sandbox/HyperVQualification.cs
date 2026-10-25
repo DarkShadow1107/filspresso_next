@@ -32,11 +32,17 @@ public sealed record HyperVQualificationReceipt(
     string MachineId,
     IReadOnlyList<string> Checks)
 {
+    public string ImplementationSha256 { get; init; } = string.Empty;
+    public const int CurrentPolicyVersion = 3;
     public const int MaxJsonBytes = 65_536;
     public static IReadOnlyList<string> RequiredChecks { get; } = Array.AsReadOnly(new[]
     {
         "hyper-v-admin", "image-hash-verified", "image-unattached", "guest-ready",
         "no-network-adapter", "workspace-fenced", "cleanup-confirmed",
+        "appcontainer-no-capabilities", "job-before-resume", "normal-exit-descendants",
+        "timeout-discard", "output-limit-discard", "reparse-hardlink-refusal",
+        "pinned-directory-races", "recovery-after-process-kill", "image-locked",
+        "job-resource-bounds",
     });
     public static readonly TimeSpan MaxAge = TimeSpan.FromDays(30);
 
@@ -65,7 +71,7 @@ public sealed record HyperVQualificationReceipt(
                 MaxDepth = 4,
             });
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 8) return false;
+            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 9) return false;
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in root.EnumerateObject())
                 if (!seen.Add(property.Name)) return false;
@@ -79,7 +85,10 @@ public sealed record HyperVQualificationReceipt(
             var machineId = root.TryGetProperty("machineId", out var machineValue) ? TextOf(machineValue) : null;
             if (!root.TryGetProperty("checks", out var checksValue) || checksValue.ValueKind != JsonValueKind.Array) return false;
 
-            if (version is not 1 || policyVersion is not 2) { reason = "Unsupported qualification receipt or policy version."; return false; }
+            if (version is not 1 || policyVersion != CurrentPolicyVersion) { reason = "Unsupported qualification receipt or policy version; run current qualification."; return false; }
+            if (!root.TryGetProperty("implementationSha256", out var implementationValue) || TextOf(implementationValue) is not { } implementation ||
+                !Hex64.IsMatch(implementation) || implementation != HyperVQualification.ImplementationSha256)
+            { reason = "The qualified implementation changed; run qualification for this exact build."; return false; }
             if (imagePath is not { } image || string.IsNullOrWhiteSpace(image) || image.Length > 240 ||
                 !LocalPath.IsMatch(image) || image.Any(char.IsControl) ||
                 !image.EndsWith(".vhdx", StringComparison.OrdinalIgnoreCase))
@@ -107,7 +116,7 @@ public sealed record HyperVQualificationReceipt(
             if (RequiredChecks.Any(required => !names.Contains(required)))
             { reason = "The receipt does not record every required release gate."; return false; }
 
-            receipt = new(image, digest, bytes, (int)policyVersion.Value, timestamp, identifier, names);
+            receipt = new(image, digest, bytes, (int)policyVersion.Value, timestamp, identifier, names) { ImplementationSha256 = implementation };
             reason = string.Empty;
             return true;
         }
@@ -120,11 +129,10 @@ public sealed record HyperVQualificationReceipt(
 
 public static class HyperVQualification
 {
-    // The seven-check receipt predates descendant/race/recovery qualification. It must not
-    // activate unfinished security code. Remove only with reviewed implementation + real
-    // hostile-guest qualification; no environment variable can waive these release gates.
-    public static bool ExecutionReleaseReady => false;
-    public static string ReleaseBlocker => "Desktop execution is release-blocked: guest handle containment, descendant/job limits and durable crash recovery are not yet qualified. A seven-check receipt alone cannot enable it.";
+    // Availability is machine/build qualification, never a blanket constant or environment override.
+    public static bool ExecutionReleaseReady => TryLoadVerified().Receipt is not null;
+    public static string ReleaseBlocker => TryLoadVerified().Reason;
+    public static string ImplementationSha256 { get; } = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(typeof(HyperVQualification).Assembly.Location)));
     /// <summary>Default storage under the same local data root the desktop client already owns.</summary>
     public static string DefaultReceiptPath => Path.Combine(DesktopDataPaths.UserDataDirectory, "qualification", "hyper-v.json");
 
@@ -192,6 +200,18 @@ public static class HyperVQualification
         {
             return (null, "The qualification receipt could not be read safely.");
         }
+    }
+
+    internal static void SaveReceipt(HyperVQualificationReceipt receipt, string destination)
+    {
+        var raw = JsonSerializer.Serialize(new { version = 1, policyVersion = receipt.PolicyVersion, imagePath = receipt.ImagePath,
+            imageSha256 = receipt.ImageSha256, imageBytes = receipt.ImageBytes, createdUtc = receipt.CreatedUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+            machineId = receipt.MachineId, checks = receipt.Checks, implementationSha256 = receipt.ImplementationSha256 });
+        if (!HyperVQualificationReceipt.TryParse(raw, out _, out var reason)) throw new InvalidDataException(reason);
+        using var pin = new PinnedLocalPath(Path.GetDirectoryName(destination)!, create: true);
+        // Never replace an existing valid receipt on partial/failing qualification.
+        using var file = pin.OpenFile(Path.GetFileName(destination), FileAccess.ReadWrite, createNew: true);
+        file.Write(Encoding.UTF8.GetBytes(raw)); file.Flush(true);
     }
 
     /// <summary>

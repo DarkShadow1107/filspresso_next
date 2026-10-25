@@ -1,5 +1,144 @@
 # Filspresso Playground — implementation handoff
 
+## Current desktop direction — Windows Sandbox, not user-managed guests
+
+The desktop now defaults to imported-text inspection plus an explicitly started Windows
+Sandbox Build workspace. Generic VM consent/harness code retains the legacy Hyper-V adapter
+but the app no longer composes it or requests VHDX/guest credentials. Command-generated
+text changes join direct writes in reviewed checkpoints; original-project writes remain a
+separate conflict-checked confirmation. Web search/fetch are consent-bound backend tools
+in Plan and Build, not VM internet access. Full command networking and automatic deletion
+exports are not implemented. The installed MSI bundles a user-invoked live verifier.
+
+See [`docs/playground-windows-sandbox.md`](docs/playground-windows-sandbox.md). This PC
+reports Windows 11 Pro 25H2 **26200.9711** but has no Sandbox CLI/package; no Windows
+feature was enabled and no live receipt issued. Execution remains disabled until actual
+VM probes pass. Existing Hyper-V qualification notes below describe the previous backend.
+
+Regression checks for this direction: **481/481 desktop tests** and **110/110 web client
+tests** pass; **352/352 NestJS backend tests** pass, including the installer/source
+contracts added this increment. New tests cover hardened XML configuration, identity/foreign-instance refusal,
+ambiguous-start/cleanup recovery, malformed guest replies, exact web consent in Plan,
+command-edit checkpoints and native temporary-directory snapshot capture. They do not
+issue or stand in for live Windows Sandbox qualification; they also cannot stand in for
+the native restricted receipt. The bundled verifier reports setup requirements rather than
+synthesizing passing evidence when the CLI is missing.
+
+**Native restricted fallback (explicit, weaker opt-in):** `NativeSandbox` +
+`GuestBoundary.RunRestricted` (AppContainer with UI restrictions 255, private desktop,
+suspended-before-job launch, scrubbed environment, per-session profile in an app-owned
+staging tree) is wired behind explicit user acknowledgement and a separate DPAPI receipt
+(`native-restricted.bin`; shared host kernel; **not** a VM, **not** Codex MXC; never an
+automatic downgrade). The verifier gained `native-sandbox --confirm` (incl. the
+cross-process kill/recovery gate via `native-sandbox-worker`) and `native-sandbox-recover
+--confirm`. On this PC, that live run passed and issued a real receipt under
+`%LOCALAPPDATA%\Temp\opencode\filspresso-native-live-15cf3f3c15314cdba61965e662358678`
+(probe exit 0, no unexpected loopback connection, descendant cleanup, broker process-tree
+kill recovery). It is device/build-bound and expires in 30 days; the installed app account
+still has no receipt until it runs its own verification. VM qualification remains pending
+on the Sandbox feature enable + restart.
+
+Final full build (tests not skipped): **459 Release desktop tests**, **18 native maintenance
+checks**, WinUI publish, bundled matching verifier and **unsigned MSI 0.3.2** pass. The
+package built in `%LOCALAPPDATA%\Temp\opencode\filspresso-windows-sandbox` is now **promoted
+into the repository** (see the checkpoint below; not installed on this PC). Running that bundled
+verifier for Windows Sandbox on this PC exits **1 with
+setup instructions**, without a VM or receipt; native restricted mode needs its own explicit
+verification in the app. App/bundled verifier sandbox DLL hashes match
+(`ae1dddc066c786f8e2cce7c25486775f533f5da5e8975c1e9cd6d7f795c21eb6`); the earlier failing
+live native run used a stale Filspresso.Qualify output directory, so its evidence is
+invalid and superseded by the fresh-binary run above. MSI: 80,978,388 bytes; SHA-256
+`c016b0ba9908922bca4a299969b11b7ec670f0fffc6f243eeb593fa3c9111148`; `package-manifest.json`
+records `NotSigned` / `installQualified: false`. This build includes the website download
+compatibility popup and the conversation's isolation picker with native restricted opt-in.
+
+## Installer pipeline and account visibility checkpoint — 2026-10-25
+
+The desktop app's delivery and its account-visible record are now wired end to end, with the
+honesty preserved at every hop:
+
+- **Versioned publication.** `Publish-DesktopInstaller.ps1` promotes a build into
+  `desktop-installers/<version>/Filspresso.Playground.msi` + `package-manifest.json` and
+  maintains the committed `desktop-installers/index.json` (latest **0.3.2**, 80,978,388
+  bytes, SHA-256 `c016b0ba9908922bca4a299969b11b7ec670f0fffc6f243eeb593fa3c9111148`). The
+  MSI payloads are gitignored; the manifests/index are committed so a checkout without
+  binaries still records what was published. `docker-compose.yml` mounts
+  `desktop-installers/` read-only at `DESKTOP_INSTALLER_DIR` (replacing the
+  `playground-desktop/artifacts` mount); the legacy single-file `DESKTOP_INSTALLER_PATH`
+  override remains supported.
+- **Serve-time honesty.** The backend resolves the newest publication and re-verifies the
+  real file against its manifest before the first byte streams: missing sha256 refuses,
+  swapped bytes fall to 503 `INSTALLER_INTEGRITY`/`INSTALLER_SIGNATURE`, and with
+  `DESKTOP_INSTALLER_SIGNING_SECRET` set the manifest MAC
+  (`{fileName}:{bytes}:{sha256}`) is checked too. A `Test-PlaygroundReadiness.ps1` run on
+  this PC reports `installerPublished: true`, `installerLatestVersion: 0.3.2`,
+  `installerLatestSha256Matches: true` — the same hash check the service performs.
+- **Warn → acknowledge → download.** The web popup now shows the package facts (version,
+  size, SHA-256, unsigned flag), the honest warnings (SmartScreen, heuristic antivirus,
+  admin/restart needs), a user-stated OS select labelled "stated, not verified", and an
+  explicit acknowledgement checkbox. The download button records the acknowledgement on
+  the server first (`POST /api/desktop/installer/ack`, validated against the currently
+  published version — drift falls to 409 `VERSION_MISMATCH`), then navigates to
+  `GET /api/desktop/download`, which re-checks Spectre access, resolves the publication,
+  and requires the **server-recorded** ack row for that version before streaming; the
+  post-stream audit write is logged, never converted into an HTTP error. The account
+  page asks which versions were acknowledged (with the stated OS and download counts) via
+  `GET /api/desktop/installations`.
+- **Account-visible installs / device check-in.** The running app reports its machine's
+  facts once per run, fire-and-forget, after the first successful entitlement load
+  (`POST /api/desktop/device-state`): Windows edition/build/UBR and the app version.
+  Unknown facts are omitted from the JSON, never sent as zeros. The account's billing tab
+  shows "Playground installed on" from those reports, labelled as app-reported and
+  explicitly not treated as a verification result or an entitlement input.
+- **Desktop update notice.** The same maintenance pass asks the server what it would
+  publish today; a numerically newer published version (0.10.0 > 0.9.0, unparseable
+  versions never claimed) with Spectre access shows a passive workspace notice naming the
+  version and pointing at the account page. Nothing is downloaded, elevated or restarted
+  by the app.
+- **EXPERIMENTAL session spend cap (default off).** A per-conversation ceiling in RON,
+  `AgentSessionSpendCapRon`, null by default and normalized to off for null/non-positive
+  values or anything above 10 000. When on, `SessionSpendGate` records each completed
+  reply's client-side estimate against the entitlement-resolved prices, fails closed on
+  any model it cannot price, the loop refuses the tool batch (not the already-delivered
+  reply) when reached, the session refuses further runs until `NewConversation()` resets
+  the budget, and the settings page labels the toggle estimate-only. The server is never
+  told about the cap and still meters every turn.
+
+Verification this increment: **481/481 desktop tests** in Debug and Release (22 new:
+11 installer-metadata/check-in client tests, 11 spend-gate/loop/session tests), **352/352
+NestJS tests** (8 new installer/source-contract tests pinning the gate order), **110/110
+web client tests**, touched-file ESLint clean, backend `tsc` clean, and the WinUI app
+built with VS MSBuild x64. Boundaries, unchanged: the package is unsigned; the backend
+was not booted for a live browser download in this increment (serve path verified by the
+contract tests, the publish-script hash check and the readiness script); no live
+acknowledgement row was created against a running server for this account; Windows
+Sandbox remains unqualified on this PC pending the feature enable/restart, and the
+account-visible install table stays empty until a signed-in app performs the check-in.
+
+## Current safeguards follow-up — policy 3
+
+Guest pinned-handle file operations, capability-free AppContainer commands, suspended-before-
+job launch, verified limits, normal-exit descendant termination, durable DPAPI recovery intent/
+exclusive root lease, host-transport kill-on-close job and lifetime image locking are now
+implemented. The permanent false execution gate is replaced with machine/image/**exact-build**
+qualification. Policy-2 receipts cannot enable it. The actual-adapter qualification console
+and wrapper must pass real guest/race/descendant/timeout/output/process-kill recovery checks
+before issuing policy-3 evidence. No live receipt has been issued here.
+
+See [`docs/playground-execution-safeguards.md`](docs/playground-execution-safeguards.md)
+for code, enablement commands, test boundaries and the operator resources still missing.
+Model probe, production engine preflight and disposable-machine MSI lifecycle entry points
+also exist; adding a tool does not mean its live qualification was performed.
+
+Verified this follow-up: **436/436 desktop tests**, including actual Windows native
+AppContainer/job/race/host-transport probes; **103/103 web client tests**; root TypeScript
+check and model-probe ESLint pass. The qualifier is included in the solution and is separately
+built/published. WinUI publish, matching qualification executable and **unsigned MSI 0.3.1** build
+successfully in `%LOCALAPPDATA%\Temp\opencode\filspresso-beta6-safeguards` (not installed
+or promoted). App/qualifier sandbox DLL hashes match. Operator scripts parse. Missing model-
+probe authorization/input and missing qualifier arguments fail closed without requests or
+receipts. Production Docker preflight correctly refuses the local rootful/cgroup-v1 engine.
+
 ## Beta-6 current status — 2026-10-25
 
 Branch `Beta-6-Playground` starts at `6ecfd20`. The earlier “all gates green” wording

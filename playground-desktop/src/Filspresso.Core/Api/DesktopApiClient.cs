@@ -84,9 +84,11 @@ public class DesktopApiClient : IDisposable
     private readonly HttpClient _http;
     private readonly HttpClient _sourcesHttp;
 
-    // A session write that is missing a field means "leave what is stored", not "erase it":
-    // null properties are omitted so a patch can never wipe the checkpoint it did not carry.
-    private static readonly JsonSerializerOptions SessionWriteOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+    // A write that is missing a field means "leave what is stored", not "erase it": null
+    // properties are omitted so a patch can never wipe a value it did not carry. The device
+    // report reuses it for the same reason -- a refused registry read is unknown, and an
+    // explicit null would be indistinguishable from a statement about the machine.
+    private static readonly JsonSerializerOptions JsonWriteOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
     public DesktopApiClient(Uri backendBaseAddress, HttpMessageHandler? handler = null)
     {
@@ -257,6 +259,97 @@ public class DesktopApiClient : IDisposable
             // the difference: "we could not ask" is not "you are locked" and not "you are out
             // of credit", and they call for different actions.
             return ApiResult<Entitlement>.Failure(ApiError.Unexpected, "Could not read account state.", 0);
+        }
+    }
+
+    /// <summary>
+    /// What the server would offer a browser clicking download right now.
+    /// </summary>
+    /// <remarks>
+    /// Used for the passive "a newer desktop build exists" line: the result is read, compared
+    /// against the running version, and shown as information. The application never follows
+    /// up by downloading or installing anything itself -- no elevation, no updater -- and a
+    /// refused or failed call simply suppresses the notice rather than warning the user.
+    /// </remarks>
+    public virtual async Task<ApiResult<InstallerUpdate>> GetInstallerUpdateAsync(
+        string accessToken,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "api/desktop/installer");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        try
+        {
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var code = await ReadErrorCodeAsync(response, cancellationToken).ConfigureAwait(false);
+                return ApiResult<InstallerUpdate>.Failure(
+                    MapRefusal((int)response.StatusCode, code),
+                    response.ReasonPhrase ?? string.Empty,
+                    (int)response.StatusCode);
+            }
+
+            var update = await response.Content
+                .ReadFromJsonAsync<InstallerUpdate>(cancellationToken)
+                .ConfigureAwait(false);
+
+            return update is null
+                ? ApiResult<InstallerUpdate>.Failure(ApiError.Unexpected, "Empty installer response.", (int)response.StatusCode)
+                : ApiResult<InstallerUpdate>.Success(update);
+        }
+        catch (Exception error) when (IsTransportError(error, cancellationToken))
+        {
+            return ApiResult<InstallerUpdate>.Failure(ApiError.Unexpected, "Could not check for a desktop update.", 0);
+        }
+    }
+
+    /// <summary>
+    /// Puts this machine's own facts on record, for the account page.
+    /// </summary>
+    /// <remarks>
+    /// The device grant already carried appVersion at sign-in; this call refreshes it while
+    /// the app runs, when a Windows update or an app update would leave the stored report
+    /// stale until the next re-login. The report is labelled by the server as
+    /// <c>client-reported</c> display data, so sending nulls for a read that refused is the
+    /// correct shape -- they surface as "not reported", not as a plausible number.
+    /// </remarks>
+    public virtual async Task<ApiResult<bool>> PostDeviceStateAsync(
+        string accessToken,
+        DeviceStateReport report,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
+        ArgumentNullException.ThrowIfNull(report);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/desktop/device-state")
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(report, JsonWriteOptions),
+                Encoding.UTF8,
+                "application/json"),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        try
+        {
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var code = await ReadErrorCodeAsync(response, cancellationToken).ConfigureAwait(false);
+                return ApiResult<bool>.Failure(
+                    MapRefusal((int)response.StatusCode, code),
+                    response.ReasonPhrase ?? string.Empty,
+                    (int)response.StatusCode);
+            }
+
+            return ApiResult<bool>.Success(true);
+        }
+        catch (Exception error) when (IsTransportError(error, cancellationToken))
+        {
+            return ApiResult<bool>.Failure(ApiError.Unexpected, "Could not report device state.", 0);
         }
     }
 
@@ -813,7 +906,7 @@ public class DesktopApiClient : IDisposable
         using var request = new HttpRequestMessage(
             string.IsNullOrWhiteSpace(sessionUuid) ? HttpMethod.Post : HttpMethod.Patch,
             string.IsNullOrWhiteSpace(sessionUuid) ? "api/playground/sessions" : $"api/playground/sessions/{Uri.EscapeDataString(sessionUuid)}")
-        { Content = new StringContent(JsonSerializer.Serialize(write, SessionWriteOptions), Encoding.UTF8, "application/json") };
+        { Content = new StringContent(JsonSerializer.Serialize(write, JsonWriteOptions), Encoding.UTF8, "application/json") };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         try
         {

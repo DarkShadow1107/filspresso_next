@@ -27,7 +27,8 @@ public sealed class HyperVQualificationTests
         var properties = new Dictionary<string, object?>
         {
             ["version"] = 1,
-            ["policyVersion"] = 2,
+            ["policyVersion"] = HyperVQualificationReceipt.CurrentPolicyVersion,
+            ["implementationSha256"] = HyperVQualification.ImplementationSha256,
             ["imagePath"] = imagePath,
             ["imageSha256"] = digest,
             ["imageBytes"] = imageBytes,
@@ -66,7 +67,7 @@ public sealed class HyperVQualificationTests
             var receipt = Assert.IsType<HyperVQualificationReceipt>(loaded);
             Assert.Equal(imagePath, receipt.ImagePath);
             Assert.Equal(Digest(bytes), receipt.ImageSha256);
-            Assert.Equal(2, receipt.PolicyVersion);
+            Assert.Equal(HyperVQualificationReceipt.CurrentPolicyVersion, receipt.PolicyVersion);
             Assert.Equal(HyperVQualificationReceipt.RequiredChecks, receipt.Checks.ToArray());
 
             var (ok, verifyReason) = HyperVQualification.VerifyImage(receipt);
@@ -86,6 +87,19 @@ public sealed class HyperVQualificationTests
             Assert.False(parsed);
             Assert.Contains("required release gate", reason);
         }
+    }
+
+    [Fact]
+    public void OldReceiptsAndAnotherBuildCannotEnableExecution()
+    {
+        foreach (var change in new Action<Dictionary<string, object?>>[]
+        {
+            fields => fields["policyVersion"] = 2,
+            fields => fields["implementationSha256"] = new string('0', 64),
+            fields => fields.Remove("implementationSha256"),
+        })
+            Assert.False(HyperVQualificationReceipt.TryParse(Compose(@"C:\images\guest.vhdx", new string('a', 64), 16L * 1024 * 1024,
+                DateTimeOffset.UtcNow, HyperVQualification.MachineId, mutate: change), out _, out _));
     }
 
     [Fact]
@@ -131,7 +145,7 @@ public sealed class HyperVQualificationTests
             new string('b', 64), 2L * 1024 * 1024, DateTimeOffset.UtcNow, HyperVQualification.MachineId, checks),
             out var receipt, out var reason);
         Assert.True(parsed, reason);
-        Assert.Equal(8, receipt!.Checks.Count);
+        Assert.Equal(HyperVQualificationReceipt.RequiredChecks.Count + 1, receipt!.Checks.Count);
     }
 
     [Fact]

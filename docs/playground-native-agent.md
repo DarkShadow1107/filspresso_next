@@ -1,5 +1,15 @@
 # Native agents — proposals, gated hosted actions and paired compaction
 
+**Current desktop composition:** imported-text Inspect/Plan plus an explicitly started,
+live-qualified Windows Sandbox Build workspace. Approved web tools are backend lookups,
+not guest networking. See [`playground-windows-sandbox.md`](playground-windows-sandbox.md).
+The custom-image Hyper-V qualification discussion below describes the retained legacy library.
+
+**Current policy 3:** guest containment/AppContainer/jobs/durable recovery are implemented;
+desktop enablement requires a fresh exact-build live receipt. See
+[`playground-execution-safeguards.md`](playground-execution-safeguards.md). Earlier statements
+below about a permanent release block or seven-check enablement describe older checkpoints.
+
 **Beta-6:** see [`playground-beta6-qualification.md`](playground-beta6-qualification.md).
 Desktop adapter/UI exist but application composition **release-blocks execution** until
 guest race containment, jobs/descendants and durable crash recovery are implemented and

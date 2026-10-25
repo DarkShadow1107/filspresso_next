@@ -137,6 +137,29 @@ public sealed class ProjectCheckpoints
 
     // ── Import ───────────────────────────────────────────────────────────────────────────
 
+    /// <summary>Atomically validates a bounded VM text snapshot, including command edits.
+    /// Deletions are visible in review, but cannot be exported by the write-only exporter.</summary>
+    public void RecordSnapshot(IReadOnlyList<ProjectFileSnapshot> files)
+    {
+        var validation = new ProjectCheckpoints(); validation.SetBaseline(files);
+        var next = validation.Current;
+        lock (_gate)
+        {
+            var changed = _current.Keys.Union(next.Keys, StringComparer.OrdinalIgnoreCase)
+                .Where(path => !_current.TryGetValue(path, out var before) || !next.TryGetValue(path, out var after) || before != after).ToArray();
+            if (_changes.Count + changed.Length > 1024) throw new InvalidOperationException("Snapshot exceeds the checkpoint journal budget.");
+            foreach (var path in changed.OrderBy(path => path, StringComparer.Ordinal))
+            {
+                _current.TryGetValue(path, out var before); next.TryGetValue(path, out var after);
+                _changes.Add(new(_changes.Count + 1, path, UnifiedDiff.Compute(before, after, path),
+                    before is null ? null : Convert.ToHexStringLower(SHA256.HashData(Utf8.GetBytes(before))),
+                    after is null ? string.Empty : Convert.ToHexStringLower(SHA256.HashData(Utf8.GetBytes(after)))));
+            }
+            _current.Clear(); foreach (var file in next) _current.Add(file.Key, file.Value);
+            if (changed.Length > 0) _prepared = null;
+        }
+    }
+
     /// <summary>Deterministic ordered enumeration of the text files a bounded importer accepts.</summary>
     public static IReadOnlyList<string> EnumerateImportableFiles(string directory)
     {
@@ -237,7 +260,9 @@ public sealed class ProjectCheckpoints
             {
                 var path = grouped.Key;
                 var previous = _baseline.TryGetValue(path, out var value) ? value : string.Empty;
-                if (!_current.TryGetValue(path, out var next)) throw new InvalidOperationException($"\"{path}\" is not tracked.");
+                if (!_current.TryGetValue(path, out var next))
+                { conflicts.Add(new(path, "Deleted in the VM. Automatic host deletion is not supported; review and apply this deletion manually.")); continue; }
+                if (_baseline.TryGetValue(path, out var original) && original == next) continue;
                 var destination = Path.GetFullPath(Path.Combine(destinationRoot, path.Replace('/', Path.DirectorySeparatorChar)));
                 var prefix = destinationRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
                 if (!destination.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))

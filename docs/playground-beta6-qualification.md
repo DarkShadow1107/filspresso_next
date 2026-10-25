@@ -1,5 +1,11 @@
 # Beta-6 Playground: evidence and explicit limits
 
+**Superseded where noted:** [`playground-execution-safeguards.md`](playground-execution-safeguards.md)
+records the subsequent policy-3 implementation of guest handle containment, AppContainer/job
+controls, durable recovery and conditional qualification/enablement. This file preserves the
+earlier Beta-6 checkpoint. Its permanent-block/unfinished-code statements are historical;
+its distinction between software tests and unperformed live qualification still applies.
+
 Branch: `Beta-6-Playground`; first commit `6ecfd20` preceded implementation.
 This report supersedes Beta-5's “all gates green” wording. Fixtures/builds passing does
 **not** mean release qualification. Historical “all-or-nothing export” was also inaccurate.

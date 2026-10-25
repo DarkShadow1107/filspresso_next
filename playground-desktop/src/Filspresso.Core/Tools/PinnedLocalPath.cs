@@ -68,13 +68,14 @@ public sealed class PinnedLocalPath : IDisposable
         catch { handle.Dispose(); throw; }
     }
 
-    public FileStream OpenFile(string name, FileAccess access = FileAccess.Read, bool createNew = false)
+    public FileStream OpenFile(string name, FileAccess access = FileAccess.Read, bool createNew = false, bool shareRead = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (string.IsNullOrEmpty(name) || name is "." or ".." || name.IndexOfAny(['\\', '/', ':']) >= 0)
             throw new InvalidOperationException("Open only a single file component in the pinned directory.");
         var rights = access == FileAccess.Read ? 0x80000000u : 0xc0000000u;
-        var handle = CreateFile(Path.Combine(DirectoryPath, name), rights, 0, IntPtr.Zero, createNew ? 1u : 3u, 0x00200000, IntPtr.Zero);
+        if (shareRead && access != FileAccess.Read) throw new InvalidOperationException("Only immutable image reads may be shared.");
+        var handle = CreateFile(Path.Combine(DirectoryPath, name), rights, shareRead ? 1u : 0u, IntPtr.Zero, createNew ? 1u : 3u, 0x00200000, IntPtr.Zero);
         if (handle.IsInvalid)
         {
             var error = Marshal.GetLastWin32Error(); handle.Dispose();

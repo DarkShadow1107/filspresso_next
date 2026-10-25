@@ -34,6 +34,20 @@ Invoke-Checked { & $msbuild "$root\src\Filspresso.App\Filspresso.App.csproj" -re
 foreach ($file in @('Filspresso.Playground.pri', 'App.xbf', 'MainWindow.xbf', 'PlaygroundPage.xbf', 'RunHistoryPage.xbf', 'AgentReviewPage.xbf', 'AgentWorkspacePage.xbf', 'SettingsPage.xbf', 'Assets\Filspresso.ico', 'Assets\Icons\settings.svg', 'Assets\Icons\github.svg')) {
     if (-not (Test-Path -LiteralPath (Join-Path $publish $file))) { throw "Missing WinUI runtime resource: $file" }
 }
+$qualification = Join-Path $packageRoot 'qualification'
+Invoke-Checked { dotnet publish "$root\src\Filspresso.Qualify\Filspresso.Qualify.csproj" -c Release -r win-x64 --self-contained true -p:Platform=x64 -o $qualification --nologo -v minimal }
+# Use the exact sandbox/Core bytes from the published app, not an independently compiled
+# dependency that could differ in platform/version flags. Both target the same .NET runtime.
+foreach ($assembly in @('Filspresso.Core.dll', 'Filspresso.Sandbox.dll', 'System.Security.Cryptography.ProtectedData.dll')) {
+    Copy-Item -LiteralPath (Join-Path $publish $assembly) -Destination (Join-Path $qualification $assembly) -Force
+}
+$qualifierManifest = [ordered]@{ policyVersion = 3; implementationSha256 = (Get-FileHash -LiteralPath (Join-Path $publish 'Filspresso.Sandbox.dll') -Algorithm SHA256).Hash.ToLowerInvariant(); liveQualified = $false }
+$qualifierManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $qualification 'build-manifest.json') -Encoding utf8
+# Include the verifier in the installed app so users do not need a source checkout,
+# custom guest image or manually downloaded helper. MSI harvests this subdirectory.
+$installedQualifier = Join-Path $publish 'qualification'
+New-Item -ItemType Directory -Path $installedQualifier -Force | Out-Null
+Copy-Item -Path (Join-Path $qualification '*') -Destination $installedQualifier -Recurse -Force
 
 $branding = Join-Path $packageRoot 'branding'
 New-Item -ItemType Directory -Path $branding -Force | Out-Null

@@ -22,9 +22,9 @@ public sealed record Turn(
 
 public enum AgentMode { Chat, Plan, Build }
 public enum ToolEffect { ReadOnly, Mutation, Execution, Interaction }
-public enum CodeLocation { HyperV, HostedDocker }
+public enum CodeLocation { HyperV, HostedDocker, WindowsSandbox, Inspection, NativeRestricted }
 
-/// <summary>A pre-existing, account/session-owned sandbox, never a host directory.</summary>
+/// <summary>An account/session-owned VM or imported-memory inspection view, never host shell authority.</summary>
 public sealed record AgentWorkspace(Guid Id, CodeLocation Location);
 
 /// <summary>A tool the model is allowed to call.</summary>
@@ -32,7 +32,17 @@ public sealed record ToolDefinition(
     string Name,
     string Description,
     ToolArgumentSchema Parameters,
-    ToolEffect Effect);
+    ToolEffect Effect)
+{
+    /// <summary>External lookup sends data off-device even though project files are read-only.</summary>
+    public bool RequiresApproval { get; init; }
+}
+
+internal interface IAgentConsentBinding
+{
+    void AttachConsent(AgentConsentQueue consent);
+    void RevokeApprovals();
+}
 
 /// <summary>The model's request to run something.</summary>
 public sealed record ToolCall(string Id, string Name, string ArgumentsJson);

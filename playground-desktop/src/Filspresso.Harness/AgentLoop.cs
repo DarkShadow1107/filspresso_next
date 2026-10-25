@@ -12,24 +12,26 @@ using Filspresso.Sandbox;
 namespace Filspresso.Harness;
 
 /// <summary>
-/// Bounded orchestration, independent of transport and hypervisor. No production adapter is
-/// enabled yet. Only complete native tool requests enter this loop; answer text is never parsed.
+/// Bounded orchestration, independent of transport and hypervisor. Only complete native
+/// tool requests enter this loop; answer text is never parsed.
 /// Execution failures/timeouts quarantine the workspace, with independently bounded teardown.
 /// </summary>
 public sealed class AgentLoop : IAgentLoop
 {
     private readonly IAgentServices _services;
     private readonly AgentLimits _limits;
+    private readonly ISessionSpendGate? _spendGate;
     private readonly IReadOnlyList<ToolDefinition> _tools;
     private readonly Dictionary<string, ToolDefinition> _registry;
     private readonly HashSet<Guid> _quarantined = new();
     private int _running;
 
-    public AgentLoop(IAgentServices services, AgentLimits? limits = null)
+    public AgentLoop(IAgentServices services, AgentLimits? limits = null, ISessionSpendGate? spendGate = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         _services = services;
         _limits = limits ?? new AgentLimits();
+        _spendGate = spendGate;
         ValidateLimits(_limits);
         var tools = services.Tools.ToArray();
         if (tools.Length > 32 || tools.Any(tool => tool is null || !ToolArgumentSchema.IsIdentifier(tool.Name) ||
@@ -99,6 +101,10 @@ public sealed class AgentLoop : IAgentLoop
                     counts.OutputTokens > request.Turn.MaxTokens || (long)usage.InputTokens + counts.InputTokens > int.MaxValue)
                 { yield return Stop("Invalid, unmetered or oversized model response. No tool was executed."); yield break; }
                 usage = new TokenUsage(usage.InputTokens + counts.InputTokens, usage.OutputTokens + counts.OutputTokens);
+                // The reply has been paid for either way, so it is recorded even when this
+                // run never proposes a tool: the ceiling is per conversation, not per run,
+                // and the next run of the same conversation sees the accumulated too.
+                _spendGate?.Record(turn.ModelKey, counts);
                 if (completed.Reason == AgentFinishReason.Length || !Enum.IsDefined(completed.Reason) ||
                     (completed.ToolCalls.Count == 0) != (completed.Reason == AgentFinishReason.Answer))
                 { yield return Stop("The model did not finish a complete answer/tool-call group. No tool was executed."); yield break; }
@@ -116,6 +122,14 @@ public sealed class AgentLoop : IAgentLoop
                 }
                 if (turn.Mode == AgentMode.Chat)
                 { yield return Stop("Tools are disabled in Chat mode. No tool was executed."); yield break; }
+                if (_spendGate is { } gate && gate.Reached)
+                {
+                    // The batch is refused before any approval is asked for, because the
+                    // cap is about what the user is willing to pay for from here on. The
+                    // estimate is recorded client-side; the server's own charge is unaffected.
+                    yield return Stop("Session spend cap reached (experimental). No further tool was proposed; start a new conversation to continue.");
+                    yield break;
+                }
                 if (calls.Length > _limits.MaxToolCallsPerTurn || calls.Length > _limits.MaxToolCalls - callsUsed ||
                     round + 1 >= _limits.MaxTurns || usage.OutputTokens >= _limits.MaxGeneratedTokens)
                 { yield return Stop("Agent turn, tool-call or generated-token limit reached before tool execution."); yield break; }
@@ -170,7 +184,7 @@ public sealed class AgentLoop : IAgentLoop
                     ToolInvocation? invocation = null;
                     if (turn.Mode == AgentMode.Plan && tool.Effect != ToolEffect.ReadOnly)
                         invocation = Refusal(call, "Plan mode is read-only. No mutation or command was executed.");
-                    else if (tool.Effect != ToolEffect.ReadOnly)
+                    else if (tool.Effect != ToolEffect.ReadOnly || tool.RequiresApproval)
                     {
                         var approval = new AgentApproval(Guid.NewGuid(), workspace!, call, tool.Effect);
                         yield return new AgentEvent.ApprovalRequired(approval);

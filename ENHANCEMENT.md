@@ -1,5 +1,15 @@
 # Playground enhancement plan
 
+**Current desktop backend:** Windows Sandbox with imported-baseline Inspect, isolated Build,
+post-command text capture, reviewed apply and separately approved backend web tools. No
+VHDX/guest password or host/native-process fallback is selected. Setup and live Windows
+Sandbox qualification are still required. See `docs/playground-windows-sandbox.md`.
+
+**Policy-3 follow-up:** guest handle containment, AppContainer/jobs and durable recovery
+are now implemented, with actual-adapter qualification tooling and exact-build receipt
+gating rather than a permanent false constant. No real guest receipt has been issued here.
+See [`docs/playground-execution-safeguards.md`](docs/playground-execution-safeguards.md).
+
 **Current Beta-6 status:** see [`docs/playground-beta6-qualification.md`](docs/playground-beta6-qualification.md).
 Historical milestones below are not release approval. Desktop execution is release-blocked
 while guest containment/job/crash code remains unfinished, regardless of an old receipt.

@@ -34,15 +34,13 @@ public sealed record PlatformRequirement(string Edition, bool Supported, string 
 /// Windows machine and so that the installer and the application cannot drift into
 /// disagreeing about what "supported" means. Both ask this type; neither reimplements it.
 /// <para>
-/// <b>Why the edition is a requirement at all.</b> The sandbox is a Hyper-V VM. Windows Home
-/// has no Hyper-V role, so there is no supported way to give generated code a real boundary.
-/// The honest choices are to block Home or to run the agent with a weaker sandbox on a large
-/// share of machines, and this picks the first.
+/// Desktop installation and VM execution have different requirements. Home can inspect
+/// projects and explicitly opt in to qualified native isolation; it cannot run Windows
+/// Sandbox. Installing never grants execution permission or bypasses qualification.
 /// </para>
 /// <para>
-/// That is a product decision with a cost — it excludes every Home user — not a technical
-/// inevitability. If it is ever revisited, it is this type that should change, and both the
-/// installer and the app should change with it.
+/// Unknown editions and Server remain unsupported. The installer and application must
+/// agree on the installation floor, separately from either execution backend's checks.
 /// </para>
 /// </remarks>
 public static class PlatformRequirementCheck
@@ -54,6 +52,9 @@ public static class PlatformRequirementCheck
     /// Whether the OS version is new enough, regardless of edition.
     /// </summary>
     public static bool IsVersionSupported(int build) => build >= MinimumBuild;
+
+    public static bool EditionSupportsDesktop(WindowsEdition edition) =>
+        edition is WindowsEdition.Home or WindowsEdition.HomeSingleLanguage || EditionSupportsHyperV(edition);
 
     /// <summary>
     /// Whether this edition carries the Hyper-V role.
@@ -135,20 +136,17 @@ public static class PlatformRequirementCheck
                         $"This machine reports build {build}.");
         }
 
-        if (!EditionSupportsHyperV(edition))
+        if (!EditionSupportsDesktop(edition))
         {
-            var why = edition is WindowsEdition.Home or WindowsEdition.HomeSingleLanguage
-                ? "Windows Home does not include the Hyper-V role."
-                : edition == WindowsEdition.Server
+            var why = edition == WindowsEdition.Server
                     ? "Windows Server is not a supported target."
                     : $"The {edition} edition is not a recognised supported edition.";
 
             return new PlatformRequirement(
                 edition.ToString(),
                 Supported: false,
-                Reason: why + " The Playground sandboxes generated code in a Hyper-V virtual machine, " +
-                             "and there is no supported way to provide that boundary on this edition. " +
-                             "Windows 10 Pro and Windows 11 Pro are supported.");
+                Reason: why + " Use a supported Windows 10/11 client edition (Home, Pro, Enterprise or Education). " +
+                             "Windows Sandbox VM and native restricted execution have separate safety checks.");
         }
 
         return new PlatformRequirement(edition.ToString(), Supported: true, Reason: string.Empty);

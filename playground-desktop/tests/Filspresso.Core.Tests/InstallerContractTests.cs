@@ -151,22 +151,23 @@ public class InstallerContractTests
         var launch = Load().Descendants(Wxs + "Launch").Single();
         var message = launch.Attribute("Message")!.Value;
 
-        Assert.Contains("Windows 10 Pro", message, StringComparison.Ordinal);
-        Assert.Contains("Windows 11 Pro", message, StringComparison.Ordinal);
-        Assert.Contains("Hyper-V", message, StringComparison.Ordinal);
+        Assert.Contains("Home, Pro, Enterprise or Education", message, StringComparison.Ordinal);
+        Assert.Contains("Windows 11 24H2", message, StringComparison.Ordinal);
+        Assert.Contains("Windows Sandbox", message, StringComparison.Ordinal);
+        Assert.Contains("inspect", message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void HomeIsNotAmongTheEditionsTheInstallerAccepts()
+    public void HomeCanInstallWithoutClaimingVmExecution()
     {
         var accepted = InstallerAcceptedEditions();
-        Assert.DoesNotContain("Home", accepted);
-        Assert.DoesNotContain("HomeSingleLanguage", accepted);
-        // Core is the consumer SKU. If the installer ever accepts it, the requirement stops
-        // meaning anything on exactly the machines it was written for.
-        Assert.DoesNotContain("Core", accepted);
-        Assert.DoesNotContain("CoreN", accepted);
-        Assert.DoesNotContain("CoreSingleLanguage", accepted);
+        Assert.Contains("Home", accepted);
+        Assert.Contains("HomeSingleLanguage", accepted);
+        Assert.Contains("Core", accepted);
+        Assert.Contains("CoreN", accepted);
+        Assert.Contains("CoreSingleLanguage", accepted);
+        Assert.DoesNotContain("Server", accepted);
+        Assert.False(PlatformRequirementCheck.EditionSupportsHyperV(WindowsEdition.Home));
     }
 
     [Fact]
@@ -185,7 +186,7 @@ public class InstallerContractTests
             }
 
             var registryId = RegistryIdFor(edition);
-            var supportedByApp = PlatformRequirementCheck.EditionSupportsHyperV(edition);
+            var supportedByApp = PlatformRequirementCheck.EditionSupportsDesktop(edition);
             var acceptedByInstaller = accepted.Contains(registryId, StringComparer.Ordinal);
 
             Assert.True(

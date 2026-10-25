@@ -27,7 +27,7 @@ public sealed class HyperVAgentServicesTests
     }
 
     private const string CompletedEnvelope =
-        "{\"version\":1,\"exitCode\":0,\"stdout\":\"hello 界\",\"stderr\":\"diagnostic\",\"timedOut\":false,\"outputLimited\":false}";
+        "{\"version\":1,\"exitCode\":0,\"stdout\":\"hello 界\",\"stderr\":\"diagnostic\",\"timedOut\":false,\"outputLimited\":false,\"descendantsClean\":true}";
 
     private static StubHyperVRunner Runner() => new()
     {
@@ -197,7 +197,7 @@ public sealed class HyperVAgentServicesTests
             OnOperation = (_, _) => StubHyperVRunner.Completed(),
         };
         var sandbox = new HyperVSandbox(runner, @"C:\base\windows.vhdx", @"C:\state",
-            credentials: new FixtureGuestCredentials(), readinessTimeout: TimeSpan.FromSeconds(1));
+            credentials: new FixtureGuestCredentials(), readinessTimeout: TimeSpan.FromSeconds(1), recoveryJournal: new MemoryRecoveryJournal());
         using var services = Compose(new StubHyperVRunner(), sandbox);
         var (ok, error) = await services.EnsureWorkspaceAsync();
         Assert.False(ok);

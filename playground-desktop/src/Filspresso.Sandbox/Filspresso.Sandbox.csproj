@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+    <Compile Remove="Guest\GuestBoundary.cs" />
+    <Compile Remove="Guest\FenceQualification.cs" />
+    <EmbeddedResource Include="Guest\GuestBoundary.cs" LogicalName="Filspresso.GuestBoundary.cs" />
+    <EmbeddedResource Include="Guest\FenceQualification.cs" LogicalName="Filspresso.FenceQualification.cs" />
     <ProjectReference Include="..\Filspresso.Core\Filspresso.Core.csproj" />
   </ItemGroup>
 
@@ -18,6 +23,7 @@
       public for the sake of it.
     -->
     <InternalsVisibleTo Include="Filspresso.Core.Tests" />
+    <InternalsVisibleTo Include="Filspresso.Qualify" />
   </ItemGroup>
 
 </Project>

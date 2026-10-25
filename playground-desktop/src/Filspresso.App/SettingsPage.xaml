@@ -29,6 +29,11 @@
                         <ComboBox x:Name="CompactionBox" Header="Automatic context compaction" AutomationProperties.Name="Automatic context compaction" HorizontalAlignment="Stretch"><ComboBoxItem Content="Permissive · 80%" /><ComboBoxItem Content="Balanced · 65% (default)" /><ComboBoxItem Content="Aggressive · 45%" /></ComboBox>
                         <TextBlock Text="Summarizes older history at the selected threshold, preserving recent turns and the original transcript. Summary model usage is metered." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
                         <ToggleSwitch x:Name="EnterSwitch" Header="Enter to send" OnContent="Shift + Enter inserts a new line" OffContent="Ctrl + Enter sends" />
+                        <StackPanel Spacing="12">
+                            <ToggleSwitch x:Name="SpendCapSwitch" Header="Stop the agent after a spend ceiling (EXPERIMENTAL)" OnContent="Ceiling active for new conversations" OffContent="Off (default)" Toggled="OnSpendCapToggled" />
+                            <NumberBox x:Name="SpendCapBox" Header="Agent spend ceiling for one conversation (RON, approximate)" PlaceholderText="e.g. 20" Minimum="0.5" Maximum="10000" SmallChange="1" LargeChange="10" SpinButtonPlacementMode="Compact" HorizontalAlignment="Stretch" AutomationProperties.Name="Agent spend ceiling in RON" />
+                            <TextBlock Text="EXPERIMENTAL · DEFAULT OFF · estimate only. When on, the agent stops proposing tools once the conversation's recorded cost reaches this ceiling, computed on this device from the token usage each reply reported and the prices your entitlement resolves. It is a convenience bound, not a billing control: the server settles every model turn at its own count, regardless of this setting. Starting a new conversation grants a fresh budget." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
+                        </StackPanel>
                     </StackPanel>
                     <StackPanel x:Name="DisplayPanel" Spacing="26" Visibility="Collapsed">
                         <ComboBox x:Name="TextSizeBox" Header="Message text size" HorizontalAlignment="Stretch" AutomationProperties.Name="Message text size">

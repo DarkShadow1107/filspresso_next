@@ -50,7 +50,7 @@ public class PlatformRequirementTests
     [InlineData("Core")]
     [InlineData("CoreN")]
     [InlineData("CoreCountrySpecific")]
-    public void CoreIsWindowsHomeAndIsRefused(string editionId)
+    public void CoreIsHomeAndAllowsDesktopButNotTheVmBackend(string editionId)
     {
         // Core is the consumer SKU, not a near-miss of Professional. It has no Hyper-V
         // role, so treating it as Pro would wave through exactly the machines the
@@ -58,7 +58,8 @@ public class PlatformRequirementTests
         var parsed = PlatformRequirementCheck.ParseEdition(editionId, null);
         Assert.Equal(WindowsEdition.Home, parsed);
         Assert.False(PlatformRequirementCheck.EditionSupportsHyperV(parsed));
-        Assert.False(PlatformRequirementCheck.Evaluate(26200, parsed).Supported);
+        Assert.True(PlatformRequirementCheck.Evaluate(26200, parsed).Supported);
+        Assert.True(PlatformRequirementCheck.EditionSupportsDesktop(parsed));
     }
 
     [Fact]
@@ -96,15 +97,12 @@ public class PlatformRequirementTests
     [Theory]
     [InlineData(WindowsEdition.Home)]
     [InlineData(WindowsEdition.HomeSingleLanguage)]
-    public void HomeIsRefusedWithAnExplanationThatNamesTheRequirement(WindowsEdition edition)
+    public void HomeSupportsInspectionAndNativeOptInWithoutClaimingHyperV(WindowsEdition edition)
     {
         var result = PlatformRequirementCheck.Evaluate(22631, edition);
-        Assert.False(result.Supported);
-        Assert.Contains("Home", result.Reason, StringComparison.OrdinalIgnoreCase);
-        // The message has to say what would work, or the user is left with a refusal and no
-        // idea what to do about it.
-        Assert.Contains("Windows 10 Pro", result.Reason, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Windows 11 Pro", result.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.True(result.Supported);
+        Assert.Empty(result.Reason);
+        Assert.False(PlatformRequirementCheck.EditionSupportsHyperV(edition));
     }
 
     [Fact]

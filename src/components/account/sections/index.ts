@@ -6,6 +6,7 @@ export { MachinesSection } from "./MachinesSection";
 export { PaymentsSection } from "./PaymentsSection";
 export { ChatHistorySection } from "./ChatHistorySection";
 export { BillingSection } from "./BillingSection";
+export { DesktopSection } from "./DesktopSection";
 
 // Export subcomponents
 export { RepairsHistory } from "./RepairsHistory";

@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Filspresso.Sandbox", "src\F
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Filspresso.Harness", "src\Filspresso.Harness\Filspresso.Harness.csproj", "{040B87EB-1A64-47AB-BE7E-4397D711556F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Filspresso.Qualify", "src\Filspresso.Qualify\Filspresso.Qualify.csproj", "{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -23,6 +25,18 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Debug|x64.Build.0 = Debug|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Release|x64.ActiveCfg = Release|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Release|x64.Build.0 = Release|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Debug|x86.Build.0 = Debug|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Release|x86.ActiveCfg = Release|Any CPU
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D}.Release|x86.Build.0 = Release|Any CPU
 		{675F8385-CF0B-40DD-AD49-D2A5FE9DDEE5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{675F8385-CF0B-40DD-AD49-D2A5FE9DDEE5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{675F8385-CF0B-40DD-AD49-D2A5FE9DDEE5}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -76,6 +90,7 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
+		{58AF1D04-8AFA-4105-8AD4-901F6CBF241D} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{675F8385-CF0B-40DD-AD49-D2A5FE9DDEE5} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{D498C1C7-9B99-4031-9D64-F0E50A38401A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{8952B06A-C210-49CA-B6C6-BAD4317DAAF2} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}

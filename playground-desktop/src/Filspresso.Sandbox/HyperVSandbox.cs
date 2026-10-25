@@ -16,10 +16,10 @@ namespace Filspresso.Sandbox;
 /// <summary>
 /// Explicitly configured, offline Hyper-V sessions, not connected to chat. Only trusted
 /// administration runs on the host; generated scripts are decoded/executed in the guest.
-/// Image provisioning, race-proof file containment, descendant lifetime and live validation
-/// remain release gates. The absence of a network adapter alone does not prove this executor safe.
+/// The guest uses pinned file handles, capability-free AppContainer commands and jobs.
+/// Machine/image/build qualification is required before application enablement.
 /// </summary>
-public sealed class HyperVSandbox : ISandbox
+public sealed class HyperVSandbox : IWorkspaceSandbox
 {
     private readonly IPowerShellRunner _runner;
     private readonly string _baseImagePath;
@@ -30,6 +30,12 @@ public sealed class HyperVSandbox : ISandbox
     private readonly IGuestCredentialProvider? _credentials;
     private readonly ConcurrentDictionary<Guid, ManagedSession> _sessions = new();
     private int _starting;
+    private readonly IHyperVRecoveryJournal _journal;
+    private IDisposable? _lease;
+    private bool _disposed;
+    private readonly HyperVQualificationReceipt? _qualification;
+    private PinnedLocalPath? _imagePin;
+    private FileStream? _imageLock;
     public const int MaxSessions = 2;
     /// <summary>Guest single-file budget, mirrored from the guest scripts for host-side checks.</summary>
     public const int MaxSandboxFileBytes = HyperVGuestScripts.MaxFileBytes;
@@ -43,6 +49,7 @@ public sealed class HyperVSandbox : ISandbox
         internal readonly SemaphoreSlim Cleanup = new(1, 1);
         internal readonly CancellationTokenSource Lifetime = new();
         internal readonly TaskCompletionSource StartupFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly Stopwatch Age = Stopwatch.StartNew();
         internal bool CreationTransportUnconfirmed;
         internal int State = (int)SandboxState.Starting;
         internal string? Failure;
@@ -50,7 +57,8 @@ public sealed class HyperVSandbox : ISandbox
 
     public HyperVSandbox(IPowerShellRunner runner, string baseImagePath, string workspaceRoot,
         TimeSpan? commandTimeout = null, IGuestCredentialProvider? credentials = null,
-        TimeSpan? readinessTimeout = null, TimeSpan? cleanupTimeout = null)
+        TimeSpan? readinessTimeout = null, TimeSpan? cleanupTimeout = null, IHyperVRecoveryJournal? recoveryJournal = null,
+        HyperVQualificationReceipt? qualification = null)
     {
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentException.ThrowIfNullOrWhiteSpace(baseImagePath);
@@ -62,6 +70,8 @@ public sealed class HyperVSandbox : ISandbox
         _runner = runner;
         _baseImagePath = Path.GetFullPath(baseImagePath);
         _workspaceRoot = Path.GetFullPath(workspaceRoot);
+        _journal = recoveryJournal ?? new HyperVRecoveryJournal(_workspaceRoot);
+        _qualification = qualification;
         _credentials = credentials;
         _commandTimeout = commandTimeout ?? TimeSpan.FromMinutes(5);
         _readinessTimeout = readinessTimeout ?? TimeSpan.FromMinutes(2);
@@ -75,6 +85,7 @@ public sealed class HyperVSandbox : ISandbox
     public async Task<(bool Available, string Reason)> ProbeAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (_credentials is null || !_runner.SupportsStandardInput)
             return (false, "Configure dedicated guest credentials and a private-input PowerShell transport first.");
         const string probe = """
@@ -116,9 +127,30 @@ public sealed class HyperVSandbox : ISandbox
         var credential = await GetCredentialAsync(cancellationToken).ConfigureAwait(false);
         var (available, reason) = await ProbeAsync(cancellationToken).ConfigureAwait(false);
         if (!available) throw new InvalidOperationException(reason);
-        var vmName = $"filspresso-{Guid.NewGuid():N}";
-        var session = new ManagedSession(Guid.NewGuid(), vmName, Path.Combine(_workspaceRoot, $"{vmName}.vhdx"));
+        if (_lease is null) await RecoverCoreAsync(cancellationToken).ConfigureAwait(false);
+        if (_qualification is { } qualified && _imageLock is null)
+        {
+            if (qualified.PolicyVersion != HyperVQualificationReceipt.CurrentPolicyVersion || !qualified.IsCurrentMachine() ||
+                qualified.ImplementationSha256 != HyperVQualification.ImplementationSha256 ||
+                DateTimeOffset.UtcNow - qualified.CreatedUtc > HyperVQualificationReceipt.MaxAge || qualified.CreatedUtc > DateTimeOffset.UtcNow.AddMinutes(2))
+                throw new SandboxPolicyException("Qualification is stale or does not match this machine/build.");
+            if (qualified.ImagePath != _baseImagePath) throw new SandboxPolicyException("Qualified image path mismatch.");
+            _imagePin = new PinnedLocalPath(Path.GetDirectoryName(_baseImagePath)!);
+            try
+            {
+                _imageLock = _imagePin.OpenFile(Path.GetFileName(_baseImagePath), shareRead: true);
+                if (_imageLock.Length != qualified.ImageBytes ||
+                    Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(_imageLock, cancellationToken).ConfigureAwait(false)) != qualified.ImageSha256)
+                    throw new SandboxPolicyException("Image bytes changed since qualification.");
+            }
+            catch { _imageLock?.Dispose(); _imageLock = null; _imagePin.Dispose(); _imagePin = null; throw; }
+        }
+        var id = Guid.NewGuid();
+        var vmName = $"filspresso-{id:N}";
+        var session = new ManagedSession(id, vmName, Path.Combine(_workspaceRoot, $"{vmName}.vhdx"));
+        _journal.Add(new(id, vmName, $"Filspresso.v3.{id:N}"));
         _sessions[session.Id] = session; // Partial creation must remain discoverable if teardown fails.
+        _ = ExpireAsync(session);
         using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, session.Lifetime.Token);
         var create = $$"""
             $ErrorActionPreference = 'Stop'
@@ -132,7 +164,7 @@ public sealed class HyperVSandbox : ISandbox
             $vm = New-VM -Name '{{vmName}}' -Path '{{Escape(_workspaceRoot)}}' -MemoryStartupBytes 2GB -VHDPath '{{Escape(session.Disk)}}' -Generation 2
             $vm | Set-VMMemory -DynamicMemoryEnabled $true -MinimumBytes 1GB -MaximumBytes 4GB
             $vm | Set-VMProcessor -Count 2
-            $vm | Set-VM -AutomaticStartAction Nothing -AutomaticStopAction TurnOff -CheckpointType Disabled
+            $vm | Set-VM -AutomaticStartAction Nothing -AutomaticStopAction TurnOff -CheckpointType Disabled -Notes 'Filspresso.v3.{{id:N}}'
             # Remove even disconnected adapters. No virtual switch is configured.
             Get-VMNetworkAdapter -VMName '{{vmName}}' | Remove-VMNetworkAdapter -Confirm:$false
             if (@(Get-VMNetworkAdapter -VMName '{{vmName}}').Count -ne 0) { throw 'Adapter removal failed' }
@@ -193,7 +225,8 @@ public sealed class HyperVSandbox : ISandbox
                 if (!root.TryGetProperty("exitCode", out var code) || !code.TryGetInt32(out var exit) ||
                     !root.TryGetProperty("stdout", out var stdout) || stdout.ValueKind != JsonValueKind.String ||
                     !root.TryGetProperty("stderr", out var stderr) || stderr.ValueKind != JsonValueKind.String ||
-                    !ReadBoolean(root, "timedOut", out var timedOut) || !ReadBoolean(root, "outputLimited", out var limited))
+                    !ReadBoolean(root, "timedOut", out var timedOut) || !ReadBoolean(root, "outputLimited", out var limited) ||
+                    !ReadBoolean(root, "descendantsClean", out var clean) || !clean)
                     throw new InvalidDataException();
                 var output = stdout.GetString()!; var error = stderr.GetString()!;
                 if (output.Length + (long)error.Length > HyperVGuestScripts.MaxCommandOutput || limited) throw new PowerShellOutputLimitException();
@@ -287,6 +320,8 @@ public sealed class HyperVSandbox : ISandbox
         operation.CancelAfter(timeout);
         try
         {
+            if (session.Age.Elapsed > TimeSpan.FromHours(1) || (_qualification is { } receipt && DateTimeOffset.UtcNow - receipt.CreatedUtc > HyperVQualificationReceipt.MaxAge))
+                throw new TimeoutException("Sandbox lifetime or qualification expired.");
             if (Interlocked.CompareExchange(ref session.State, (int)SandboxState.Busy, (int)SandboxState.Ready) != (int)SandboxState.Ready)
                 throw new SandboxPolicyException("The sandbox is not ready or was invalidated.");
             var credential = await GetCredentialAsync(operation.Token).ConfigureAwait(false);
@@ -300,7 +335,7 @@ public sealed class HyperVSandbox : ISandbox
         catch (Exception exception)
         {
             var timedOut = operation.IsCancellationRequested && !caller.IsCancellationRequested && !session.Lifetime.IsCancellationRequested;
-            var cleaned = (!dispatched && !timedOut) || await TryStopAsync(session).ConfigureAwait(false);
+            var cleaned = (!dispatched && !timedOut && exception is not TimeoutException) || await TryStopAsync(session).ConfigureAwait(false);
             caller.ThrowIfCancellationRequested();
             if (!cleaned) throw new SandboxCleanupException();
             if (exception is SandboxPolicyException && !dispatched) throw;
@@ -359,6 +394,12 @@ public sealed class HyperVSandbox : ISandbox
         try { await StopSessionAsync(session).ConfigureAwait(false); return true; }
         catch (Exception) { return false; }
     }
+    private async Task ExpireAsync(ManagedSession session)
+    {
+        try { await Task.Delay(TimeSpan.FromHours(1), session.Lifetime.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) { return; }
+        await TryStopAsync(session).ConfigureAwait(false);
+    }
 
     private async Task StopSessionAsync(ManagedSession session)
     {
@@ -378,6 +419,10 @@ public sealed class HyperVSandbox : ISandbox
                 $ErrorActionPreference = 'Stop'
                 $vm = Get-VM -ErrorAction Stop | Where-Object { $_.Name -eq '{{session.Name}}' }
                 if ($null -ne $vm) {
+                    if (@($vm).Count -ne 1) { throw 'Ambiguous VM identity' }
+                    $drives = @(Get-VMHardDiskDrive -VM $vm -ErrorAction Stop)
+                    if ($drives.Count -ne 1 -or $drives[0].Path -ine '{{Escape(session.Disk)}}') { throw 'Foreign VM disk; refusing recovery' }
+                    if ($vm.Notes -ne 'Filspresso.v3.{{session.Id:N}}' -and -not [string]::IsNullOrEmpty($vm.Notes)) { throw 'Foreign VM marker' }
                     if ($vm.State -ne 'Off') { $vm | Stop-VM -TurnOff -Force -Confirm:$false }
                     $vm | Remove-VM -Force -Confirm:$false
                 }
@@ -392,6 +437,7 @@ public sealed class HyperVSandbox : ISandbox
                 """;
             var result = await _runner.RunAsync(teardown, _cleanupTimeout, deadline.Token).ConfigureAwait(false);
             if (result.ExitCode != 0 || result.Output.Trim() != "DONE" || session.CreationTransportUnconfirmed) throw new SandboxCleanupException();
+            _journal.Remove(session.Id);
             _sessions.TryRemove(session.Id, out _);
         }
         catch (Exception) { throw new SandboxCleanupException(); }
@@ -403,6 +449,44 @@ public sealed class HyperVSandbox : ISandbox
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult<IReadOnlyList<SandboxSessionInfo>>(_sessions.Values.Select(Info).ToArray());
     }
+
+    public async Task RecoverAsync(CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.CompareExchange(ref _starting, 1, 0) != 0) throw new SandboxPolicyException("Startup/recovery already in progress.");
+        try { await RecoverCoreAsync(cancellationToken).ConfigureAwait(false); }
+        finally { Interlocked.Exchange(ref _starting, 0); }
+    }
+    private async Task RecoverCoreAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_lease is not null) return;
+        _lease = _journal.Acquire();
+        try
+        {
+            foreach (var record in _journal.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var stale = new ManagedSession(record.Id, record.Name, Path.Combine(_workspaceRoot, record.Name + ".vhdx"));
+                stale.StartupFinished.TrySetResult(); _sessions[record.Id] = stale;
+                await StopSessionAsync(stale).ConfigureAwait(false);
+            }
+        }
+        catch { _lease.Dispose(); _lease = null; throw; }
+    }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        foreach (var session in _sessions.Values) session.Lifetime.Cancel();
+        if (Volatile.Read(ref _starting) != 0) throw new InvalidOperationException("Await startup cancellation before disposing the sandbox.");
+        foreach (var session in _sessions.Values) { try { StopSessionAsync(session).GetAwaiter().GetResult(); } catch { } }
+        // Intents survive. The next owner must recover before any new guest can start.
+        _lease?.Dispose(); _lease = null;
+        _imageLock?.Dispose(); _imagePin?.Dispose();
+    }
+
+    internal Task<JsonElement> QualificationProbeAsync(Guid id, string trustedSource, CancellationToken token) =>
+        InGuestAsync(id, HyperVGuestScripts.Guard + "\n" + trustedSource, TimeSpan.FromSeconds(30), value => value, token);
 
     private static SandboxSessionInfo Info(ManagedSession session) => new(session.Id, session.Name, (SandboxState)Volatile.Read(ref session.State), 0, session.Failure);
     private sealed class MissingGuestFileException : Exception { }

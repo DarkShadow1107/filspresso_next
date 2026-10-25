@@ -104,10 +104,12 @@ public sealed class PowerShellRunner : IPowerShellRunner
         // Encoded rather than passed as an argument: a script with quotes, pipes or a path with
         // a space in it is a quoting problem otherwise, and quoting problems in a shell
         // invocation are how a command ends up running something other than what was written.
+        var handshake = Guid.NewGuid().ToString("N");
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(
             "$ProgressPreference = 'SilentlyContinue'; " +
             "[Console]::InputEncoding = [Text.UTF8Encoding]::new($false); " +
-            "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); " + script));
+            "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); " +
+            $"if ([Console]::In.ReadLine() -cne '{handshake}') {{ exit 1 }}; " + script));
         startInfo.ArgumentList.Add("-NoProfile");
         startInfo.ArgumentList.Add("-NonInteractive");
         startInfo.ArgumentList.Add("-OutputFormat");
@@ -115,6 +117,7 @@ public sealed class PowerShellRunner : IPowerShellRunner
         startInfo.ArgumentList.Add("-EncodedCommand");
         startInfo.ArgumentList.Add(encoded);
 
+        using var job = new HostProcessJob();
         using var process = new Process { StartInfo = startInfo };
         if (!process.Start())
         {
@@ -129,9 +132,14 @@ public sealed class PowerShellRunner : IPowerShellRunner
 
         try
         {
+            job.Assign(process);
+            await process.StandardInput.WriteLineAsync(handshake.AsMemory(), timeoutSource.Token).ConfigureAwait(false);
             if (standardInput is not null) await process.StandardInput.WriteLineAsync(standardInput.AsMemory(), timeoutSource.Token).ConfigureAwait(false);
             process.StandardInput.Close();
             await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
+            // A descendant may retain inherited copies of the transport pipes even when
+            // its own stdio is redirected. Kill the job BEFORE awaiting pipe EOF.
+            job.Terminate();
             var output = await stdout.WaitAsync(timeoutSource.Token).ConfigureAwait(false);
             var error = await stderr.WaitAsync(timeoutSource.Token).ConfigureAwait(false);
             return (process.ExitCode, output, error);
@@ -140,12 +148,14 @@ public sealed class PowerShellRunner : IPowerShellRunner
         {
             var timedOut = timeoutSource.IsCancellationRequested;
             try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            var jobClean = false;
+            try { job.Terminate(); jobClean = true; } catch { /* closing the job remains an independent kill */ }
             timeoutSource.Cancel();
             // Do not leave pipe readers or a process wait unobserved. All cleanup has its own
             // short bound, independent of an already-cancelled caller token.
             try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); } catch { }
             try { await Task.WhenAll(stdout, stderr).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); } catch { }
-            if (!process.HasExited) throw new PowerShellProcessCleanupException();
+            if (!process.HasExited || !jobClean) throw new PowerShellProcessCleanupException();
             cancellationToken.ThrowIfCancellationRequested();
             if (Volatile.Read(ref exceeded) != 0) throw new PowerShellOutputLimitException();
             if (timedOut) throw new TimeoutException("The PowerShell transport did not finish in time.");

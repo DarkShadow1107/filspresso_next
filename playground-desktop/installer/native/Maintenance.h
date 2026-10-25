@@ -6,6 +6,7 @@ namespace FilspressoMaintenance {
     inline constexpr wchar_t CredentialPrefix[] = L"Filspresso.Playground";
     bool DeleteOwnedTree(const std::wstring& path);
     bool ClearCredentials(const std::wstring& prefix);
+    bool SandboxStateCanBeRemoved(const std::wstring& path);
     bool CleanupCurrentUser();
     int LaunchUninstall();
 }

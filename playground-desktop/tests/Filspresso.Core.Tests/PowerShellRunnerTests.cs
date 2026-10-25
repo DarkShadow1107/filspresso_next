@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -16,6 +17,24 @@ namespace Filspresso.Core.Tests;
 /// </summary>
 public sealed class PowerShellRunnerTests
 {
+    [Fact]
+    public async Task TrustedAdministrationCannotLeaveAnOrphanAfterNormalTransportExit()
+    {
+        const string trusted = """
+            $start = [Diagnostics.ProcessStartInfo]::new()
+            $start.FileName = $PSHOME + '\powershell.exe'
+            $start.Arguments = '-NoProfile -NonInteractive -Command "Start-Sleep -Seconds 120"'
+            $start.UseShellExecute = $false
+            $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+            $child = [Diagnostics.Process]::Start($start)
+            [Console]::WriteLine($child.Id)
+            """;
+        var result = await new PowerShellRunner().RunAsync(trusted, TimeSpan.FromSeconds(15));
+        Assert.Equal(0, result.ExitCode);
+        var pid = int.Parse(result.Output.Trim(), System.Globalization.CultureInfo.InvariantCulture);
+        try { using var child = Process.GetProcessById(pid); Assert.True(child.WaitForExit(5000), "Host job did not terminate its descendant."); }
+        catch (ArgumentException) { /* The job already reaped it. */ }
+    }
     [Fact]
     public async Task PrivateInputRoundTripsUnicodeAndHostExitCodesWithoutArgumentQuoting()
     {

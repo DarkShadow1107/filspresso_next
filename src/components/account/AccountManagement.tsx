@@ -21,6 +21,7 @@ import {
 	PaymentsSection,
 	ChatHistorySection,
 	BillingSection,
+	DesktopSection,
 	RepairPopup,
 	MaintenancePopup,
 } from "./sections";
@@ -1018,7 +1019,12 @@ export default function AccountManagement() {
 					<SubscriptionSection subscription={subscription} subscriptionData={subscriptionData} />
 				)}
 
-				{activeTab === "billing" && <BillingSection />}
+				{activeTab === "billing" && (
+					<>
+						<BillingSection />
+						<DesktopSection />
+					</>
+				)}
 
 				{activeTab === "machines" && (
 					<MachinesSection

@@ -7,6 +7,7 @@ using Filspresso.Core.Api;
 using Filspresso.Core.Auth;
 using Filspresso.Core.Session;
 using Filspresso.Core.Storage;
+using Filspresso.Core.Tools;
 using Filspresso.Harness;
 using Filspresso.Sandbox;
 using Microsoft.UI.Xaml;
@@ -80,35 +81,49 @@ public sealed class AppServices : IDisposable
     /// Composes a conversation adapter, and thereby decides execution availability.
     /// </summary>
     /// <remarks>
-    /// Fail-closed: only a verified, current Hyper-V qualification receipt over an unchanged
-    /// image composes <see cref="HyperVAgentServices"/>; every other case composes
-    /// <see cref="QuestionOnlyAgentServices"/> and reports why. Both advertise the same
-    ///clarification protocol; only the qualified one offers file/command tools.
+    /// Inspection reads only the explicitly imported in-memory baseline. VM execution is
+    /// separately started and qualified. Native restriction is explicit opt-in, never an
+    /// automatic downgrade after a VM failure. No unrestricted host/Docker fallback exists.
     /// </remarks>
     public IAgentServices CreateAgentServices(INativeAgentModelTransport transport, ProjectCheckpoints checkpoints, out string executionStatus)
     {
-        if (!HyperVQualification.ExecutionReleaseReady)
-        {
-            executionStatus = HyperVQualification.ReleaseBlocker;
-            return new QuestionOnlyAgentServices(transport);
-        }
-        var (receipt, reason) = HyperVQualification.TryLoadVerified();
-        if (receipt is not { } qualified)
-        {
-            executionStatus = reason;
-            return new QuestionOnlyAgentServices(transport);
-        }
-        var (imageOk, imageReason) = HyperVQualification.VerifyImage(qualified);
-        if (!imageOk)
-        {
-            executionStatus = imageReason;
-            return new QuestionOnlyAgentServices(transport);
-        }
-        executionStatus = $"Hyper-V execution qualified {qualified.CreatedUtc:yyyy-MM-dd} · policy {qualified.PolicyVersion} · image {qualified.ImageSha256[..12]}…";
-        var sandbox = new HyperVSandbox(new PowerShellRunner(), qualified.ImagePath,
-            HyperVQualification.DefaultSandboxRoot, credentials: new VaultGuestCredentials());
-        return new HyperVAgentServices(transport, sandbox, qualified, checkpoints, executionQualified: true, executionStatus);
+        executionStatus = WindowsSandboxQualification.SetupStatus;
+        if (executionStatus.Length == 0) executionStatus = "Inspect mode · no VM started. Verify Windows Sandbox, then start a separate Build workspace.";
+        return new InspectionAgentServices(transport, checkpoints, WebLookup());
     }
+
+    public async Task<(SandboxAgentServices? Services, string Status)> CreateExecutionServicesAsync(INativeAgentModelTransport transport,
+        ProjectCheckpoints checkpoints, CancellationToken token, ExecutionIsolation isolation = ExecutionIsolation.WindowsSandbox,
+        bool nativeRiskAcknowledged = false)
+    {
+        token.ThrowIfCancellationRequested();
+        if (isolation == ExecutionIsolation.NativeRestricted)
+        {
+            if (!nativeRiskAcknowledged) return (null, "Native restricted mode shares the host kernel. Explicit risk acknowledgement is required; VM failure never approves a downgrade.");
+            var native = NativeSandboxQualification.Check();
+            if (!native.Qualified) return (null, native.Status);
+            return (new SandboxAgentServices(transport, new NativeSandbox(new PowerShellRunner()), CodeLocation.NativeRestricted,
+                checkpoints, true, native.Status, web: WebLookup()), native.Status);
+        }
+        if (isolation != ExecutionIsolation.WindowsSandbox) throw new ArgumentOutOfRangeException(nameof(isolation));
+        var (qualified, status) = await WindowsSandboxQualification.CheckAsync(token).ConfigureAwait(false);
+        if (!qualified) return (null, status);
+        return (new SandboxAgentServices(transport, new WindowsSandbox(new WindowsSandboxCli()), CodeLocation.WindowsSandbox,
+            checkpoints, true, status, web: WebLookup()), status);
+    }
+    private IAgentWebLookup WebLookup() => new AgentWebLookup(new WebTool(_api, Auth), new WebFetchTool(_api, Auth));
+
+    /// <summary>
+    /// The experimental per-conversation spend ceiling, or null when the preference is off.
+    /// </summary>
+    /// <remarks>
+    /// Null, the untouched default, is off: the gate is not created, not recorded against
+    /// and no estimate is shown. When on, the prices come from the account's own entitlement
+    /// — the same resolved rates the server charges with — so the estimate and the bill
+    /// cannot disagree about what a model costs.
+    /// </remarks>
+    public Filspresso.Harness.SessionSpendGate? CreateSessionSpendGate() =>
+        Filspresso.Harness.SessionSpendGate.Create(Preferences.AgentSessionSpendCapRon, Playground.Entitlement);
 
     public IntPtr WindowHandle { get; set; }
     public DesktopPreferencesStore PreferencesStore { get; }
@@ -206,6 +221,86 @@ public sealed class AppServices : IDisposable
     public Entitlement? Entitlement { get; private set; }
 
     /// <summary>
+    /// The published version of a newer desktop build, when one exists; null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Passive information only. Nothing here downloads, elevates or restarts the app: the
+    /// notice points at the account page, and the customer decides. Raised through
+    /// <see cref="SystemNoticeChanged"/> so the workspace can render the line when it arrives.
+    /// </remarks>
+    public string? NewDesktopBuildVersion { get; private set; }
+
+    /// <summary>Raised when the system maintenance produced a notice the UI may want to draw.</summary>
+    public event EventHandler? SystemNoticeChanged;
+
+    private bool _maintenanceRan;
+
+    /// <summary>
+    /// One maintenance pass per run, started on the first successful entitlement load.
+    /// </summary>
+    /// <remarks>
+    /// Two things happen and both are neutral about failure: the machine's facts go on
+    /// record (the account page's "Playground installed on"), and the server is asked what
+    /// it would publish today, so a newer build can be mentioned. Neither is user-visible
+    /// work, and a refusal or a network failure suppresses the notice rather than showing
+    /// an error -- the entitlement flow the user is actually waiting on is never delayed.
+    /// Facts are read once per run, so the pass is guarded and never re-armed within the run.
+    /// </remarks>
+    private async Task RunSystemMaintenanceOnceAsync()
+    {
+        if (!Auth.IsSignedIn) return;
+        if (_maintenanceRan) return;
+        _maintenanceRan = true;
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try
+        {
+            if (!await Auth.EnsureAccessTokenAsync(timeout.Token).ConfigureAwait(false) || Auth.Current is null)
+            {
+                return;
+            }
+
+            // The report is whatever the machine was willing to say; nulls mean "the read
+            // refused" and the server stores them as "not reported".
+            var system = WindowsPlatformProbe.TryReadSystemReport();
+            var report = new DeviceStateReport
+            {
+                DeviceId = DeviceId,
+                DeviceName = Environment.MachineName,
+                OsEdition = system?.Edition,
+                OsBuild = system?.Build,
+                OsUbr = system?.Ubr,
+                AppVersion = AppVersion,
+            };
+            await _api.PostDeviceStateAsync(Auth.Current.AccessToken, report, timeout.Token).ConfigureAwait(false);
+
+            // Update check sits behind the check-in so a server that throttles the burst
+            // still gets the facts it keeps.
+            var update = await _api
+                .GetInstallerUpdateAsync(Auth.Current.AccessToken, timeout.Token)
+                .ConfigureAwait(false);
+
+            if (!update.Ok || update.Value is null || !update.Value.CanDownload || update.Value.ProductVersion is null)
+            {
+                return;
+            }
+
+            if (update.Value.IsNewerThan(AppVersion))
+            {
+                NewDesktopBuildVersion = update.Value.ProductVersion;
+                SystemNoticeChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+        catch (Exception error) when (error is System.Net.Http.HttpRequestException or System.IO.IOException
+            or UnauthorizedAccessException or InvalidOperationException
+            || (error is OperationCanceledException && !timeout.IsCancellationRequested))
+        {
+            // Maintenance is optional by definition; every failure here is a suppressed
+            // notice, never a broken application state.
+        }
+    }
+
+    /// <summary>
     /// Loads entitlement, refreshing the access token first if it is close to expiry.
     /// </summary>
     /// <remarks>
@@ -243,6 +338,10 @@ public sealed class AppServices : IDisposable
         if (result.Ok)
         {
             Entitlement = result.Value;
+            // Maintenance is fire-and-forget on purpose: it must never slow, throw into, or
+            // alter the outcome of the entitlement answer the caller is waiting on. It runs
+            // once per run (guarded inside), and everything it can fail with is contained.
+            _ = RunSystemMaintenanceOnceAsync();
         }
 
         return result;

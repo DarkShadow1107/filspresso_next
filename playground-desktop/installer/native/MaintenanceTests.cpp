@@ -31,6 +31,21 @@ int main() {
         Check(FilspressoMaintenance::DeleteOwnedTree(owned.wstring()), "junction removed without traversal");
         Check(std::filesystem::exists(neighbor / L"keep.txt"), "junction target preserved");
 
+        const auto sandbox = owned / L"windows-sandbox";
+        std::filesystem::create_directories(sandbox);
+        Check(FilspressoMaintenance::SandboxStateCanBeRemoved(sandbox.wstring()), "empty sandbox state is removable");
+        std::ofstream(sandbox / L"fixture.intent") << "unresolved";
+        Check(!FilspressoMaintenance::SandboxStateCanBeRemoved(sandbox.wstring()), "unresolved VM intent blocks uninstall cleanup");
+        std::filesystem::remove(sandbox / L"fixture.intent");
+        std::ofstream(sandbox / L"fixture.uncertain") << "ambiguous";
+        Check(!FilspressoMaintenance::SandboxStateCanBeRemoved(sandbox.wstring()), "ambiguous VM creation blocks uninstall cleanup");
+        std::filesystem::remove(sandbox / L"fixture.uncertain");
+        const auto lease = CreateFileW((sandbox / L"owner.lock").c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_NEW, 0, nullptr);
+        Check(lease != INVALID_HANDLE_VALUE, "active sandbox lease fixture created");
+        Check(!FilspressoMaintenance::SandboxStateCanBeRemoved(sandbox.wstring()), "active sandbox owner blocks uninstall cleanup");
+        CloseHandle(lease);
+        Check(FilspressoMaintenance::SandboxStateCanBeRemoved(sandbox.wstring()), "released sandbox state permits cleanup");
+
         for (const auto suffix : { L"/session", L"/device-id" }) {
             auto target = prefix + suffix;
             wchar_t blob[] = L"fixture";

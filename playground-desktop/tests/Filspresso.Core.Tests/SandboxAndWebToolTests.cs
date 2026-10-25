@@ -54,7 +54,7 @@ public class SandboxContractTests
     }
 
     private static HyperVSandbox NewSandbox(RecordingRunner runner) =>
-        new(runner, @"C:\base\windows.vhdx", @"C:\workspace", credentials: new FixtureGuestCredentials());
+        new(runner, @"C:\base\windows.vhdx", @"C:\workspace", credentials: new FixtureGuestCredentials(), recoveryJournal: new MemoryRecoveryJournal());
 
     [Fact]
     public async Task TheVirtualMachineIsCreatedWithNoNetworkAdapter()

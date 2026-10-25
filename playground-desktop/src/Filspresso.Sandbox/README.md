@@ -1,4 +1,14 @@
-# Hyper-V execution library — release-blocked
+# Hyper-V execution library — live qualification required
+
+**Application default changed:** Windows Sandbox is now the selected desktop VM adapter,
+without custom images or guest credentials. See `docs/playground-windows-sandbox.md`.
+The custom Hyper-V implementation below is retained, not automatically selected or used
+as fallback. Its policy-3 receipts do not enable Windows Sandbox.
+
+**Current policy 3:** guest pinned-handle containment, capability-free AppContainer/job
+execution and durable recovery are implemented. The application can enable only with actual
+machine/image/exact-build qualification. See `docs/playground-execution-safeguards.md`.
+The older release-block paragraphs below are historical, not the current composition rule.
 
 **Beta-6:** `HyperVAgentServices` and approval UI exist, but application composition now
 explicitly blocks execution while guest handle containment, jobs/descendants and durable

@@ -13,6 +13,7 @@
 		"test:playground-agent-review": "node nestjs-backend/node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.json --test tests/client/playground-agent-review.test.tsx",
 		"test:playground-agent-loop": "node nestjs-backend/node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.json --test tests/client/playground-agent-loop.test.ts tests/client/playground-agent-consent.test.ts",
 		"test:playground-hosted-agent": "node nestjs-backend/node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.json --test tests/client/playground-hosted-agent.test.tsx",
+		"test:playground-desktop-compat": "node nestjs-backend/node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.json --test tests/client/desktop-compatibility.test.tsx",
 		"backend:nest:build": "npm --prefix nestjs-backend run build",
 		"backend:nest:start": "npm --prefix nestjs-backend run start",
 		"backend:nest:test": "npm --prefix nestjs-backend run test",

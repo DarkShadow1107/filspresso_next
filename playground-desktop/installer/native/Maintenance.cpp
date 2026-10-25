@@ -53,7 +53,37 @@ namespace FilspressoMaintenance {
         return success;
     }
 
+    // Never erase the only recovery intent while an owned VM might still be alive.
+    // This preflight runs before ANY credential/data cleanup. The MSI closes the app;
+    // operators must discard/recover unresolved VM state before uninstalling.
+    bool SandboxStateCanBeRemoved(const std::wstring& path) {
+        const auto attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) return Missing(GetLastError());
+        if (!(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
+        const auto directory = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (directory == INVALID_HANDLE_VALUE) return false;
+        bool safe = true;
+        for (const auto pattern : { L"\\*.intent", L"\\*.uncertain" }) {
+            WIN32_FIND_DATAW entry{};
+            const auto find = FindFirstFileW((path + pattern).c_str(), &entry);
+            if (find != INVALID_HANDLE_VALUE) { FindClose(find); safe = false; }
+            else if (!Missing(GetLastError())) safe = false;
+        }
+        const auto lease = CreateFileW((path + L"\\owner.lock").c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+            OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (lease != INVALID_HANDLE_VALUE) CloseHandle(lease);
+        else if (!Missing(GetLastError())) safe = false;
+        CloseHandle(directory);
+        return safe;
+    }
+
     bool CleanupCurrentUser() {
+        PWSTR local = nullptr;
+        if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DONT_VERIFY, nullptr, &local))) return false;
+        const auto root = std::wstring(local) + L"\\Filspresso\\Playground";
+        CoTaskMemFree(local);
+        if (!SandboxStateCanBeRemoved(root + L"\\windows-sandbox") || !SandboxStateCanBeRemoved(root + L"\\native-sandbox") || !SandboxStateCanBeRemoved(root + L"\\sandbox")) return false;
         bool success = ClearCredentials(CredentialPrefix);
         for (const auto folder : { FOLDERID_LocalAppData, FOLDERID_RoamingAppData }) {
             PWSTR location = nullptr;

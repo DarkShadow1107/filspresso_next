@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var DesktopController_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DesktopController = void 0;
 const common_1 = require("@nestjs/common");
@@ -23,6 +24,7 @@ const tier_allowance_1 = require("../billing/tier-allowance");
 const text_models_1 = require("./text-models");
 const desktop_gateway_service_1 = require("./desktop-gateway.service");
 const desktop_installer_service_1 = require("./desktop-installer.service");
+const desktop_installer_registry_service_1 = require("./desktop-installer-registry.service");
 const desktop_policy_1 = require("./desktop-policy");
 /**
  * One call that answers "may I use this, and can I afford it".
@@ -40,17 +42,20 @@ const desktop_policy_1 = require("./desktop-policy");
  * Everything below is read from the same services the money gate reads, so what the app is
  * told and what it is charged cannot drift into disagreeing.
  */
-let DesktopController = class DesktopController {
+let DesktopController = DesktopController_1 = class DesktopController {
     billing;
     addons;
     gateway;
     installer;
-    constructor(billing, addons, gateway, installer) {
+    installerRegistry;
+    constructor(billing, addons, gateway, installer, installerRegistry) {
         this.billing = billing;
         this.addons = addons;
         this.gateway = gateway;
         this.installer = installer;
+        this.installerRegistry = installerRegistry;
     }
+    logger = new common_1.Logger(DesktopController_1.name);
     /**
      * Where the desktop app is, and whether this account may have it.
      *
@@ -60,6 +65,12 @@ let DesktopController = class DesktopController {
      * the fact that it exists from someone who has not subscribed yet is how a
      * product nobody can find stays that way. What the answer withholds is the
      * file itself.
+     *
+     * The response now also names the published version and its checksum when the
+     * manifest carries them, because the download popup shows what it is about to hand
+     * over and the installed app later compares this version against its own. `unsigned`
+     * is present and true for the current build on purpose: honesty about the package is
+     * the input to the warning gate, not an error path.
      */
     async installerInfo(req) {
         const accountId = Number(req.user?.id);
@@ -68,22 +79,72 @@ let DesktopController = class DesktopController {
         }
         const tier = await this.billing.resolveTierFor(accountId);
         const access = await this.addons.resolveSpectreAccess(accountId, tier, (0, tier_allowance_1.canUseSpectre)(tier));
-        const available = await this.installer.isAvailable();
+        const publication = await this.installer.resolve();
+        const acknowledged = publication?.version
+            ? await this.installerRegistry.hasAck(accountId, publication.version)
+            : false;
         return {
-            available,
+            available: publication !== null,
             fileName: this.installer.fileName,
             // The button is disabled rather than failing on click, so the reason is on
             // screen before the customer tries.
-            canDownload: available && access.hasAccess,
+            canDownload: publication !== null && access.hasAccess,
             downloadUrl: "/api/desktop/download",
+            productVersion: publication?.version ?? null,
+            sha256: publication?.sha256 ?? null,
+            bytes: publication?.bytes ?? null,
+            unsigned: publication?.unsigned ?? true,
+            // The gate is always required; `acknowledged` says whether this account has
+            // already cleared it for the version currently offered.
+            acknowledgementRequired: true,
+            acknowledged,
         };
+    }
+    /**
+     * Record the download acknowledgement for the version currently published.
+     *
+     * Two distinct refusals, because they name different remedies. `SPECTRE_REQUIRED` is
+     * "this feature belongs to your subscription"; `VERSION_MISMATCH` is "the version you
+     * confirmed is not the one the server would hand you -- reload the download page and
+     * warn yourself about the version actually being offered". Recording an ack for a
+     * version that cannot be served would authorise a download the site is not offering.
+     */
+    async acknowledgeInstaller(req, body) {
+        const accountId = Number(req.user?.id);
+        if (!Number.isInteger(accountId) || accountId <= 0) {
+            throw new common_1.UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+        }
+        const tier = await this.billing.resolveTierFor(accountId);
+        const access = await this.addons.resolveSpectreAccess(accountId, tier, (0, tier_allowance_1.canUseSpectre)(tier));
+        if (!access.hasAccess) {
+            throw new common_1.ForbiddenException({
+                error: "SPECTRE_REQUIRED",
+                message: "The desktop app comes with the Spectre Playground subscription.",
+            });
+        }
+        const productVersion = (0, desktop_installer_registry_service_1.normalizeAckVersion)(body?.productVersion);
+        const publication = await this.installer.resolve();
+        if (!publication?.version || publication.version !== productVersion) {
+            throw new common_1.ConflictException({
+                error: "VERSION_MISMATCH",
+                message: "Reload the download page and confirm the version being offered.",
+            });
+        }
+        const osClaim = (0, desktop_installer_registry_service_1.normalizeOsClaim)(body?.operatingSystem);
+        await this.installerRegistry.acknowledge(accountId, productVersion, osClaim);
+        return { acknowledged: true, productVersion };
     }
     /**
      * The installer itself.
      *
-     * Gated on Spectre access, because the app is a Spectre feature and the access
-     * check is the same one the client's own entitlement call uses -- a download that
-     * does not check would let anyone who guessed the URL have the app.
+     * Three gates, re-checked here in the order a user experiences failure. Spectre
+     * first: the app is a Spectre feature and the access check is the same one the
+     * client's own entitlement call uses -- a download that does not check would let
+     * anyone who guessed the URL have the app. Then the acknowledgement gate, enforced
+     * against the server-recorded ack rather than the popup's checkbox state, because
+     * the warn-then-acknowledge loop has to survive a scripted client. Version and
+     * integrity are checked inside the installer service, which verifies the served
+     * bytes against their manifest before the first byte moves.
      */
     async download(req, res) {
         const accountId = Number(req.user?.id);
@@ -98,7 +159,60 @@ let DesktopController = class DesktopController {
                 message: "The desktop app comes with the Spectre Playground subscription.",
             });
         }
-        await this.installer.stream(res);
+        const publication = await this.installer.resolve();
+        if (!publication?.version) {
+            throw new common_1.ServiceUnavailableException({ error: "INSTALLER_UNAVAILABLE" });
+        }
+        if (!(await this.installerRegistry.hasAck(accountId, publication.version))) {
+            throw new common_1.ForbiddenException({
+                error: "ACKNOWLEDGEMENT_REQUIRED",
+                message: "Read and acknowledge the desktop download warnings before the package can be delivered.",
+            });
+        }
+        const result = await this.installer.stream(res);
+        // The audit write happens after the headers are committed, so its failure cannot
+        // be turned into an HTTP error. It is logged loudly instead of swallowed: a
+        // download without a matching ack row would mean the gate above was bypassed,
+        // which is a bug worth a log line, never a silent skip.
+        try {
+            await this.installerRegistry.recordDownload(accountId, result.publication.version ?? "");
+        }
+        catch (error) {
+            this.logger.error(`Desktop download audit write failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+    /**
+     * What the account page says about this account and the desktop app.
+     *
+     * One endpoint for both halves of the answer -- which versions were acknowledged
+     * and how many times they were downloaded, and which machines reported the app --
+     * because they are one question and should not drift apart across two calls.
+     */
+    async installations(req) {
+        const accountId = Number(req.user?.id);
+        if (!Number.isInteger(accountId) || accountId <= 0) {
+            throw new common_1.UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+        }
+        return this.installerRegistry.listForAccount(accountId);
+    }
+    /**
+     * The desktop app's own facts about the machine it runs on.
+     *
+     * The device grant takes the same facts at sign-in; this route lets a running app
+     * refresh its report when they change (a Windows update moves the build, a new app
+     * release moves the version) without waiting for the next re-login. Values are
+     * normalised by the registry: anything implausible is stored as "unknown", never
+     * as a plausible lie. This is client-reported information and is therefore display
+     * data on the account page, never an entitlement input.
+     */
+    async deviceState(req, body) {
+        const accountId = Number(req.user?.id);
+        if (!Number.isInteger(accountId) || accountId <= 0) {
+            throw new common_1.UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+        }
+        const report = (0, desktop_installer_registry_service_1.normalizeDeviceReport)(body ?? {});
+        await this.installerRegistry.reportDeviceState(accountId, report);
+        return { recorded: true };
     }
     /**
      * Stream a generation, metered.
@@ -255,6 +369,15 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], DesktopController.prototype, "installerInfo", null);
 __decorate([
+    (0, common_1.Post)("installer/ack"),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], DesktopController.prototype, "acknowledgeInstaller", null);
+__decorate([
     (0, common_1.Get)("download"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)()),
@@ -262,6 +385,22 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], DesktopController.prototype, "download", null);
+__decorate([
+    (0, common_1.Get)("installations"),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], DesktopController.prototype, "installations", null);
+__decorate([
+    (0, common_1.Post)("device-state"),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], DesktopController.prototype, "deviceState", null);
 __decorate([
     (0, common_1.Post)("chat/stream"),
     __param(0, (0, common_1.Req)()),
@@ -278,11 +417,12 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], DesktopController.prototype, "entitlement", null);
-exports.DesktopController = DesktopController = __decorate([
+exports.DesktopController = DesktopController = DesktopController_1 = __decorate([
     (0, common_1.Controller)("api/desktop"),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     __metadata("design:paramtypes", [billing_service_1.BillingService,
         addons_service_1.AddonsService,
         desktop_gateway_service_1.DesktopGatewayService,
-        desktop_installer_service_1.DesktopInstallerService])
+        desktop_installer_service_1.DesktopInstallerService,
+        desktop_installer_registry_service_1.DesktopInstallerRegistryService])
 ], DesktopController);

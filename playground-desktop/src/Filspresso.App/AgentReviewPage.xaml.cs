@@ -42,7 +42,7 @@ public sealed partial class AgentReviewPage : UserControl, IDisposable
         _review.Changed += OnReviewChanged;
         _rendering = true; PromptBox.Text = string.Empty; ModeBox.SelectedIndex = 0; _rendering = false;
         var label = _services.Playground.Catalogue.Models.FirstOrDefault(model => model.ModelKey == _model)?.Label ?? "Selected chat model";
-        ModelInfo.Text = $"Model: hosted AI · This review: no connected executor · {label} · {_context / 1024}K input limit · Intended desktop code boundary: local Hyper-V, not started";
+        ModelInfo.Text = $"Model: hosted AI · This review: no connected executor · {label} · {_context / 1024}K input limit · Desktop Build boundary: Windows Sandbox, not started";
         Render();
     }
 

@@ -6,6 +6,14 @@ web app uses.
 
 **Status correction:** Backend auth/billing, chat, bounded loop cores, default-disabled native transport and proposal-only review are delivered. A separate **web** agent workspace now composes signed one-shot server actions, fresh per-write/command approval, metadata-only trusted outcomes and paired-history compaction. Real Docker/PostgreSQL fixture-agent and broker crash/restart checks pass; no live model/runtime was qualified. The **desktop** still composes proposal review only, with execution approval disabled and no guest adapter. Hyper-V qualification, full workspace diffs/checkpoints/artifacts/previews and elevated installer exercises remain open. Signing is intentionally deferred; unsigned MSI releases remain supported. See `ENHANCEMENT.md`.
 
+**Platform floor correction (2026-10-25):** the desktop now defaults to the **Windows Sandbox**
+backend with no VHDX or guest account, and Home no longer fails installation: Home users get
+inspection and an explicitly acknowledged, separately receipted **native restricted** mode
+(shared host kernel, weaker, never an automatic downgrade). Windows Sandbox VM execution still
+requires a Pro/Enterprise/Education edition plus Windows 11 24H2+ and its own live verification.
+The current contract lives in `docs/playground-windows-sandbox.md`; the "Pro-only" statements
+below describe the original Phase-4 plan.
+
 Phase 4 library design: a Hyper-V sandbox with **no network adapter at all**, controlled over
 PowerShell Direct, and the web tools running on the host so the model can search without the
 sandbox ever gaining a socket.
@@ -105,6 +113,11 @@ What we give up, stated plainly:
   and worse.
 
 ## Platform floor and what it costs us
+
+**Superseded 2026-10-25** by the platform floor correction above: installation (not execution)
+no longer refuses Home, and native restricted isolation is a separate, explicitly labelled
+opt-in — not the "quiet erosion" this section was written to prevent. The installer refuses
+Server/unrecognised editions and never grants any execution backend by itself.
 
 **Windows 10 Pro (1903 or later) and Windows 11 Pro only.** The Hyper-V role is not
 available on Home, and there is no supported fallback that keeps the isolation guarantee.

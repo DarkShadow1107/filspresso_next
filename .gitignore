@@ -87,3 +87,8 @@ override.tf.json
 # history, which would need a history rewrite.
 src/data/chat_history.json
 src/data/chat_history.json.tmp
+
+# Desktop installer binaries: the versioned manifests are committed, the MSI payloads are not
+# (the publish script re-lands them from each build; see playground-desktop/build/Publish-DesktopInstaller.ps1).
+desktop-installers/**/*.msi
+desktop-installers/**/*.wixpdb

@@ -42,6 +42,10 @@ public sealed partial class SettingsPage : UserControl
         EnterSwitch.IsOn = preferences.EnterToSend;
         StatisticsSwitch.IsOn = preferences.ShowStatistics;
         TextSizeBox.SelectedIndex = preferences.TextSize switch { 13 => 0, 18 => 2, _ => 1 };
+        // The experiment is shown as what it is: default off, opt-in, estimate-only.
+        SpendCapSwitch.IsOn = preferences.AgentSessionSpendCapRon is { } cap && cap > 0;
+        SpendCapBox.Value = (double)(preferences.AgentSessionSpendCapRon ?? 20);
+        SpendCapBox.IsEnabled = SpendCapSwitch.IsOn;
     }
 
     private void OnSection(object sender, RoutedEventArgs args)
@@ -72,6 +76,11 @@ public sealed partial class SettingsPage : UserControl
                 EnterToSend = EnterSwitch.IsOn,
                 ShowStatistics = StatisticsSwitch.IsOn,
                 TextSize = TextSizeBox.SelectedIndex switch { 0 => 13, 2 => 18, _ => 15 },
+                // A half-typed or nonsensical amount is off rather than a made-up ceiling;
+                // the record's Normalize() applies the same rule when the file loads.
+                AgentSessionSpendCapRon = SpendCapSwitch.IsOn && double.IsFinite(SpendCapBox.Value) && SpendCapBox.Value > 0
+                    ? (decimal)SpendCapBox.Value
+                    : (decimal?)null,
             });
             NoticeBar.Message = "Settings saved.";
             NoticeBar.Severity = InfoBarSeverity.Success;
@@ -85,6 +94,7 @@ public sealed partial class SettingsPage : UserControl
     }
 
     private void OnReset(object sender, RoutedEventArgs args) { SetDraft(new()); NoticeBar.Message = "Defaults restored. Save to apply them."; NoticeBar.IsOpen = true; }
+    private void OnSpendCapToggled(object sender, RoutedEventArgs args) { SpendCapBox.IsEnabled = SpendCapSwitch.IsOn; }
     private void OnBack(object sender, RoutedEventArgs args) => BackRequested?.Invoke(this, args);
     private void OnExport(object sender, RoutedEventArgs args) => ExportRequested?.Invoke(this, args);
     private void OnImport(object sender, RoutedEventArgs args) => ImportRequested?.Invoke(this, args);

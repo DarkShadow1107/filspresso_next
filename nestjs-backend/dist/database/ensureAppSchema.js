@@ -132,6 +132,46 @@ async function ensureAppSchema(pool) {
         await client.query(`CREATE INDEX IF NOT EXISTS idx_playground_run_events_retention ON playground_run_events(created_at)`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_playground_sessions_account ON playground_sessions(account_id, is_active, updated_at DESC)`);
         await client.query(playground_agent_actions_schema_1.AGENT_ACTIONS_SCHEMA);
+        // The desktop installer download is gated on an explicit, server-recorded
+        // acknowledgement per product version: the web popup cannot be trusted as the only
+        // gate, because its state lives in a browser. One row per account+version carries the
+        // user-stated OS claim (clearly non-authoritative -- the desktop app reports real
+        // system facts separately) and counts completed downloads of that version.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS desktop_download_acks (
+        id BIGSERIAL PRIMARY KEY,
+        account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        product_version VARCHAR(32) NOT NULL,
+        os_claim VARCHAR(64),
+        download_count INTEGER NOT NULL DEFAULT 0
+          CHECK (download_count >= 0),
+        first_acknowledged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_acknowledged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_downloaded_at TIMESTAMPTZ,
+        UNIQUE(account_id, product_version)
+      )
+    `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_desktop_download_acks_account ON desktop_download_acks(account_id, last_acknowledged_at DESC)`);
+        // The desktop app is the only component that can read the real machine's Windows
+        // edition/build/UBR. It reports them per device id alongside its app version, and the
+        // account page shows that as "Playground installed on ...". This is client-reported
+        // information (a lying client could lie here) and is therefore informational display
+        // data, never an entitlement input.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS desktop_device_state (
+        id BIGSERIAL PRIMARY KEY,
+        account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        device_id VARCHAR(64) NOT NULL,
+        device_name VARCHAR(120),
+        os_edition VARCHAR(64),
+        os_build INTEGER,
+        os_ubr INTEGER,
+        app_version VARCHAR(32),
+        reported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(account_id, device_id)
+      )
+    `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_desktop_device_state_account ON desktop_device_state(account_id, reported_at DESC)`);
         await client.query(`
       CREATE TABLE IF NOT EXISTS security_event_ledger (
         id BIGSERIAL PRIMARY KEY,

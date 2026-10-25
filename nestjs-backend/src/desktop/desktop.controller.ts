@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Post, Req, Res, ServiceUnavailableException, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { Body, ConflictException, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Logger, Post, Req, Res, ServiceUnavailableException, UnauthorizedException, UseGuards } from "@nestjs/common";
 import type { Response } from "express";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { BillingService } from "../billing/billing.service";
@@ -9,6 +9,7 @@ import { canUseSpectre } from "../billing/tier-allowance";
 import { playgroundModelKeys } from "./text-models";
 import { DesktopGatewayService } from "./desktop-gateway.service";
 import { DesktopInstallerService } from "./desktop-installer.service";
+import { DesktopInstallerRegistryService, normalizeAckVersion, normalizeDeviceReport, normalizeOsClaim } from "./desktop-installer-registry.service";
 import { desktopModelAccess } from "./desktop-policy";
 
 /** What JwtAuthGuard guarantees on the request it has let through. */
@@ -38,7 +39,10 @@ export class DesktopController {
 		private readonly addons: AddonsService,
 		private readonly gateway: DesktopGatewayService,
 		private readonly installer: DesktopInstallerService,
+		private readonly installerRegistry: DesktopInstallerRegistryService,
 	) {}
+
+	private readonly logger = new Logger(DesktopController.name);
 
 	/**
 	 * Where the desktop app is, and whether this account may have it.
@@ -49,6 +53,12 @@ export class DesktopController {
 	 * the fact that it exists from someone who has not subscribed yet is how a
 	 * product nobody can find stays that way. What the answer withholds is the
 	 * file itself.
+	 *
+	 * The response now also names the published version and its checksum when the
+	 * manifest carries them, because the download popup shows what it is about to hand
+	 * over and the installed app later compares this version against its own. `unsigned`
+	 * is present and true for the current build on purpose: honesty about the package is
+	 * the input to the warning gate, not an error path.
 	 */
 	@Get("installer")
 	async installerInfo(@Req() req: DesktopRequest) {
@@ -58,24 +68,77 @@ export class DesktopController {
 		}
 		const tier = await this.billing.resolveTierFor(accountId);
 		const access = await this.addons.resolveSpectreAccess(accountId, tier, canUseSpectre(tier));
-		const available = await this.installer.isAvailable();
+		const publication = await this.installer.resolve();
+		const acknowledged = publication?.version
+			? await this.installerRegistry.hasAck(accountId, publication.version)
+			: false;
 
 		return {
-			available,
+			available: publication !== null,
 			fileName: this.installer.fileName,
 			// The button is disabled rather than failing on click, so the reason is on
 			// screen before the customer tries.
-			canDownload: available && access.hasAccess,
+			canDownload: publication !== null && access.hasAccess,
 			downloadUrl: "/api/desktop/download",
+			productVersion: publication?.version ?? null,
+			sha256: publication?.sha256 ?? null,
+			bytes: publication?.bytes ?? null,
+			unsigned: publication?.unsigned ?? true,
+			// The gate is always required; `acknowledged` says whether this account has
+			// already cleared it for the version currently offered.
+			acknowledgementRequired: true,
+			acknowledged,
 		};
+	}
+
+	/**
+	 * Record the download acknowledgement for the version currently published.
+	 *
+	 * Two distinct refusals, because they name different remedies. `SPECTRE_REQUIRED` is
+	 * "this feature belongs to your subscription"; `VERSION_MISMATCH` is "the version you
+	 * confirmed is not the one the server would hand you -- reload the download page and
+	 * warn yourself about the version actually being offered". Recording an ack for a
+	 * version that cannot be served would authorise a download the site is not offering.
+	 */
+	@Post("installer/ack")
+	@HttpCode(HttpStatus.OK)
+	async acknowledgeInstaller(@Req() req: DesktopRequest, @Body() body: Record<string, unknown>) {
+		const accountId = Number(req.user?.id);
+		if (!Number.isInteger(accountId) || accountId <= 0) {
+			throw new UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+		}
+		const tier = await this.billing.resolveTierFor(accountId);
+		const access = await this.addons.resolveSpectreAccess(accountId, tier, canUseSpectre(tier));
+		if (!access.hasAccess) {
+			throw new ForbiddenException({
+				error: "SPECTRE_REQUIRED",
+				message: "The desktop app comes with the Spectre Playground subscription.",
+			});
+		}
+		const productVersion = normalizeAckVersion(body?.productVersion);
+		const publication = await this.installer.resolve();
+		if (!publication?.version || publication.version !== productVersion) {
+			throw new ConflictException({
+				error: "VERSION_MISMATCH",
+				message: "Reload the download page and confirm the version being offered.",
+			});
+		}
+		const osClaim = normalizeOsClaim(body?.operatingSystem);
+		await this.installerRegistry.acknowledge(accountId, productVersion, osClaim);
+		return { acknowledged: true, productVersion };
 	}
 
 	/**
 	 * The installer itself.
 	 *
-	 * Gated on Spectre access, because the app is a Spectre feature and the access
-	 * check is the same one the client's own entitlement call uses -- a download that
-	 * does not check would let anyone who guessed the URL have the app.
+	 * Three gates, re-checked here in the order a user experiences failure. Spectre
+	 * first: the app is a Spectre feature and the access check is the same one the
+	 * client's own entitlement call uses -- a download that does not check would let
+	 * anyone who guessed the URL have the app. Then the acknowledgement gate, enforced
+	 * against the server-recorded ack rather than the popup's checkbox state, because
+	 * the warn-then-acknowledge loop has to survive a scripted client. Version and
+	 * integrity are checked inside the installer service, which verifies the served
+	 * bytes against their manifest before the first byte moves.
 	 */
 	@Get("download")
 	async download(@Req() req: DesktopRequest, @Res() res: Response) {
@@ -91,7 +154,64 @@ export class DesktopController {
 				message: "The desktop app comes with the Spectre Playground subscription.",
 			});
 		}
-		await this.installer.stream(res);
+		const publication = await this.installer.resolve();
+		if (!publication?.version) {
+			throw new ServiceUnavailableException({ error: "INSTALLER_UNAVAILABLE" });
+		}
+		if (!(await this.installerRegistry.hasAck(accountId, publication.version))) {
+			throw new ForbiddenException({
+				error: "ACKNOWLEDGEMENT_REQUIRED",
+				message: "Read and acknowledge the desktop download warnings before the package can be delivered.",
+			});
+		}
+		const result = await this.installer.stream(res);
+		// The audit write happens after the headers are committed, so its failure cannot
+		// be turned into an HTTP error. It is logged loudly instead of swallowed: a
+		// download without a matching ack row would mean the gate above was bypassed,
+		// which is a bug worth a log line, never a silent skip.
+		try {
+			await this.installerRegistry.recordDownload(accountId, result.publication.version ?? "");
+		} catch (error) {
+			this.logger.error(`Desktop download audit write failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	/**
+	 * What the account page says about this account and the desktop app.
+	 *
+	 * One endpoint for both halves of the answer -- which versions were acknowledged
+	 * and how many times they were downloaded, and which machines reported the app --
+	 * because they are one question and should not drift apart across two calls.
+	 */
+	@Get("installations")
+	async installations(@Req() req: DesktopRequest) {
+		const accountId = Number(req.user?.id);
+		if (!Number.isInteger(accountId) || accountId <= 0) {
+			throw new UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+		}
+		return this.installerRegistry.listForAccount(accountId);
+	}
+
+	/**
+	 * The desktop app's own facts about the machine it runs on.
+	 *
+	 * The device grant takes the same facts at sign-in; this route lets a running app
+	 * refresh its report when they change (a Windows update moves the build, a new app
+	 * release moves the version) without waiting for the next re-login. Values are
+	 * normalised by the registry: anything implausible is stored as "unknown", never
+	 * as a plausible lie. This is client-reported information and is therefore display
+	 * data on the account page, never an entitlement input.
+	 */
+	@Post("device-state")
+	@HttpCode(HttpStatus.OK)
+	async deviceState(@Req() req: DesktopRequest, @Body() body: Record<string, unknown>) {
+		const accountId = Number(req.user?.id);
+		if (!Number.isInteger(accountId) || accountId <= 0) {
+			throw new UnauthorizedException({ error: "ACCOUNT_REQUIRED" });
+		}
+		const report = normalizeDeviceReport(body ?? {});
+		await this.installerRegistry.reportDeviceState(accountId, report);
+		return { recorded: true };
 	}
 
 	/**
