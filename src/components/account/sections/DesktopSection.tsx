@@ -3,6 +3,26 @@
 import { useCallback, useEffect, useState } from "react";
 import { BrandWindowsIcon, RefreshIcon, TriangleAlertIcon } from "@/icons";
 
+type DesktopInstallationsResponse = {
+	acknowledgements: Array<{
+		productVersion: string;
+		osClaim: string | null;
+		downloadCount: number;
+		firstAcknowledgedAt: string;
+		lastAcknowledgedAt: string;
+		lastDownloadedAt: string | null;
+	}>;
+	installations: Array<{
+		deviceId: string;
+		deviceName: string | null;
+		osEdition: string | null;
+		osBuild: number | null;
+		osUbr: number | null;
+		appVersion: string | null;
+		reportedAt: string;
+	}>;
+};
+
 /**
  * The account's record of the desktop app, in one section.
  *
@@ -17,32 +37,14 @@ import { BrandWindowsIcon, RefreshIcon, TriangleAlertIcon } from "@/icons";
  *   the browser could not verify it) and the download counter.
  */
 export function DesktopSection() {
-	const [data, setData] = useState<{
-		acknowledgements: Array<{
-			productVersion: string;
-			osClaim: string | null;
-			downloadCount: number;
-			firstAcknowledgedAt: string;
-			lastAcknowledgedAt: string;
-			lastDownloadedAt: string | null;
-		}>;
-		installations: Array<{
-			deviceId: string;
-			deviceName: string | null;
-			osEdition: string | null;
-			osBuild: number | null;
-			osUbr: number | null;
-			appVersion: string | null;
-			reportedAt: string;
-		}>;
-	} | null>(null);
+	const [data, setData] = useState<DesktopInstallationsResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
 	const fetchRecord = useCallback(async () => {
 		const res = await fetch("/api/desktop/installations", { credentials: "include", cache: "no-store" });
 		if (!res.ok) throw new Error(`The desktop service answered ${res.status}.`);
-		return (await res.json()) as { acknowledgements: unknown; installations: unknown };
+		return (await res.json()) as DesktopInstallationsResponse;
 	}, []);
 
 	const reload = useCallback(async () => {

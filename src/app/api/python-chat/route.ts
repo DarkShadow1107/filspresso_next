@@ -36,6 +36,8 @@ import {
 import { readUsageBlock, reportUsage } from "@/lib/server/billing/reportUsage";
 import { getOrCreateFingerprint } from "@/lib/fingerprint";
 
+type SharpMetadata = Awaited<ReturnType<ReturnType<typeof sharp>["metadata"]>>;
+
 export const runtime = "nodejs";
 
 const PYTHON_CHAT_TIMEOUT_MS = Math.max(30_000, Number.parseInt(process.env.PYTHON_CHAT_TIMEOUT_MS || "330000", 10) || 330_000);
@@ -149,7 +151,7 @@ async function normalizeVisionUploadForTier(image: File, tier: string): Promise<
 	}
 
 	const sourceBuffer = Buffer.from(await image.arrayBuffer());
-	let metadata: sharp.Metadata;
+	let metadata: SharpMetadata;
 	try {
 		metadata = await sharp(sourceBuffer, { failOn: "none", limitInputPixels: false }).metadata();
 	} catch {

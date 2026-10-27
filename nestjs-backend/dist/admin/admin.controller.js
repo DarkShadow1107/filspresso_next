@@ -53,6 +53,7 @@ const subscriptions_renewal_scheduler_1 = require("../subscriptions/subscription
 const path = __importStar(require("path"));
 const throttler_1 = require("@nestjs/throttler");
 const rate_limit_policy_1 = require("../config/rate-limit.policy");
+const admin_upload_auth_guard_1 = require("./admin-upload-auth.guard");
 const { diskStorage } = require("multer");
 let AdminController = class AdminController {
     adminService;
@@ -195,9 +196,6 @@ let AdminController = class AdminController {
         return res.status(common_1.HttpStatus.OK).json(result);
     }
     async uploadImage(req, res, file) {
-        await this.adminService.authenticateAdmin(req, res);
-        if (res.headersSent)
-            return;
         if (!file) {
             return res.status(400).json({ error: "No image file provided" });
         }
@@ -355,6 +353,7 @@ __decorate([
 ], AdminController.prototype, "clearLockout", null);
 __decorate([
     (0, common_1.Post)("upload/coffee-image"),
+    (0, common_1.UseGuards)(admin_upload_auth_guard_1.AdminUploadAuthGuard),
     (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)("image", {
         storage: diskStorage({
             destination: (req, file, cb) => {

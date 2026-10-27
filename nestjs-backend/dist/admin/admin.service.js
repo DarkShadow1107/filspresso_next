@@ -324,21 +324,32 @@ let AdminService = class AdminService {
     }
     isSafeSqlIdentifier(value) { return ADMIN_IDENTIFIER_PATTERN.test(String(value || "")); }
     async authenticateAdmin(req, res) {
+        try {
+            await this.requireAdmin(req);
+        }
+        catch (error) {
+            if (!(error instanceof common_1.HttpException))
+                throw error;
+            const payload = error.getResponse();
+            const message = payload && typeof payload === "object" && "error" in payload
+                ? String(payload.error)
+                : typeof payload === "string" ? payload : error.message;
+            res.status(error.getStatus()).json({ error: message });
+        }
+    }
+    async requireAdmin(req) {
         req.__adminService = this; // Expose to Multer interceptor
         const ip = this.getRequestIp(req);
         if (!this.isIpAllowed(ip)) {
-            res.status(403).json({ error: "Admin access is restricted from this network" });
-            return;
+            throw new common_1.ForbiddenException({ error: "Admin access is restricted from this network" });
         }
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
-            res.status(401).json({ error: "Admin authentication required" });
-            return;
+            throw new common_1.UnauthorizedException({ error: "Admin authentication required" });
         }
         const token = authHeader.substring(7).trim();
         if (!token) {
-            res.status(401).json({ error: "Invalid or expired admin session" });
-            return;
+            throw new common_1.UnauthorizedException({ error: "Invalid or expired admin session" });
         }
         const pool = this.db.getPool();
         const client = await pool.connect();
@@ -346,8 +357,7 @@ let AdminService = class AdminService {
             const sessionResult = await client.query(`SELECT s.account_id, a.username FROM user_sessions s JOIN accounts a ON a.id = s.account_id WHERE s.session_token_hash = $1 AND s.expires_at > NOW() AND a.role = 'admin' LIMIT 1`, [(0, auth_tokens_1.hashSessionToken)(token)]);
             const session = sessionResult.rows[0];
             if (!session) {
-                res.status(401).json({ error: "Invalid or expired admin session" });
-                return;
+                throw new common_1.UnauthorizedException({ error: "Invalid or expired admin session" });
             }
             const expiresAt = new Date(Date.now() + ADMIN_SESSION_TIMEOUT_MS);
             await client.query("UPDATE user_sessions SET expires_at = $1 WHERE session_token_hash = $2", [expiresAt, (0, auth_tokens_1.hashSessionToken)(token)]);

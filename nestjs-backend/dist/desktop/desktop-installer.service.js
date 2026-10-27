@@ -140,7 +140,12 @@ let DesktopInstallerService = class DesktopInstallerService {
         let signature = null;
         let version = directoryVersion;
         try {
-            const manifest = JSON.parse(await (0, promises_1.readFile)((0, node_path_1.join)(directory, "package-manifest.json"), "utf8"));
+            // Windows PowerShell 5 writes `-Encoding utf8` with a UTF-8 BOM. Older
+            // published manifests therefore need BOM-tolerant parsing; the publisher now
+            // writes BOM-free UTF-8, but a BOM must not turn a valid SHA-256 into an
+            // unavailable package.
+            const rawManifest = await (0, promises_1.readFile)((0, node_path_1.join)(directory, "package-manifest.json"), "utf8");
+            const manifest = JSON.parse(rawManifest.replace(/^\uFEFF/, ""));
             if (typeof manifest.productVersion === "string" && /^[0-9]+(\.[0-9]+){1,3}$/.test(manifest.productVersion)) {
                 version = manifest.productVersion;
             }

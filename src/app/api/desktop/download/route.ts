@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 				const value = upstream.headers.get(name);
 				if (value) responseHeaders.set(name, value);
 			}
-			responseHeaders.set("Cache-Control", "no-store");
+            responseHeaders.set("Cache-Control", "private, no-store");
 			responseHeaders.set("X-Content-Type-Options", "nosniff");
 
 			return new NextResponse(upstream.body, { status: 200, headers: responseHeaders });
@@ -59,8 +59,8 @@ export async function GET(request: NextRequest) {
 		}
 	}
 
-	return new NextResponse(lastBody || JSON.stringify({ error: "DOWNLOAD_FAILED" }), {
-		status: lastStatus,
-		headers: { "Content-Type": "application/json" },
-	});
+    return new NextResponse(lastBody || JSON.stringify({ error: "DOWNLOAD_FAILED" }), {
+      status: lastStatus,
+      headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store" },
+    });
 }

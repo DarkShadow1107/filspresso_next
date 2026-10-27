@@ -3,9 +3,8 @@
 # Terminates HTTPS in front of the Next.js server and re-emits the security
 # headers the app already sets, so they hold even if a route bypasses
 # next.config.ts. The Next server itself is reached over host.docker.internal
-# when it runs on the host (see docker-compose.yml `caddy` service, which sets
-# NEXT_UPSTREAM), or over the compose network name `web` when it runs as a
-# container.
+# over the private Compose network at `frontend:3000` (see the `frontend` and
+# `caddy` services in docker-compose.yml, which set NEXT_UPSTREAM).
 #
 # NEXT_UPSTREAM must be a bare `host:port`, NOT a full URL. Caddyfile expands
 # {env.*} placeholders textually before parsing, so the `//` in a

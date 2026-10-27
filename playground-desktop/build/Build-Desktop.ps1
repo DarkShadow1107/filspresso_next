@@ -96,5 +96,10 @@ $manifest = [ordered]@{
     signature = [string](Get-AuthenticodeSignature -LiteralPath $msi).Status
     installQualified = $false
 }
-$manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $packageRoot 'package-manifest.json') -Encoding utf8
+$manifestJson = $manifest | ConvertTo-Json
+[IO.File]::WriteAllText(
+    (Join-Path $packageRoot 'package-manifest.json'),
+    $manifestJson + [Environment]::NewLine,
+    [Text.UTF8Encoding]::new($false)
+)
 Write-Output "Built $msi ($ProductVersion). Unsigned package build only; install/upgrade/uninstall are not qualified."

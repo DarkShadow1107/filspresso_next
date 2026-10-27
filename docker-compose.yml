@@ -14,7 +14,8 @@ services:
             POSTGRES_PASSWORD: ${DB_PASSWORD:-}
             POSTGRES_PASSWORD_FILE: ${DB_PASSWORD_FILE:-}
         ports:
-            - "5432:5432"
+            # Local tooling can connect, but the database is not reachable off-host.
+            - "${DB_BIND_HOST:-127.0.0.1}:5432:5432"
         volumes:
             - postgres_data:/var/lib/postgresql/data
             - ./nestjs-backend/data:/docker-entrypoint-initdb.d:ro
@@ -657,16 +658,59 @@ services:
     # two routes aimed at the same service contend instead of overloading it.
     # llama_minilm above is retained only as the coffee_facts retrieval embedder.
 
+    frontend:
+        container_name: filspresso_frontend
+        build:
+            context: .
+            dockerfile: Dockerfile.next
+            args:
+                NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:4000}
+                NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+                NEXT_PUBLIC_AI_URL: ${NEXT_PUBLIC_AI_URL:-}
+        restart: unless-stopped
+        environment:
+            NODE_ENV: production
+            PORT: 3000
+            HOSTNAME: 0.0.0.0
+            BACKEND_API_URL: http://backend:4000
+            INTERNAL_BACKEND_API_URL: http://backend:4000
+            PYTHON_AI_HOST: http://ai:5000
+            AI_SERVICE_KEY: ${AI_SERVICE_KEY:-}
+            NEXT_TELEMETRY_DISABLED: "1"
+        read_only: true
+        tmpfs:
+            - /tmp:size=64m,mode=1777
+            - /app/.next/cache:size=256m,uid=1001,gid=1001,mode=0755
+        cap_drop: [ALL]
+        security_opt: [no-new-privileges:true]
+        pids_limit: 256
+        mem_limit: 1g
+        cpus: 1.5
+        # No host-published frontend port: ingress and app services communicate over
+        # this Compose project's private default network.
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "node",
+                    "-e",
+                    "fetch('http://127.0.0.1:3000/').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+                ]
+            interval: 20s
+            timeout: 10s
+            retries: 5
+            start_period: 30s
+
     caddy:
         image: caddy:2.8-alpine
         container_name: filspresso_caddy
         restart: unless-stopped
         depends_on:
-            backend:
-                condition: service_started
+            frontend:
+                condition: service_healthy
         environment:
             # Bare host:port on purpose - see the note at the top of ./Caddyfile.
-            NEXT_UPSTREAM: ${NEXT_UPSTREAM:-host.docker.internal:3000}
+            NEXT_UPSTREAM: ${NEXT_UPSTREAM:-frontend:3000}
             # Only read by ./Caddyfile.acme. Harmless with the local config.
             CADDY_DOMAIN: ${CADDY_DOMAIN:-}
             CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-}
@@ -681,8 +725,6 @@ services:
             - ./secrets/tls:/certs:ro
             - caddy_data:/data
             - caddy_config:/config
-        extra_hosts:
-            - "host.docker.internal:host-gateway"
         healthcheck:
             test: ["CMD-SHELL", "wget -qO- --no-check-certificate https://127.0.0.1:8443/ >/dev/null 2>&1 || exit 1"]
             interval: 30s

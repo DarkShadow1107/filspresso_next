@@ -57,7 +57,12 @@ $publishedManifest = [ordered]@{
     installQualified = [bool]$manifest.installQualified
     publishedAt = (Get-Date).ToUniversalTime().ToString('o')
 }
-$publishedManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $targetVersionDir 'package-manifest.json') -Encoding utf8
+$publishedManifestJson = $publishedManifest | ConvertTo-Json
+[IO.File]::WriteAllText(
+    (Join-Path $targetVersionDir 'package-manifest.json'),
+    $publishedManifestJson + [Environment]::NewLine,
+    [Text.UTF8Encoding]::new($false)
+)
 
 # index.json lists the versions in the tree, newest last. It is a committed artifact, so a
 # checkout without the gitignored binary files still tells the reviewer what was published.
@@ -82,6 +87,7 @@ foreach ($entry in ($versions | Select-Object -Unique)) {
     }
 }
 $index = [ordered]@{ version = 1; latest = ($list | Select-Object -Last 1).productVersion; versions = $list }
-$index | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $indexPath -Encoding utf8
+$indexJson = $index | ConvertTo-Json -Depth 4
+[IO.File]::WriteAllText($indexPath, $indexJson + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 
 Write-Output "Published $productVersion to $msiTarget (sha256 $copiedHash). index.json updated."

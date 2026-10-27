@@ -10,6 +10,11 @@ approval, but remains deployment-gated and has not been qualified with a live mo
 See [the native-agent protocol](../docs/playground-native-agent.md) for additional gates,
 the action migration, exact-body handling and paired-history compaction/billing.
 
+The current local Docker Desktop engine can run this sandbox with cgroup v1 when Docker
+reports seccomp and memory/PID limits; rootless+cgroup-v2 is a separate future production
+qualification, not a prerequisite for the local smoke. The desktop app has no Docker/WSL
+fallback. See [Docker engine tiers and the future WSL2 rootless option](../docs/playground-docker-engines.md).
+
 ## Enable
 
 Configure a random, private `PLAYGROUND_SANDBOX_KEY` of at least 32 characters in
@@ -78,6 +83,11 @@ workloads and a single broker worker; do not point it at the application/product
 daemon. `PLAYGROUND_DOCKER_SOCKET` selects the daemon socket mounted into the broker.
 The default socket is suitable for isolated local testing, not a claim that a shared
 rootful host daemon is a safe public multi-tenant deployment.
+
+The current local daemon is rootful/cgroup v1 but reports seccomp and memory/PID limits;
+the broker's local smoke passes on it. The production-candidate check intentionally still
+requires rootless/cgroup v2. See the engine guide for the exact distinction and the
+future on-demand WSL2 setup.
 
 Docker containers share the host kernel. These controls are not equivalent to the
 desktop design's Hyper-V VM isolation. Do not add privileged mode, host networking,

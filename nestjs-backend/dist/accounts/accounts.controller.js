@@ -21,6 +21,12 @@ let AccountsController = class AccountsController {
     constructor(accountsService) {
         this.accountsService = accountsService;
     }
+    // Keep the fixed path before /:id so it remains routable after the Express 5
+    // migration removes inline parameter-regex support.
+    async updatePreferences(req) {
+        const result = await this.accountsService.updatePreferences(Number(req.user?.id), req.body);
+        return { message: "Preferences updated", ...result };
+    }
     async getAccount(req, id) {
         const account = await this.accountsService.getAccount(Number(req.user?.id), id);
         return { account };
@@ -39,51 +45,11 @@ let AccountsController = class AccountsController {
         const result = await this.accountsService.updateSubscription(Number(req.user?.id), id, Number(subscriptionId));
         return { message: "Subscription updated", subscription: result.subscription };
     }
-    async updatePreferences(req) {
-        const result = await this.accountsService.updatePreferences(Number(req.user?.id), req.body);
-        return { message: "Preferences updated", ...result };
-    }
     async getPreferences(req, id) {
         return this.accountsService.getPreferences(Number(req.user?.id), id);
     }
 };
 exports.AccountsController = AccountsController;
-__decorate([
-    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_1.Get)(":id(\\d+)"),
-    __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Number]),
-    __metadata("design:returntype", Promise)
-], AccountsController.prototype, "getAccount", null);
-__decorate([
-    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_1.Put)(":id(\\d+)"),
-    __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Number]),
-    __metadata("design:returntype", Promise)
-], AccountsController.prototype, "updateAccount", null);
-__decorate([
-    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_1.Delete)(":id(\\d+)"),
-    __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Number]),
-    __metadata("design:returntype", Promise)
-], AccountsController.prototype, "deleteAccount", null);
-__decorate([
-    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_1.Put)(":id(\\d+)/subscription"),
-    __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Number]),
-    __metadata("design:returntype", Promise)
-], AccountsController.prototype, "updateSubscription", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Put)("preferences"),
@@ -94,7 +60,43 @@ __decorate([
 ], AccountsController.prototype, "updatePreferences", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_1.Get)("preferences/:id(\\d+)"),
+    (0, common_1.Get)(":id"),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Number]),
+    __metadata("design:returntype", Promise)
+], AccountsController.prototype, "getAccount", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Put)(":id"),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Number]),
+    __metadata("design:returntype", Promise)
+], AccountsController.prototype, "updateAccount", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Delete)(":id"),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Number]),
+    __metadata("design:returntype", Promise)
+], AccountsController.prototype, "deleteAccount", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Put)(":id/subscription"),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Number]),
+    __metadata("design:returntype", Promise)
+], AccountsController.prototype, "updateSubscription", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)("preferences/:id"),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Param)("id", common_1.ParseIntPipe)),
     __metadata("design:type", Function),

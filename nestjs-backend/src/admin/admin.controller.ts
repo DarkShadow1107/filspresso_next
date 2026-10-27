@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Put, Delete, Req, Res, HttpStatus, UseInterceptors, UploadedFile } from "@nestjs/common";
+import { Controller, Post, Get, Put, Delete, Req, Res, HttpStatus, UseGuards, UseInterceptors, UploadedFile } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AdminService } from "./admin.service";
@@ -6,6 +6,7 @@ import { SubscriptionRenewalScheduler } from "../subscriptions/subscriptions-ren
 import * as path from "path";
 import { Throttle } from "@nestjs/throttler";
 import { ruleFor } from "../config/rate-limit.policy";
+import { AdminUploadAuthGuard } from "./admin-upload-auth.guard";
 
 const { diskStorage } = require("multer") as {
   diskStorage: (options: Record<string, unknown>) => unknown;
@@ -179,6 +180,7 @@ export class AdminController {
   }
 
   @Post("upload/coffee-image")
+  @UseGuards(AdminUploadAuthGuard)
   @UseInterceptors(FileInterceptor("image", {
     storage: diskStorage({
       destination: (req: any, file: any, cb: any) => {
@@ -212,9 +214,6 @@ export class AdminController {
     limits: { fileSize: 15 * 1024 * 1024 }
   }))
   async uploadImage(@Req() req: AuthenticatedRequest, @Res() res: Response, @UploadedFile() file: any) {
-    await this.adminService.authenticateAdmin(req, res);
-    if (res.headersSent) return;
-    
     if (!file) {
       return res.status(400).json({ error: "No image file provided" });
     }
