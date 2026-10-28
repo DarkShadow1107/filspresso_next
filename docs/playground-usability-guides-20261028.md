@@ -55,7 +55,7 @@ automatically. Download permission is still enforced by the server/account page.
   were fixtures; no paid inference or live execution was used.
 - The mounted agent fixture passed clarification/fresh approval, inert preview, project/import,
   artifact hashing, mode reset and account-change cleanup checks.
-- WinUI Release/x64 and MSI packaging passed. The published app payload was launched with a
+- WinUI Release/x64 and MSI packaging passed. The packaged app payload was launched with a
   fresh test credential/profile namespace. UI Automation opened desktop Instructions while
   signed out and confirmed native edition/build text and the disabled signed-out update check.
   The help glyph was visible. This is not full signed-in native UI or live update qualification.
@@ -66,6 +66,31 @@ automatically. Download permission is still enforced by the server/account page.
 - Help, labels and modes do not bypass model/executor availability. The hosted deployment's
   disabled execution state remains disabled. A Plan picker is not permission to run code.
 
+## Commit, CI and frontend deployment
+
+- Application commit `28d6ce5d116c8a19b9e920ebe40ae81cf5adc24d` was pushed normally to
+  `Beta-8-Production`; no force push or history rewrite was used.
+- Security CI run [#40693169498](https://github.com/DarkShadow1107/filspresso_next/actions/runs/40693169498)
+  completed **failed**. The enforced signed-commit-history policy, root Python audit, frontend
+  high+ dependency audit, filesystem HIGH/CRITICAL scan, and backend regression job failed.
+  No policy was bypassed. This deployment is not a claim of green CI or production qualification.
+- Only the Compose **frontend** was built and recreated. The deployed image is
+  `sha256:0b501c0683486914510de13ae0317d741b9b78640a8e4329ad8d55000d0e9b28`, healthy with
+  zero restarts. The exact pre-deployment frontend image was preserved as
+  `filspresso_next-frontend:rollback-20261028-28d6ce5`
+  (`sha256:2c47de3e34be05e7b7d9653043d68df348ed2fe4334642b1fc2e0959b8225ad8`).
+- Backend remained healthy, unrestarted, on
+  `sha256:fe1c3bd58108f74dd1caac93db59095e8f263458b520bd354883c19a114f5f29`. Caddy also
+  remained healthy and unrestarted. An existing sandbox container was reported as an orphan;
+  it was not removed or recreated. The older rollback tag `rollback-20261028-7e0fa48` was kept.
+- Through Caddy, `/?page=playground` returned **200**. Browser layout/navigation/help checks
+  passed against the deployed frontend with model/API requests intercepted as fixtures. The
+  anonymous installer and installation endpoints returned **401** with no-store headers, not
+  404. An authenticated live desktop/update flow was not tested.
+- This is the Compose deployment on this host only; it does not assert deployment to separate
+  public infrastructure. No backend, installer index, published MSI or account credentials
+  were changed.
+
 ## MSI 0.3.5 candidate — unsigned, unqualified, not published
 
 `playground-desktop/artifacts/candidate-0.3.5-guides-20261028/Filspresso.Playground.msi`
@@ -74,16 +99,16 @@ automatically. Download permission is still enforced by the server/account page.
 - SHA-256: `bd798887af977f1a74ed08dce479d5a748f98abe6bd4a5255e2fe01cb75de6be`
 - Signature: **NotSigned**; manifest: **installQualified: false**
 - App, Core, Harness and Sandbox assembly versions independently checked: **0.3.5**.
-- Hash/size match the manifest. All 29 PNGs are in the published payload; packaging checks
+- Hash/size match the manifest. All 29 PNGs are in the packaged payload; packaging checks
   their hashes and the compiled Instructions XBF before creating the MSI.
 - Built with `-SkipTests` after the explicit suite run above. Install/upgrade/uninstall,
   signing, live model billing and native isolation remain unqualified; no release approval
   or production readiness is claimed. An unpackaged payload launch is not an MSI install test.
 
-These changes are local and **not committed, pushed or deployed**. No existing installed app,
-published installer, account credentials, backend flags or Compose containers were replaced.
-The temporary Next test server was stopped; smoke-test credentials use a unique namespace and
-its device-id credential is removed by the smoke script.
+The application changes are committed and pushed. The frontend was deployed as described
+above. No existing installed app, published installer, account credentials, backend flags or
+backend/Caddy containers were replaced. The temporary Next test server was stopped; smoke-test
+credentials use a unique namespace and its device-id credential is removed by the smoke script.
 
 ## Repeat checks
 
