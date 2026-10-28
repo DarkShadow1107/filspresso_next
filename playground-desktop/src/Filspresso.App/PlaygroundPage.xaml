@@ -76,11 +76,7 @@
                     </Border.Resources>
                     <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12">
                         <StackPanel Spacing="8">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <Button Content="Chat" Style="{StaticResource QuietButtonStyle}" Padding="10,4" FontSize="11" ToolTipService.ToolTip="Hosted chat · no code execution" />
-                            <Button Tag="plan" Click="OnAgentMode" Style="{StaticResource QuietButtonStyle}" Padding="10,4" FontSize="11" ToolTipService.ToolTip="Read and plan without changing files"><StackPanel Orientation="Horizontal" Spacing="6"><local:SharedIcon IconName="brain" Width="14" Height="14" /><TextBlock Text="Plan" /></StackPanel></Button>
-                            <Button Tag="build" Click="OnAgentMode" Style="{StaticResource QuietButtonStyle}" Padding="10,4" FontSize="11" ToolTipService.ToolTip="Edit and test in an explicitly started isolated workspace"><StackPanel Orientation="Horizontal" Spacing="6"><local:SharedIcon IconName="edit" Width="14" Height="14" /><TextBlock Text="Build" /></StackPanel></Button>
-                        </StackPanel>
+                        <local:ChoicePicker x:Name="ChatModePicker" Options="Chat|Plan|Build" SelectedIndex="0" SelectionChanged="OnChatModeChanged" AutomationProperties.Name="Playground mode" HorizontalAlignment="Left" />
                         <Grid x:Name="EditingPanel" Visibility="Collapsed" ColumnDefinitions="*,Auto">
                             <TextBlock Text="Editing prompt. Sending replaces its response and later messages." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoAccent}" />
                             <Button Grid.Column="1" Content="Cancel edit" Click="OnCancelEdit" Style="{StaticResource QuietButtonStyle}" />
@@ -128,7 +124,8 @@
                                 </MenuFlyout></Button.Flyout>
                             </Button>
                             <ToggleButton x:Name="ThinkingButton" Grid.Column="4" Padding="8,4" Click="OnThinkingChanged" VerticalAlignment="Center" AutomationProperties.Name="Thinking mode" ToolTipService.ToolTip="Thinking mode"><local:SharedIcon IconName="brain" Width="18" Height="18" /></ToggleButton>
-                            <ComboBox x:Name="ModelBox" Grid.Column="5" Width="200" MinHeight="30" MaxDropDownHeight="300" SelectionChanged="OnModelChanged" DisplayMemberPath="Label" FontSize="11" VerticalAlignment="Center" AutomationProperties.Name="Model" />
+                            <local:ChoicePicker x:Name="CompactionPicker" Grid.Column="3" Options="Permissive · 85%|Balanced · 65%|Aggressive · 45%" HorizontalAlignment="Left" SelectionChanged="OnCompactionChanged" AutomationProperties.Name="Compaction mode" />
+                            <local:ChoicePicker x:Name="ModelBox" Grid.Column="5" MaxWidth="200" SelectionChanged="OnModelChanged" DisplayMemberPath="Label" FontSize="11" VerticalAlignment="Center" AutomationProperties.Name="Model" />
                             <Grid Grid.Column="6">
                                 <Button x:Name="SendButton" Width="36" Height="36" Padding="0" CornerRadius="18" Click="OnSend" IsEnabled="False" Background="{StaticResource FilspressoAccent}" Foreground="{StaticResource FilspressoAccentText}" AutomationProperties.Name="Send message"><local:SharedIcon IconName="send" Tone="dark" /></Button>
                                 <Button x:Name="CancelButton" Width="36" Height="36" Padding="0" CornerRadius="18" Click="OnStop" Visibility="Collapsed" Background="{StaticResource FilspressoAccent}" Foreground="{StaticResource FilspressoAccentText}" AutomationProperties.Name="Stop generation"><local:SharedIcon IconName="stop" Tone="dark" /></Button>

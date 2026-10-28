@@ -273,13 +273,14 @@ export class HostedAgentWorkspace {
 		return confirmed;
 	}
 	async stop(clearCapabilities = false) {
+		const hadWork = !!this.active || !!this.state.workspace || !!this.state.quarantined || this.state.conversationTurns > 0;
 		const workspace = this.state.workspace ?? this.state.quarantined; const revision = ++this.revision;
 		this.active?.abort(); this.active = null; this.consent.clear(); this.questions.dismiss(); this.conversation = []; this.conversationKey = null; this.queued = null;
 		this.publish({ ...this.state, phase: workspace || this.state.creationPending ? "stopping" : "idle", workspace: null, quarantined: workspace, pendingApproval: null, pendingQuestion: null, conversationTurns: 0, requiresReset: false, queuedPrompt: null, events: [],
 			...(clearCapabilities ? { models: [], executionEnabled: false } : {}), error: "" });
 		const confirmed = workspace ? await this.discard(workspace) : true;
 		if (this.revision === revision && !this.disposed) this.publish({ ...this.state, phase: this.state.creationPending ? "stopping" : confirmed ? "idle" : "failed", quarantined: confirmed ? null : workspace,
-			error: this.state.creationPending ? "Cancelling sandbox startup; waiting for its response before another workspace can start." : confirmed ? "Stopped and discarded. Model tokens may still have been billed." : "Workspace removal could not be confirmed. Do not reuse it; retry discard or contact an operator." });
+			error: this.state.creationPending ? "Cancelling sandbox startup; waiting for its response before another workspace can start." : confirmed ? hadWork ? "Stopped and discarded. Model tokens may still have been billed." : "" : "Workspace removal could not be confirmed. Do not reuse it; retry discard or contact an operator." });
 	}
 	dispose() { void this.stop(true); this.disposed = true; this.unsubscribe(); this.unsubscribeQuestions(); }
 }

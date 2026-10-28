@@ -5,6 +5,7 @@ import { readAccountSession } from "@/lib/accountSession";
 import { MODEL_LABEL_BY_KEY, formatContextTokens, isPlaygroundModelKey } from "@/lib/modelAccess";
 import { NativeProposalReview, type ReviewContext, type ReviewMode } from "@/lib/playgroundAgentReview";
 import type { NativeCall } from "@/lib/playgroundAgent";
+import WorkspacePicker from "./WorkspacePicker";
 
 /** Arguments/answers stay inert. Approval is unavailable: there is no connected executor. */
 export function AgentProposalCard({ call }: { call: NativeCall }) {
@@ -39,20 +40,18 @@ export default function PlaygroundAgentReview({ context }: { context: ReviewCont
 		return () => { review.clear(true); window.removeEventListener("session-update", changed); window.removeEventListener("storage", changed); };
 	}, [review]);
 	return <section className="pgw-agent-review" aria-label="Agent proposal review">
-		<h1>Agent proposal review</h1>
-		<p>One explicitly requested, metered model turn. Proposals only: no file reads, writes, commands, approvals or automatic follow-ups. Ordinary chat and the manual execution workspace are separate.</p>
-		<p>Model: hosted AI · This review: no connected executor · {isPlaygroundModelKey(context.model) ? MODEL_LABEL_BY_KEY[context.model] : "Unavailable model"} · {formatContextTokens(context.inputContextTokens)} input limit</p>
-		<p>Model/context follow Chat settings. Changing settings, conversation or account discards this review. Chat messages and attached sources are not sent automatically.</p>
+		<span className="pgw-eyebrow">Advanced · no executor</span><h1>Proposal preview</h1>
+		<p>Preview one metered model turn. Suggestions only—nothing is read, changed or executed.</p>
+		<p>{isPlaygroundModelKey(context.model) ? MODEL_LABEL_BY_KEY[context.model] : "Unavailable model"} · {formatContextTokens(context.inputContextTokens)} input</p>
+		<details className="pgw-advanced"><summary>When is this useful?</summary><p>This diagnostic previews native tool suggestions, without a connected workspace, execution approvals or automatic follow-ups. Use Plan / Build for actual project work. Model/context follow Chat settings. Changing settings, conversation or account clears the preview; Chat messages and attachments are not sent automatically.</p></details>
 		<div className="pgw-history-actions">
-			<button type="button" className="pgw-outlined-button" disabled={busy} onClick={() => void review.refresh()}>Check native availability</button>
+			<button type="button" className="pgw-outlined-button" disabled={busy} onClick={() => void review.refresh()}>Check model</button>
 			{busy && <button type="button" className="pgw-text-button" onClick={() => review.clear(false, "Review stopped. A generation may still have consumed billed tokens.")}>Stop review</button>}
 		</div>
 		<p role="status">{state.phase === "checking" ? "Checking native model capabilities…" : state.phase === "generating" ? "Generating proposals. No code is running in this review." : available ? "Native proposal transport configured. Execution approval is still unavailable." : "Native proposals unavailable for the selected model. No models are enabled by default; plain chat remains available."}</p>
 		{state.error && <p role="alert">{state.error}</p>}
 		<form onSubmit={event => { event.preventDefault(); void review.generate(context, mode, prompt); }}>
-			<label>Proposal mode<select aria-label="Proposal mode" value={mode} disabled={busy} onChange={event => { review.clear(); setMode(event.target.value as ReviewMode); }}>
-				<option value="plan">Plan · read proposals only</option><option value="build">Build proposals · cannot apply or execute</option>
-			</select></label>
+			<WorkspacePicker label="Proposal mode" icon="brain" value={mode} disabled={busy} options={[{ key: "plan", label: "Plan suggestions" }, { key: "build", label: "Build suggestions" }]} onChange={value => { review.clear(); setMode(value === "build" ? "build" : "plan"); }} />
 			<label>Review prompt<textarea aria-label="Review prompt" rows={4} maxLength={8000} value={prompt} disabled={busy} onChange={event => { review.clear(); setPrompt(event.target.value); }} /></label>
 			<button type="submit" className="pgw-outlined-button" disabled={busy || !available || !prompt.trim()}>Generate proposals · billed model turn</button>
 		</form>

@@ -106,8 +106,9 @@ public sealed class ThemeContractTests
     public void ComposerOffersRealPlanBuildNavigationAndCompactIconImports()
     {
         var xaml = XDocument.Load(Path.Combine(AppDirectory(), "PlaygroundPage.xaml"));
-        var modeButtons = xaml.Descendants().Where(element => element.Attribute("Click")?.Value == "OnAgentMode").ToArray();
-        Assert.Equal(new[] { "plan", "build" }, modeButtons.Select(element => element.Attribute("Tag")?.Value));
+        var picker = Assert.Single(xaml.Descendants(), element => element.Attribute("SelectionChanged")?.Value == "OnChatModeChanged");
+        Assert.Equal("ChoicePicker", picker.Name.LocalName);
+        Assert.Equal("Chat|Plan|Build", picker.Attribute("Options")?.Value);
         var imports = xaml.Descendants().Where(element => element.Name.LocalName == "MenuFlyoutItem" && element.Attribute("Click")?.Value == "OnAttachFiles").ToArray();
         Assert.Equal(8, imports.Length);
         Assert.All(imports, item => Assert.Contains(item.Elements(), child => child.Name.LocalName == "MenuFlyoutItem.Icon"));
@@ -127,5 +128,45 @@ public sealed class ThemeContractTests
         var code = File.ReadAllText(Path.Combine(AppDirectory(), "AgentWorkspacePage.xaml.cs"));
         Assert.Contains("ModeBox.SelectedIndex != 1 || started", code, StringComparison.Ordinal);
         Assert.Contains("WindowsPlatformProbe.TryReadSystemReport()", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InstructionsAreDesktopSpecificAndUpdatesAppearInTheShell()
+    {
+        var help = File.ReadAllText(Path.Combine(AppDirectory(), "InstructionsPage.xaml"));
+        Assert.Contains("Windows desktop guide", help, StringComparison.Ordinal);
+        Assert.Contains("System &amp; updates", help, StringComparison.Ordinal);
+        Assert.Contains("Check for updates", help, StringComparison.Ordinal);
+        var code = File.ReadAllText(Path.Combine(AppDirectory(), "InstructionsPage.xaml.cs"));
+        Assert.Contains("WindowsPlatformProbe.TryReadSystemReport()", code, StringComparison.Ordinal);
+        Assert.Contains("Updates.RefreshAsync(force: true)", code, StringComparison.Ordinal);
+        var shell = File.ReadAllText(Path.Combine(AppDirectory(), "MainWindow.xaml"));
+        Assert.Contains("x:Name=\"UpdateBar\"", shell, StringComparison.Ordinal);
+        Assert.Contains("Click=\"OnToggleNavigation\"", shell, StringComparison.Ordinal);
+        Assert.Contains("IconName=\"help\"", shell, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SharedIconsUsePublishedRasterAssetsWithoutPackageUriResolution()
+    {
+        var code = File.ReadAllText(Path.Combine(AppDirectory(), "SharedIcon.cs"));
+        Assert.Contains("AppContext.BaseDirectory", code, StringComparison.Ordinal);
+        Assert.Contains("new BitmapImage", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("ms-appx:", code, StringComparison.Ordinal);
+        var project = File.ReadAllText(Path.Combine(AppDirectory(), "Filspresso.App.csproj"));
+        Assert.Contains("shared-icons\\*.png", project, StringComparison.Ordinal);
+        var picker = File.ReadAllText(Path.Combine(AppDirectory(), "ChoicePicker.cs"));
+        Assert.Contains("new MenuFlyout", picker, StringComparison.Ordinal);
+        Assert.DoesNotContain("Chevron", picker, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageBuildStampsAndChecksTheApplicationVersionAndRasterAssets()
+    {
+        var build = File.ReadAllText(Path.Combine(AppDirectory(), "..", "..", "build", "Build-Desktop.ps1"));
+        Assert.Contains("-p:Version=$ProductVersion", build, StringComparison.Ordinal);
+        Assert.Contains("$applicationVersion -ne $ProductVersion", build, StringComparison.Ordinal);
+        Assert.Contains("Missing or stale desktop icon", build, StringComparison.Ordinal);
+        Assert.Contains("InstructionsPage.xbf", build, StringComparison.Ordinal);
     }
 }

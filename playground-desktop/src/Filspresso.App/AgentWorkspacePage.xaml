@@ -9,11 +9,7 @@
                 <Button Grid.Column="1" Content="Back to chat" Click="OnBack" Style="{StaticResource QuietButtonStyle}" VerticalAlignment="Top" />
             </Grid>
             <TextBlock x:Name="ModelInfo" TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
-            <TextBlock x:Name="UpdateNotice" Visibility="Collapsed" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
-            <ComboBox x:Name="ModeBox" SelectedIndex="0" Width="230" HorizontalAlignment="Left" SelectionChanged="OnModeChanged" AutomationProperties.Name="Agent mode">
-                <ComboBoxItem Content="Plan · read &amp; explore" />
-                <ComboBoxItem Content="Build · edit &amp; test" />
-            </ComboBox>
+            <local:ChoicePicker x:Name="ModeBox" Options="Plan|Build" SelectedIndex="0" HorizontalAlignment="Left" SelectionChanged="OnModeChanged" AutomationProperties.Name="Agent mode" />
             <TextBlock x:Name="ModeHint" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button x:Name="CheckButton" Content="Check model" Click="OnCheck" Style="{StaticResource QuietButtonStyle}" />
@@ -25,10 +21,8 @@
             <Expander x:Name="WorkspaceSetup" Header="Workspace setup" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                 <StackPanel Spacing="12">
                     <TextBlock x:Name="SystemCheck" TextWrapping="Wrap" FontSize="12" />
-                    <ComboBox x:Name="IsolationBox" Header="Execution isolation (fixed while a workspace is active)" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="OnIsolationChanged">
-                        <ComboBoxItem Content="Windows Sandbox VM · preferred · separate Windows kernel" />
-                        <ComboBoxItem Content="Native restricted · opt-in fallback · shared host Windows kernel" />
-                    </ComboBox>
+                    <TextBlock Text="Execution isolation · fixed while active" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
+                    <local:ChoicePicker x:Name="IsolationBox" Options="Windows Sandbox VM · preferred|Native restricted · shared host kernel" SelectedIndex="0" HorizontalAlignment="Left" SelectionChanged="OnIsolationChanged" AutomationProperties.Name="Execution isolation" />
                     <TextBlock Text="Windows Sandbox is preferred. Native restricted mode shares the host kernel and is not a VM or Codex MXC. Both use a staged copy with offline commands. Verify the selected boundary before starting." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
                     <TextBlock x:Name="ExecutionStatus" TextWrapping="Wrap" FontSize="12" />
                     <StackPanel Orientation="Horizontal" Spacing="12">

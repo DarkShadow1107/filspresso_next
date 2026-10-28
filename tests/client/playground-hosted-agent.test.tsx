@@ -133,8 +133,17 @@ test("action-ticket transport rejects duplicated, unknown-call and malformed evi
 test("rendering exposes explicit controls but no startup request, automatic execution or markup evaluation", t => {
 	let calls = 0; t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error(); });
 	const html = renderToStaticMarkup(<PlaygroundAgentWorkspace context={context} />);
-	assert.equal(calls, 0); assert.match(html, /disabled by default/); assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);
-	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /There is no blanket approval/);
+	assert.equal(calls, 0); assert.match(html, /Check availability to see whether/); assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);
+	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /fresh approval per write\/command/);
+});
+
+test("idle cleanup never invents a stopped job or billing warning", async () => {
+	const state = setup();
+	await state.workspace.stop(true);
+	await state.workspace.stop(true);
+	assert.equal(state.workspace.getSnapshot().error, "");
+	assert.equal(state.workspace.getSnapshot().phase, "idle");
+	assert.deepEqual(state.posts, []);
 });
 
 test("late uncooperative preparation cannot dispatch after cancellation or invalidation", async () => {

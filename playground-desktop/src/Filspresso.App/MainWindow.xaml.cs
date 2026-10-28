@@ -25,13 +25,15 @@ public sealed partial class MainWindow : Window
     private AgentWorkspacePage? _agentWorkspacePage;
     private bool _loaded;
     private bool _refreshing;
+    private bool _railExpanded, _instructionsOpen;
 
     public MainWindow()
     {
         _services = new AppServices(new Uri(
             Environment.GetEnvironmentVariable("FILSPRESSO_BACKEND_URL") ?? "http://localhost:4000/"));
         InitializeComponent();
-        Title = "Spectre Playground · Filspresso";
+        Title = $"Spectre Playground · Filspresso · {_services.AppVersion}";
+        _services.SystemNoticeChanged += OnSystemNotice;
         _services.WindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 860));
         AppWindow.TitleBar.BackgroundColor = Windows.UI.Color.FromArgb(255, 20, 18, 19);
@@ -46,6 +48,7 @@ public sealed partial class MainWindow : Window
             _agentReviewPage?.Dispose();
             _agentWorkspacePage?.Dispose();
             _services.Dispose();
+            _services.SystemNoticeChanged -= OnSystemNotice;
         };
         ShowSignedOut();
     }
@@ -115,6 +118,7 @@ public sealed partial class MainWindow : Window
         ContentFrame.Content = _playgroundPage;
         SetSection("chat");
         await _playgroundPage.RefreshAsync();
+        _ = _services.Updates.RefreshAsync();
     }
 
     private void ShowSignedOut()
@@ -189,6 +193,7 @@ public sealed partial class MainWindow : Window
         _refreshing = true;
         try
         {
+            _ = _services.Updates.RefreshAsync();
             if (ContentFrame.Content is ScrollViewer { Content: AccountPanel } && _accountPanel is not null)
             {
                 await _accountPanel.RefreshAsync();
@@ -271,6 +276,41 @@ public sealed partial class MainWindow : Window
     private void OnNewConversation(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.NewConversation(); }
     private void OnConversations(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(false); }
     private void OnSearch(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(true); }
+
+    private void OnToggleNavigation(object sender, RoutedEventArgs args)
+    {
+        _railExpanded = !_railExpanded; Rail.Width = _railExpanded ? 210 : 66;
+        foreach (var child in RailItems.Children)
+        {
+            if (child is not Button { Content: StackPanel content } button) continue;
+            button.Width = _railExpanded ? 188 : 42;
+            button.HorizontalContentAlignment = _railExpanded ? HorizontalAlignment.Left : HorizontalAlignment.Center;
+            button.Padding = new Thickness(_railExpanded ? 11 : 0, 0, 0, 0);
+            foreach (var item in content.Children)
+                if (item is TextBlock { Tag: "nav-label" } label) label.Visibility = _railExpanded ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+    private void OnSystemNotice(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() =>
+    {
+        var version = _services.NewDesktopBuildVersion;
+        UpdateBar.Title = version is null ? string.Empty : $"Desktop {version} is available";
+        UpdateBar.Message = _services.Updates.Snapshot.Message;
+        UpdateBar.IsOpen = version is not null;
+    });
+    private async void OnViewUpdate(object sender, RoutedEventArgs args) => await Windows.System.Launcher.LaunchUriAsync(_services.AccountUrl);
+    private async void OnInstructions(object sender, RoutedEventArgs args)
+    {
+        if (_instructionsOpen) return;
+        _instructionsOpen = true;
+        using var page = new InstructionsPage(_services) { MaxHeight = 600 };
+        try
+        {
+            var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "Desktop instructions", Content = page,
+                CloseButtonText = "Done", DefaultButton = ContentDialogButton.Close };
+            await dialog.ShowAsync();
+        }
+        finally { _instructionsOpen = false; }
+    }
 
     private void ShowError(Exception error)
     {

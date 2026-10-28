@@ -71,7 +71,7 @@
   <Target Name="GenerateSharedIcons" BeforeTargets="PrepareForBuild">
     <Exec Command="node &quot;$(MSBuildThisFileDirectory)..\..\build\Generate-Icons.cjs&quot;" />
     <ItemGroup>
-      <SharedSvg Include="$(MSBuildThisFileDirectory)..\..\artifacts\shared-icons\*.svg" />
+      <SharedSvg Include="$(MSBuildThisFileDirectory)..\..\artifacts\shared-icons\*.svg;$(MSBuildThisFileDirectory)..\..\artifacts\shared-icons\*.png" />
       <Content Include="@(SharedSvg)" Link="Assets\Icons\%(SharedSvg.Filename)%(SharedSvg.Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
       <Content Include="$(MSBuildThisFileDirectory)..\..\artifacts\branding\Filspresso.ico" Link="Assets\Filspresso.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>

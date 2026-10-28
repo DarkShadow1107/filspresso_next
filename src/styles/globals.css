@@ -4353,6 +4353,12 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 .desktop-download-error { color: #f6a78f; }
 .desktop-recheck { border: 0; background: transparent; color: #e4b38a; padding: 0; font: inherit; cursor: pointer; }
 .desktop-compatibility-actions button { font: inherit; }
+.desktop-check-status { color: #c8b8aa; font-size: 11px; }
+.desktop-compatibility-dialog .desktop-setup-details { border-top: 1px solid #493b313d; padding-top: 10px; }
+.desktop-compatibility-dialog .desktop-signing-warning { margin-block: 18px; font-size: 11px; line-height: 1.8; }
+.desktop-compatibility-dialog .desktop-download-note { font-size: 11px; line-height: 1.8; }
+.desktop-compatibility-dialog .desktop-system-facts { border-radius: 14px; background: #231e1a; padding: 14px; border: 0; }
+.desktop-compatibility-dialog .desktop-compatibility-actions button { border-radius: 12px; }
 .playground-download__button {
 	display: inline-flex;
 	align-items: center;

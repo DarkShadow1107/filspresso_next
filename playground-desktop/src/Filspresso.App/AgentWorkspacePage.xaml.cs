@@ -52,26 +52,9 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     {
         _services = services; InitializeComponent();
         services.Auth.Changed += OnAccountChanged; services.PreferencesChanged += OnPreferencesChanged;
-        services.SystemNoticeChanged += OnSystemNotice;
-        RenderUpdateNotice();
         var system = WindowsPlatformProbe.TryReadSystemReport();
         SystemCheck.Text = system is null ? "Windows system details could not be read. Verification is still required."
             : $"This PC · {system.Edition ?? "Edition not reported"} · build {system.Build?.ToString() ?? "not reported"}{(system.Ubr is { } ubr ? "." + ubr : string.Empty)} · {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}. Sandbox safety verification is separate.";
-    }
-    private void OnSystemNotice(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => { if (!_disposed) RenderUpdateNotice(); });
-    private void RenderUpdateNotice()
-    {
-        // Passive by design: it names the newer build, points at the account page, and
-        // changes nothing about the running session. No updater, no restart prompt.
-        var version = _services.NewDesktopBuildVersion;
-        if (version is null)
-        {
-            UpdateNotice.Text = string.Empty;
-            UpdateNotice.Visibility = Visibility.Collapsed;
-            return;
-        }
-        UpdateNotice.Text = $"A newer desktop build is available ({version}). Get it from your account page; this session keeps running as it is.";
-        UpdateNotice.Visibility = Visibility.Visible;
     }
     public void Reload(string? session)
     {
@@ -90,7 +73,6 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         var status = $"{label} · hosted inference · {_context / 1024}K input · {_compaction} compaction";
         if (_spendGate is { } gate && gate.Describe() is { Length: > 0 } cap) status += " · " + cap;
         ModelInfo.Text = status;
-        RenderUpdateNotice();
         Render();
     }
     private ExecutionIsolation SelectedIsolation => IsolationBox.SelectedIndex == 1 ? ExecutionIsolation.NativeRestricted : ExecutionIsolation.WindowsSandbox;
@@ -464,5 +446,5 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         _transport?.Dispose(); _transport = null; _questionId = _approvalId = null; _answers.Clear();
         _checkpoints = null; _executionStatus = null; _startingProgress = null; _startingSandbox = false; _viewedChange = null;
     }
-    public void Dispose() { _disposed = true; _active = false; _services.Auth.Changed -= OnAccountChanged; _services.PreferencesChanged -= OnPreferencesChanged; _services.SystemNoticeChanged -= OnSystemNotice; Release(); }
+    public void Dispose() { _disposed = true; _active = false; _services.Auth.Changed -= OnAccountChanged; _services.PreferencesChanged -= OnPreferencesChanged; Release(); }
 }

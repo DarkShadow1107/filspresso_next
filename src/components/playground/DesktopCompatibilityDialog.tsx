@@ -37,19 +37,19 @@ function formatBytes(bytes: number): string {
 export function DesktopCompatibilityDetails({ result }: { result: DesktopCompatibility | null }) {
 	return <>
 		<h2 id="desktop-compatibility-title">Desktop for Windows</h2>
-		<p role={result?.status === "unsupported" ? "alert" : "status"}>{result?.message ?? "Checking the operating-system hints available to this browser…"}</p>
+		<p className="desktop-check-status" role={result?.status === "unsupported" ? "alert" : "status"}>{!result ? "Checking browser device hints…" : result.status === "unsupported" ? result.message : "Browser check complete · desktop checks still required"}</p>
 		<dl className="desktop-system-facts" aria-label="Browser system check">
 			<div><dt>System reported</dt><dd>{result?.osFamily ?? "Checking…"}</dd></div>
 			<div><dt>Architecture</dt><dd>{result ? result.architecture === "x64" ? "x64 reported" : result.architecture === "other" ? "Not x64" : "Not exposed" : "Checking…"}</dd></div>
-			<div><dt>Sandbox & virtualization</dt><dd>Requires installed-app check</dd></div>
+			<div><dt>Windows edition</dt><dd>Not exposed to websites</dd></div>
 		</dl>
-		<p><strong>Requires Windows x64, version 2004+.</strong> Home is supported for inspection and opt-in native restricted mode.</p>
+		<p><strong>Windows x64 · build 19041+.</strong> Home is supported for inspection and opt-in native restricted mode.</p>
 		<details className="desktop-setup-details"><summary>Execution requirements</summary>
 			<p><strong>Windows Sandbox (preferred):</strong> Windows 11 24H2+ Pro/Enterprise/Education, virtualization and the Sandbox feature enabled. Admin approval and a restart may be needed.</p>
 			<p><strong>Native restricted (opt-in):</strong> uses AppContainer and process limits; shares the host kernel. Weaker than a VM, not Codex MXC.</p>
 			<p>Both edit a staged copy, with separate command/web approval and reviewed diffs. Command networking and bundled developer tools are not included.</p>
 		</details>
-		<p className="desktop-download-note">The browser <strong>cannot verify</strong> your exact build, edition or Windows features. In the app, open <strong>Plan / Build → Workspace setup → Verify</strong> for authoritative checks. Enabling a feature does not unlock every feature automatically.</p>
+		<p className="desktop-download-note">A website <strong>cannot verify</strong> Home/Pro/Enterprise, your exact build or virtualization. In the app, open <strong>Instructions → System & updates</strong> to read the actual edition/build; use <strong>Plan / Build → Workspace setup → Verify</strong> to check isolation. No browser hint grants execution access.</p>
 	</>;
 }
 
@@ -120,13 +120,13 @@ export default function DesktopCompatibilityDialog({
 			{onRecheck && <button type="button" className="desktop-recheck" onClick={onRecheck} disabled={working || checking}>{checking ? "Checking device…" : "Recheck device"}</button>}
 			<DesktopDownloadWarnings installer={installer} />
 			<div className="desktop-compatibility-acknowledge">
-				<label>
+				<details className="desktop-setup-details"><summary>Optional download record</summary><label>
 					<span>Downloading for <small>(optional, self-reported)</small></span>
 					<select value={osClaim} onChange={(event) => setOsClaim(event.target.value)} disabled={working}>
 						<option value="">Prefer not to say</option>
 						{OPERATING_SYSTEM_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
 					</select>
-				</label>
+				</label></details>
 				<label>
 					<input type="checkbox" checked={acknowledged} disabled={working}
 						onChange={(event) => setAcknowledged(event.target.checked)} />

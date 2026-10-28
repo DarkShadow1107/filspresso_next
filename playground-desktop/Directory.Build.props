@@ -30,9 +30,9 @@
     <Company>Filspresso</Company>
     <Copyright>Copyright (c) Filspresso</Copyright>
     <!--
-      The version is stamped from git when CI builds, so an installer can be traced back to
-      the commit that produced it. Locally it falls back to 0.1.0 rather than to the empty
-      string, because Windows Installer rejects a version with no third field.
+      Source builds default to 0.3.0. Build-Desktop.ps1 overrides Version with the MSI's
+      ProductVersion and verifies the published assembly matches it; git provenance is
+      appended by the SDK without changing the numeric update-comparison version.
     -->
     <Version Condition="'$(GIT_COMMIT)' != ''">0.3.0+$(GIT_COMMIT.Substring(0, 8))</Version>
     <Version Condition="'$(GIT_COMMIT)' == ''">0.3.0</Version>

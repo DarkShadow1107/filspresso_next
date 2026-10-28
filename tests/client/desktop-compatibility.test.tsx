@@ -53,7 +53,7 @@ test("a hanging hint API is bounded so the popup does not trap the download inde
 
 test("popup explains Home fallback, shared-kernel limitations and authoritative desktop checks", () => {
 	const html = renderToStaticMarkup(<DesktopCompatibilityDetails result={assessDesktopCompatibility({ platform: "Linux" })} />);
-	for (const text of ["role=\"alert\"", "Windows x64", "Home is supported", "shares the host kernel", "cannot verify", "authoritative checks", "not unlock every feature", "Command networking"]) assert.ok(html.includes(text), text);
+	for (const text of ["role=\"alert\"", "Windows x64", "Home is supported", "shares the host kernel", "cannot verify", "actual edition/build", "No browser hint grants execution access", "Command networking", "Not exposed to websites"]) assert.ok(html.includes(text), text);
 	assert.ok(!html.includes("href=\"/api/desktop/download"));
 });
 

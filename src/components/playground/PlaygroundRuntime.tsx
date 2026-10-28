@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import WorkspacePicker from "./WorkspacePicker";
 
 type Sandbox = { id: string; location: string; workspace: string; network: string; ephemeral: boolean };
 type ExecutionEvent = { event: string; text?: string; stream?: string; exitCode?: number | null; stopped?: boolean; seconds?: number; message?: string };
@@ -106,7 +107,7 @@ export default function PlaygroundRuntime({ open }: { open: boolean }) {
 		<header><h2>Manual workspace</h2><span>{sandbox ? "Hosted sandbox ready" : "Not started"}</span></header>
 		<details className="pgw-runtime-limits"><summary>Python 3.11 · offline · temporary files</summary><p>Separate from chat. POSIX shell · 512 MB RAM · 30 seconds per command. Expires after 15 idle minutes or 1 hour total. Download files you need to keep. Chat responses are not execution results.</p></details>
 		<div className="pgw-runtime-actions">
-			<label>Workspace mode <select value={mode} disabled={running} onChange={event => { setMode(event.target.value as typeof mode); setApproved(false); setWriteApproved(false); }}><option value="inspect">Inspect · read only</option><option value="build">Build · explicit execution</option></select></label>
+			<WorkspacePicker label="Manual workspace mode" value={mode} icon={mode === "build" ? "edit" : "brain"} disabled={busy || running} options={[{ key: "inspect", label: "Plan · read only" }, { key: "build", label: "Build · explicit execution" }]} onChange={value => { setMode(value === "build" ? "build" : "inspect"); setApproved(false); setWriteApproved(false); }} />
 			{!sandbox ? <button type="button" className="pgw-outlined-button" disabled={busy} onClick={start}>Start hosted sandbox</button> : <><button type="button" className="pgw-outlined-button" disabled={busy} onClick={stop}>{running ? "Cancel and discard sandbox" : "Stop and discard sandbox"}</button><button type="button" className="pgw-text-button" disabled={busy || running} onClick={() => perform(() => refresh(sandbox.id))}>Refresh files</button></>}
 		</div>
 		<p role="status">{status}</p>{error && <p role="alert">{error}</p>}

@@ -24,5 +24,6 @@
   "image": { "source": "camera-icon.tsx" },
   "audio": { "source": "volume-2-icon.tsx" },
   "video": { "source": "player-icon.tsx" },
-  "account": { "source": "user-check-icon.tsx" }
+  "account": { "source": "user-check-icon.tsx" },
+  "help": { "source": "playground-glyph-icon.tsx", "props": { "glyph": "help" } }
 }

@@ -8,6 +8,7 @@ import { MODEL_LABEL_BY_KEY, formatContextTokens, isPlaygroundModelKey } from "@
 import type { AgentApproval } from "@/lib/playgroundAgentLoop";
 import PlaygroundAgentQuestion from "./PlaygroundAgentQuestion";
 import PlaygroundProjectPanel from "./PlaygroundProjectPanel";
+import WorkspacePicker from "./WorkspacePicker";
 
 /** Keyed by a fresh challenge: a second rapid click/key-repeat cannot approve a newly
  * arrived action without a separate review acknowledgement. Nothing renders as HTML. */
@@ -23,10 +24,10 @@ export function FreshActionApproval({ approval, decide }: { approval: AgentAppro
 	</section>;
 }
 
-export default function PlaygroundAgentWorkspace({ context }: { context: ReviewContext }) {
+export default function PlaygroundAgentWorkspace({ context, initialMode = "plan", onChat }: { context: ReviewContext; initialMode?: ReviewMode; onChat?: () => void }) {
 	const [workspace] = React.useState(() => new HostedAgentWorkspace());
 	const state = React.useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot);
-	const [mode, setMode] = React.useState<ReviewMode>("plan"); const [prompt, setPrompt] = React.useState("");
+	const [mode, setMode] = React.useState<ReviewMode>(initialMode); const [prompt, setPrompt] = React.useState("");
 	const busy = ["checking", "creating", "inspecting", "running", "awaiting_approval", "awaiting_question", "stopping"].includes(state.phase);
 	React.useEffect(() => () => { void workspace.stop(true); }, [workspace, context.model, context.inputContextTokens, context.sessionUuid, context.compactionMode]);
 	React.useEffect(() => {
@@ -40,24 +41,22 @@ export default function PlaygroundAgentWorkspace({ context }: { context: ReviewC
 		return () => { void workspace.stop(true); window.removeEventListener("session-update", changed); window.removeEventListener("storage", changed); };
 	}, [workspace]);
 	return <section className="pgw-agent-review" aria-label="Agent sandbox workspace">
-		<h1>Agent sandbox workspace</h1>
-		<p>A bounded native-tool conversation, separate from ordinary Chat and proposal-only review. The agent can ask interactive clarification questions; your answers never approve execution. Model inference is hosted; code runs only in an explicitly started, offline hosted Docker sandbox—not on your computer or the application server.</p>
-		<p>{isPlaygroundModelKey(context.model) ? MODEL_LABEL_BY_KEY[context.model] : "Unavailable model"} · {formatContextTokens(context.inputContextTokens)} input limit · {state.workspace ? `Sandbox ${state.workspace.id} · /workspace` : "No connected execution workspace"}</p>
-		<p>Plan permits reads. Build asks for fresh approval for each exact file write or command. There is no blanket approval. Every model follow-up and summary is billed; limits are 24 model turns, 48 tools and 16,384 generated tokens including summaries, not a financial spend ceiling. Agent compaction follows your {context.compactionMode ?? "balanced"} setting and preserves complete recent call/result groups. No Chat history or attachments are imported automatically.</p>
+		<div className="pgw-section-heading"><div><span className="pgw-eyebrow">Hosted workspace</span><h1>Plan & build</h1><p>Explore first. Make reviewed changes when you’re ready.</p></div></div>
+		<div className="pgw-mode-row"><WorkspacePicker label="Agent workspace mode" value={mode} disabled={busy || state.conversationTurns > 0} icon={mode === "build" ? "edit" : "brain"} options={[...(onChat ? [{ key: "chat", label: "Chat" }] : []), { key: "plan", label: "Plan" }, { key: "build", label: "Build" }]} onChange={value => { if (value === "chat") onChat?.(); else setMode(value === "build" ? "build" : "plan"); }} /><span>{mode === "plan" ? "Read files and explore. No writes or commands." : "Edit and test a staged copy. Each action needs approval."}</span></div>
+		<p className="pgw-agent-meta">{isPlaygroundModelKey(context.model) ? MODEL_LABEL_BY_KEY[context.model] : "Unavailable model"} · {formatContextTokens(context.inputContextTokens)} · {state.workspace ? "Sandbox ready · offline" : "Workspace not started"}</p>
 		<div className="pgw-history-actions">
-			<button type="button" className="pgw-outlined-button" disabled={busy} onClick={() => void workspace.check()}>Check agent availability</button>
-			<button type="button" className="pgw-outlined-button" disabled={busy || !state.executionEnabled || !state.models.includes(context.model) || !!state.workspace || !!state.quarantined} onClick={() => void workspace.startSandbox()}>Start fresh hosted sandbox</button>
-			<button type="button" className="pgw-outlined-button" disabled={state.phase === "stopping" || (!busy && !state.workspace && !state.quarantined)} onClick={() => void workspace.stop()}>{state.quarantined ? "Retry discard" : "Stop and discard sandbox"}</button>
-			<button type="button" className="pgw-outlined-button" disabled={busy || state.requiresReset || !!state.quarantined} onClick={() => { if (workspace.newConversation()) setPrompt(""); }}>New conversation / change mode · retain project</button>
+			<button type="button" className="pgw-outlined-button" disabled={busy} onClick={() => void workspace.check()}>Check availability</button>
+			<button type="button" className="pgw-primary-button" disabled={busy || !state.executionEnabled || !state.models.includes(context.model) || !!state.workspace || !!state.quarantined} onClick={() => void workspace.startSandbox()}>Start workspace</button>
+			{(busy || state.workspace || state.quarantined) && <button type="button" className="pgw-outlined-button" disabled={state.phase === "stopping"} onClick={() => void workspace.stop()}>{state.quarantined ? "Retry discard" : "Stop and discard sandbox"}</button>}
+			{state.conversationTurns > 0 && <button type="button" className="pgw-text-button" disabled={busy || state.requiresReset || !!state.quarantined} title="Retains project files; resets context and unlocks mode selection" onClick={() => { if (workspace.newConversation()) setPrompt(""); }}>New conversation</button>}
 		</div>
-		<p role="status">{state.phase === "checking" ? "Checking qualified model/executor availability…" : state.phase === "creating" ? "Creating an isolated temporary sandbox…" : state.phase === "running" ? "Agent running; subsequent model turns are metered." : state.phase === "awaiting_question" ? "Waiting for your clarification answers. No execution approval is implied." : state.phase === "awaiting_approval" ? "Waiting for your decision. No proposed mutation/command runs before approval." : state.phase === "stopping" ? "Discarding the actual sandbox workload…" : state.executionEnabled ? "Hosted action transport configured. Each proposal still requires server verification and a one-shot claim." : "Agent execution is disabled by default. Operator-qualified native models, action signing and a qualified broker are required."}</p>
+		<p role="status" className="pgw-status-line">{state.phase === "checking" ? "Checking availability…" : state.phase === "creating" ? "Creating an isolated workspace…" : state.phase === "running" ? "Working · metered model turns" : state.phase === "awaiting_question" ? "Waiting for your answer · not execution approval" : state.phase === "awaiting_approval" ? "Review the proposed action below. Nothing runs before approval." : state.phase === "stopping" ? "Discarding workspace…" : state.workspace ? "Ready" : state.executionEnabled ? "Start a workspace to continue." : "Check availability to see whether this server supports hosted execution."}</p>
 		{state.error && <p role="alert">{state.error}</p>}
 		{state.workspace && <PlaygroundProjectPanel key={state.workspace.id} workspace={workspace} busy={busy} />}
 		<form onSubmit={event => { event.preventDefault(); void workspace.run(context, mode, prompt); }}>
-			<label>Agent mode<select aria-label="Agent workspace mode" disabled={busy || state.conversationTurns > 0} value={mode} onChange={event => setMode(event.target.value as ReviewMode)}><option value="plan">Plan · workspace reads</option><option value="build">Build · fresh approval for writes/commands</option></select></label>
-			<label>Agent request or follow-up<textarea aria-label="Agent workspace request" rows={4} maxLength={8000} disabled={state.phase === "stopping"} value={prompt} onChange={event => setPrompt(event.target.value)} /></label>
-			<button type="submit" className="pgw-outlined-button" disabled={busy || state.requiresReset || !state.workspace || !state.executionEnabled || !state.models.includes(context.model) || !prompt.trim()}>Run agent · metered follow-ups</button>
-			<button type="button" className="pgw-outlined-button" disabled={!["running", "awaiting_question", "awaiting_approval"].includes(state.phase) || !!state.queuedPrompt || !prompt.trim()} onClick={() => { if (workspace.queueFollowUp(context, mode, prompt)) setPrompt(""); }}>Queue one follow-up · metered</button>
+			<label className="pgw-agent-composer"><span className="pgw-sr-only">Agent request or follow-up</span><textarea aria-label="Agent workspace request" placeholder={mode === "plan" ? "What would you like to explore?" : "Describe a change to build…"} rows={3} maxLength={8000} disabled={state.phase === "stopping"} value={prompt} onChange={event => setPrompt(event.target.value)} /></label>
+			<div className="pgw-history-actions"><button type="submit" className="pgw-primary-button" disabled={busy || state.requiresReset || !state.workspace || !state.executionEnabled || !state.models.includes(context.model) || !prompt.trim()}>Send · metered</button>
+			{["running", "awaiting_question", "awaiting_approval"].includes(state.phase) && <button type="button" className="pgw-text-button" disabled={!!state.queuedPrompt || !prompt.trim()} onClick={() => { if (workspace.queueFollowUp(context, mode, prompt)) setPrompt(""); }}>Queue follow-up · metered</button>}</div>
 			{state.queuedPrompt && <><p>Queued after successful completion only: {state.queuedPrompt}</p><button type="button" className="pgw-text-button" onClick={workspace.cancelQueued}>Cancel queued follow-up</button></>}
 		</form>
 		{state.requiresReset && <p role="alert">This run did not complete. Stop and discard before starting fresh; partial execution history is not silently reused.</p>}
@@ -72,6 +71,6 @@ export default function PlaygroundAgentWorkspace({ context }: { context: ReviewC
 							event.kind === "tool.finished" ? <><h3>{event.invocation.call.name} · tool result</h3><pre>{agentResultText(event.invocation)}</pre></> :
 								event.kind === "finished" ? <p>Run finished · {event.turns} model turns / {event.calls} tools · {event.usage.completion_tokens} generated tokens</p> : <p>{event.message}</p>}
 		</li>)}</ol>
-		<p>Files are temporary. Leaving this view, switching conversation/model/context, or changing accounts cancels pending work and discards this sandbox. Nothing is applied to your original project. Recorded activity retains bounded metadata, not source files, arguments or tool output from these actions.</p>
+		<details className="pgw-advanced"><summary>Workspace safety & limits</summary><p>Files are temporary. Leaving this view, switching conversation/model/context, or changing accounts cancels pending work and discards this sandbox. Nothing is applied to your original project. Recorded activity retains bounded metadata, not source files, arguments or tool output from these actions.</p><p>Plan permits reads only. Build requires fresh approval per write/command. Clarification is not approval. Hosted inference and compaction summaries are metered; 24 model turns, 48 tools and 16,384 generated tokens are technical limits, not a financial spend ceiling. Chat history and sources are not imported automatically. This server must have a qualified model, broker and signed action transport enabled.</p></details>
 	</section>;
 }

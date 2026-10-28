@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <UserControl x:Class="Filspresso.App.AgentReviewPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Filspresso.App">
     <ScrollViewer>
         <StackPanel Padding="28,16,28,32" Spacing="14" MaxWidth="1000" HorizontalAlignment="Stretch">
             <TextBlock Text="Proposal preview" FontSize="26" />
@@ -14,10 +14,7 @@
             </StackPanel>
             <TextBlock x:Name="ReviewStatus" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" AutomationProperties.LiveSetting="Polite" />
             <TextBlock x:Name="ReviewError" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoAccent}" AutomationProperties.LiveSetting="Assertive" />
-            <ComboBox x:Name="ModeBox" Header="Preview mode" SelectedIndex="0" SelectionChanged="OnModeChanged" Width="260" HorizontalAlignment="Left">
-                <ComboBoxItem Content="Plan suggestions" />
-                <ComboBoxItem Content="Build suggestions · no execution" />
-            </ComboBox>
+            <local:ChoicePicker x:Name="ModeBox" Options="Plan suggestions|Build suggestions · no execution" SelectedIndex="0" SelectionChanged="OnModeChanged" HorizontalAlignment="Left" AutomationProperties.Name="Preview mode" />
             <TextBox x:Name="PromptBox" Header="Task to preview" PlaceholderText="Describe the task…" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" MaxLength="8000" TextChanged="OnPromptChanged" />
             <Button x:Name="GenerateButton" Content="Preview · metered" IsEnabled="False" Click="OnGenerate" Style="{StaticResource QuietButtonStyle}" />
             <TextBlock Text="Every explicit generation is metered. Cancellation may still consume billed tokens. Generated claims are not evidence that any file was read or any test ran." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />

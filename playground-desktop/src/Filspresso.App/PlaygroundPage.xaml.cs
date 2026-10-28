@@ -115,6 +115,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     {
         var preferences = _services.Preferences;
         ContextButton.Content = $"{preferences.InputContextTokens / 1024}K";
+        CompactionPicker.SelectedIndex = preferences.CompactionMode switch { "permissive" => 0, "aggressive" => 2, _ => 1 };
         _thinking = preferences.Thinking;
         ThinkingButton.IsChecked = _thinking;
         foreach (var line in _transcript) { line.TextSize = preferences.TextSize; line.ShowStatistics = preferences.ShowStatistics; }
@@ -175,7 +176,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
             && (!string.IsNullOrWhiteSpace(PromptBox.Text) || _sources.Count > 0);
         SendButton.Visibility = sending ? Visibility.Collapsed : Visibility.Visible;
         CancelButton.Visibility = sending ? Visibility.Visible : Visibility.Collapsed;
-        ModelBox.IsEnabled = ThinkingButton.IsEnabled = !sending;
+        ModelBox.IsEnabled = ThinkingButton.IsEnabled = CompactionPicker.IsEnabled = ChatModePicker.IsEnabled = !sending;
         AttachButton.IsEnabled = GithubButton.IsEnabled = ContextButton.IsEnabled = !sending;
         PromptBox.IsReadOnly = sending;
         RenderSourceSuggestions(selected?.ModelKey, sending);
@@ -258,10 +259,18 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     }
     private async void OnSend(object sender, RoutedEventArgs args) => await SendAsync();
     private void OnSettings(object sender, RoutedEventArgs args) => SettingsRequested?.Invoke(this, args);
-    private void OnAgentMode(object sender, RoutedEventArgs args)
+    private void OnCompactionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (_inFlight is not null || sender is not Button { Tag: string mode }) return;
-        AgentModeRequested?.Invoke(this, mode);
+        if (_rendering || _inFlight is not null || sender is not ChoicePicker picker || picker.SelectedIndex < 0) return;
+        var mode = picker.SelectedIndex switch { 0 => "permissive", 2 => "aggressive", _ => "balanced" };
+        if (mode != _services.Preferences.CompactionMode) _services.SavePreferences(_services.Preferences with { CompactionMode = mode });
+    }
+    private void OnChatModeChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (sender is not ChoicePicker picker || picker.SelectedIndex <= 0) return;
+        var mode = picker.SelectedIndex == 2 ? "build" : "plan";
+        picker.SelectedIndex = 0;
+        if (_inFlight is null) AgentModeRequested?.Invoke(this, mode);
     }
     private void OnThinkingChanged(object sender, RoutedEventArgs args) => _thinking = ThinkingButton.IsChecked == true;
     private void OnNewConversation(object sender, RoutedEventArgs args) => NewConversation();

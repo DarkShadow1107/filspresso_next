@@ -21,6 +21,7 @@ import PlaygroundRunHistory from "./PlaygroundRunHistory";
 import PlaygroundAgentReview from "./PlaygroundAgentReview";
 import PlaygroundAgentWorkspace from "./PlaygroundAgentWorkspace";
 import WorkspacePicker from "./WorkspacePicker";
+import PlaygroundHelp from "./PlaygroundHelp";
 
 type Message = {
 	id: string;
@@ -42,6 +43,9 @@ const messageWithSources = (message: Message) => message.content + (message.sour
 export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscriptionTier; access: SpectreAccessState }) {
 	const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
 	const [view, setView] = useState<"chat" | "settings" | "prices" | "activity" | "review" | "agent">("chat");
+	const [helpOpen, setHelpOpen] = useState(false);
+	const [railExpanded, setRailExpanded] = useState(false);
+	const [agentEntryMode, setAgentEntryMode] = useState<"plan" | "build">("plan");
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [search, setSearch] = useState("");
 	const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -375,16 +379,16 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const empty = !messages.length;
 
 	return (
-		<div className="pgw" ref={shellRef} data-sidebar={sidebarOpen} data-text-size={preferences.textSize}>
+		<div className="pgw" ref={shellRef} data-sidebar={sidebarOpen} data-rail-expanded={railExpanded} data-text-size={preferences.textSize}>
 			<nav className="pgw-rail" aria-label="Playground navigation">
-				<button type="button" className="pgw-icon-button" aria-label="Toggle conversations" aria-expanded={sidebarOpen} aria-controls="pgw-conversations" title="Conversations" onClick={() => setSidebarOpen(!sidebarOpen)}><WorkspaceIcon name="sidebar" /></button>
-				<button type="button" className="pgw-icon-button" aria-label="New conversation" title="New conversation" disabled={streaming} onClick={newConversation}><WorkspaceIcon name="new" /></button>
-				<button type="button" className="pgw-icon-button" aria-label="Search conversations" title="Search conversations" onClick={() => { setSidebarOpen(true); window.requestAnimationFrame(() => searchRef.current?.focus()); }}><WorkspaceIcon name="search" /></button>
-				<button type="button" className="pgw-icon-button" aria-label="API Prices" title="API Prices" aria-pressed={view === "prices"} onClick={() => setView(view === "prices" ? "chat" : "prices")}><WorkspaceIcon name="prices" /></button>
-				<button type="button" className="pgw-icon-button" aria-label="Recorded activity" title="Recorded activity" aria-pressed={view === "activity"} onClick={() => setView(view === "activity" ? "chat" : "activity")}><WorkspaceIcon name="file" /></button>
-				<button type="button" className="pgw-icon-button" aria-label="Agent proposal review" title="Agent proposal review" disabled={streaming} aria-pressed={view === "review"} onClick={() => setView(view === "review" ? "chat" : "review")}><WorkspaceIcon name="brain" /></button>
-				<button type="button" className="pgw-icon-button" aria-label="Agent sandbox workspace" title="Agent sandbox workspace" disabled={streaming} aria-pressed={view === "agent"} onClick={() => setView(view === "agent" ? "chat" : "agent")}><WorkspaceIcon name="model" /></button>
-				<button type="button" className="pgw-icon-button" aria-label="Settings" title="Settings" aria-pressed={view === "settings"} onClick={() => setView(view === "settings" ? "chat" : "settings")}><WorkspaceIcon name="settings" /></button>
+				<button type="button" className="pgw-icon-button" aria-label="Expand navigation labels" aria-expanded={railExpanded} title="Navigation labels" onClick={() => setRailExpanded(!railExpanded)}><WorkspaceIcon name="sidebar" /><span className="pgw-nav-label">Collapse labels</span></button>
+				<button type="button" className="pgw-icon-button" aria-label="New conversation" title="New conversation" disabled={streaming} onClick={newConversation}><WorkspaceIcon name="new" /><span className="pgw-nav-label">New conversation</span></button>
+				<button type="button" className="pgw-icon-button" aria-label="Search conversations" title="Conversations" aria-expanded={sidebarOpen} aria-controls="pgw-conversations" onClick={() => { setSidebarOpen(!sidebarOpen); window.requestAnimationFrame(() => searchRef.current?.focus()); }}><WorkspaceIcon name="search" /><span className="pgw-nav-label">Conversations</span></button>
+				<button type="button" className="pgw-icon-button" aria-label="Plan / Build" title="Plan / Build" disabled={streaming} aria-pressed={view === "agent"} onClick={() => setView(view === "agent" ? "chat" : "agent")}><WorkspaceIcon name="edit" /><span className="pgw-nav-label">Plan / Build</span></button>
+				<button type="button" className="pgw-icon-button" aria-label="Recorded activity" title="Activity" aria-pressed={view === "activity"} onClick={() => setView(view === "activity" ? "chat" : "activity")}><WorkspaceIcon name="file" /><span className="pgw-nav-label">Activity</span></button>
+				<button type="button" className="pgw-icon-button" aria-label="API Prices" title="API Prices" aria-pressed={view === "prices"} onClick={() => setView(view === "prices" ? "chat" : "prices")}><WorkspaceIcon name="prices" /><span className="pgw-nav-label">API Prices</span></button>
+				<button type="button" className="pgw-icon-button" aria-label="Settings" title="Settings" aria-pressed={view === "settings"} onClick={() => setView(view === "settings" ? "chat" : "settings")}><WorkspaceIcon name="settings" /><span className="pgw-nav-label">Settings</span></button>
+				<button type="button" className="pgw-icon-button" aria-label="Web Playground instructions" title="Instructions" aria-haspopup="dialog" onClick={() => setHelpOpen(true)}><WorkspaceIcon name="help" /><span className="pgw-nav-label">Instructions</span></button>
 				<div className="pgw-rail-bottom">
 					<Link className="pgw-account-chip" href={buildPageHref("account")} title={`${tier.toUpperCase()} plan · Account`}>{tier.slice(0, 1).toUpperCase()}</Link>
 				</div>
@@ -413,14 +417,14 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			<div className="pgw-main">
 				<header className="pgw-topbar">
 					<button type="button" className="pgw-wordmark" onClick={() => setView("chat")}>Spectre <span>Playground</span></button>
-					<div className="pgw-topbar-actions"><button type="button" className="pgw-text-button" onClick={() => setView(view === "prices" ? "chat" : "prices")}>API Prices</button><DesktopAppDownload /></div>
+					<div className="pgw-topbar-actions"><button type="button" className="pgw-icon-button" aria-label="Open web instructions" title="Web instructions" aria-haspopup="dialog" onClick={() => setHelpOpen(true)}><WorkspaceIcon name="help" width={18} /></button><DesktopAppDownload /></div>
 				</header>
 				{view !== "chat" && <div className="pgw-view-toolbar"><button type="button" className="pgw-text-button" onClick={() => setView("chat")}>← Back to chat</button></div>}
-				{view === "chat" && <div className="pgw-workspace-toggle"><button type="button" className="pgw-text-button" aria-expanded={workspaceOpen} aria-controls="pgw-manual-workspace" onClick={() => setWorkspaceOpen(!workspaceOpen)}><WorkspaceIcon name="model" width={15} />{workspaceOpen ? "Close workspace" : "Manual workspace"}<span aria-hidden="true">{workspaceOpen ? "−" : "+"}</span></button><span>Chat never runs code automatically</span></div>}
+				{view === "chat" && workspaceOpen && <div className="pgw-workspace-toggle"><span>Advanced · manual execution</span><button type="button" className="pgw-text-button" aria-expanded={workspaceOpen} aria-controls="pgw-manual-workspace" onClick={() => setWorkspaceOpen(false)}>Close workspace</button></div>}
 				<PlaygroundRuntime open={workspaceOpen && view === "chat"} />
 				{view === "activity" && <div className="pgw-page-scroll"><PlaygroundRunHistory sessionUuid={sessionIds.current.get(conversationId)} /></div>}
 				{view === "review" && <div className="pgw-page-scroll"><PlaygroundAgentReview key={`${conversationId}:${model}:${preferences.inputContextTokens}:${sessionIds.current.get(conversationId) || ""}`} context={{ model, inputContextTokens: preferences.inputContextTokens, sessionUuid: sessionIds.current.get(conversationId) }} /></div>}
-				{view === "agent" && <div className="pgw-page-scroll"><PlaygroundAgentWorkspace key={`${conversationId}:${model}:${preferences.inputContextTokens}:${preferences.compactionMode}:${sessionIds.current.get(conversationId) || ""}`} context={{ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }} /></div>}
+				{view === "agent" && <div className="pgw-page-scroll"><PlaygroundAgentWorkspace key={`${conversationId}:${model}:${preferences.inputContextTokens}:${preferences.compactionMode}:${sessionIds.current.get(conversationId) || ""}`} initialMode={agentEntryMode} onChat={() => setView("chat")} context={{ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }} /></div>}
 				{view === "settings" && <div className="pgw-page-scroll"><PlaygroundSettings preferences={preferences} thinkingAllowed={thinkingAllowed} streaming={streaming} onSave={savePreferences} onExport={exportConversation} onImport={importConversation} hasMessages={messages.length > 0} /></div>}
 				{view === "prices" && <div className="pgw-page-scroll"><section className="pgw-prices"><h1><WorkspaceIcon name="prices" width={28} height={28} /> API Prices</h1><p>Every model. 128K context. Image/video attachments use Vision; audio uses Audio.</p><span className="pgw-pricing-unit">RON per 1M tokens · input / output</span><PlaygroundModelLineup tier={tier} access={access} disclosure={false} /></section></div>}
 				{view === "chat" && <div className={`pgw-chat${empty ? " pgw-chat-empty" : ""}`}>
@@ -458,9 +462,10 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 							<textarea ref={inputRef} rows={2} aria-label="Message" placeholder="Type a message…" value={input} maxLength={8000} disabled={streaming} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!streaming) attachments.addFiles(event.dataTransfer.files); }} onPaste={(event) => { if (event.clipboardData.files.length && !streaming) { event.preventDefault(); attachments.addFiles(event.clipboardData.files); } }} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && preferences.enterToSend) { event.preventDefault(); void send(); } }} />
 							<div className="pgw-composer-toolbar">
 								<div className="pgw-composer-left">
+									<WorkspacePicker label="Playground mode" value="chat" icon="brain" disabled={streaming} options={[{ key: "chat", label: "Chat" }, { key: "plan", label: "Plan" }, { key: "build", label: "Build" }]} onChange={value => { if (value === "chat") return; setAgentEntryMode(value === "build" ? "build" : "plan"); setView("agent"); }} />
 									<AttachmentMenu disabled={streaming} onFiles={attachments.addFiles} />
 									<button type="button" ref={githubRef} className="pgw-icon-button" aria-label="Add GitHub project" title="Add GitHub project" disabled={streaming} onClick={() => setGithubOpen(true)}><WorkspaceIcon name="github" /></button>
-									<label className="pgw-context-picker" title="Maximum input tokens"><select aria-label="Input context" disabled={streaming} value={preferences.inputContextTokens} onChange={(event) => savePreferences({ ...preferences, inputContextTokens: Number(event.target.value) })}>{CONTEXT_LEVELS.map((level) => <option key={level} value={level}>{formatContextTokens(level)}</option>)}</select></label>
+									<WorkspacePicker label="Input context" icon={null} disabled={streaming} value={String(preferences.inputContextTokens)} options={CONTEXT_LEVELS.map(level => ({ key: String(level), label: formatContextTokens(level) }))} onChange={value => savePreferences({ ...preferences, inputContextTokens: Number(value) })} />
 									<WorkspacePicker label="Compaction mode" icon="settings" disabled={streaming} value={preferences.compactionMode} options={COMPACTION_OPTIONS} onChange={value => savePreferences({ ...preferences, compactionMode: compactionMode(value) })} />
 								</div>
 								<div className="pgw-composer-right">
@@ -475,6 +480,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				</div>}
 			</div>
 			{githubOpen && <GithubProjectDialog onAdd={attachments.addGithub} onClose={() => { setGithubOpen(false); window.requestAnimationFrame(() => githubRef.current?.focus()); }} />}
+			{helpOpen && <PlaygroundHelp advancedDisabled={streaming} onClose={() => setHelpOpen(false)} onManual={() => { setHelpOpen(false); setWorkspaceOpen(true); setView("chat"); }} onPreview={() => { setHelpOpen(false); setView("review"); }} />}
 		</div>
 	);
 }

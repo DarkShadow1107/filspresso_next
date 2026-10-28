@@ -4,6 +4,9 @@ param(
     [string]$PackageDirectory
 )
 $ErrorActionPreference = 'Stop'
+if ($ProductVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'ProductVersion must have three numeric fields (major.minor.patch).' }
+$versionParts = @($ProductVersion.Split('.') | ForEach-Object { [int]$_ })
+if ($versionParts[0] -gt 255 -or $versionParts[1] -gt 255 -or $versionParts[2] -gt 65535) { throw 'ProductVersion exceeds Windows Installer version limits.' }
 $root = Split-Path -Parent $PSScriptRoot
 if (-not (Test-Path -LiteralPath "$root\src\Filspresso.App")) { throw 'Run this script from the desktop source tree.' }
 $artifacts = Join-Path $root 'artifacts'
@@ -30,12 +33,21 @@ if (-not $SkipTests) {
 Invoke-Checked { & $msbuild "$root\installer\native\Filspresso.Maintenance.vcxproj" -p:Configuration=Release -p:Platform=x64 -nologo -v:minimal }
 
 $publish = Join-Path $packageRoot 'publish-next'
-Invoke-Checked { & $msbuild "$root\src\Filspresso.App\Filspresso.App.csproj" -restore -t:Publish -p:Configuration=Release -p:Platform=x64 "-p:PublishDir=$publish\" -nologo -v:minimal }
-foreach ($file in @('Filspresso.Playground.pri', 'App.xbf', 'MainWindow.xbf', 'PlaygroundPage.xbf', 'RunHistoryPage.xbf', 'AgentReviewPage.xbf', 'AgentWorkspacePage.xbf', 'SettingsPage.xbf', 'Assets\Filspresso.ico', 'Assets\Icons\settings.svg', 'Assets\Icons\github.svg')) {
+Invoke-Checked { & $msbuild "$root\src\Filspresso.App\Filspresso.App.csproj" -restore -t:Publish -p:Configuration=Release -p:Platform=x64 "-p:Version=$ProductVersion" "-p:PublishDir=$publish\" -nologo -v:minimal }
+$applicationVersion = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $publish 'Filspresso.Playground.dll')).Version.ToString(3)
+if ($applicationVersion -ne $ProductVersion) { throw "App version $applicationVersion does not match MSI version $ProductVersion." }
+foreach ($file in @('Filspresso.Playground.pri', 'App.xbf', 'MainWindow.xbf', 'PlaygroundPage.xbf', 'RunHistoryPage.xbf', 'AgentReviewPage.xbf', 'AgentWorkspacePage.xbf', 'SettingsPage.xbf', 'InstructionsPage.xbf', 'Assets\Filspresso.ico', 'Assets\Icons\settings.png', 'Assets\Icons\github.png', 'Assets\Icons\help.png')) {
     if (-not (Test-Path -LiteralPath (Join-Path $publish $file))) { throw "Missing WinUI runtime resource: $file" }
 }
+$iconManifest = Get-Content -Raw (Join-Path $root '..\src\icons\playground-icons.json') | ConvertFrom-Json
+$iconNames = @($iconManifest.PSObject.Properties.Name) + @('send-dark', 'stop-dark')
+foreach ($name in $iconNames) {
+    $source = Join-Path $artifacts "shared-icons\$name.png"
+    $target = Join-Path $publish "Assets\Icons\$name.png"
+    if (!(Test-Path -LiteralPath $target) -or (Get-FileHash -LiteralPath $source).Hash -ne (Get-FileHash -LiteralPath $target).Hash) { throw "Missing or stale desktop icon: $name" }
+}
 $qualification = Join-Path $packageRoot 'qualification'
-Invoke-Checked { dotnet publish "$root\src\Filspresso.Qualify\Filspresso.Qualify.csproj" -c Release -r win-x64 --self-contained true -p:Platform=x64 -o $qualification --nologo -v minimal }
+Invoke-Checked { dotnet publish "$root\src\Filspresso.Qualify\Filspresso.Qualify.csproj" -c Release -r win-x64 --self-contained true -p:Platform=x64 "-p:Version=$ProductVersion" -o $qualification --nologo -v minimal }
 # Use the exact sandbox/Core bytes from the published app, not an independently compiled
 # dependency that could differ in platform/version flags. Both target the same .NET runtime.
 foreach ($assembly in @('Filspresso.Core.dll', 'Filspresso.Sandbox.dll', 'System.Security.Cryptography.ProtectedData.dll')) {
