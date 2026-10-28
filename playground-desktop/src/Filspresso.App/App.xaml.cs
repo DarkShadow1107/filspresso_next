@@ -21,9 +21,11 @@ public partial class App : Application
 
     public App()
     {
+        TraceStartup("App constructor");
         UnhandledException += (_, args) => RecordFailure(args.Exception);
         DebugSettings.XamlResourceReferenceFailed += (_, args) => RecordFailure(new InvalidOperationException(args.Message));
         InitializeComponent();
+        TraceStartup("App resources loaded");
 
         // No bootstrapper initialisation here, and that is deliberate.
         //
@@ -38,13 +40,16 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        TraceStartup("OnLaunched entered");
         try
         {
             var requirement = WindowsPlatformProbe.CurrentRequirement();
+            TraceStartup("Platform checked");
 
             _window = requirement.Supported
                 ? new MainWindow()
                 : new UnsupportedPlatformWindow(requirement);
+            TraceStartup("Window constructed");
 
             _window.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Filspresso.ico"));
             _window.Activate();
@@ -69,5 +74,10 @@ public partial class App : Application
                 File.AppendAllText(path, $"{item.Key}: {item.Value}{Environment.NewLine}");
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException) { }
+    }
+    internal static void TraceStartup(string stage)
+    {
+        var directory = Environment.GetEnvironmentVariable("FILSPRESSO_PROFILE_DIR");
+        if (directory is not null) File.AppendAllText(Path.Combine(directory, "startup-trace.txt"), stage + Environment.NewLine);
     }
 }

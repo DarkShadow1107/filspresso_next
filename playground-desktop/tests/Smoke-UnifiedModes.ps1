@@ -50,18 +50,15 @@ function By-Id([string]$id) {
     throw "Missing automation id: $id"
 }
 try {
-    # Restore a fake session from this test's private vault namespace. No real credentials
-    # are read. Login-field UIAutomation is unstable on this Windows/WinUI host (also in
-    # the prior candidate), so this test is not a qualification of the sign-in controls.
-    $session = @{ AccessToken='fixture-access-not-a-real-token'; RefreshToken='fixture-refresh-not-a-real-token'; AccessTokenExpiresAt=[DateTimeOffset]::UtcNow.AddHours(1).ToString('o'); RefreshTokenExpiresAt=[DateTimeOffset]::UtcNow.AddDays(1).ToString('o'); Email='fixture@example.invalid'; DeviceId=[guid]::NewGuid().ToString(); AccountName='fixture' } | ConvertTo-Json -Compress
-    cmdkey.exe "/generic:$prefix/session" /user:fixture "/pass:$session" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not create isolated fixture credential.' }
     $script:appProcess = Start-Process -FilePath (Resolve-Path $AppPath).Path -PassThru
     $script:appProcess.WaitForInputIdle(15000) | Out-Null
     $until = [datetime]::UtcNow.AddSeconds(20)
     do { $script:appProcess.Refresh(); if ($script:appProcess.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 150 } while ([datetime]::UtcNow -lt $until)
     # The native HWND precedes WinUI's accessibility tree on cold startup.
     Start-Sleep -Seconds 2
+    Set-Value (By-Id 'EmailBox') 'fixture@example.invalid'
+    Set-Value (By-Id 'PasswordBox') 'fixture-only'
+    Invoke-Element (By-Id 'SubmitButton')
     $message = By-Id 'PromptBox'; Set-Value $message 'Keep this draft across modes'
     foreach ($mode in @('Plan','Build','Chat')) {
         Invoke-Element (Wait-Element 'Playground mode'); Invoke-Element (Wait-Element $mode)

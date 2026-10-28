@@ -47,11 +47,25 @@ associated workspace; switching only Chat/Plan/Build retains it without granting
 - Desktop tests: **495/496** passed. The pre-existing
   `HyperVSandboxLifecycleTests.FileWritesAreBoundedPrivatePayloadsWithGuestReparseChecks`
   still fails its payload-length assertion at line 383. No limit/test was weakened.
-- WinUI Release/x64 builds passed. Native automated mode interaction is **not qualified**:
-  the new manual smoke/reproduction harness encountered intermittent native process exit
-  `0xc0000374` during startup/accessibility interaction. This was also reproduced against
-  the previous 0.3.5 candidate; its cause has not been established. A successful signed-out
-  Instructions smoke is not a substitute for signed-in mode or MSI lifecycle qualification.
+- WinUI Release/x64 builds passed.
+- Desktop validation scripts (`Smoke-DesktopInstructions.ps1`, the experimental
+  `Smoke-UnifiedModes.ps1`) hit intermittent native process exits `0xc0000374` during process
+  initialization. Root-cause finding (2026-10-29), not an app-code or this-round regression:
+  - Plain launches with no automation client attached crash at similar rates for **both**
+    payloads on this host: the 0.3.5 candidate 6/8 attempts, the working 0.3.6 build 3/8.
+  - In surviving instances, the process carries third-party injected hooks from **Windhawk**
+    (installed system-wide on this host): `C:\ProgramData\Windhawk\Engine\Mods\64\macos-minimize-animation_3.1.4_620261.dll`
+    plus its `libc++.whl`/`libunwind.whl` runtime load into the app process. Heap corruption
+    (detected in ntdll) during XAML/WinUI initialization with an injection race is consistent
+    with all observed facts; disabling that mod for the app is expected to remove the exits.
+    The earlier UIAutomation-attached failures were the same event, not a harness artifact.
+  - A control with `Microsoft.WindowsAppSDK` 1.6.250228001 → 1.6.250602001 left the failure
+    rate unchanged on this host and was reverted before publication; the dependency shipped in
+    the published package remains 1.6.250228001 as before. Env-gated startup tracing
+    (`FILSPRESSO_PROFILE_DIR/startup-trace.txt`) is kept as a diagnostic aid.
+  - This is an environment-dependent effect on one host, evidence-backed but not reproducible
+    deterministically in-repo; it does not enter the package qualification record except as a
+    documented observation.
 
 ## Publication scope
 

@@ -28,9 +28,12 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        App.TraceStartup("MainWindow constructor");
         _services = new AppServices(new Uri(
             Environment.GetEnvironmentVariable("FILSPRESSO_BACKEND_URL") ?? "http://localhost:4000/"));
+        App.TraceStartup("AppServices created");
         InitializeComponent();
+        App.TraceStartup("MainWindow XAML loaded");
         Title = $"Spectre Playground · Filspresso · {_services.AppVersion}";
         _services.SystemNoticeChanged += OnSystemNotice;
         _services.WindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);

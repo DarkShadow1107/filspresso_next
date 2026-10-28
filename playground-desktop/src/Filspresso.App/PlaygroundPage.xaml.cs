@@ -506,10 +506,11 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         var user = CreateLine(true, "You", prompt); user.Sources = sources; _transcript.Add(user);
         var answer = CreateLine(false, (ModelBox.SelectedItem as ModelView)?.Label ?? "Agent", "Working…"); answer.IsComplete = false; _transcript.Add(answer);
         PromptBox.Text = string.Empty; ClearSources(); UpdateChatLayout(); RenderSelection();
-        agent.OutputChanged = text => { answer.Text = string.IsNullOrEmpty(text) ? "Working…" : text; Transcript.ScrollIntoView(answer); };
+        EventHandler<string> output = (_, text) => { answer.Text = string.IsNullOrEmpty(text) ? "Working…" : text; Transcript.ScrollIntoView(answer); };
+        agent.OutputChanged += output;
         try { await agent.SendFromComposerAsync(request, history); }
         catch (Exception error) when (error is InvalidOperationException or OperationCanceledException) { answer.Text = error.Message; }
-        finally { agent.OutputChanged = null; answer.IsComplete = true; _inFlight = null; if (!_disposed) { RememberConversation(); Render(); } }
+        finally { agent.OutputChanged -= output; answer.IsComplete = true; _inFlight = null; if (!_disposed) { RememberConversation(); Render(); } }
     }
 
     /// <summary>

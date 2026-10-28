@@ -40,10 +40,10 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private Filspresso.Harness.SessionSpendGate? _spendGate;
     private bool _active, _disposed;
     private bool _build;
-    public event EventHandler? StateChanged;
-    public Action<string>? OutputChanged { get; set; }
-    public bool IsBusy => _startingSandbox || _projectBusy || _checking is not null || _conversation?.Snapshot.Busy == true;
-    public bool CanSend => _active && !IsBusy && _conversation?.Snapshot.RequiresReset == false && _transport?.SupportsConversation == true && _transport.SupportsModel(_model ?? string.Empty) && (!_build || _execution?.Workspace is not null);
+    internal event EventHandler? StateChanged;
+    internal event EventHandler<string>? OutputChanged;
+    internal bool IsBusy => _startingSandbox || _projectBusy || _checking is not null || _conversation?.Snapshot.Busy == true;
+    internal bool CanSend => _active && !IsBusy && _conversation?.Snapshot.RequiresReset == false && _transport?.SupportsConversation == true && _transport.SupportsModel(_model ?? string.Empty) && (!_build || _execution?.Workspace is not null);
     public void SelectMode(bool build)
     {
         if (IsBusy) return;
@@ -123,7 +123,7 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
             };
             if (value.Length > 0) output.Add(value);
         }
-        OutputChanged?.Invoke(string.Join("\n\n", output));
+        OutputChanged?.Invoke(this, string.Join("\n\n", output));
         RenderQuestion(state.Question);
         ApprovalBorder.Visibility = state.Approval is null ? Visibility.Collapsed : Visibility.Visible;
         if (state.Approval?.Id != _approvalId)
