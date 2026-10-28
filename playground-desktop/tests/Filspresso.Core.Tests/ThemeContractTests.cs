@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Xunit;
 
 namespace Filspresso.Core.Tests;
@@ -55,7 +56,7 @@ public sealed class ThemeContractTests
             {
                 var key = match.Groups["key"].Value;
                 if (key.StartsWith("Filspresso", StringComparison.Ordinal) ||
-                    key is "RailButtonStyle" or "QuietButtonStyle" or "CopperButtonStyle")
+                    key is "RailButtonStyle" or "QuietButtonStyle" or "CopperButtonStyle" or "ComposerTextBoxStyle")
                 {
                     referenced.Add(key);
                 }
@@ -99,5 +100,32 @@ public sealed class ThemeContractTests
         Assert.Contains("Poppins-Regular.ttf", project, StringComparison.Ordinal);
         Assert.Contains("Poppins-SemiBold.ttf", project, StringComparison.Ordinal);
         Assert.Contains("CopyToOutputDirectory=\"PreserveNewest\"", project, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ComposerOffersRealPlanBuildNavigationAndCompactIconImports()
+    {
+        var xaml = XDocument.Load(Path.Combine(AppDirectory(), "PlaygroundPage.xaml"));
+        var modeButtons = xaml.Descendants().Where(element => element.Attribute("Click")?.Value == "OnAgentMode").ToArray();
+        Assert.Equal(new[] { "plan", "build" }, modeButtons.Select(element => element.Attribute("Tag")?.Value));
+        var imports = xaml.Descendants().Where(element => element.Name.LocalName == "MenuFlyoutItem" && element.Attribute("Click")?.Value == "OnAttachFiles").ToArray();
+        Assert.Equal(8, imports.Length);
+        Assert.All(imports, item => Assert.Contains(item.Elements(), child => child.Name.LocalName == "MenuFlyoutItem.Icon"));
+        var shell = File.ReadAllText(Path.Combine(AppDirectory(), "MainWindow.xaml.cs"));
+        Assert.Contains("AgentModeRequested += OnAgentMode", shell, StringComparison.Ordinal);
+        Assert.Contains("SelectMode(mode == \"build\")", shell, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AgentSetupIsProgressivelyDisclosedWithoutRemovingApprovalGates()
+    {
+        var xaml = File.ReadAllText(Path.Combine(AppDirectory(), "AgentWorkspacePage.xaml"));
+        Assert.Contains("x:Name=\"WorkspaceSetup\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Header=\"Project &amp; changes\"", xaml, StringComparison.Ordinal);
+        foreach (var control in new[] { "VerifySandboxButton", "EnableExecutionButton", "ReviewedAction", "ApprovalBorder", "QuestionBorder" })
+            Assert.Contains($"x:Name=\"{control}\"", xaml, StringComparison.Ordinal);
+        var code = File.ReadAllText(Path.Combine(AppDirectory(), "AgentWorkspacePage.xaml.cs"));
+        Assert.Contains("ModeBox.SelectedIndex != 1 || started", code, StringComparison.Ordinal);
+        Assert.Contains("WindowsPlatformProbe.TryReadSystemReport()", code, StringComparison.Ordinal);
     }
 }

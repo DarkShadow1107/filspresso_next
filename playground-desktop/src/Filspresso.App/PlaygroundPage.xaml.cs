@@ -52,6 +52,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true, WriteIndented = true };
 
     public event RoutedEventHandler? SettingsRequested;
+    public event EventHandler<string>? AgentModeRequested;
     public string? SavedSessionUuid => _sessionUuids.GetValueOrDefault(_conversationId);
 
     public PlaygroundPage(AppServices services, PlaygroundSession session)
@@ -257,6 +258,11 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     }
     private async void OnSend(object sender, RoutedEventArgs args) => await SendAsync();
     private void OnSettings(object sender, RoutedEventArgs args) => SettingsRequested?.Invoke(this, args);
+    private void OnAgentMode(object sender, RoutedEventArgs args)
+    {
+        if (_inFlight is not null || sender is not Button { Tag: string mode }) return;
+        AgentModeRequested?.Invoke(this, mode);
+    }
     private void OnThinkingChanged(object sender, RoutedEventArgs args) => _thinking = ThinkingButton.IsChecked == true;
     private void OnNewConversation(object sender, RoutedEventArgs args) => NewConversation();
     private void OnCancelEdit(object sender, RoutedEventArgs args) { _editingFrom = null; PromptBox.Text = string.Empty; EditingPanel.Visibility = Visibility.Collapsed; }

@@ -4327,9 +4327,9 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 	gap: 8px;
 }
 
-.desktop-compatibility-dialog { color: #eadbd0; background: #1c1815; border: 1px solid #69503e; border-radius: 16px; padding: 26px; width: min(650px, calc(100vw - 32px)); max-height: 85vh; overflow-y: auto; box-shadow: 0 24px 100px #0009; font-family: inherit; font-size: 14px; line-height: 1.65; }
+.desktop-compatibility-dialog { color: #eadbd0; background: #1c1815; border: 1px solid #514238; border-radius: 16px; padding: 24px; margin: auto; width: min(540px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; box-shadow: 0 24px 100px #0009; font-family: inherit; font-size: 12px; line-height: 1.65; }
 .desktop-compatibility-dialog::backdrop { background: #000a; }
-.desktop-compatibility-dialog h2 { font-size: 22px; margin: 0 0 16px; }
+.desktop-compatibility-dialog h2 { font-size: 20px; margin: 0 0 12px; }
 .desktop-compatibility-dialog p { margin: 12px 0; }
 .desktop-compatibility-dialog ul { padding-left: 22px; }
 .desktop-compatibility-dialog li { margin: 10px 0; }
@@ -4337,6 +4337,22 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 .desktop-compatibility-actions button { border: 1px solid #8c674b; background: #302218; color: #f1dfd0; border-radius: 8px; padding: 10px 14px; cursor: pointer; }
 .desktop-compatibility-actions button:focus-visible { outline: 2px solid #edbb91; outline-offset: 3px; }
 .desktop-compatibility-actions button:disabled { opacity: .5; cursor: wait; }
+.desktop-system-facts { display: grid; gap: 8px; margin: 16px 0; padding-block: 12px; border-block: 1px solid #493b31; }
+.desktop-system-facts > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.desktop-system-facts dt, .desktop-download-note { color: #ac9d92; }
+.desktop-system-facts dd { margin: 0; }
+.desktop-setup-details { margin: 12px 0; }
+.desktop-setup-details summary { cursor: pointer; color: #dfb58f; }
+.desktop-download-facts { font-size: 11px; overflow-wrap: anywhere; }
+.desktop-signing-warning { padding-left: 12px; border-left: 2px solid #bd8d65; }
+.desktop-compatibility-acknowledge { display: grid; gap: 14px; margin-top: 18px; }
+.desktop-compatibility-acknowledge label { display: flex; gap: 9px; align-items: flex-start; }
+.desktop-compatibility-acknowledge label:first-child { flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.desktop-compatibility-acknowledge select { max-width: 100%; padding: 6px 8px; color: inherit; background: #28211d; border: 1px solid #594536; border-radius: 6px; font: inherit; }
+.desktop-compatibility-acknowledge input { flex-shrink: 0; margin-top: 4px; accent-color: #bd8d65; }
+.desktop-download-error { color: #f6a78f; }
+.desktop-recheck { border: 0; background: transparent; color: #e4b38a; padding: 0; font: inherit; cursor: pointer; }
+.desktop-compatibility-actions button { font: inherit; }
 .playground-download__button {
 	display: inline-flex;
 	align-items: center;

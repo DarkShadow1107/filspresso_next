@@ -11,8 +11,8 @@
                     <Button Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Search conversations" AutomationProperties.Name="Search conversations" Click="OnSearch"><local:SharedIcon IconName="search" /></Button>
                     <Button x:Name="PricesNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="API Prices" AutomationProperties.Name="API Prices" Click="OnPrices"><local:SharedIcon IconName="prices" /></Button>
                     <Button x:Name="ActivityNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Recorded activity" AutomationProperties.Name="Recorded activity" Click="OnActivity"><local:SharedIcon IconName="file" /></Button>
-                    <Button x:Name="ReviewNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Agent proposal review" AutomationProperties.Name="Agent proposal review" Click="OnReview"><local:SharedIcon IconName="brain" /></Button>
-                    <Button x:Name="AgentNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Agent conversation" AutomationProperties.Name="Agent conversation" Click="OnAgent"><local:SharedIcon IconName="edit" /></Button>
+                    <Button x:Name="AgentNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Plan / Build" AutomationProperties.Name="Plan / Build" Click="OnAgent"><local:SharedIcon IconName="edit" /></Button>
+                    <Button x:Name="ReviewNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Proposal preview (advanced)" AutomationProperties.Name="Proposal preview (advanced)" Click="OnReview" Visibility="Collapsed"><local:SharedIcon IconName="brain" /></Button>
                     <Button x:Name="SettingsNav" Style="{StaticResource RailButtonStyle}" ToolTipService.ToolTip="Settings" AutomationProperties.Name="Settings" Click="OnSettings"><local:SharedIcon IconName="settings" /></Button>
                 </StackPanel>
                 <StackPanel Grid.Row="2" Spacing="12">

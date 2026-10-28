@@ -77,6 +77,8 @@ public sealed partial class MainWindow : Window
         _playgroundPage ??= new PlaygroundPage(_services, _services.Playground);
         _playgroundPage.SettingsRequested -= OnSettings;
         _playgroundPage.SettingsRequested += OnSettings;
+        _playgroundPage.AgentModeRequested -= OnAgentMode;
+        _playgroundPage.AgentModeRequested += OnAgentMode;
         if (_settingsPage is null)
         {
             _settingsPage = new SettingsPage(_services);
@@ -217,7 +219,12 @@ public sealed partial class MainWindow : Window
         PricesNav.Background = SettingsNav.Background = ActivityNav.Background = ReviewNav.Background = AgentNav.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
         if (section == "agent")
         {
-            _agentWorkspacePage ??= new AgentWorkspacePage(_services);
+            if (_agentWorkspacePage is null)
+            {
+                _agentWorkspacePage = new AgentWorkspacePage(_services);
+                _agentWorkspacePage.BackRequested += (_, _) => SetSection("chat");
+                _agentWorkspacePage.ProposalReviewRequested += (_, _) => SetSection("review");
+            }
             ContentFrame.Content = _agentWorkspacePage;
             AgentNav.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoSurface"];
             _agentWorkspacePage.Reload(_playgroundPage.SavedSessionUuid);
@@ -256,6 +263,11 @@ public sealed partial class MainWindow : Window
     private void OnActivity(object sender, RoutedEventArgs args) => SetSection("activity");
     private void OnReview(object sender, RoutedEventArgs args) => SetSection("review");
     private void OnAgent(object sender, RoutedEventArgs args) => SetSection("agent");
+    private void OnAgentMode(object? sender, string mode)
+    {
+        SetSection("agent");
+        if (ReferenceEquals(ContentFrame.Content, _agentWorkspacePage)) _agentWorkspacePage?.SelectMode(mode == "build");
+    }
     private void OnNewConversation(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.NewConversation(); }
     private void OnConversations(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(false); }
     private void OnSearch(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(true); }

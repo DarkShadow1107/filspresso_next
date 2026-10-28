@@ -42,7 +42,7 @@ public sealed partial class AgentReviewPage : UserControl, IDisposable
         _review.Changed += OnReviewChanged;
         _rendering = true; PromptBox.Text = string.Empty; ModeBox.SelectedIndex = 0; _rendering = false;
         var label = _services.Playground.Catalogue.Models.FirstOrDefault(model => model.ModelKey == _model)?.Label ?? "Selected chat model";
-        ModelInfo.Text = $"Model: hosted AI · This review: no connected executor · {label} · {_context / 1024}K input limit · Desktop Build boundary: Windows Sandbox, not started";
+        ModelInfo.Text = $"{label} · hosted inference · {_context / 1024}K input · no executor";
         Render();
     }
 
@@ -58,7 +58,7 @@ public sealed partial class AgentReviewPage : UserControl, IDisposable
         GenerateButton.IsEnabled = _active && !busy && available && !string.IsNullOrWhiteSpace(PromptBox.Text);
         ReviewStatus.Text = state.Phase == ProposalReviewPhase.Checking ? "Checking native model capabilities…" : state.Phase == ProposalReviewPhase.Generating ?
             "Generating proposals. No code is running in this review." : available ? "Native proposal transport configured. Execution approval is still unavailable." :
-            "Native proposals unavailable for the selected model. No models are enabled by default; plain chat remains available.";
+            "Tool proposals are unavailable for this model. Chat is still available; an operator must qualify and enable agent models.";
         ReviewError.Text = state.Error;
         Receipt.Text = state.Reply is { Usage: { } usage } reply ? $"{reply.RunId} · Reported model usage: {usage.InputTokens} input / {usage.OutputTokens} output tokens · Settlement recorded" : string.Empty;
         Answer.Text = state.Reply?.Text ?? string.Empty;

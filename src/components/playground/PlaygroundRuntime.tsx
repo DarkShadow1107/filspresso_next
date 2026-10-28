@@ -102,9 +102,9 @@ export default function PlaygroundRuntime({ open }: { open: boolean }) {
 		} finally { setRunning(false); if (abort.current === controller) abort.current = null; }
 	};
 
-	return <section className="pgw-runtime" hidden={!open} aria-label="Hosted execution workspace">
-		<header><h2>Execution workspace</h2><span>Inference: hosted AI · Code: {sandbox ? "hosted Docker" : "not running"}</span></header>
-		<p>Manual execution, separate from chat. Python 3.11 and POSIX shell · no network · 512 MB RAM · 30s per command. Files are temporary: idle workspaces expire after 15 minutes and all workspaces after 1 hour. Download anything you need to keep.</p>
+	return <section id="pgw-manual-workspace" className="pgw-runtime" hidden={!open} aria-label="Hosted execution workspace">
+		<header><h2>Manual workspace</h2><span>{sandbox ? "Hosted sandbox ready" : "Not started"}</span></header>
+		<details className="pgw-runtime-limits"><summary>Python 3.11 · offline · temporary files</summary><p>Separate from chat. POSIX shell · 512 MB RAM · 30 seconds per command. Expires after 15 idle minutes or 1 hour total. Download files you need to keep. Chat responses are not execution results.</p></details>
 		<div className="pgw-runtime-actions">
 			<label>Workspace mode <select value={mode} disabled={running} onChange={event => { setMode(event.target.value as typeof mode); setApproved(false); setWriteApproved(false); }}><option value="inspect">Inspect · read only</option><option value="build">Build · explicit execution</option></select></label>
 			{!sandbox ? <button type="button" className="pgw-outlined-button" disabled={busy} onClick={start}>Start hosted sandbox</button> : <><button type="button" className="pgw-outlined-button" disabled={busy} onClick={stop}>{running ? "Cancel and discard sandbox" : "Stop and discard sandbox"}</button><button type="button" className="pgw-text-button" disabled={busy || running} onClick={() => perform(() => refresh(sandbox.id))}>Refresh files</button></>}
@@ -121,7 +121,7 @@ export default function PlaygroundRuntime({ open }: { open: boolean }) {
 			<button type="button" className="pgw-outlined-button" disabled={busy || running || !approved || mode !== "build" || text !== original || !command.trim()} onClick={() => void run()}>Run approved command</button>
 			{text !== original && <p>Save the draft before running a command.</p>}
 		</div></div>}
-		<h3>Console</h3><pre ref={consoleRef} className="pgw-runtime-console" aria-label="Sandbox console output">{output || "No command output. Chat responses are not execution results."}</pre>
-		<details><summary>Execution activity</summary><ol>{activity.map((item, index) => <li key={index}>{item}</li>)}</ol></details>
+		{sandbox && <><h3>Console</h3><pre ref={consoleRef} className="pgw-runtime-console" aria-label="Sandbox console output">{output || "No commands run yet."}</pre></>}
+		{activity.length > 0 && <details><summary>Execution activity</summary><ol>{activity.map((item, index) => <li key={index}>{item}</li>)}</ol></details>}
 	</section>;
 }

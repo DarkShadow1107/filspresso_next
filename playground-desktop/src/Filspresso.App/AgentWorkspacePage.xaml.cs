@@ -39,12 +39,24 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private string _availabilityError = string.Empty;
     private Filspresso.Harness.SessionSpendGate? _spendGate;
     private bool _active, _disposed;
+    public event EventHandler? BackRequested;
+    public event EventHandler? ProposalReviewRequested;
+    public void SelectMode(bool build)
+    {
+        if (_conversation?.Snapshot is { Busy: false, CompletedTurns: 0 }) ModeBox.SelectedIndex = build ? 1 : 0;
+        if (build) WorkspaceSetup.IsExpanded = true;
+    }
+    private void OnBack(object sender, RoutedEventArgs args) => BackRequested?.Invoke(this, EventArgs.Empty);
+    private void OnProposalReview(object sender, RoutedEventArgs args) => ProposalReviewRequested?.Invoke(this, EventArgs.Empty);
     public AgentWorkspacePage(AppServices services)
     {
         _services = services; InitializeComponent();
         services.Auth.Changed += OnAccountChanged; services.PreferencesChanged += OnPreferencesChanged;
         services.SystemNoticeChanged += OnSystemNotice;
         RenderUpdateNotice();
+        var system = WindowsPlatformProbe.TryReadSystemReport();
+        SystemCheck.Text = system is null ? "Windows system details could not be read. Verification is still required."
+            : $"This PC · {system.Edition ?? "Edition not reported"} · build {system.Build?.ToString() ?? "not reported"}{(system.Ubr is { } ubr ? "." + ubr : string.Empty)} · {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}. Sandbox safety verification is separate.";
     }
     private void OnSystemNotice(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => { if (!_disposed) RenderUpdateNotice(); });
     private void RenderUpdateNotice()
@@ -74,9 +86,9 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         _spendGate = _services.CreateSessionSpendGate();
         _conversation = new(candidate, _spendGate); _conversation.Changed += OnChanged;
         PromptBox.Text = string.Empty; ModeBox.SelectedIndex = 0; IsolationBox.SelectedIndex = 0;
-        var status = $"Hosted inference · {_context / 1024}K input · {_compaction} compaction · inspected files remain local until requested by a model tool";
+        var label = _services.Playground.Catalogue.Models.FirstOrDefault(model => model.ModelKey == _model)?.Label ?? "Selected model";
+        var status = $"{label} · hosted inference · {_context / 1024}K input · {_compaction} compaction";
         if (_spendGate is { } gate && gate.Describe() is { Length: > 0 } cap) status += " · " + cap;
-        else status += " · spend cap off (experimental)";
         ModelInfo.Text = status;
         RenderUpdateNotice();
         Render();
@@ -90,6 +102,8 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         if (_disposed || _conversation is null) return;
         var state = _conversation.Snapshot; var available = _transport?.SupportsConversation == true && _transport.SupportsModel(_model ?? string.Empty);
         var started = _execution?.Workspace is not null;
+        ModeHint.Text = (ModeBox.SelectedIndex == 1 ? "Build edits and tests the staged copy. Start a verified workspace below; each change or command needs approval." : "Plan explores imported files and answers questions. It cannot write files or run commands.")
+            + (state.CompletedTurns > 0 ? " Start a new conversation to change mode; your staged project is retained." : string.Empty);
         IsolationBox.IsEnabled = _active && !state.Busy && !_startingSandbox && !_projectBusy && !started && _execution?.NeedsCleanup != true;
         VerifySandboxButton.Content = SelectedIsolation == ExecutionIsolation.NativeRestricted ? "Verify native isolation…" : "Verify Sandbox setup…";
         CheckButton.IsEnabled = NewButton.IsEnabled = _active && !state.Busy && _checking is null && !_projectBusy && !_startingSandbox;
@@ -105,9 +119,9 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         ExportButton.IsEnabled = _active && !state.Busy && !_projectBusy && !_startingSandbox && _checkpoints is { } journal && journal.ChangeCount > 0;
         ArtifactButton.IsEnabled = _active && !state.Busy && !_projectBusy && !_startingSandbox && _checkpoints?.HasBaseline == true;
         Status.Text = _startingSandbox && _startingProgress is { Length: > 0 } ? _startingProgress :
-            _checking is not null ? "Checking qualified native model availability…" : state.Stopping ? "Stopping; a new turn cannot start until cleanup finishes." :
+            _checking is not null ? "Checking model tool support…" : state.Stopping ? "Stopping; waiting for cleanup." :
             state.Question is not null ? "Waiting for clarification, not execution consent." : state.Approval is not null ? "Waiting for separate, exact-action execution consent." :
-            state.Busy ? "Agent working; model turns are metered." : available ? "Native conversation available." : "Check native availability. No models are enabled by default.";
+            state.Busy ? "Working · metered model turns" : available ? "Ready" : "Check model availability to use Plan / Build. Ordinary chat is separate.";
         if (state.QueuedMessage is not null) Status.Text += "\nQueued follow-up: " + state.QueuedMessage;
         Error.Text = state.Error.Length > 0 ? state.Error : _availabilityError;
         ExecutionStatus.Text = _executionStatus;
@@ -129,8 +143,8 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
                 AgentEvent.Stopped stop => "Stopped · " + stop.Message,
                 _ => "Unknown activity · inert display only",
             };
-            Activity.Children.Add(new Border { BorderThickness = new Thickness(1), BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoBorder"],
-                Padding = new Thickness(12), CornerRadius = new CornerRadius(8), Child = Text(value) });
+            Activity.Children.Add(new Border { BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoBorder"],
+                Padding = new Thickness(0, 12, 0, 16), Child = Text(value) });
         }
         RenderQuestion(state.Question);
         ApprovalBorder.Visibility = state.Approval is null ? Visibility.Collapsed : Visibility.Visible;
@@ -227,7 +241,12 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private void OnStop(object sender, RoutedEventArgs args) { _checking?.Cancel(); _starting?.Cancel(); _conversation?.Stop(); }
     private void OnNew(object sender, RoutedEventArgs args) { if (_conversation?.NewConversation() == true) { PromptBox.Text = string.Empty; Render(); } }
     private void OnPromptChanged(object sender, TextChangedEventArgs args) { if (_conversation is not null) Render(); }
-    private void OnModeChanged(object sender, SelectionChangedEventArgs args) { if (_conversation is not null) Render(); }
+    private void OnModeChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_conversation is null) return;
+        if (ModeBox.SelectedIndex == 1 && _execution?.Workspace is null) WorkspaceSetup.IsExpanded = true;
+        Render();
+    }
     private void OnIsolationChanged(object sender, SelectionChangedEventArgs args)
     {
         if (_conversation is null || _execution?.Workspace is not null || _startingSandbox) return;

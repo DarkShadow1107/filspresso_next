@@ -43,6 +43,17 @@
             <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#322418" />
             <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="#211C19" />
             <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#44352D" />
+            <CornerRadius x:Key="ControlCornerRadius">6</CornerRadius>
+            <CornerRadius x:Key="OverlayCornerRadius">10</CornerRadius>
+            <Thickness x:Key="MenuFlyoutItemThemePadding">10,6</Thickness>
+            <x:Double x:Key="MenuFlyoutItemMinHeight">30</x:Double>
+            <Style x:Key="ComposerTextBoxStyle" TargetType="TextBox">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="2,6" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="CornerRadius" Value="8" />
+            </Style>
             <Style TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource ContentControlThemeFontFamily}" />
                 <Setter Property="Foreground" Value="{StaticResource FilspressoText}" />
@@ -51,7 +62,7 @@
                 <Setter Property="Width" Value="42" />
                 <Setter Property="Height" Value="42" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="CornerRadius" Value="11" />
+                <Setter Property="CornerRadius" Value="9" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Foreground" Value="{StaticResource FilspressoMuted}" />
@@ -67,7 +78,7 @@
                 <Setter Property="BorderBrush" Value="{StaticResource FilspressoBorder}" />
                 <Setter Property="Foreground" Value="{StaticResource FilspressoText}" />
                 <Setter Property="CornerRadius" Value="8" />
-                <Setter Property="Padding" Value="14,9" />
+                <Setter Property="Padding" Value="12,7" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

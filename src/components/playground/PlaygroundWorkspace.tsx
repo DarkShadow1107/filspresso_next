@@ -20,6 +20,7 @@ import PlaygroundRuntime from "./PlaygroundRuntime";
 import PlaygroundRunHistory from "./PlaygroundRunHistory";
 import PlaygroundAgentReview from "./PlaygroundAgentReview";
 import PlaygroundAgentWorkspace from "./PlaygroundAgentWorkspace";
+import WorkspacePicker from "./WorkspacePicker";
 
 type Message = {
 	id: string;
@@ -63,6 +64,8 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const sessionIds = useRef(new Map<string, string>());
 	const shellRef = useRef<HTMLDivElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const composerRef = useRef<HTMLDivElement>(null);
+	const followRef = useRef(true);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
 	const abortRef = useRef<AbortController | null>(null);
@@ -102,7 +105,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	useEffect(() => {
 		const navbar = document.querySelector(".header_body");
 		if (!navbar) return;
-		const measure = () => shellRef.current?.style.setProperty("--pgw-nav-height", `${Math.ceil(navbar.getBoundingClientRect().height)}px`);
+		const measure = () => shellRef.current?.style.setProperty("--pgw-nav-height", `${Math.max(0, Math.ceil(navbar.getBoundingClientRect().bottom)) + 12}px`);
 		measure();
 		const observer = new ResizeObserver(measure);
 		observer.observe(navbar);
@@ -118,8 +121,17 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		return () => { cancelled = true; };
 	}, [sidebarOpen]);
 	useEffect(() => {
-		const node = scrollRef.current;
-		if (node) node.scrollTop = node.scrollHeight;
+		const track = () => {
+			const bottom = composerRef.current?.getBoundingClientRect().bottom ?? 0;
+			followRef.current = bottom <= window.innerHeight + 180;
+		};
+		window.addEventListener("scroll", track, { passive: true });
+		return () => window.removeEventListener("scroll", track);
+	}, []);
+	useEffect(() => {
+		if (!messages.length || !followRef.current) return;
+		const frame = requestAnimationFrame(() => composerRef.current?.scrollIntoView({ block: "end", behavior: "instant" }));
+		return () => cancelAnimationFrame(frame);
 	}, [messages]);
 	useEffect(() => {
 		const node = inputRef.current;
@@ -250,6 +262,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		resumeRef.current?.abort();
 		const controller = new AbortController();
 		abortRef.current = controller;
+		followRef.current = true;
 		const assistantId = crypto.randomUUID();
 		setMessages((previous) => [...(replaceIndex !== null ? previous.slice(0, replaceIndex) : previous),
 			{ id: crypto.randomUUID(), role: "user", content: prompt, sources },
@@ -403,8 +416,8 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 					<div className="pgw-topbar-actions"><button type="button" className="pgw-text-button" onClick={() => setView(view === "prices" ? "chat" : "prices")}>API Prices</button><DesktopAppDownload /></div>
 				</header>
 				{view !== "chat" && <div className="pgw-view-toolbar"><button type="button" className="pgw-text-button" onClick={() => setView("chat")}>← Back to chat</button></div>}
-				<div className="pgw-view-toolbar"><button type="button" className="pgw-text-button" aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen(!workspaceOpen)}>{workspaceOpen ? "Hide execution workspace" : "Open execution workspace"}</button><span>Chat code is not automatically executed.</span></div>
-				<PlaygroundRuntime open={workspaceOpen} />
+				{view === "chat" && <div className="pgw-workspace-toggle"><button type="button" className="pgw-text-button" aria-expanded={workspaceOpen} aria-controls="pgw-manual-workspace" onClick={() => setWorkspaceOpen(!workspaceOpen)}><WorkspaceIcon name="model" width={15} />{workspaceOpen ? "Close workspace" : "Manual workspace"}<span aria-hidden="true">{workspaceOpen ? "−" : "+"}</span></button><span>Chat never runs code automatically</span></div>}
+				<PlaygroundRuntime open={workspaceOpen && view === "chat"} />
 				{view === "activity" && <div className="pgw-page-scroll"><PlaygroundRunHistory sessionUuid={sessionIds.current.get(conversationId)} /></div>}
 				{view === "review" && <div className="pgw-page-scroll"><PlaygroundAgentReview key={`${conversationId}:${model}:${preferences.inputContextTokens}:${sessionIds.current.get(conversationId) || ""}`} context={{ model, inputContextTokens: preferences.inputContextTokens, sessionUuid: sessionIds.current.get(conversationId) }} /></div>}
 				{view === "agent" && <div className="pgw-page-scroll"><PlaygroundAgentWorkspace key={`${conversationId}:${model}:${preferences.inputContextTokens}:${preferences.compactionMode}:${sessionIds.current.get(conversationId) || ""}`} context={{ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }} /></div>}
@@ -429,15 +442,12 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 							</article>;
 						})}</div>
 					</div>}
-					<div className="pgw-composer-area">
+					<div className="pgw-composer-area" ref={composerRef}>
 						{empty && <div className="pgw-welcome"><span className="pgw-welcome-emblem"><WorkspaceIcon name="model" width={28} height={28} /></span><h1>Hello there</h1><p>What would you like to explore?</p></div>}
 						{balanceGate && <AiBalanceExhausted gate={balanceGate} />}
 						{notice && <p className="pgw-notice" role="status">{notice}</p>}
 						<div className="pgw-context-status" aria-live="polite">
-							<span>Model: hosted · Code: not executed in chat</span>
-							<label>Compaction <select aria-label="Compaction mode" disabled={streaming} value={preferences.compactionMode} onChange={event => savePreferences({ ...preferences, compactionMode: compactionMode(event.target.value) })}>{COMPACTION_OPTIONS.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
 							{contextState && <span>Last measured input: {contextState.tokensAfter.toLocaleString()} / {formatContextTokens(contextState.inputLimit)} ({Math.round(contextState.tokensAfter / contextState.inputLimit * 100)}%)</span>}
-							<button type="button" className="pgw-text-button" disabled={streaming || messages.length < 2} aria-pressed={compactNext} onClick={() => setCompactNext(!compactNext)}>{compactNext ? "Compaction queued for next send" : "Compact next send"}</button>
 							{contextState?.compacted && <details><summary>Context compacted · {contextState.tokensBefore.toLocaleString()} → {contextState.tokensAfter.toLocaleString()} tokens</summary><p>Original messages are unchanged. Summary inference is metered.</p><pre>{contextState.summary}</pre></details>}
 						</div>
 						<form className="pgw-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
@@ -451,17 +461,17 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 									<AttachmentMenu disabled={streaming} onFiles={attachments.addFiles} />
 									<button type="button" ref={githubRef} className="pgw-icon-button" aria-label="Add GitHub project" title="Add GitHub project" disabled={streaming} onClick={() => setGithubOpen(true)}><WorkspaceIcon name="github" /></button>
 									<label className="pgw-context-picker" title="Maximum input tokens"><select aria-label="Input context" disabled={streaming} value={preferences.inputContextTokens} onChange={(event) => savePreferences({ ...preferences, inputContextTokens: Number(event.target.value) })}>{CONTEXT_LEVELS.map((level) => <option key={level} value={level}>{formatContextTokens(level)}</option>)}</select></label>
+									<WorkspacePicker label="Compaction mode" icon="settings" disabled={streaming} value={preferences.compactionMode} options={COMPACTION_OPTIONS} onChange={value => savePreferences({ ...preferences, compactionMode: compactionMode(value) })} />
 								</div>
 								<div className="pgw-composer-right">
 									{thinkingAllowed && <button type="button" className="pgw-icon-button pgw-thinking-toggle" aria-label="Thinking mode" title="Thinking mode" aria-pressed={preferences.thinking} disabled={streaming} onClick={() => savePreferences({ ...preferences, thinking: !preferences.thinking })}><WorkspaceIcon name="brain" width={18} height={18} /></button>}
-									<label className="pgw-model-picker"><WorkspaceIcon name="model" width={16} height={16} /><select aria-label="Model" value={model} disabled={streaming} onChange={(event) => savePreferences({ ...preferences, model: event.target.value as PlaygroundPreferences["model"] })}>{PLAYGROUND_MODEL_KEYS.map((key) => <option key={key} value={key}>{MODEL_LABEL_BY_KEY[key]}</option>)}</select></label>
+									<WorkspacePicker label="Model" disabled={streaming} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
 									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => abortRef.current?.abort()}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={(!input.trim() && !attachments.contexts.length) || !attachments.ready}><WorkspaceIcon name="send" /></button>}
 								</div>
 							</div>
 						</form>
-						<div className="pgw-composer-footnote">{streaming && modelLoad.isLoading ? <span role="status">Loading {MODEL_LABEL_BY_KEY[model]} · {modelLoad.progress}%</span> : <span>Direct model access <i>·</i> 128K context <i>·</i> {access === "addon" ? "Usage billed to your wallet" : `${tier.toUpperCase()} plan`}</span>}</div>
+						<div className="pgw-composer-footnote">{streaming && modelLoad.isLoading ? <span role="status">Loading {MODEL_LABEL_BY_KEY[model]} · {modelLoad.progress}%</span> : <span>Hosted model <i>·</i> 128K context <i>·</i> {access === "addon" ? "Wallet billing" : `${tier.toUpperCase()} plan`}</span>}{messages.length >= 2 && <button type="button" className="pgw-text-button" disabled={streaming} aria-pressed={compactNext} onClick={() => setCompactNext(!compactNext)}>{compactNext ? "Compaction queued ✓" : "Compact next send"}</button>}</div>
 					</div>
-					{empty && <p className="pgw-empty-caption">Your prompt. Your model. Room to think.</p>}
 				</div>}
 			</div>
 			{githubOpen && <GithubProjectDialog onAdd={attachments.addGithub} onClose={() => { setGithubOpen(false); window.requestAnimationFrame(() => githubRef.current?.focus()); }} />}

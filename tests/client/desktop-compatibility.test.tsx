@@ -12,6 +12,20 @@ test("Windows hints never claim to verify edition, build, features or execution 
 	assert.match(result.message, /compatibility is not verified/);
 });
 
+test("high-entropy platform hints identify OS family, never the Windows build or Sandbox readiness", async () => {
+	const requested: string[][] = [];
+	const browser = { userAgent: "Windows NT 10.0", userAgentData: { platform: "Windows",
+		getHighEntropyValues: async (keys: string[]) => { requested.push(keys); return { platformVersion: "19.0.0", architecture: "x86", bitness: "64" }; } } };
+	const result = await browserDesktopCompatibility(browser as unknown as Navigator);
+	assert.equal(result.osFamily, "Windows 11 or newer");
+	assert.equal(result.architecture, "x64");
+	assert.equal(result.status, "unverified");
+	assert.ok(requested[0].includes("platformVersion"));
+	assert.ok(!Number.isNaN(Date.parse(result.checkedAt)));
+	assert.equal(assessDesktopCompatibility({ platform: "Windows", platformVersion: "10.0.0" }).osFamily, "Windows 10");
+	assert.equal(assessDesktopCompatibility({ platform: "Windows", platformVersion: "garbled" }).osFamily, "Windows");
+});
+
 test("known non-Windows, mobile, old Windows and unqualified architecture warn rather than pass", () => {
 	for (const hints of [{ platform: "Linux" }, { userAgent: "Macintosh; Intel Mac OS X" }, { platform: "Windows", mobile: true },
 		{ userAgent: "Windows NT 6.1; Win64; x64" }, { platform: "Windows", architecture: "arm", bitness: "64" }, { platform: "Windows", bitness: "32" }]) {

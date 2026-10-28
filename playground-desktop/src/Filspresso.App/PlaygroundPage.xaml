@@ -31,7 +31,7 @@
         </Border>
         <Grid Grid.Column="1" RowDefinitions="Auto,*">
             <InfoBar x:Name="StateBar" Grid.Row="0" IsOpen="False" IsClosable="False" Margin="28,8" />
-            <Grid x:Name="ChatLayout" Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" MaxWidth="950" Margin="44,16,44,8" VerticalAlignment="Center" HorizontalAlignment="Stretch" RowSpacing="8">
+            <Grid x:Name="ChatLayout" Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" MaxWidth="1120" Margin="28,16,28,8" VerticalAlignment="Center" HorizontalAlignment="Stretch" RowSpacing="8">
                 <StackPanel x:Name="WelcomePanel" Grid.Row="0" HorizontalAlignment="Center" Margin="0,0,0,32" Spacing="10">
                     <local:SharedIcon IconName="model" Width="30" Height="30" Margin="0,0,0,10" />
                     <TextBlock Text="Hello there" FontSize="34" HorizontalAlignment="Center" />
@@ -65,13 +65,28 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-                <Border Grid.Row="2" x:Name="PromptPanel" Background="{StaticResource FilspressoSurface}" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="22" Padding="18,14">
+                <Border Grid.Row="2" x:Name="PromptPanel" Background="{StaticResource FilspressoSurface}" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="16" Padding="16,10">
+                    <Border.Resources>
+                        <SolidColorBrush x:Key="TextControlBackground" Color="Transparent" />
+                        <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent" />
+                        <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent" />
+                        <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent" />
+                        <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent" />
+                    </Border.Resources>
                     <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12">
+                        <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Button Content="Chat" Style="{StaticResource QuietButtonStyle}" Padding="10,4" FontSize="11" ToolTipService.ToolTip="Hosted chat · no code execution" />
+                            <Button Tag="plan" Click="OnAgentMode" Style="{StaticResource QuietButtonStyle}" Padding="10,4" FontSize="11" ToolTipService.ToolTip="Read and plan without changing files"><StackPanel Orientation="Horizontal" Spacing="6"><local:SharedIcon IconName="brain" Width="14" Height="14" /><TextBlock Text="Plan" /></StackPanel></Button>
+                            <Button Tag="build" Click="OnAgentMode" Style="{StaticResource QuietButtonStyle}" Padding="10,4" FontSize="11" ToolTipService.ToolTip="Edit and test in an explicitly started isolated workspace"><StackPanel Orientation="Horizontal" Spacing="6"><local:SharedIcon IconName="edit" Width="14" Height="14" /><TextBlock Text="Build" /></StackPanel></Button>
+                        </StackPanel>
                         <Grid x:Name="EditingPanel" Visibility="Collapsed" ColumnDefinitions="*,Auto">
                             <TextBlock Text="Editing prompt. Sending replaces its response and later messages." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoAccent}" />
                             <Button Grid.Column="1" Content="Cancel edit" Click="OnCancelEdit" Style="{StaticResource QuietButtonStyle}" />
                         </Grid>
-                        <ScrollViewer Grid.Row="1" MaxHeight="230" VerticalScrollBarVisibility="Auto">
+                        </StackPanel>
+                        <StackPanel Grid.Row="1">
                             <StackPanel Spacing="8">
                             <ItemsControl x:Name="SourcesList">
                                 <ItemsControl.ItemTemplate><DataTemplate>
@@ -86,24 +101,21 @@
                             </ItemsControl>
                             <StackPanel x:Name="SuggestionsPanel" Spacing="6" />
                             </StackPanel>
-                        </ScrollViewer>
-                        <TextBox x:Name="PromptBox" Grid.Row="2" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" MaxHeight="200" MaxLength="8000" PlaceholderText="Type a message…" AutomationProperties.Name="Message" TextChanged="OnPromptChanged" KeyDown="OnPromptKeyDown" Background="Transparent" BorderThickness="0" Padding="0" />
+                        </StackPanel>
+                        <TextBox x:Name="PromptBox" Grid.Row="2" Style="{StaticResource ComposerTextBoxStyle}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" MaxHeight="200" MaxLength="8000" PlaceholderText="Ask anything, or switch to Plan / Build…" AutomationProperties.Name="Message" TextChanged="OnPromptChanged" KeyDown="OnPromptKeyDown" />
                         <Grid Grid.Row="3" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
                             <Button x:Name="AttachButton" Width="34" Height="34" CornerRadius="17" Background="#39302C" BorderThickness="0" Padding="0" AutomationProperties.Name="Attach files" ToolTipService.ToolTip="Import files"><local:SharedIcon IconName="plus" />
                                 <Button.Flyout><MenuFlyout>
-                                    <MenuFlyoutItem Text="Media" IsEnabled="False" />
-                                    <MenuFlyoutItem Text="Images · PNG, JPEG, WebP, GIF, BMP, TIFF" Tag=".png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff" Click="OnAttachFiles" />
-                                    <MenuFlyoutItem Text="Videos · MP4, WebM, MOV, MKV, AVI" Tag=".mp4,.webm,.mov,.mkv,.avi" Click="OnAttachFiles" />
-                                    <MenuFlyoutItem Text="Audio · MP3, WAV, M4A, FLAC, OGG, AAC, Opus" Tag=".mp3,.wav,.m4a,.flac,.ogg,.aac,.opus" Click="OnAttachFiles" />
+                                    <MenuFlyoutItem Text="Images" Tag=".png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff" Click="OnAttachFiles"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B9;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Video" Tag=".mp4,.webm,.mov,.mkv,.avi" Click="OnAttachFiles"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE714;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Audio" Tag=".mp3,.wav,.m4a,.flac,.ogg,.aac,.opus" Click="OnAttachFiles"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8D6;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
                                     <MenuFlyoutSeparator />
-                                    <MenuFlyoutItem Text="Documents" IsEnabled="False" />
-                                    <MenuFlyoutItem Text="PDFs · PDF documents and scans" Tag=".pdf" Click="OnAttachFiles" />
-                                    <MenuFlyoutItem Text="Word documents · DOCX, ODT" Tag=".docx,.odt" Click="OnAttachFiles" />
-                                    <MenuFlyoutItem Text="Presentations · PPTX, ODP" Tag=".pptx,.odp" Click="OnAttachFiles" />
-                                    <MenuFlyoutItem Text="Excel and spreadsheets · XLSX, ODS, CSV, TSV" Tag=".xlsx,.ods,.csv,.tsv" Click="OnAttachFiles" />
+                                    <MenuFlyoutItem Text="PDF" Tag=".pdf" Click="OnAttachFiles"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xEA90;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Document" Tag=".docx,.odt" Click="OnAttachFiles"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A5;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Presentation" Tag=".pptx,.odp" Click="OnAttachFiles"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8F9;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Spreadsheet" Tag=".xlsx,.ods,.csv,.tsv" Click="OnAttachFiles"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE80A;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
                                     <MenuFlyoutSeparator />
-                                    <MenuFlyoutItem Text="Files and projects" IsEnabled="False" />
-                                    <MenuFlyoutItem Text="Other files · Text, code, ZIP and more" Tag="*" Click="OnAttachFiles" />
+                                    <MenuFlyoutItem Text="File or project…" Tag="*" Click="OnAttachFiles"><MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B7;" /></MenuFlyoutItem.Icon></MenuFlyoutItem>
                                 </MenuFlyout></Button.Flyout>
                             </Button>
                             <Button x:Name="GithubButton" Grid.Column="1" Width="34" Height="34" Background="Transparent" BorderThickness="0" Padding="0" AutomationProperties.Name="Add GitHub project" ToolTipService.ToolTip="Add GitHub project" Click="OnAddGithub"><local:SharedIcon IconName="github" /></Button>
@@ -116,7 +128,7 @@
                                 </MenuFlyout></Button.Flyout>
                             </Button>
                             <ToggleButton x:Name="ThinkingButton" Grid.Column="4" Padding="8,4" Click="OnThinkingChanged" VerticalAlignment="Center" AutomationProperties.Name="Thinking mode" ToolTipService.ToolTip="Thinking mode"><local:SharedIcon IconName="brain" Width="18" Height="18" /></ToggleButton>
-                            <ComboBox x:Name="ModelBox" Grid.Column="5" Width="235" MinHeight="32" SelectionChanged="OnModelChanged" DisplayMemberPath="Label" FontSize="11" VerticalAlignment="Center" AutomationProperties.Name="Model" />
+                            <ComboBox x:Name="ModelBox" Grid.Column="5" Width="200" MinHeight="30" MaxDropDownHeight="300" SelectionChanged="OnModelChanged" DisplayMemberPath="Label" FontSize="11" VerticalAlignment="Center" AutomationProperties.Name="Model" />
                             <Grid Grid.Column="6">
                                 <Button x:Name="SendButton" Width="36" Height="36" Padding="0" CornerRadius="18" Click="OnSend" IsEnabled="False" Background="{StaticResource FilspressoAccent}" Foreground="{StaticResource FilspressoAccentText}" AutomationProperties.Name="Send message"><local:SharedIcon IconName="send" Tone="dark" /></Button>
                                 <Button x:Name="CancelButton" Width="36" Height="36" Padding="0" CornerRadius="18" Click="OnStop" Visibility="Collapsed" Background="{StaticResource FilspressoAccent}" Foreground="{StaticResource FilspressoAccentText}" AutomationProperties.Name="Stop generation"><local:SharedIcon IconName="stop" Tone="dark" /></Button>
@@ -125,11 +137,11 @@
                     </Grid>
                 </Border>
                 <StackPanel Grid.Row="3" Spacing="5" Margin="0,4,0,8">
-                    <TextBlock Text="Model: hosted · Code suggestions: not executed in chat" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
+                    <TextBlock Text="Hosted model · Chat does not execute code" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
                     <TextBlock x:Name="ContextHint" Text="Context is measured before generation · Balanced compaction at 65%" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
                     <TextBlock x:Name="SessionResumeHint" TextWrapping="Wrap" TextAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
                     <Button x:Name="CompactButton" Content="Compact next send" Click="OnCompactNext" HorizontalAlignment="Center" Style="{StaticResource QuietButtonStyle}" />
-                    <Expander x:Name="ContextSummaryPanel" Header="Context compaction checkpoint" Visibility="Collapsed" HorizontalAlignment="Stretch"><ScrollViewer MaxHeight="180"><TextBlock x:Name="ContextSummary" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="11" /></ScrollViewer></Expander>
+                    <Expander x:Name="ContextSummaryPanel" Header="Context checkpoint" Visibility="Collapsed" HorizontalAlignment="Stretch"><TextBlock x:Name="ContextSummary" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="11" /></Expander>
                     <TextBlock x:Name="BalanceHint" Text="Direct model access · 128K context" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
                     <TextBlock x:Name="PriceHint" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" TextAlignment="Center" />
                 </StackPanel>
