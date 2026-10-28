@@ -62,7 +62,11 @@ def assert_menu_below_nav(page):
 try:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        context = browser.new_context(
+            viewport={"width": 1440, "height": 900},
+            ignore_https_errors=os.environ.get("PLAYGROUND_IGNORE_HTTPS_ERRORS", "").lower() == "true",
+        )
+        page = context.new_page()
         errors = []
         page.on("pageerror", lambda error: (errors.append(str(error)), print("Browser error:", error)))
         page.route("**/api/**", respond)
