@@ -19,7 +19,7 @@
   "transfer": { "source": "playground-glyph-icon.tsx", "props": { "glyph": "transfer" } },
   "download": { "source": "playground-glyph-icon.tsx", "props": { "glyph": "download" } },
   "paperclip": { "source": "playground-glyph-icon.tsx", "props": { "glyph": "paperclip" } },
-  "brain": { "source": "sparkles-icon.tsx" },
+  "brain": { "source": "brain-icon.tsx" },
   "file": { "source": "file-description-icon.tsx" },
   "image": { "source": "camera-icon.tsx" },
   "audio": { "source": "volume-2-icon.tsx" },

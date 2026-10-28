@@ -22,7 +22,6 @@ public sealed partial class MainWindow : Window
     private SettingsPage? _settingsPage;
     private RunHistoryPage? _runHistoryPage;
     private AgentReviewPage? _agentReviewPage;
-    private AgentWorkspacePage? _agentWorkspacePage;
     private bool _loaded;
     private bool _refreshing;
     private bool _railExpanded, _instructionsOpen;
@@ -46,7 +45,6 @@ public sealed partial class MainWindow : Window
             _playgroundPage?.Dispose();
             _runHistoryPage?.Dispose();
             _agentReviewPage?.Dispose();
-            _agentWorkspacePage?.Dispose();
             _services.Dispose();
             _services.SystemNoticeChanged -= OnSystemNotice;
         };
@@ -80,8 +78,6 @@ public sealed partial class MainWindow : Window
         _playgroundPage ??= new PlaygroundPage(_services, _services.Playground);
         _playgroundPage.SettingsRequested -= OnSettings;
         _playgroundPage.SettingsRequested += OnSettings;
-        _playgroundPage.AgentModeRequested -= OnAgentMode;
-        _playgroundPage.AgentModeRequested += OnAgentMode;
         if (_settingsPage is null)
         {
             _settingsPage = new SettingsPage(_services);
@@ -99,8 +95,6 @@ public sealed partial class MainWindow : Window
                 _runHistoryPage = null;
                 _agentReviewPage?.Dispose();
                 _agentReviewPage = null;
-                _agentWorkspacePage?.Dispose();
-                _agentWorkspacePage = null;
                 await _services.Auth.SignOutAsync();
                 _playgroundPage = null;
                 _accountPanel = null;
@@ -156,7 +150,7 @@ public sealed partial class MainWindow : Window
         {
             _runHistoryPage?.CancelPendingRequests();
             _agentReviewPage?.CancelPendingRequests();
-            _agentWorkspacePage?.CancelPendingRequests();
+            _playgroundPage?.SuspendAgent();
             _accountHost ??= new ScrollViewer
             {
                 Content = _accountPanel,
@@ -216,25 +210,12 @@ public sealed partial class MainWindow : Window
     private void SetSection(string section)
     {
         if (_playgroundPage is null) return;
-        if ((section == "review" || section == "agent") && _services.Playground.IsSending)
+        if (section == "review" && _services.Playground.IsSending)
         { EntitlementBar.Message = "Finish or stop Chat generation before opening proposal review."; EntitlementBar.IsOpen = true; return; }
         _runHistoryPage?.CancelPendingRequests();
         _agentReviewPage?.CancelPendingRequests();
-        _agentWorkspacePage?.CancelPendingRequests();
-        PricesNav.Background = SettingsNav.Background = ActivityNav.Background = ReviewNav.Background = AgentNav.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        if (section == "agent")
-        {
-            if (_agentWorkspacePage is null)
-            {
-                _agentWorkspacePage = new AgentWorkspacePage(_services);
-                _agentWorkspacePage.BackRequested += (_, _) => SetSection("chat");
-                _agentWorkspacePage.ProposalReviewRequested += (_, _) => SetSection("review");
-            }
-            ContentFrame.Content = _agentWorkspacePage;
-            AgentNav.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoSurface"];
-            _agentWorkspacePage.Reload(_playgroundPage.SavedSessionUuid);
-            return;
-        }
+        if (section != "chat") _playgroundPage.SuspendAgent();
+        PricesNav.Background = SettingsNav.Background = ActivityNav.Background = ReviewNav.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
         if (section == "review")
         {
             _agentReviewPage ??= new AgentReviewPage(_services);
@@ -267,12 +248,6 @@ public sealed partial class MainWindow : Window
     private void OnPrices(object sender, RoutedEventArgs args) => SetSection("prices");
     private void OnActivity(object sender, RoutedEventArgs args) => SetSection("activity");
     private void OnReview(object sender, RoutedEventArgs args) => SetSection("review");
-    private void OnAgent(object sender, RoutedEventArgs args) => SetSection("agent");
-    private void OnAgentMode(object? sender, string mode)
-    {
-        SetSection("agent");
-        if (ReferenceEquals(ContentFrame.Content, _agentWorkspacePage)) _agentWorkspacePage?.SelectMode(mode == "build");
-    }
     private void OnNewConversation(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.NewConversation(); }
     private void OnConversations(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(false); }
     private void OnSearch(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(true); }

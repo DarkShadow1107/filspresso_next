@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { PLAYGROUND_MODEL_KEYS, VISION_MODEL_450M, AUDIO_MODEL_1_5B, CONTEXT_LEVELS, MODEL_LABEL_BY_KEY, formatContextTokens, isPlaygroundModelKey, isVisionModelKey, isAudioModelKey, tierCanUseThinkingModel, type UserSubscriptionTier } from "@/lib/modelAccess";
 import { buildPageHref } from "@/lib/pages";
@@ -19,7 +19,10 @@ import { deleteServerSession, getServerSession, listServerSessions, preferencesF
 import PlaygroundRuntime from "./PlaygroundRuntime";
 import PlaygroundRunHistory from "./PlaygroundRunHistory";
 import PlaygroundAgentReview from "./PlaygroundAgentReview";
-import PlaygroundAgentWorkspace from "./PlaygroundAgentWorkspace";
+import { AgentInteractions, InlineAgentWorkspace } from "./PlaygroundAgentWorkspace";
+import { HostedAgentWorkspace, agentResultText } from "@/lib/playgroundHostedAgent";
+import { conversationContext } from "@/lib/playgroundConversationContext";
+import { readAccountSession } from "@/lib/accountSession";
 import WorkspacePicker from "./WorkspacePicker";
 import PlaygroundHelp from "./PlaygroundHelp";
 
@@ -42,10 +45,13 @@ const messageWithSources = (message: Message) => message.content + (message.sour
 
 export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscriptionTier; access: SpectreAccessState }) {
 	const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
-	const [view, setView] = useState<"chat" | "settings" | "prices" | "activity" | "review" | "agent">("chat");
+	const [view, setView] = useState<"chat" | "settings" | "prices" | "activity" | "review">("chat");
 	const [helpOpen, setHelpOpen] = useState(false);
 	const [railExpanded, setRailExpanded] = useState(false);
-	const [agentEntryMode, setAgentEntryMode] = useState<"plan" | "build">("plan");
+	const [mode, setMode] = useState<"chat" | "plan" | "build">("chat");
+	const [agent] = useState(() => new HostedAgentWorkspace());
+	const agentState = useSyncExternalStore(agent.subscribe, agent.getSnapshot, agent.getSnapshot);
+	const agentBusy = ["checking", "creating", "inspecting", "running", "awaiting_approval", "awaiting_question", "stopping"].includes(agentState.phase);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [search, setSearch] = useState("");
 	const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -78,6 +84,14 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const attachments = usePlaygroundSources();
 	const thinkingAllowed = tierCanUseThinkingModel(tier);
 	const model = preferences.model;
+	useEffect(() => () => { void agent.stop(true); }, [agent, conversationId, model, preferences.inputContextTokens, preferences.compactionMode]);
+	useEffect(() => {
+		const identity = () => { const account = readAccountSession(); return account?.email || account?.username || null; };
+		let account = identity();
+		const changed = () => { const next = identity(); if (next !== account || !next) { void agent.stop(true); abortRef.current?.abort(); setMessages([]); setInput(""); } account = next; };
+		window.addEventListener("session-update", changed); window.addEventListener("storage", changed);
+		return () => { window.removeEventListener("session-update", changed); window.removeEventListener("storage", changed); };
+	}, [agent]);
 	const recommendations = [
 		attachments.sources.some((source) => source.kind === "video" && source.status !== "error") && !isVisionModelKey(model) ? { key: VISION_MODEL_450M, description: "A Vision-Language (VL) model is recommended for video." } as const : null,
 		attachments.sources.some((source) => source.kind === "audio" && source.status !== "error") && !isAudioModelKey(model) ? { key: AUDIO_MODEL_1_5B, description: "An Audio model is recommended for this audio file." } as const : null,
@@ -152,6 +166,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	}, []);
 
 	const savePreferences = (next: PlaygroundPreferences) => {
+		if (streaming || agentBusy) return false;
 		const safe = { ...next, thinking: thinkingAllowed && next.thinking };
 		setPreferences(safe);
 		try { localStorage.setItem(PREFERENCES_KEY, JSON.stringify(safe)); return true; } catch { return false; }
@@ -161,7 +176,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		setConversations((previous) => [{ id: conversationId, title: titleFor(messages), messages }, ...previous.filter((chat) => chat.id !== conversationId)].slice(0, 30));
 	};
 	const newConversation = () => {
-		if (abortRef.current) return;
+		if (abortRef.current || streaming || agentBusy) return;
 		resumeRef.current?.abort();
 		rememberCurrent();
 		setConversationId(crypto.randomUUID());
@@ -178,7 +193,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	};
 	const openConversation = (chat: Conversation) => {
 		resumeRef.current?.abort();
-		if (streaming || chat.id === conversationId) { setView("chat"); return; }
+		if (streaming || agentBusy || chat.id === conversationId) { setView("chat"); return; }
 		rememberCurrent();
 		setConversationId(chat.id);
 		setMessages(chat.messages);
@@ -371,6 +386,33 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		}
 	}, [input, editingFrom, messages, model, preferences.inputContextTokens, preferences.compactionMode, preferences.thinking, thinkingAllowed, waitUntilLoaded, attachments, conversationId, compactNext]);
 
+	const sendAgent = async () => {
+		if (mode === "chat" || streaming || agentBusy) return;
+		if (!agentState.workspace || !agentState.executionEnabled || !agentState.models.includes(model)) { setNotice("Open Workspace to check availability and explicitly start an isolated workspace. Chat is still available."); return; }
+		try {
+			if (editingFrom !== null) throw new Error("Cancel the message edit before using agent tools.");
+			const sources = attachments.contexts;
+			const prompt = input.trim() || (sources.length ? "Please analyze the attached sources." : "");
+			if (!prompt || !attachments.ready) return;
+			const request = messageWithSources({ id: "", role: "user", content: prompt, sources });
+			if (request.length > 8000) throw new Error("These sources exceed the agent message limit. Use Workspace to import project files instead; nothing was silently removed.");
+			const history = conversationContext(messages.map(message => ({ ...message, content: messageWithSources(message) })));
+			if (!agent.continueFromTranscript(history)) throw new Error("This workspace needs cleanup before another request. Discard it and start fresh; previous approval is never reused.");
+			const id = crypto.randomUUID(); const firstEvent = agent.getSnapshot().events.length;
+			setMessages(previous => [...previous, { id: crypto.randomUUID(), role: "user", content: prompt, sources }, { id, role: "assistant", content: "", model }]);
+			setInput(""); setNotice(""); setStreaming(true); attachments.clear();
+			const update = () => {
+				const snapshot = agent.getSnapshot(); const events = snapshot.events.slice(firstEvent);
+				const content = events.flatMap(event => event.kind === "message" ? [event.text] : event.kind === "tool.finished" ? [`\nTool result · ${event.invocation.call.name}\n${agentResultText(event.invocation)}`] : event.kind === "question.answered" ? [`Clarification answers (not execution consent): ${JSON.stringify(event.decision.answers)}`] : []).join("\n\n");
+				setMessages(previous => previous.map(message => message.id === id ? { ...message, content: content || (snapshot.phase === "failed" ? snapshot.error : ""), failed: snapshot.phase === "failed" } : message));
+			};
+			const unsubscribe = agent.subscribe(update);
+			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }, mode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
+			finally { unsubscribe(); setStreaming(false); }
+		} catch (failure) { setNotice(failure instanceof Error ? failure.message : "The agent request could not start."); }
+	};
+	const submit = () => mode === "chat" ? void send() : void sendAgent();
+
 	const allConversations = messages.length ? [{ id: conversationId, title: titleFor(messages), messages }, ...conversations.filter((chat) => chat.id !== conversationId)] : conversations;
 	const filteredConversations = allConversations.filter((chat) => `${chat.title} ${chat.messages.map((message) => message.content).join(" ")}`.toLowerCase().includes(search.toLowerCase()));
 	// The conversation in view is served by its own session row; resuming it into itself
@@ -384,7 +426,6 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				<button type="button" className="pgw-icon-button" aria-label="Expand navigation labels" aria-expanded={railExpanded} title="Navigation labels" onClick={() => setRailExpanded(!railExpanded)}><WorkspaceIcon name="sidebar" /><span className="pgw-nav-label">Collapse labels</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="New conversation" title="New conversation" disabled={streaming} onClick={newConversation}><WorkspaceIcon name="new" /><span className="pgw-nav-label">New conversation</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="Search conversations" title="Conversations" aria-expanded={sidebarOpen} aria-controls="pgw-conversations" onClick={() => { setSidebarOpen(!sidebarOpen); window.requestAnimationFrame(() => searchRef.current?.focus()); }}><WorkspaceIcon name="search" /><span className="pgw-nav-label">Conversations</span></button>
-				<button type="button" className="pgw-icon-button" aria-label="Plan / Build" title="Plan / Build" disabled={streaming} aria-pressed={view === "agent"} onClick={() => setView(view === "agent" ? "chat" : "agent")}><WorkspaceIcon name="edit" /><span className="pgw-nav-label">Plan / Build</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="Recorded activity" title="Activity" aria-pressed={view === "activity"} onClick={() => setView(view === "activity" ? "chat" : "activity")}><WorkspaceIcon name="file" /><span className="pgw-nav-label">Activity</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="API Prices" title="API Prices" aria-pressed={view === "prices"} onClick={() => setView(view === "prices" ? "chat" : "prices")}><WorkspaceIcon name="prices" /><span className="pgw-nav-label">API Prices</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="Settings" title="Settings" aria-pressed={view === "settings"} onClick={() => setView(view === "settings" ? "chat" : "settings")}><WorkspaceIcon name="settings" /><span className="pgw-nav-label">Settings</span></button>
@@ -424,7 +465,6 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				<PlaygroundRuntime open={workspaceOpen && view === "chat"} />
 				{view === "activity" && <div className="pgw-page-scroll"><PlaygroundRunHistory sessionUuid={sessionIds.current.get(conversationId)} /></div>}
 				{view === "review" && <div className="pgw-page-scroll"><PlaygroundAgentReview key={`${conversationId}:${model}:${preferences.inputContextTokens}:${sessionIds.current.get(conversationId) || ""}`} context={{ model, inputContextTokens: preferences.inputContextTokens, sessionUuid: sessionIds.current.get(conversationId) }} /></div>}
-				{view === "agent" && <div className="pgw-page-scroll"><PlaygroundAgentWorkspace key={`${conversationId}:${model}:${preferences.inputContextTokens}:${preferences.compactionMode}:${sessionIds.current.get(conversationId) || ""}`} initialMode={agentEntryMode} onChat={() => setView("chat")} context={{ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }} /></div>}
 				{view === "settings" && <div className="pgw-page-scroll"><PlaygroundSettings preferences={preferences} thinkingAllowed={thinkingAllowed} streaming={streaming} onSave={savePreferences} onExport={exportConversation} onImport={importConversation} hasMessages={messages.length > 0} /></div>}
 				{view === "prices" && <div className="pgw-page-scroll"><section className="pgw-prices"><h1><WorkspaceIcon name="prices" width={28} height={28} /> API Prices</h1><p>Every model. 128K context. Image/video attachments use Vision; audio uses Audio.</p><span className="pgw-pricing-unit">RON per 1M tokens · input / output</span><PlaygroundModelLineup tier={tier} access={access} disclosure={false} /></section></div>}
 				{view === "chat" && <div className={`pgw-chat${empty ? " pgw-chat-empty" : ""}`}>
@@ -439,8 +479,8 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 								</>}
 								{!isCurrent && <div className="pgw-message-actions">
 									<button type="button" className="pgw-icon-button" aria-label="Copy message" title="Copy" onClick={async () => { try { await navigator.clipboard.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 2000); } catch { setNotice("Your browser could not copy this message."); } }}><WorkspaceIcon name={copied === message.id ? "check" : "copy"} width={17} height={17} /></button>
-									{message.role === "user" && <button type="button" className="pgw-icon-button" aria-label="Edit prompt" title="Edit prompt" disabled={streaming} onClick={() => { setInput(message.content); setEditingFrom(index); inputRef.current?.focus(); }}><WorkspaceIcon name="edit" width={17} height={17} /></button>}
-									{message.role === "assistant" && index > 0 && messages[index - 1].role === "user" && <button type="button" className="pgw-icon-button" aria-label="Regenerate response" title="Regenerate" disabled={streaming} onClick={() => void send(messages[index - 1].content, index - 1)}><WorkspaceIcon name="retry" width={17} height={17} /></button>}
+									{message.role === "user" && <button type="button" className="pgw-icon-button" aria-label="Edit prompt" title="Edit prompt · Chat mode only" disabled={streaming || agentBusy || mode !== "chat"} onClick={() => { setInput(message.content); setEditingFrom(index); inputRef.current?.focus(); }}><WorkspaceIcon name="edit" width={17} height={17} /></button>}
+									{message.role === "assistant" && index > 0 && messages[index - 1].role === "user" && <button type="button" className="pgw-icon-button" aria-label="Regenerate response" title="Regenerate · Chat mode only" disabled={streaming || agentBusy || mode !== "chat"} onClick={() => void send(messages[index - 1].content, index - 1)}><WorkspaceIcon name="retry" width={17} height={17} /></button>}
 									<button type="button" className="pgw-icon-button" aria-label="Delete message" title="Delete message" disabled={streaming} onClick={() => { setMessages((previous) => previous.filter((item) => item.id !== message.id)); setEditingFrom(null); }}><WorkspaceIcon name="trash" width={17} height={17} /></button>
 								</div>}
 							</article>;
@@ -450,32 +490,35 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 						{empty && <div className="pgw-welcome"><span className="pgw-welcome-emblem"><WorkspaceIcon name="model" width={28} height={28} /></span><h1>Hello there</h1><p>What would you like to explore?</p></div>}
 						{balanceGate && <AiBalanceExhausted gate={balanceGate} />}
 						{notice && <p className="pgw-notice" role="status">{notice}</p>}
+						<AgentInteractions workspace={agent} />
+						{mode !== "chat" && <><InlineAgentWorkspace workspace={agent} model={model} mode={mode} busy={agentBusy || streaming} />{agentState.error && <p className="pgw-notice" role="status">{agentState.error}</p>}</>}
 						<div className="pgw-context-status" aria-live="polite">
 							{contextState && <span>Last measured input: {contextState.tokensAfter.toLocaleString()} / {formatContextTokens(contextState.inputLimit)} ({Math.round(contextState.tokensAfter / contextState.inputLimit * 100)}%)</span>}
 							{contextState?.compacted && <details><summary>Context compacted · {contextState.tokensBefore.toLocaleString()} → {contextState.tokensAfter.toLocaleString()} tokens</summary><p>Original messages are unchanged. Summary inference is metered.</p><pre>{contextState.summary}</pre></details>}
 						</div>
-						<form className="pgw-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
+						<form className="pgw-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
 							{editingFrom !== null && <div className="pgw-editing-banner"><span>Editing message · sending will replace this reply and any messages after it.</span><button type="button" className="pgw-text-button" onClick={() => { setEditingFrom(null); setInput(""); }}>Cancel</button></div>}
 							{attachments.sources.length > 0 && <SourceList sources={attachments.sources} onRemove={attachments.remove} disabled={streaming} />}
 							{recommendations.map((item) => <div className="pgw-model-suggestion" role="status" key={item.key}><span>{item.description}</span><button type="button" className="pgw-text-button" disabled={streaming} onClick={() => savePreferences({ ...preferences, model: item.key })}>Use {MODEL_LABEL_BY_KEY[item.key]}</button></div>)}
 							{attachments.error && <p className="pgw-notice" role="alert">{attachments.error}</p>}
-							<textarea ref={inputRef} rows={2} aria-label="Message" placeholder="Type a message…" value={input} maxLength={8000} disabled={streaming} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!streaming) attachments.addFiles(event.dataTransfer.files); }} onPaste={(event) => { if (event.clipboardData.files.length && !streaming) { event.preventDefault(); attachments.addFiles(event.clipboardData.files); } }} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && preferences.enterToSend) { event.preventDefault(); void send(); } }} />
+							<textarea ref={inputRef} rows={2} aria-label="Message" placeholder={mode === "chat" ? "Ask anything…" : mode === "plan" ? "Explore a project or plan a change…" : "Describe what you want to build…"} value={input} maxLength={8000} disabled={streaming || agentBusy} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!streaming) attachments.addFiles(event.dataTransfer.files); }} onPaste={(event) => { if (event.clipboardData.files.length && !streaming) { event.preventDefault(); attachments.addFiles(event.clipboardData.files); } }} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && preferences.enterToSend) { event.preventDefault(); submit(); } }} />
 							<div className="pgw-composer-toolbar">
 								<div className="pgw-composer-left">
-									<WorkspacePicker label="Playground mode" value="chat" icon="brain" disabled={streaming} options={[{ key: "chat", label: "Chat" }, { key: "plan", label: "Plan" }, { key: "build", label: "Build" }]} onChange={value => { if (value === "chat") return; setAgentEntryMode(value === "build" ? "build" : "plan"); setView("agent"); }} />
+									<WorkspacePicker label="Playground mode" value={mode} icon={mode === "build" ? "edit" : null} disabled={streaming || agentBusy} options={[{ key: "chat", label: "Chat" }, { key: "plan", label: "Plan" }, { key: "build", label: "Build" }]} onChange={value => { setMode(value === "build" ? "build" : value === "plan" ? "plan" : "chat"); setNotice(""); }} />
 									<AttachmentMenu disabled={streaming} onFiles={attachments.addFiles} />
 									<button type="button" ref={githubRef} className="pgw-icon-button" aria-label="Add GitHub project" title="Add GitHub project" disabled={streaming} onClick={() => setGithubOpen(true)}><WorkspaceIcon name="github" /></button>
 									<WorkspacePicker label="Input context" icon={null} disabled={streaming} value={String(preferences.inputContextTokens)} options={CONTEXT_LEVELS.map(level => ({ key: String(level), label: formatContextTokens(level) }))} onChange={value => savePreferences({ ...preferences, inputContextTokens: Number(value) })} />
 									<WorkspacePicker label="Compaction mode" icon="settings" disabled={streaming} value={preferences.compactionMode} options={COMPACTION_OPTIONS} onChange={value => savePreferences({ ...preferences, compactionMode: compactionMode(value) })} />
 								</div>
 								<div className="pgw-composer-right">
-									{thinkingAllowed && <button type="button" className="pgw-icon-button pgw-thinking-toggle" aria-label="Thinking mode" title="Thinking mode" aria-pressed={preferences.thinking} disabled={streaming} onClick={() => savePreferences({ ...preferences, thinking: !preferences.thinking })}><WorkspaceIcon name="brain" width={18} height={18} /></button>}
+									{thinkingAllowed && <button type="button" className="pgw-icon-button pgw-thinking-toggle" aria-label="Thinking mode" title={mode !== "chat" ? "Thinking · controlled by the agent model in Plan and Build" : `Thinking · ${preferences.thinking ? "on" : "off"}`} aria-pressed={preferences.thinking} disabled={streaming || agentBusy || mode !== "chat"} onClick={() => savePreferences({ ...preferences, thinking: !preferences.thinking })}><WorkspaceIcon name="brain" width={18} height={18} /></button>}
 									<WorkspacePicker label="Model" disabled={streaming} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
-									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => abortRef.current?.abort()}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={(!input.trim() && !attachments.contexts.length) || !attachments.ready}><WorkspaceIcon name="send" /></button>}
+									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => { abortRef.current?.abort(); if (mode !== "chat") void agent.stop(); }}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={agentBusy || (!input.trim() && !attachments.contexts.length) || !attachments.ready || (mode !== "chat" && (!agentState.workspace || !agentState.models.includes(model) || agentState.requiresReset))}><WorkspaceIcon name="send" /></button>}
 								</div>
 							</div>
 						</form>
-						<div className="pgw-composer-footnote">{streaming && modelLoad.isLoading ? <span role="status">Loading {MODEL_LABEL_BY_KEY[model]} · {modelLoad.progress}%</span> : <span>Hosted model <i>·</i> 128K context <i>·</i> {access === "addon" ? "Wallet billing" : `${tier.toUpperCase()} plan`}</span>}{messages.length >= 2 && <button type="button" className="pgw-text-button" disabled={streaming} aria-pressed={compactNext} onClick={() => setCompactNext(!compactNext)}>{compactNext ? "Compaction queued ✓" : "Compact next send"}</button>}</div>
+						<div className="pgw-mode-guidance" role="status">{mode === "chat" ? "Chat · answers and attachments, no tools" : mode === "plan" ? "Plan · read and explore, no changes or commands" : "Build · staged changes, approval for each action"}</div>
+						<div className="pgw-composer-footnote">{streaming && modelLoad.isLoading ? <span role="status">Loading {MODEL_LABEL_BY_KEY[model]} · {modelLoad.progress}%</span> : <span>Hosted model <i>·</i> 128K context <i>·</i> {access === "addon" ? "Wallet billing" : `${tier.toUpperCase()} plan`}</span>}{mode === "chat" && messages.length >= 2 && <button type="button" className="pgw-text-button" disabled={streaming} aria-pressed={compactNext} onClick={() => setCompactNext(!compactNext)}>{compactNext ? "Compaction queued ✓" : "Compact next send"}</button>}</div>
 					</div>
 				</div>}
 			</div>

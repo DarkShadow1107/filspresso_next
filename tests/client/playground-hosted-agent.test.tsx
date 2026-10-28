@@ -146,6 +146,33 @@ test("idle cleanup never invents a stopped job or billing warning", async () => 
 	assert.deepEqual(state.posts, []);
 });
 
+test("shared thread continues in Plan with only read tools and no inherited Build approval", async () => {
+	const state = setup(); const requests: unknown[] = [];
+	state.io.turn = async request => { requests.push(request); return response(); };
+	await state.workspace.check(); await state.workspace.startSandbox();
+	await state.workspace.run(context, "build", "Earlier Build request");
+	assert.equal(state.workspace.continueFromTranscript([{ message: "Earlier Build request", text: "Completed earlier, not approval for the next action", history: [] }]), true);
+	await state.workspace.run(context, "plan", "Now inspect only");
+	const plan = requests[1] as { mode: string; conversation: unknown[]; tools: { name: string }[] };
+	assert.equal(plan.mode, "plan"); assert.equal(plan.conversation.length, 1);
+	assert.deepEqual(plan.tools.map(tool => tool.name), ["read_file", "question"]);
+	assert.equal(state.workspace.getSnapshot().workspace?.id, sandboxId);
+	assert.equal(state.posts.some(post => post.path.endsWith("/execute")), false);
+	await state.workspace.stop();
+});
+
+test("transcript bridge cannot replace a pending action, restore tool history or escape a failed run", async () => {
+	const state = setup(); state.replies.push(response([command]));
+	await state.workspace.check(); await state.workspace.startSandbox();
+	const running = state.workspace.run(context, "build", "Request command");
+	const pending = (await waitFor(state.workspace, value => !!value.pendingApproval)).pendingApproval!;
+	assert.equal(state.workspace.continueFromTranscript([]), false);
+	assert.equal(state.workspace.getSnapshot().pendingApproval?.id, pending.id);
+	await state.workspace.stop(); await running;
+	assert.equal(state.workspace.decide(pending.id, true), false);
+	assert.equal(state.workspace.continueFromTranscript([{ message: "old", text: "answer", history: [{ text: "", tool_calls: [command], tool_results: [{ tool_call_id: command.id, content: "approved" }] }] }]), false);
+});
+
 test("late uncooperative preparation cannot dispatch after cancellation or invalidation", async () => {
 	for (const invalidated of [false, true]) {
 		const state = setup(); state.replies.push(response([{ id: "read_1", name: "read_file", arguments: '{"path":"main.py"}' }]));

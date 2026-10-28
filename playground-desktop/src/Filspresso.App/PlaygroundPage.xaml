@@ -31,7 +31,7 @@
         </Border>
         <Grid Grid.Column="1" RowDefinitions="Auto,*">
             <InfoBar x:Name="StateBar" Grid.Row="0" IsOpen="False" IsClosable="False" Margin="28,8" />
-            <Grid x:Name="ChatLayout" Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" MaxWidth="1120" Margin="28,16,28,8" VerticalAlignment="Center" HorizontalAlignment="Stretch" RowSpacing="8">
+            <Grid x:Name="ChatLayout" Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto,Auto" MaxWidth="1120" Margin="28,16,28,8" VerticalAlignment="Center" HorizontalAlignment="Stretch" RowSpacing="8">
                 <StackPanel x:Name="WelcomePanel" Grid.Row="0" HorizontalAlignment="Center" Margin="0,0,0,32" Spacing="10">
                     <local:SharedIcon IconName="model" Width="30" Height="30" Margin="0,0,0,10" />
                     <TextBlock Text="Hello there" FontSize="34" HorizontalAlignment="Center" />
@@ -65,7 +65,8 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-                <Border Grid.Row="2" x:Name="PromptPanel" Background="{StaticResource FilspressoSurface}" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="16" Padding="16,10">
+                <ContentControl x:Name="AgentHost" Grid.Row="2" Visibility="Collapsed" HorizontalContentAlignment="Stretch" />
+                <Border Grid.Row="3" x:Name="PromptPanel" Background="{StaticResource FilspressoSurface}" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="20" Padding="16,10">
                     <Border.Resources>
                         <SolidColorBrush x:Key="TextControlBackground" Color="Transparent" />
                         <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent" />
@@ -133,8 +134,8 @@
                         </Grid>
                     </Grid>
                 </Border>
-                <StackPanel Grid.Row="3" Spacing="5" Margin="0,4,0,8">
-                    <TextBlock Text="Hosted model · Chat does not execute code" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
+                <StackPanel Grid.Row="4" Spacing="5" Margin="0,4,0,8">
+                    <TextBlock x:Name="ModeGuidance" Text="Chat · answers and attachments, no tools" HorizontalAlignment="Center" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
                     <TextBlock x:Name="ContextHint" Text="Context is measured before generation · Balanced compaction at 65%" HorizontalAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
                     <TextBlock x:Name="SessionResumeHint" TextWrapping="Wrap" TextAlignment="Center" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
                     <Button x:Name="CompactButton" Content="Compact next send" Click="OnCompactNext" HorizontalAlignment="Center" Style="{StaticResource QuietButtonStyle}" />

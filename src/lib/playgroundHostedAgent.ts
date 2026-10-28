@@ -160,6 +160,15 @@ export class HostedAgentWorkspace {
 			events: [...this.state.events, { kind: "message", text: "New conversation boundary: prior model context was explicitly cleared. Sandbox files are retained; no approvals are retained." }].slice(-256) as AgentLoopEvent[] });
 		return true;
 	}
+	/** Idle-only import of the shared visible thread. No call/result or approval is restored. */
+	continueFromTranscript(turns: readonly NativeConversationTurn[]): boolean {
+		if (this.active || this.state.creationPending || this.state.quarantined || this.state.requiresReset || turns.length >= 16 ||
+			JSON.stringify(turns).length > 196608 || turns.some(turn => turn.history.length || !turn.message.trim() || turn.message.length > 8000 || turn.text.length > 32768)) return false;
+		this.consent.clear(); this.questions.dismiss(); this.queued = null;
+		this.conversation = JSON.parse(JSON.stringify(turns)); this.conversationKey = null;
+		this.publish({ ...this.state, events: [], conversationTurns: turns.length, queuedPrompt: null, pendingApproval: null, pendingQuestion: null });
+		return true;
+	}
 	async uploadReviewedFile(file: ProjectFile, reviewed: boolean): Promise<void> {
 		const workspace = this.state.workspace;
 		if (reviewed !== true || !workspace || this.state.quarantined || this.state.requiresReset) throw new Error("Review this exact write in a reusable workspace first.");

@@ -39,15 +39,22 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private string _availabilityError = string.Empty;
     private Filspresso.Harness.SessionSpendGate? _spendGate;
     private bool _active, _disposed;
-    public event EventHandler? BackRequested;
-    public event EventHandler? ProposalReviewRequested;
+    private bool _build;
+    public event EventHandler? StateChanged;
+    public Action<string>? OutputChanged { get; set; }
+    public bool IsBusy => _startingSandbox || _projectBusy || _checking is not null || _conversation?.Snapshot.Busy == true;
+    public bool CanSend => _active && !IsBusy && _conversation?.Snapshot.RequiresReset == false && _transport?.SupportsConversation == true && _transport.SupportsModel(_model ?? string.Empty) && (!_build || _execution?.Workspace is not null);
     public void SelectMode(bool build)
     {
-        if (_conversation?.Snapshot is { Busy: false, CompletedTurns: 0 }) ModeBox.SelectedIndex = build ? 1 : 0;
-        if (build) WorkspaceSetup.IsExpanded = true;
+        if (IsBusy) return;
+        _build = build;
+        Render();
     }
-    private void OnBack(object sender, RoutedEventArgs args) => BackRequested?.Invoke(this, EventArgs.Empty);
-    private void OnProposalReview(object sender, RoutedEventArgs args) => ProposalReviewRequested?.Invoke(this, EventArgs.Empty);
+    private async void OnWorkspaceOptions(object sender, RoutedEventArgs args)
+    {
+        WorkspaceDialog.XamlRoot = XamlRoot;
+        await WorkspaceDialog.ShowAsync();
+    }
     public AgentWorkspacePage(AppServices services)
     {
         _services = services; InitializeComponent();
@@ -68,32 +75,21 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         // The experiment is off unless the user enabled it; a null gate wires no checks in.
         _spendGate = _services.CreateSessionSpendGate();
         _conversation = new(candidate, _spendGate); _conversation.Changed += OnChanged;
-        PromptBox.Text = string.Empty; ModeBox.SelectedIndex = 0; IsolationBox.SelectedIndex = 0;
-        var label = _services.Playground.Catalogue.Models.FirstOrDefault(model => model.ModelKey == _model)?.Label ?? "Selected model";
-        var status = $"{label} · hosted inference · {_context / 1024}K input · {_compaction} compaction";
-        if (_spendGate is { } gate && gate.Describe() is { Length: > 0 } cap) status += " · " + cap;
-        ModelInfo.Text = status;
+        IsolationBox.SelectedIndex = 0;
         Render();
     }
     private ExecutionIsolation SelectedIsolation => IsolationBox.SelectedIndex == 1 ? ExecutionIsolation.NativeRestricted : ExecutionIsolation.WindowsSandbox;
-    private Turn CurrentTurn() => new(PromptBox.Text, _model ?? string.Empty, Instructions + "\nActual workspace: " +
-        (_execution?.Workspace?.Location switch { CodeLocation.NativeRestricted => "native restricted (shared host kernel)", CodeLocation.WindowsSandbox => "Windows Sandbox VM", _ => "imported-memory inspection only; no command executor" }), 0.2, 2048) { Mode = ModeBox.SelectedIndex == 1 ? AgentMode.Build : AgentMode.Plan };
+    private Turn CurrentTurn(string prompt) => new(prompt, _model ?? string.Empty, Instructions + "\nCurrent mode: " + (_build ? "Build; fresh approval per mutation/command." : "Plan; read-only, never write or execute.") + "\nActual workspace: " +
+        (_execution?.Workspace?.Location switch { CodeLocation.NativeRestricted => "native restricted (shared host kernel)", CodeLocation.WindowsSandbox => "Windows Sandbox VM", _ => "imported-memory inspection only; no command executor" }), 0.2, 2048) { Mode = _build ? AgentMode.Build : AgentMode.Plan };
     private void OnChanged(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => { if (!_disposed && ReferenceEquals(sender, _conversation)) Render(); });
     private void Render()
     {
         if (_disposed || _conversation is null) return;
         var state = _conversation.Snapshot; var available = _transport?.SupportsConversation == true && _transport.SupportsModel(_model ?? string.Empty);
         var started = _execution?.Workspace is not null;
-        ModeHint.Text = (ModeBox.SelectedIndex == 1 ? "Build edits and tests the staged copy. Start a verified workspace below; each change or command needs approval." : "Plan explores imported files and answers questions. It cannot write files or run commands.")
-            + (state.CompletedTurns > 0 ? " Start a new conversation to change mode; your staged project is retained." : string.Empty);
         IsolationBox.IsEnabled = _active && !state.Busy && !_startingSandbox && !_projectBusy && !started && _execution?.NeedsCleanup != true;
         VerifySandboxButton.Content = SelectedIsolation == ExecutionIsolation.NativeRestricted ? "Verify native isolation…" : "Verify Sandbox setup…";
-        CheckButton.IsEnabled = NewButton.IsEnabled = _active && !state.Busy && _checking is null && !_projectBusy && !_startingSandbox;
-        StopButton.IsEnabled = _active && (state.Busy || _checking is not null || _startingSandbox) && !state.Stopping;
-        ModeBox.IsEnabled = _active && !state.Busy && state.CompletedTurns == 0 && !state.RequiresReset;
-        SendButton.IsEnabled = _active && available && (ModeBox.SelectedIndex != 1 || started) && !state.Busy && !state.RequiresReset && _checking is null && !_startingSandbox && !_projectBusy && !string.IsNullOrWhiteSpace(PromptBox.Text);
-        QueueButton.IsEnabled = _active && state.Busy && !state.Stopping && state.QueuedMessage is null && !string.IsNullOrWhiteSpace(PromptBox.Text);
-        CancelQueueButton.IsEnabled = state.QueuedMessage is not null;
+        CheckButton.IsEnabled = _active && !IsBusy;
         EnableExecutionButton.IsEnabled = _active && !state.Busy && !_startingSandbox && !_projectBusy && _checking is null && !started && _execution?.NeedsCleanup != true;
         VerifySandboxButton.IsEnabled = _active && !state.Busy && !_startingSandbox && !_projectBusy && !started && _execution?.NeedsCleanup != true;
         DiscardSandboxButton.IsEnabled = _active && !state.Busy && !_startingSandbox && (started || _execution?.NeedsCleanup == true);
@@ -103,17 +99,17 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         Status.Text = _startingSandbox && _startingProgress is { Length: > 0 } ? _startingProgress :
             _checking is not null ? "Checking model tool support…" : state.Stopping ? "Stopping; waiting for cleanup." :
             state.Question is not null ? "Waiting for clarification, not execution consent." : state.Approval is not null ? "Waiting for separate, exact-action execution consent." :
-            state.Busy ? "Working · metered model turns" : available ? "Ready" : "Check model availability to use Plan / Build. Ordinary chat is separate.";
+            state.Busy ? "Working · metered model turns" : available ? _build && !started ? "Build needs an isolated workspace. Open Workspace to set it up." : "Ready" : "Open Workspace to check model availability. Chat remains available.";
         if (state.QueuedMessage is not null) Status.Text += "\nQueued follow-up: " + state.QueuedMessage;
         Error.Text = state.Error.Length > 0 ? state.Error : _availabilityError;
         ExecutionStatus.Text = _executionStatus;
-        Activity.Children.Clear();
-        if (state.DisplayTruncated) Activity.Children.Add(Text("Earlier activity display was clipped. Complete bounded model context is retained separately."));
+        var output = new List<string>();
+        if (state.DisplayTruncated) output.Add("Earlier activity display was clipped.");
         foreach (var item in state.Events)
         {
             var value = item switch
             {
-                AgentEvent.UserMessage user => "You\n" + user.Text,
+                AgentEvent.UserMessage => string.Empty,
                 AgentEvent.Say say => "Agent\n" + say.Text,
                 AgentEvent.QuestionRequired => "Agent requested clarification · not execution approval",
                 AgentEvent.QuestionAnswered answer => "Your clarification answers · not consent\n" + AgentQuestionProtocol.ResultJson(answer.Decision),
@@ -125,9 +121,9 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
                 AgentEvent.Stopped stop => "Stopped · " + stop.Message,
                 _ => "Unknown activity · inert display only",
             };
-            Activity.Children.Add(new Border { BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoBorder"],
-                Padding = new Thickness(0, 12, 0, 16), Child = Text(value) });
+            if (value.Length > 0) output.Add(value);
         }
+        OutputChanged?.Invoke(string.Join("\n\n", output));
         RenderQuestion(state.Question);
         ApprovalBorder.Visibility = state.Approval is null ? Visibility.Collapsed : Visibility.Visible;
         if (state.Approval?.Id != _approvalId)
@@ -144,6 +140,7 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
                 view.Click += (_, _) => { DiffExpander.Visibility = Visibility.Visible; DiffExpander.IsExpanded = true; DiffBox.Text = file.Value; };
                 ProjectFiles.Children.Add(view);
             }
+        StateChanged?.Invoke(this, EventArgs.Empty);
     }
     private void RenderCheckpoints()
     {
@@ -211,24 +208,14 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         catch (OperationCanceledException) { }
         finally { if (ReferenceEquals(_checking, checking)) { _checking = null; Render(); } }
     }
-    private async void OnSend(object sender, RoutedEventArgs args)
+    public async Task SendFromComposerAsync(string prompt, IReadOnlyList<AgentConversationTurn> history)
     {
-        if (!_active || _projectBusy || _startingSandbox || _conversation is not { } conversation || _transport?.SupportsConversation != true || !_transport.SupportsModel(_model ?? string.Empty)) return;
-        if (ModeBox.SelectedIndex == 1 && _execution?.Workspace is null) { _availabilityError = "Start an isolated Build workspace before requesting code edits or execution."; Render(); return; }
-        var turn = CurrentTurn(); PromptBox.Text = string.Empty; await conversation.SendAsync(turn); _ = RefreshBalanceAsync();
+        if (!CanSend || _conversation is not { } conversation) throw new InvalidOperationException("Check the model and workspace before sending.");
+        if (!conversation.ContinueFromTranscript(history)) throw new InvalidOperationException("Agent context needs a fresh workspace or exceeds its limits. Nothing was silently removed.");
+        await conversation.SendAsync(CurrentTurn(prompt)); _ = RefreshBalanceAsync();
     }
     private async Task RefreshBalanceAsync() { using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8)); try { await _services.Playground.RefreshAsync(timeout.Token); } catch (Exception) { } }
-    private void OnQueue(object sender, RoutedEventArgs args) { if (_conversation?.QueueFollowUp(CurrentTurn()) == true) PromptBox.Text = string.Empty; }
-    private void OnCancelQueue(object sender, RoutedEventArgs args) => _conversation?.CancelQueued();
-    private void OnStop(object sender, RoutedEventArgs args) { _checking?.Cancel(); _starting?.Cancel(); _conversation?.Stop(); }
-    private void OnNew(object sender, RoutedEventArgs args) { if (_conversation?.NewConversation() == true) { PromptBox.Text = string.Empty; Render(); } }
-    private void OnPromptChanged(object sender, TextChangedEventArgs args) { if (_conversation is not null) Render(); }
-    private void OnModeChanged(object sender, SelectionChangedEventArgs args)
-    {
-        if (_conversation is null) return;
-        if (ModeBox.SelectedIndex == 1 && _execution?.Workspace is null) WorkspaceSetup.IsExpanded = true;
-        Render();
-    }
+    public void Stop() { _checking?.Cancel(); _starting?.Cancel(); _conversation?.Stop(); }
     private void OnIsolationChanged(object sender, SelectionChangedEventArgs args)
     {
         if (_conversation is null || _execution?.Workspace is not null || _startingSandbox) return;
@@ -240,6 +227,7 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     {
         if (!_active || _disposed) return;
         if (_execution?.Workspace is not null || _execution?.NeedsCleanup == true || _startingSandbox || _projectBusy || _conversation?.Snapshot.Busy == true || _transport is not { } transport || _checkpoints is not { } checkpoints) return;
+        WorkspaceDialog.Hide();
         _execution?.Dispose(); _execution = null;
         using var starting = new CancellationTokenSource(TimeSpan.FromMinutes(5)); _starting = starting;
         var isolation = SelectedIsolation;
@@ -271,8 +259,7 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
                 // A recreated conversation is a new session with its own budget.
                 _spendGate = _services.CreateSessionSpendGate();
                 _conversation = new(execution, _spendGate); _conversation.Changed += OnChanged;
-                ModeBox.SelectedIndex = 1;
-                _availabilityError = "Fresh Build conversation started. The original project is not shared. Review and approve each write/command; apply changes separately.";
+                _availabilityError = "Workspace started. Your selected mode is unchanged. The original project is not shared; writes and commands still require Build and exact approval.";
             }
         }
         catch (OperationCanceledException) { }
@@ -295,13 +282,14 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
             if (SelectedIsolation == ExecutionIsolation.NativeRestricted) _executionStatus = NativeSandboxQualification.Check().Status;
             _inspection = inspection as IDisposable;
             _spendGate = _services.CreateSessionSpendGate();
-            _conversation = new(inspection, _spendGate); _conversation.Changed += OnChanged; ModeBox.SelectedIndex = 0;
+            _conversation = new(inspection, _spendGate); _conversation.Changed += OnChanged;
         }
         _viewedChange = null; Render();
     }
     private async void OnVerifySandbox(object sender, RoutedEventArgs args)
     {
         if (!_active || _startingSandbox || _projectBusy || _execution?.Workspace is not null || _execution?.NeedsCleanup == true || _conversation?.Snapshot.Busy == true) return;
+        WorkspaceDialog.Hide();
         _execution?.Dispose(); _execution = null;
         var isolation = SelectedIsolation;
         var setup = isolation == ExecutionIsolation.WindowsSandbox ? WindowsSandboxQualification.SetupStatus : string.Empty;
@@ -353,6 +341,7 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private async void OnExportCheckpoints(object sender, RoutedEventArgs args)
     {
         if (!_active || _projectBusy || _startingSandbox || _conversation?.Snapshot.Busy == true || _checkpoints is not { } checkpoints || checkpoints.ChangeCount == 0) return;
+        WorkspaceDialog.Hide();
         _projectBusy = true; Render();
         try
         {
@@ -380,6 +369,7 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private async void OnExportArtifact(object sender, RoutedEventArgs args)
     {
         if (!_active || _projectBusy || _conversation?.Snapshot.Busy == true || _checkpoints is not { } checkpoints) return;
+        WorkspaceDialog.Hide();
         _projectBusy = true; Render();
         try
         {
@@ -429,11 +419,11 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private void OnPreferencesChanged(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => { if (!_disposed && _active && (_services.Preferences.ModelKey != _model || _services.Preferences.InputContextTokens != _context || _services.Preferences.CompactionMode != _compaction)) Reload(_session); });
     public void CancelPendingRequests()
     {
-        _active = false; Release(); PromptBox.Text = string.Empty;
-        Activity.Children.Clear(); ProjectFiles.Children.Clear(); CheckpointList.Children.Clear(); QuestionFields.Children.Clear();
+        _active = false; WorkspaceDialog.Hide(); Release();
+        ProjectFiles.Children.Clear(); CheckpointList.Children.Clear(); QuestionFields.Children.Clear();
         ApprovalText.Text = DiffBox.Text = CheckpointSummary.Text = string.Empty;
         QuestionBorder.Visibility = ApprovalBorder.Visibility = DiffExpander.Visibility = Visibility.Collapsed;
-        SendButton.IsEnabled = EnableExecutionButton.IsEnabled = ImportButton.IsEnabled = ExportButton.IsEnabled = ArtifactButton.IsEnabled = false;
+        EnableExecutionButton.IsEnabled = ImportButton.IsEnabled = ExportButton.IsEnabled = ArtifactButton.IsEnabled = false;
         Status.Text = "Account/view invalidated. Pending work was cancelled; sandbox disposal was requested.";
     }
     private void Release()

@@ -4359,6 +4359,19 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 .desktop-compatibility-dialog .desktop-download-note { font-size: 11px; line-height: 1.8; }
 .desktop-compatibility-dialog .desktop-system-facts { border-radius: 14px; background: #231e1a; padding: 14px; border: 0; }
 .desktop-compatibility-dialog .desktop-compatibility-actions button { border-radius: 12px; }
+.desktop-compatibility-dialog { padding: 0; width: min(540px, calc(100vw - 24px)); border-radius: 22px; max-height: calc(100dvh - 24px); }
+.desktop-download-body { padding: 26px 28px 12px; }
+.desktop-download-heading { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; }
+.desktop-app-symbol { display: grid; place-items: center; width: 48px; height: 48px; flex-shrink: 0; border-radius: 15px; background: #b98a6124; color: #e4b38a; }
+.desktop-download-eyebrow { color: #ba9b83; text-transform: uppercase; letter-spacing: .09em; font-size: 9px; }
+.desktop-compatibility-dialog h2 { font-size: 20px; font-weight: 500; line-height: 1.35; margin: 5px 0; }
+.desktop-download-heading p { margin: 0; color: #a99b91; font-size: 11px; }
+.desktop-compatibility-dialog .desktop-system-facts { margin: 12px 0; padding: 12px 14px; font-size: 11px; }
+.desktop-compatibility-dialog .desktop-setup-details { margin: 10px 0; padding-top: 10px; font-size: 11px; }
+.desktop-compatibility-dialog .desktop-signing-warning { padding: 11px 14px; background: #bd8d6512; border-radius: 0 12px 12px 0; margin-block: 14px; line-height: 1.65; }
+.desktop-compatibility-dialog .desktop-compatibility-actions { position: sticky; bottom: 0; background: #1c1815; margin: 0; padding: 14px 28px; border-top: 1px solid #51423866; }
+.desktop-compatibility-dialog .desktop-compatibility-actions button:last-child { background: #e4b38a; color: #221912; border-color: transparent; font-weight: 500; }
+.desktop-compatibility-acknowledge > label { padding-block: 8px; font-size: 11px; }
 .playground-download__button {
 	display: inline-flex;
 	align-items: center;

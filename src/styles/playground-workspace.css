@@ -418,6 +418,12 @@ body:has(.pgw) .header_body { background: #100f10; }
 .pgw-help-dialog { position: fixed; margin: auto; padding: 26px 30px; width: min(1000px, calc(100vw - 28px)); max-height: calc(100dvh - 40px); overflow-y: auto; background: #191617; color: var(--pgw-text); border: 1px solid #4b3b31; border-radius: 22px; }
 .pgw-help-dialog::backdrop { background: #000b; backdrop-filter: blur(4px); }
 .pgw-help-close { float: right; position: sticky; top: 0; background: #29211d !important; z-index: 1; }
+.pgw-workspace-options { width: 100%; margin: 0 0 12px; font-size: 11px; color: var(--pgw-muted); line-height: 1.8; }
+.pgw-workspace-options > summary { display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 8px 3px; color: #d8c3b2; list-style: none; }
+.pgw-workspace-options > summary::-webkit-details-marker { display: none; }
+.pgw-workspace-options > summary > span:last-child { margin-left: auto; color: var(--pgw-muted); font-size: 10px; }
+.pgw-workspace-options[open] { border-bottom: 1px solid var(--pgw-border); padding-bottom: 14px; }
+.pgw-mode-guidance { text-align: center; font-size: 10px; color: #b7a393; margin-top: 12px; }
 .pgw[data-rail-expanded=true] .pgw-conversations { left: 205px; }
 @media (max-width: 700px) {
  .pgw[data-rail-expanded=true] .pgw-rail { position: fixed; top: var(--pgw-nav-height); bottom: 0; height: auto; width: 205px; box-shadow: 12px 0 30px #0008; }

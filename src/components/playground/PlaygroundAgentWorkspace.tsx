@@ -9,6 +9,23 @@ import type { AgentApproval } from "@/lib/playgroundAgentLoop";
 import PlaygroundAgentQuestion from "./PlaygroundAgentQuestion";
 import PlaygroundProjectPanel from "./PlaygroundProjectPanel";
 import WorkspacePicker from "./WorkspacePicker";
+import WorkspaceIcon from "./WorkspaceIcon";
+
+/** In the production client, setup is a disclosure beside the one shared composer. */
+export function InlineAgentWorkspace({ workspace, model, mode, busy }: { workspace: HostedAgentWorkspace; model: string; mode: "plan" | "build"; busy: boolean }) {
+	const state = React.useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot);
+	return <details className="pgw-workspace-options"><summary><WorkspaceIcon name="file" width={15} />Workspace<span>{state.workspace ? "Connected · offline" : "Not started"}</span></summary>
+		<p>{mode === "plan" ? "Read-only tools. No edits or commands." : "Staged files only. Every edit or command needs fresh approval."} Selecting a mode does not start a workspace.</p>
+		<div className="pgw-history-actions"><button type="button" className="pgw-outlined-button" disabled={busy} onClick={() => void workspace.check()}>Check availability</button><button type="button" className="pgw-outlined-button" disabled={busy || !state.executionEnabled || !state.models.includes(model) || !!state.workspace || !!state.quarantined} onClick={() => void workspace.startSandbox()}>Start workspace</button>{(state.workspace || state.quarantined) && <button type="button" className="pgw-text-button" disabled={state.phase === "stopping"} onClick={() => void workspace.stop()}>{state.quarantined ? "Retry discard" : "Discard workspace"}</button>}</div>
+		{state.workspace && <PlaygroundProjectPanel key={state.workspace.id} workspace={workspace} busy={busy} readOnly={mode === "plan"} />}
+		<p className="pgw-sidebar-note">Temporary hosted files, never your original folder. Stop/discard cancels pending approvals. Model turns and summaries are metered.</p>
+	</details>;
+}
+
+export function AgentInteractions({ workspace }: { workspace: HostedAgentWorkspace }) {
+	const state = React.useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot);
+	return <>{state.pendingApproval && <FreshActionApproval key={state.pendingApproval.id} approval={state.pendingApproval} decide={workspace.decide} />}{state.pendingQuestion && <PlaygroundAgentQuestion key={state.pendingQuestion.id} challenge={state.pendingQuestion} answer={workspace.answer} />}</>;
+}
 
 /** Keyed by a fresh challenge: a second rapid click/key-repeat cannot approve a newly
  * arrived action without a separate review acknowledgement. Nothing renders as HTML. */

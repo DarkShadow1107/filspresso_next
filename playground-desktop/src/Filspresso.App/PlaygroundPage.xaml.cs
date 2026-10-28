@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Filspresso.Core.Session;
 using Filspresso.Core.Api;
 using Filspresso.Core.Storage;
+using Filspresso.Harness;
 using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -52,7 +53,9 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true, WriteIndented = true };
 
     public event RoutedEventHandler? SettingsRequested;
-    public event EventHandler<string>? AgentModeRequested;
+    private AgentWorkspacePage? _agent;
+    private bool AgentBusy => _agent?.IsBusy == true;
+    private bool AgentMode => ChatModePicker.SelectedIndex > 0;
     public string? SavedSessionUuid => _sessionUuids.GetValueOrDefault(_conversationId);
 
     public PlaygroundPage(AppServices services, PlaygroundSession session)
@@ -93,7 +96,8 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
 
     public void NewConversation()
     {
-        if (_inFlight is not null) return;
+        if (_inFlight is not null || AgentBusy) return;
+        ResetAgent();
         CancelPendingResume();
         RememberConversation();
         _conversationId = Guid.NewGuid().ToString();
@@ -170,15 +174,19 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
             _ => ("Checking account…", string.Empty, InfoBarSeverity.Informational),
         };
         StateBar.IsOpen = state != PlaygroundAvailability.Ready;
-        var sending = _inFlight is not null;
+        var sending = _inFlight is not null || AgentBusy;
         CompactButton.IsEnabled = !sending && _transcript.Count > 1;
         SendButton.IsEnabled = !sending && state.AllowsSending() && _sources.All(source => source.Context is not null)
-            && (!string.IsNullOrWhiteSpace(PromptBox.Text) || _sources.Count > 0);
+            && (!AgentMode || _agent?.CanSend == true) && (!string.IsNullOrWhiteSpace(PromptBox.Text) || _sources.Count > 0);
         SendButton.Visibility = sending ? Visibility.Collapsed : Visibility.Visible;
         CancelButton.Visibility = sending ? Visibility.Visible : Visibility.Collapsed;
         ModelBox.IsEnabled = ThinkingButton.IsEnabled = CompactionPicker.IsEnabled = ChatModePicker.IsEnabled = !sending;
+        ThinkingButton.IsEnabled = !sending && !AgentMode;
+        ToolTipService.SetToolTip(ThinkingButton, AgentMode ? "Thinking · controlled by the agent model in Plan and Build" : _thinking ? "Thinking · on" : "Thinking · off");
         AttachButton.IsEnabled = GithubButton.IsEnabled = ContextButton.IsEnabled = !sending;
         PromptBox.IsReadOnly = sending;
+        CompactButton.Visibility = AgentMode ? Visibility.Collapsed : Visibility.Visible;
+        ModeGuidance.Text = !AgentMode ? "Chat · answers and attachments, no tools" : ChatModePicker.SelectedIndex == 1 ? "Plan · read and explore, no changes or commands" : "Build · staged changes, approval for each action";
         RenderSourceSuggestions(selected?.ModelKey, sending);
     }
 
@@ -250,7 +258,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     private async void OnRefresh(object sender, RoutedEventArgs args) => await RefreshAsync();
     private async void OnManageAccount(object sender, RoutedEventArgs args) => await Launcher.LaunchUriAsync(
         _session.Availability == PlaygroundAvailability.NoAccess ? _services.SubscriptionUrl : _services.AccountUrl);
-    private void OnStop(object sender, RoutedEventArgs args) => _inFlight?.Cancel();
+    private void OnStop(object sender, RoutedEventArgs args) { _inFlight?.Cancel(); _agent?.Stop(); }
     private void OnCompactNext(object sender, RoutedEventArgs args)
     {
         if (_inFlight is not null) return;
@@ -267,11 +275,29 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     }
     private void OnChatModeChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (sender is not ChoicePicker picker || picker.SelectedIndex <= 0) return;
-        var mode = picker.SelectedIndex == 2 ? "build" : "plan";
-        picker.SelectedIndex = 0;
-        if (_inFlight is null) AgentModeRequested?.Invoke(this, mode);
+        if (AgentHost is null || PromptBox is null || _inFlight is not null || AgentBusy) return;
+        if (AgentMode)
+        {
+            if (_agent is null)
+            {
+                _agent = new AgentWorkspacePage(_services);
+                _agent.StateChanged += (_, _) => { if (!_disposed) RenderSelection(); };
+                AgentHost.Content = _agent;
+                _agent.Reload(SavedSessionUuid);
+            }
+            _agent.SelectMode(ChatModePicker.SelectedIndex == 2);
+        }
+        AgentHost.Visibility = AgentMode ? Visibility.Visible : Visibility.Collapsed;
+        PromptBox.PlaceholderText = !AgentMode ? "Ask anything…" : ChatModePicker.SelectedIndex == 1 ? "Explore a project or plan a change…" : "Describe what you want to build…";
+        RenderSelection();
     }
+    private void ResetAgent()
+    {
+        _agent?.Dispose(); _agent = null;
+        AgentHost.Content = null; AgentHost.Visibility = Visibility.Collapsed;
+        ChatModePicker.SelectedIndex = 0;
+    }
+    public void SuspendAgent() => ResetAgent();
     private void OnThinkingChanged(object sender, RoutedEventArgs args) => _thinking = ThinkingButton.IsChecked == true;
     private void OnNewConversation(object sender, RoutedEventArgs args) => NewConversation();
     private void OnCancelEdit(object sender, RoutedEventArgs args) { _editingFrom = null; PromptBox.Text = string.Empty; EditingPanel.Visibility = Visibility.Collapsed; }
@@ -360,6 +386,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
 
     private async Task SendAsync(string? replacementPrompt = null, int? replaceFrom = null)
     {
+        if (AgentMode) { if (replacementPrompt is not null || _editingFrom is not null) { ShowSourceError("Cancel the message edit before using agent tools."); return; } await SendAgentAsync(); return; }
         if (_inFlight is not null || ModelBox.SelectedItem is not ModelView selected ||
             !_session.ForModel(selected.ModelKey).AllowsSending()) return;
         if (_sources.Any(source => source.Context is null)) return;
@@ -457,6 +484,34 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         }
     }
 
+    private async Task SendAgentAsync()
+    {
+        if (_inFlight is not null || _agent is not { CanSend: true } agent || _sources.Any(source => source.Context is null)) return;
+        var sources = _sources.Select(source => source.Context!).ToArray();
+        var prompt = PromptBox.Text.Trim();
+        if (prompt.Length == 0 && sources.Length > 0) prompt = "Please analyze the attached sources.";
+        if (prompt.Length == 0) return;
+        var request = prompt + string.Join(string.Empty, sources.Select(source => $"\n\n<attached-source name={JsonSerializer.Serialize(source.Name)}>\n{source.Text}\n</attached-source>"));
+        if (request.Length > 8000) { ShowSourceError("These sources exceed the agent message limit. Import project files through Workspace instead; nothing was silently removed."); return; }
+        var history = new List<AgentConversationTurn>();
+        for (var i = 0; i < _transcript.Count; i += 2)
+        {
+            if (i + 1 >= _transcript.Count || !_transcript[i].IsUser || _transcript[i + 1].IsUser) { ShowSourceError("The transcript has an incomplete message pair. Start a new conversation to use agent tools."); return; }
+            var line = _transcript[i];
+            var message = line.Text + string.Join(string.Empty, line.Sources.Select(source => $"\n\n<attached-source name={JsonSerializer.Serialize(source.Name)}>\n{source.Text}\n</attached-source>"));
+            history.Add(new(message, _transcript[i + 1].Text, Array.Empty<AgentExchange>()));
+        }
+        if (history.Count >= 16 || JsonSerializer.Serialize(history).Length > 196608 || history.Any(turn => turn.UserMessage.Length > 8000 || turn.AssistantText.Length > 32768)) { ShowSourceError("Agent context limit reached. Export this thread and start a new conversation; nothing was silently removed."); return; }
+        using var cancellation = new CancellationTokenSource(); _inFlight = cancellation;
+        var user = CreateLine(true, "You", prompt); user.Sources = sources; _transcript.Add(user);
+        var answer = CreateLine(false, (ModelBox.SelectedItem as ModelView)?.Label ?? "Agent", "Working…"); answer.IsComplete = false; _transcript.Add(answer);
+        PromptBox.Text = string.Empty; ClearSources(); UpdateChatLayout(); RenderSelection();
+        agent.OutputChanged = text => { answer.Text = string.IsNullOrEmpty(text) ? "Working…" : text; Transcript.ScrollIntoView(answer); };
+        try { await agent.SendFromComposerAsync(request, history); }
+        catch (Exception error) when (error is InvalidOperationException or OperationCanceledException) { answer.Text = error.Message; }
+        finally { agent.OutputChanged = null; answer.IsComplete = true; _inFlight = null; if (!_disposed) { RememberConversation(); Render(); } }
+    }
+
     /// <summary>
     /// Saves the conversation's resume state to its server session, fire-and-forget.
     /// </summary>
@@ -506,13 +561,13 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     }
     private void OnEditMessage(object sender, RoutedEventArgs args)
     {
-        if (_inFlight is not null || (sender as Button)?.Tag is not TranscriptLine line) return;
+        if (_inFlight is not null || AgentBusy || AgentMode || (sender as Button)?.Tag is not TranscriptLine line) return;
         _editingFrom = _transcript.IndexOf(line); PromptBox.Text = line.Text;
         EditingPanel.Visibility = Visibility.Visible; PromptBox.Focus(FocusState.Programmatic);
     }
     private async void OnRegenerate(object sender, RoutedEventArgs args)
     {
-        if (_inFlight is not null || (sender as Button)?.Tag is not TranscriptLine line) return;
+        if (_inFlight is not null || AgentBusy || AgentMode || (sender as Button)?.Tag is not TranscriptLine line) return;
         var index = _transcript.IndexOf(line);
         if (index > 0 && _transcript[index - 1].IsUser) await SendAsync(_transcript[index - 1].Text, index - 1);
     }
@@ -608,6 +663,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
 
     private void ResumeServerSession(SavedSession saved)
     {
+        ResetAgent();
         RememberConversation();
         var nextId = Guid.NewGuid().ToString();
         _sessionUuids[nextId] = saved.SessionUuid;
@@ -649,7 +705,8 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     private void OnSearchChanged(object sender, TextChangedEventArgs args) { if (ConversationsList is not null) RenderConversations(); }
     private void OnConversationSelected(object sender, SelectionChangedEventArgs args)
     {
-        if (_rendering || _inFlight is not null || ConversationsList.SelectedItem is not Conversation chat) return;
+        if (_rendering || _inFlight is not null || AgentBusy || ConversationsList.SelectedItem is not Conversation chat) return;
+        ResetAgent();
         CancelPendingResume();
         RememberConversation(); _conversationId = chat.Id; _transcript.Clear();
         ClearSources();
@@ -705,6 +762,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
 
     public void Dispose()
     {
+        _agent?.Dispose();
         CancelPendingResume();
         _disposed = true; _inFlight?.Cancel(); _session.Changed -= OnSessionChanged;
         ClearSources();

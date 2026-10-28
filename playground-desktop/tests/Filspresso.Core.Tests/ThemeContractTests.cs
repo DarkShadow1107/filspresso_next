@@ -113,8 +113,11 @@ public sealed class ThemeContractTests
         Assert.Equal(8, imports.Length);
         Assert.All(imports, item => Assert.Contains(item.Elements(), child => child.Name.LocalName == "MenuFlyoutItem.Icon"));
         var shell = File.ReadAllText(Path.Combine(AppDirectory(), "MainWindow.xaml.cs"));
-        Assert.Contains("AgentModeRequested += OnAgentMode", shell, StringComparison.Ordinal);
-        Assert.Contains("SelectMode(mode == \"build\")", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("SetSection(\"agent\")", shell, StringComparison.Ordinal);
+        var composer = File.ReadAllText(Path.Combine(AppDirectory(), "PlaygroundPage.xaml.cs"));
+        Assert.Contains("_agent.SelectMode(ChatModePicker.SelectedIndex == 2)", composer, StringComparison.Ordinal);
+        Assert.Contains("AgentHost.Content = _agent", composer, StringComparison.Ordinal);
+        Assert.DoesNotContain("picker.SelectedIndex = 0", composer, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -126,8 +129,10 @@ public sealed class ThemeContractTests
         foreach (var control in new[] { "VerifySandboxButton", "EnableExecutionButton", "ReviewedAction", "ApprovalBorder", "QuestionBorder" })
             Assert.Contains($"x:Name=\"{control}\"", xaml, StringComparison.Ordinal);
         var code = File.ReadAllText(Path.Combine(AppDirectory(), "AgentWorkspacePage.xaml.cs"));
-        Assert.Contains("ModeBox.SelectedIndex != 1 || started", code, StringComparison.Ordinal);
+        Assert.Contains("(!_build || _execution?.Workspace is not null)", code, StringComparison.Ordinal);
         Assert.Contains("WindowsPlatformProbe.TryReadSystemReport()", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"PromptBox\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Back to chat", xaml, StringComparison.Ordinal);
     }
 
     [Fact]
