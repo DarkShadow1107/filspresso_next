@@ -1,0 +1,5 @@
+# SSH signature trust for scripts/verifySignedHistory.mjs (signed-commit policy gate).
+# Format: <principal> <key-type> <public-key>      principal = committer email.
+# Dedicate a key to commit signing only; never add keys that also authenticate to hosts.
+# Rotate by replacing the line and the signing machine's user.signingkey setting.
+alexandru.gabriel110737@gmail.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICAh4S69ADpUIw/fMNV8XoClaHRhxa75MqBF+chMvGbU

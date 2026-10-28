@@ -36,7 +36,8 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.78.1</version>
+            <!-- CVE-2025-14813 (CRITICAL) fixed in 1.80.2+, CVE-2026-8763 fixed in 1.85+. -->
+            <version>1.86</version>
         </dependency>
     </dependencies>
 

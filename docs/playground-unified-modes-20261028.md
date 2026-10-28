@@ -106,9 +106,59 @@ through its existing read-only mount.
   this published package; nothing else publishes a "release" claim.
 - CI on the branch: run **40776648489** for `587f2e753509c9e8aaeed310c62c2a576ba47444` and run
   **40772881716** for `29620af655c085e733a437474f5391c7cd7de400` both completed **failure** with
-  the identical gate set as the previous two commits — Signed Commit History Policy, Supply
+  the identical gate set as the previous two commits - Signed Commit History Policy, Supply
   Chain Security Gates, Python Dependency Audit, Frontend Security Checks, Backend Security
   Checks. Not new, not bypassed; recorded and left for separate CI/qualification work.
+
+## Security CI gate diagnosis and fix (2026-10-28/29)
+
+Run **40777007083** (`cdcaff9`) was unrolled job-by-job from the Actions API; each failing gate
+has a distinct, reproduced root cause:
+
+- **Signed Commit History Policy** - `scripts/verifySignedHistory.mjs` required every commit in
+  the recent window to be signed; all 29 recent commits predate SSH commit signing. Fixed without
+  any history rewrite: commits are now SSH-signed (dedicated ed25519 key, repo-local
+  `user.signingkey` + `commit.gpgsign`), the checker uses a **rolling boundary** walking back from
+  HEAD (everything newer than the most recent unsigned commit must be `G`/`U`, and the window must
+  contain at least one signed commit), and verification trusts the committed
+  `scripts/allowed_signers` via `git -c gpg.ssh.allowedSignersFile=...`, so no runner setup is
+  needed. Old unsigned history stays grandfathered; the boundary rolls forward as signed commits
+  land.
+- **Frontend Security Checks** - failed at `npm audit --audit-level=high` on `node-forge@1.4.0`
+  (GHSA-86w9-cpqp-85rv, HIGH, fix available). Bumped to `^1.4.2` (dev dependency, only used by the
+  local `generate-all-secrets.mjs`); root audit is now **0 vulnerabilities**.
+- **Backend Security Checks** - failed at `npm run test`: the runner's Node 20.20.2 does not expand
+  `test/**/*.test.ts` (`node --test` glob args need Node >= 22; local development runs 22.14), so
+  tsx received the literal pattern and aborted with "Could not find ...". Both Node jobs in
+  `security-ci.yml` now run Node **22**, matching the toolchain the repo actually builds with.
+- **Python Dependency Audit** - `pip-audit -r requirements.txt` flagged abandoned `PyPDF2` 3.0.1
+  (PYSEC-2026-1835 has no PyPDF2 fix; the workspace already reads PDFs through maintained `pypdf`
+  in `models/playground_context.py`) and `python-dotenv` 1.0.0 (PYSEC-2026-2270, fix 1.2.2).
+  Removed the dead `PyPDF2` pin and raised `python-dotenv` to `>=1.2.2,<2`. Both requirement files
+  now audit clean locally. `models/requirements.txt` was already clean.
+- **Supply Chain Security Gates** - failed at the trivy filesystem scan (HIGH/CRITICAL, exit 1;
+  action default scanners = `vuln,secret`). The CI log's own findings table identifies Java pins:
+  `java-invoice-service/pom.xml` carried `bcprov-jdk18on` 1.78.1 (CVE-2025-14813 CRITICAL,
+  CVE-2026-8763 CRITICAL, CVE-2026-13506 HIGH) and `kotlin-subscription-service/pom.xml`
+  inherited jackson-databind 2.18.3 from the Boot 3.4.5 parent (five HIGH CVEs: 2026-54512,
+  2026-54513, 2026-68497, 2026-91776, 2026-91777). Bumped `bcprov-jdk18on` to **1.86** and
+  overrode Boot's `jackson-bom.version` to **2.21.8** (the newest release covering every
+  listed fixed branch). Secret scanning reported nothing beyond a size warning for
+  `models/conf/tokenizer.json`, confirming the removed committed build-output trees
+  (`playground-desktop/artifactsbin` 787 files, ~318 MB of debug binaries, `artifactsobj`
+  intermediates, `nestjs-backend/dist` 153 files - the backend image rebuilds it and
+  `Dockerfile.dockerignore` already excluded it from the build context) were not what tripped
+  the scan, but they are regenerable artifacts that never belonged in git. Matching `.gitignore`
+  rules added; tracked-file count fell 3068 -> 1438 without touching any source file.
+
+Local verification of every gate before the fix commit: root `npm audit --audit-level=high`
+clean; `nestjs-backend` build pass and **362/362** tests (including the schema-parity test, whose
+comparison is now checkout line-ending agnostic by design); frontend lint + build pass; both
+Python requirement files audit clean; signed-history checker fails on unsigned tips and succeeds
+on signed ones; base-image and deploy-signature policy scripts pass; a local trivy 0.69.3
+filesystem scan with the CI's severity/exit flags (default `vuln,secret` scanners, the local
+gitignored runtime `secrets/` and `.venv` excluded as they don't exist on runners) reports
+**0 vulnerabilities and 0 secrets** across every scanned lockfile after the pom bumps.
 
 ## Repeat checks
 

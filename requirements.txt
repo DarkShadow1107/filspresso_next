@@ -14,7 +14,8 @@ SQLAlchemy==2.0.19
 # Utilities
 numpy>=1.25,<2.0
 pandas>=2.0.0
-python-dotenv==1.0.0
+# PYSEC-2026-2270 fixed in 1.2.2; 1.x keeps the same API.
+python-dotenv>=1.2.2,<2
 
 # Chemistry data sources
 chembl-webresource-client>=0.10.9
@@ -22,4 +23,6 @@ rdkit>=2023.9.1
 py3Dmol>=2.0.4
 
 # RAG PDF parsing (legacy data ingestion)
-PyPDF2>=3.0.0
+# PyPDF2>=3.0.0 is removed: the project reads PDFs through the maintained pypdf fork
+# (imported in models/playground_context.py, pinned in requirements.ai.txt), and
+# PyPDF2 3.0.1 is abandoned upstream (PYSEC-2026-1835 has no PyPDF2 fix).
