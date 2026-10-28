@@ -76,9 +76,39 @@ were unsigned and unqualified. The refreshed package will use **0.3.6**, rather 
 release approval or a claim of install/upgrade/uninstall, live isolation or live billing
 qualification. Existing signed-history/security CI failures remain separate blockers.
 
-Frontend rollout, exact package hash, published metadata and post-rollout results will be
-recorded below after verification. The backend need not be rebuilt or restarted: it reads
-the versioned installer directory through its existing read-only mount.
+The backend need not be rebuilt or restarted: it reads the versioned installer directory
+through its existing read-only mount.
+
+### Publication record (2026-10-29)
+
+- Source commit: `587f2e753509c9e8aaeed310c62c2a576ba47444` ("Attribute desktop startup exits,
+  finish unified modes"), pushed to `Beta-8-Production`.
+- Package: `playground-desktop/artifacts/candidate-0.3.6-publication-20261029/Filspresso.Playground.msi`,
+  copied to `desktop-installers/0.3.6/Filspresso.Playground.msi` and promoted by
+  `Publish-DesktopInstaller.ps1`.
+  - bytes **83,108,684**, SHA-256 `87e972030d49dbde51d413a1475ff841ef6c123f1bd42749b22bd6f113a2d730`
+  - Authenticode **NotSigned**, manifest `installQualified: false` (both enforced during packaging)
+  - app `ProductVersion` stamped `0.3.6+587f2e753509c9e8aaeed310c62c2a576ba47444`; Core/Harness/Sandbox
+    assemblies all **0.3.6.x**; 29 icon PNGs include the bit-identical shared brain glyph.
+- Verification: manifest sha256/byte count re-verified off the copy before promotion; the
+  running backend container then resolved `/app/downloads/0.3.6/Filspresso.Playground.msi`
+  (version 0.3.6, same hash, `unsigned: true`) with **no rebuild and no restart**
+  (started 2026-10-28T21:06:57Z, restarts 0) from its existing read-only mount.
+- Through Caddy, post-publication: `/?page=playground` **200**; `/api/desktop/installer`
+  anonymous **401** `no-store`; `/api/desktop/installations` anonymous **401** no-store/private.
+- Signed-out Instructions smoke on the exact publish payload: first attempt hit the documented
+  Windhawk startup exit, second attempt **PASS** (guide opens, reads native edition/build,
+  honest update status). This smoke is not install/upgrade/uninstall or live isolation
+  qualification, and says so while running.
+- `desktop-installers/index.json` now lists latest **0.3.6** (0.3.2 retained below it). The MSI
+  binaries stay gitignored; `index.json` and the per-version `package-manifest.json` records
+  are committed. Installed 0.3.2 clients are deliberately expected to show an update notice for
+  this published package; nothing else publishes a "release" claim.
+- CI on the branch: run **40776648489** for `587f2e753509c9e8aaeed310c62c2a576ba47444` and run
+  **40772881716** for `29620af655c085e733a437474f5391c7cd7de400` both completed **failure** with
+  the identical gate set as the previous two commits — Signed Commit History Policy, Supply
+  Chain Security Gates, Python Dependency Audit, Frontend Security Checks, Backend Security
+  Checks. Not new, not bypassed; recorded and left for separate CI/qualification work.
 
 ## Repeat checks
 
