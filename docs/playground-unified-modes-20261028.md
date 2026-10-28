@@ -160,6 +160,20 @@ filesystem scan with the CI's severity/exit flags (default `vuln,secret` scanner
 gitignored runtime `secrets/` and `.venv` excluded as they don't exist on runners) reports
 **0 vulnerabilities and 0 secrets** across every scanned lockfile after the pom bumps.
 
+Push result: commit `714fcfd8a0a013e57093171e353aa9bad315fb4c` ("Fix Security CI gates: signed
+history, dep bumps, runner parity") is the first **security-run-green** commit on the branch -
+run **40783562783** completed **success** with all five jobs passing: Signed Commit History
+Policy, Frontend Security Checks, Backend Security Checks, Python Dependency Audit and Supply
+Chain Security Gates. `git log` shows it as `%G? G`, i.e. a good SSH signature for
+`alexandru.gabriel110737@gmail.com` against the committed `scripts/allowed_signers`; the rolling
+boundary sits at `cdcaff9`, which stays grandfathered. No history was rewritten and nothing was
+force-pushed (normal `cdcaff9..714fcfd` fast-forward). Two standing notes: register the
+`/filspresso_commit_ed25519` public key as a *signing key* in GitHub account settings for the UI
+"Verified" badge (the CI gate does not need it), and keep `commit.gpgsign` enabled for this
+repository (repo-local config) so future commits stay policy-clean. The deployed stack was not
+touched by this work: backend and frontend images are unchanged and keep serving MSI 0.3.6
+without a redeploy.
+
 ## Repeat checks
 
 ```powershell
