@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "latest": "0.3.7",
+  "latest": "0.3.8",
   "versions": [
     {
       "productVersion": "0.3.2",
@@ -20,6 +20,13 @@
       "productVersion": "0.3.7",
       "bytes": 83125068,
       "sha256": "f5da8f7f48925f2cf929fb8039018603940421c79311fd06e0618ea6f1f1d4da",
+      "signature": "NotSigned",
+      "installQualified": false
+    },
+    {
+      "productVersion": "0.3.8",
+      "bytes": 83125068,
+      "sha256": "34e371e7beddae1c909f2b7fad9afbb357d33932bdc8d3c1fbfabaf78d75c3a0",
       "signature": "NotSigned",
       "installQualified": false
     }
