@@ -4,7 +4,7 @@ This service generates branded PDF invoices for Filspresso orders.
 
 ## 1. Runtime
 
-- Framework: Spring Boot 3.3.x
+- Framework: Spring Boot 4.0.6 / Spring Framework 7.0.9
 - Language: Java 17
 - Entry package: `com.filspresso.invoice`
 - Default service port (compose): `8082`
