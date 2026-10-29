@@ -32,7 +32,7 @@ internal static class HyperVGuestScripts
             $request.password = $null
             $result = @(Invoke-Command -VMName '{{vmName}}' -Credential $credential -ErrorAction Stop -ArgumentList ([string]$request.script) -ScriptBlock {
                 param([string]$encoded)
-                $source = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
+                $source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded))
                 & ([ScriptBlock]::Create($source))
             })
             if ($result.Count -ne 1 -or $result[0] -isnot [string]) { throw 'Invalid guest response' }

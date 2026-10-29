@@ -371,7 +371,8 @@ public sealed class HyperVSandbox : IWorkspaceSandbox
     {
         // JSON and encoded guest source are data on stdin. Neither password nor generated
         // source appears in the host command line, model context, or diagnostic exception.
-        var input = JsonSerializer.Serialize(new { user = credential.UserName, password = credential.Password, script = ToBase64(script) });
+        var input = JsonSerializer.Serialize(new { user = credential.UserName, password = credential.Password, script = Convert.ToBase64String(Encoding.UTF8.GetBytes(script)) },
+            new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
         var result = await _runner.RunWithInputAsync(HyperVGuestScripts.Direct(session.Name), input, timeout, token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
         if (result.ExitCode != 0) throw new InvalidOperationException("PowerShell Direct failed.");
