@@ -4,14 +4,16 @@ import { useRef, useState } from "react";
 import { PLAYGROUND_MODEL_KEYS, CONTEXT_LEVELS, MODEL_LABEL_BY_KEY, TEXT_MODEL_230M, formatContextTokens, type ModelKey } from "@/lib/modelAccess";
 import WorkspaceIcon from "./WorkspaceIcon";
 import { COMPACTION_OPTIONS, type CompactionMode } from "@/lib/playgroundContext";
+import PlaygroundDocumentsManager from "./PlaygroundDocuments";
 
 export type PlaygroundPreferences = {
 	model: ModelKey;
 	inputContextTokens: number;
 	compactionMode: CompactionMode;
 	thinking: boolean;
+	/** Chat asks the server to ground the answer in a fresh web search. */
+	webResearch: boolean;
 	textSize: "small" | "standard" | "large";
-	showStats: boolean;
 	enterToSend: boolean;
 };
 
@@ -20,8 +22,8 @@ export const DEFAULT_PREFERENCES: PlaygroundPreferences = {
 	inputContextTokens: CONTEXT_LEVELS[0],
 	compactionMode: "balanced",
 	thinking: false,
+	webResearch: false,
 	textSize: "standard",
-	showStats: true,
 	enterToSend: true,
 };
 
@@ -34,11 +36,11 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 	onImport: (file: File) => Promise<void>;
 	hasMessages: boolean;
 }) {
-	const [section, setSection] = useState<"general" | "display" | "transfer">("general");
+	const [section, setSection] = useState<"general" | "display" | "documents" | "transfer">("general");
 	const [draft, setDraft] = useState(preferences);
 	const [notice, setNotice] = useState("");
 	const fileRef = useRef<HTMLInputElement>(null);
-	const heading = section === "general" ? "General" : section === "display" ? "Display" : "Import / Export";
+	const heading = section === "general" ? "General" : section === "display" ? "Display" : section === "documents" ? "Documents" : "Import / Export";
 
 	return (
 		<div className="pgw-settings">
@@ -46,13 +48,13 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 			<div className="pgw-settings-layout">
 				<nav className="pgw-settings-nav" aria-label="Settings sections">
 					{([
-						["general", "settings", "General"], ["display", "display", "Display"], ["transfer", "transfer", "Import / Export"],
+						["general", "settings", "General"], ["display", "display", "Display"], ["documents", "file", "Documents"], ["transfer", "transfer", "Import / Export"],
 					] as const).map(([key, icon, label]) => (
 						<button type="button" key={key} aria-current={section === key ? "page" : undefined} onClick={() => { setSection(key); setNotice(""); }}><WorkspaceIcon name={icon} />{label}</button>
 					))}
 				</nav>
 				<section className="pgw-settings-panel" aria-label={heading}>
-					<h2><WorkspaceIcon name={section === "transfer" ? "transfer" : section === "display" ? "display" : "settings"} /> {heading}</h2>
+					<h2><WorkspaceIcon name={section === "transfer" ? "transfer" : section === "display" ? "display" : section === "documents" ? "file" : "settings"} /> {heading}</h2>
 					{section === "general" && <>
 						<label className="pgw-setting">
 							<span>Default model</span>
@@ -71,13 +73,14 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 							<small>Summarizes older conversation at the selected threshold. Recent turns and your original transcript are kept. Summary model usage is metered.</small>
 						</label>
 						{thinkingAllowed && <label className="pgw-switch-row"><span><b>Thinking mode</b><small>Show the model’s reasoning alongside its answer.</small></span><input type="checkbox" role="switch" checked={draft.thinking} disabled={streaming} onChange={(event) => setDraft({ ...draft, thinking: event.target.checked })} /></label>}
+						<label className="pgw-switch-row"><span><b>Internet access</b><small>The reply is grounded in a fresh server-side web search with visible sources. It costs a few seconds more.</small></span><input type="checkbox" role="switch" checked={draft.webResearch} disabled={streaming} onChange={(event) => setDraft({ ...draft, webResearch: event.target.checked })} /></label>
 						<label className="pgw-switch-row"><span><b>Enter to send</b><small>Use Shift + Enter for a new line.</small></span><input type="checkbox" role="switch" checked={draft.enterToSend} onChange={(event) => setDraft({ ...draft, enterToSend: event.target.checked })} /></label>
 					</>}
 					{section === "display" && <>
 						<label className="pgw-setting"><span>Message text size</span><select value={draft.textSize} onChange={(event) => setDraft({ ...draft, textSize: event.target.value as PlaygroundPreferences["textSize"] })}><option value="small">Small</option><option value="standard">Standard</option><option value="large">Large</option></select><small>Adjust the conversation’s text size without changing the rest of the interface.</small></label>
-						<label className="pgw-switch-row"><span><b>Generation statistics</b><small>Show token counts and elapsed time when the runtime reports them.</small></span><input type="checkbox" role="switch" checked={draft.showStats} onChange={(event) => setDraft({ ...draft, showStats: event.target.checked })} /></label>
 						<div className="pgw-type-preview" data-size={draft.textSize}><span>Preview</span><p>A little space to think. A direct conversation with your model.</p></div>
 					</>}
+					{section === "documents" && <PlaygroundDocumentsManager streaming={streaming} />}
 					{section === "transfer" && <>
 						<div className="pgw-setting"><span>Export this conversation</span><small>Download the current messages as a JSON file.</small><button type="button" className="pgw-outlined-button" onClick={onExport} disabled={!hasMessages || streaming}><WorkspaceIcon name="download" /> Export conversation</button></div>
 						<div className="pgw-setting"><span>Import a conversation</span><small>Open a previously exported Playground JSON file (up to 2 MB).</small><input ref={fileRef} className="pgw-hidden" type="file" accept="application/json,.json" aria-label="Import conversation file" onChange={async (event) => {

@@ -18,6 +18,8 @@ import { PlaygroundAgentController } from "./playground-agent.controller";
 import { PlaygroundAgentTicketsService } from "./playground-agent-tickets.service";
 import { PlaygroundAgentActionsService } from "./playground-agent-actions.service";
 import { PlaygroundAgentActionsController } from "./playground-agent-actions.controller";
+import { PlaygroundDocumentsController } from "./playground-documents.controller";
+import { PlaygroundDocumentsService } from "./playground-documents.service";
 
 /**
  * The desktop client's backend surface.
@@ -34,7 +36,7 @@ import { PlaygroundAgentActionsController } from "./playground-agent-actions.con
  */
 @Module({
 	imports: [BillingModule],
-	controllers: [DesktopController, DesktopWebController, PlaygroundContextController, PlaygroundController, PlaygroundSandboxController, PlaygroundSessionsController, PlaygroundAgentController, PlaygroundAgentActionsController],
-	providers: [DesktopGatewayService, DesktopWebService, DesktopInstallerService, DesktopInstallerRegistryService, PlaygroundContextService, PlaygroundSandboxService, PlaygroundRunEventsService, PlaygroundSessionsService, PlaygroundAgentTicketsService, PlaygroundAgentActionsService],
+	controllers: [DesktopController, DesktopWebController, PlaygroundContextController, PlaygroundController, PlaygroundSandboxController, PlaygroundSessionsController, PlaygroundAgentController, PlaygroundAgentActionsController, PlaygroundDocumentsController],
+	providers: [DesktopGatewayService, DesktopWebService, DesktopInstallerService, DesktopInstallerRegistryService, PlaygroundContextService, PlaygroundSandboxService, PlaygroundRunEventsService, PlaygroundSessionsService, PlaygroundAgentTicketsService, PlaygroundAgentActionsService, PlaygroundDocumentsService],
   })
   export class DesktopModule {}

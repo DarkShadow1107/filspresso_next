@@ -60,7 +60,7 @@ public sealed class DesktopUpdateChecker
                 successful = true;
                 message = !value.Available ? "No desktop installer is currently published."
                     : !Version.TryParse(value.ProductVersion, out _) ? "The published version could not be verified. Retry later."
-                    : value.IsNewerThan(_runningVersion) ? $"Version {value.ProductVersion} is available.{(value.CanDownload ? " Download from your web account." : " Download requires eligible account access.")}"
+                    : value.IsNewerThan(_runningVersion) ? $"Version {value.ProductVersion} is available.{(value.CanDownload ? " Install it from this app." : " Download requires eligible account access.")}"
                     : $"Installed {_runningVersion} · published {value.ProductVersion}. No newer published version; local candidates are not update releases.";
                 if (value.Unsigned) message += " Published installer is unsigned; verify the source and checksum.";
             }

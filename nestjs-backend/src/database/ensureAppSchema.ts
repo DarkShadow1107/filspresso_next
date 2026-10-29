@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { AGENT_ACTIONS_SCHEMA } from "../desktop/playground-agent-actions.schema";
+import { PLAYGROUND_DOCUMENTS_SCHEMA } from "../desktop/playground-documents.schema";
 
 export async function ensureAppSchema(pool: Pool) {
   const client = await pool.connect();
@@ -140,6 +141,11 @@ export async function ensureAppSchema(pool: Pool) {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_playground_run_events_retention ON playground_run_events(created_at)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_playground_sessions_account ON playground_sessions(account_id, is_active, updated_at DESC)`);
     await client.query(AGENT_ACTIONS_SCHEMA);
+
+    // ---- Playground chat documents (see data/migrations/2026-10-playground-documents.sql) ----
+    // Declared once in the schema constant, run twice on purpose (boot path + migration file),
+    // and the parity test keeps the two from drifting the same way agent actions does.
+    await client.query(PLAYGROUND_DOCUMENTS_SCHEMA);
 
     // The desktop installer download is gated on an explicit, server-recorded
     // acknowledgement per product version: the web popup cannot be trusted as the only

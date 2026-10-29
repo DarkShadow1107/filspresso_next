@@ -54,6 +54,17 @@ public sealed class AppServices : IDisposable
             return await _api.GetInstallerUpdateAsync(Auth.Current.AccessToken, token).ConfigureAwait(false);
         });
         Updates.Changed += (_, _) => SystemNoticeChanged?.Invoke(this, EventArgs.Empty);
+        var journalPath = Path.Combine(PreferencesStore.DirectoryPath, "update-journal.log");
+        UpdateInstaller = new DesktopInstallerUpdateWorkflow(
+            _api,
+            async token => await Auth.EnsureAccessTokenAsync(token).ConfigureAwait(false) && Auth.Current is { } current
+                ? current.AccessToken
+                : null,
+            AppVersion,
+            Path.Combine(Path.GetTempPath(), "Filspresso", "Playground", "updates"),
+            Environment.ProcessPath ?? string.Empty,
+            journalPath);
+        UpdateInstaller.Changed += (_, _) => SystemNoticeChanged?.Invoke(this, EventArgs.Empty);
 
         Playground = new PlaygroundSession(_api, Auth, LoadEntitlementAsync);
 
@@ -239,7 +250,12 @@ public sealed class AppServices : IDisposable
     /// <see cref="SystemNoticeChanged"/> so the workspace can render the line when it arrives.
     /// </remarks>
     public DesktopUpdateChecker Updates { get; }
+    /// <summary>Verified download and installer hand-off; its journal lives beside user settings.</summary>
+    public DesktopInstallerUpdateWorkflow UpdateInstaller { get; }
     public string? NewDesktopBuildVersion => Updates.Snapshot.HasUpdate(AppVersion) ? Updates.Snapshot.Package?.ProductVersion : null;
+
+    public Task<bool> InstallDesktopUpdateAsync(CancellationToken cancellationToken = default) =>
+        UpdateInstaller.InstallAsync(Updates.Snapshot.Package, cancellationToken);
 
     /// <summary>Raised when the system maintenance produced a notice the UI may want to draw.</summary>
     public event EventHandler? SystemNoticeChanged;

@@ -271,11 +271,63 @@ public sealed partial class MainWindow : Window
     private void OnSystemNotice(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() =>
     {
         var version = _services.NewDesktopBuildVersion;
-        UpdateBar.Title = version is null ? string.Empty : $"Desktop {version} is available";
-        UpdateBar.Message = _services.Updates.Snapshot.Message;
-        UpdateBar.IsOpen = version is not null;
+        var install = _services.UpdateInstaller.Snapshot;
+        UpdateBar.Title = install.Running ? "Installing desktop update"
+            : version is not null ? $"Desktop {version} is available"
+            : install.Failed ? "Desktop update did not complete" : string.Empty;
+        UpdateBar.Message = install.Running || install.Failed ? install.Message : _services.Updates.Snapshot.Message;
+        InstallUpdateButton.Content = install.Running ? "Installing…" : "Install update";
+        InstallUpdateButton.IsEnabled = !install.Running && _services.Updates.Snapshot.Package is { CanDownload: true };
+        UpdateBar.IsOpen = version is not null || install.Running || install.Failed;
     });
-    private async void OnViewUpdate(object sender, RoutedEventArgs args) => await Windows.System.Launcher.LaunchUriAsync(_services.AccountUrl);
+    private async void OnInstallUpdate(object sender, RoutedEventArgs args)
+    {
+        var package = _services.Updates.Snapshot.Package;
+        if (package is null || !_services.Updates.Snapshot.HasUpdate(_services.AppVersion) || !package.CanDownload) return;
+        var confirmation = new CheckBox
+        {
+            Content = new TextBlock
+            {
+                Text = "I have read the update details and want to download and install this package.",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            IsChecked = false,
+        };
+        var details = new StackPanel { Spacing = 12, MaxWidth = 520 };
+        details.Children.Add(new TextBlock
+        {
+            Text = $"Version {package.ProductVersion} · {FormatUpdateBytes(package.Bytes)}\nSHA-256: {package.Sha256}\n\nThe installer downloads to a temporary folder, is checked against the published size and checksum, then Windows Installer asks for permission. This app closes and restarts after installation. Playground settings, credentials and user files are not removed.",
+            TextWrapping = TextWrapping.Wrap,
+            IsTextSelectionEnabled = true,
+        });
+        if (package.Unsigned)
+            details.Children.Add(new TextBlock
+            {
+                Text = "This package is unsigned. Windows may show an unverified-publisher warning during installation.",
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoAccent"],
+            });
+        details.Children.Add(confirmation);
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            Title = "Install desktop update?",
+            Content = details,
+            PrimaryButtonText = "Download and install",
+            CloseButtonText = "Not now",
+            DefaultButton = ContentDialogButton.Close,
+            IsPrimaryButtonEnabled = false,
+        };
+        confirmation.Checked += (_, _) => dialog.IsPrimaryButtonEnabled = true;
+        confirmation.Unchecked += (_, _) => dialog.IsPrimaryButtonEnabled = false;
+        var choice = await dialog.ShowAsync();
+        if (choice != ContentDialogResult.Primary) return;
+        var shouldExit = await _services.InstallDesktopUpdateAsync();
+        if (shouldExit) Application.Current.Exit();
+    }
+    private static string FormatUpdateBytes(long? bytes) => bytes is > 0
+        ? bytes.Value >= 1024 * 1024 ? $"{bytes.Value / 1024d / 1024d:0.0} MB" : $"{Math.Max(1, bytes.Value / 1024)} KB"
+        : "size unavailable";
     private async void OnInstructions(object sender, RoutedEventArgs args)
     {
         if (_instructionsOpen) return;

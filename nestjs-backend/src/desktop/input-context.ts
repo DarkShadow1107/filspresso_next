@@ -4,6 +4,9 @@ export const INPUT_CONTEXT_LEVELS = [16_384, 32_768, 65_536, 131_072] as const;
 export function readInputContext(body: Record<string, unknown>): Record<string, unknown> {
 	const input = Number(body.input_context_tokens ?? body.inputContextTokens ?? INPUT_CONTEXT_LEVELS[0]);
 	if (!(INPUT_CONTEXT_LEVELS as readonly number[]).includes(input)) throw new Error("Choose a 16K, 32K, 64K or 128K input context.");
+	if (body.web_research !== undefined && ![true, false, "true", "false"].includes(body.web_research as boolean | string)) {
+		throw new Error("Internet access must be on or off.");
+	}
 	const history = body.history ?? [];
 	const contexts = body.contexts ?? [];
 	if (!Array.isArray(history) || history.length > 100 || !Array.isArray(contexts) || contexts.length > 12) throw new Error("There are too many messages or sources in this request.");

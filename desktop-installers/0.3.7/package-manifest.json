@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "productVersion": "0.3.7",
+  "file": "Filspresso.Playground.msi",
+  "bytes": 83125068,
+  "sha256": "f5da8f7f48925f2cf929fb8039018603940421c79311fd06e0618ea6f1f1d4da",
+  "signature": "NotSigned",
+  "installQualified": false,
+  "publishedAt": "2026-10-29T09:58:14.4357023Z"
+}

@@ -1,20 +1,27 @@
 {
-    "version":  1,
-    "latest":  "0.3.6",
-    "versions":  [
-                     {
-                         "productVersion":  "0.3.2",
-                         "bytes":  80978388,
-                         "sha256":  "c016b0ba9908922bca4a299969b11b7ec670f0fffc6f243eeb593fa3c9111148",
-                         "signature":  "NotSigned",
-                         "installQualified":  false
-                     },
-                     {
-                         "productVersion":  "0.3.6",
-                         "bytes":  83108684,
-                         "sha256":  "87e972030d49dbde51d413a1475ff841ef6c123f1bd42749b22bd6f113a2d730",
-                         "signature":  "NotSigned",
-                         "installQualified":  false
-                     }
-                 ]
+  "version": 1,
+  "latest": "0.3.7",
+  "versions": [
+    {
+      "productVersion": "0.3.2",
+      "bytes": 80978388,
+      "sha256": "c016b0ba9908922bca4a299969b11b7ec670f0fffc6f243eeb593fa3c9111148",
+      "signature": "NotSigned",
+      "installQualified": false
+    },
+    {
+      "productVersion": "0.3.6",
+      "bytes": 83108684,
+      "sha256": "87e972030d49dbde51d413a1475ff841ef6c123f1bd42749b22bd6f113a2d730",
+      "signature": "NotSigned",
+      "installQualified": false
+    },
+    {
+      "productVersion": "0.3.7",
+      "bytes": 83125068,
+      "sha256": "f5da8f7f48925f2cf929fb8039018603940421c79311fd06e0618ea6f1f1d4da",
+      "signature": "NotSigned",
+      "installQualified": false
+    }
+  ]
 }

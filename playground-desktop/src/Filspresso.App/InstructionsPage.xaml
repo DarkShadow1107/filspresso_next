@@ -11,9 +11,14 @@
                     <TextBlock x:Name="SystemFacts" TextWrapping="Wrap" FontSize="12" IsTextSelectionEnabled="True" />
                     <TextBlock x:Name="VersionFacts" FontSize="12" />
                     <TextBlock x:Name="UpdateStatus" FontSize="12" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock x:Name="UpdatePackageFacts" FontSize="10" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                     <TextBlock x:Name="LastChecked" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
-                    <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="CheckUpdates" Content="Check for updates" Click="OnCheckUpdates" Style="{StaticResource QuietButtonStyle}" /><Button Content="Recheck PC" Click="OnRecheck" Style="{StaticResource QuietButtonStyle}" /><Button Content="Web account" Click="OnWebAccount" Style="{StaticResource QuietButtonStyle}" /></StackPanel>
-                    <TextBlock Text="No automatic downloads, installation or restart. Only published packages can produce an update notice; a locally built MSI candidate is not a release. Unsigned/unqualified packages are not release-ready." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
+                    <ProgressBar x:Name="UpdateProgress" Minimum="0" Maximum="100" Visibility="Collapsed" />
+                    <CheckBox x:Name="UpdateAcknowledgement" Visibility="Collapsed" Checked="OnUpdateAcknowledgementChanged" Unchecked="OnUpdateAcknowledgementChanged">
+                        <TextBlock Text="I reviewed the version and checksum and want to download and install it. I understand Windows Installer will request permission." TextWrapping="Wrap" />
+                    </CheckBox>
+                    <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="CheckUpdates" Content="Check for updates" Click="OnCheckUpdates" Style="{StaticResource QuietButtonStyle}" /><Button x:Name="InstallUpdate" Content="Install and restart" Click="OnInstallUpdate" Style="{StaticResource QuietButtonStyle}" Visibility="Collapsed" /><Button Content="Recheck PC" Click="OnRecheck" Style="{StaticResource QuietButtonStyle}" /><Button Content="Web account" Click="OnWebAccount" Style="{StaticResource QuietButtonStyle}" /></StackPanel>
+                    <TextBlock Text="Updates download temporarily and install only after you explicitly confirm. The app closes and restarts when Windows Installer finishes. Your Playground settings, credentials and user files are not removed. Unsigned packages may show a Windows warning; back up important project files as usual." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
                 </StackPanel>
             </Border>
             <StackPanel Spacing="7"><TextBlock Text="Chat · Plan · Build" FontSize="16" /><TextBlock Text="Choose a mode from the picker. Chat answers questions without executing code. Plan reads imported text and explores; it cannot write files or run commands. Build edits/tests a staged project only after you verify and explicitly start an isolated workspace." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" /></StackPanel>
