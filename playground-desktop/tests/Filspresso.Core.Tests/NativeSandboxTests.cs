@@ -13,6 +13,13 @@ namespace Filspresso.Core.Tests;
 
 public sealed class NativeSandboxTests
 {
+    [Fact]
+    public void LowboxPowerShellReceivesOnlyTheTrustedInboxModulePath()
+    {
+        Assert.Contains("var trustedModules = System.IO.Path.Combine(system, @\"WindowsPowerShell\\v1.0\\Modules\")", HyperVGuestScripts.BoundarySource);
+        Assert.Contains("{ \"PSModulePath\", trustedModules }", HyperVGuestScripts.BoundarySource);
+    }
+
     private sealed class Broker : IPowerShellRunner
     {
         public bool SupportsStandardInput => true;
