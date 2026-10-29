@@ -5,7 +5,7 @@ import type { HostedAgentWorkspace } from "@/lib/playgroundHostedAgent";
 import { createProjectArtifact, inertSourcePreview, projectChanges, validateProject, type ProjectFile } from "@/lib/playgroundProject";
 
 /** Key by sandbox id. Local observations/downloads only; never source persistence on server. */
-export default function PlaygroundProjectPanel({ workspace, busy }: { workspace: HostedAgentWorkspace; busy: boolean }) {
+export default function PlaygroundProjectPanel({ workspace, busy, readOnly = false }: { workspace: HostedAgentWorkspace; busy: boolean; readOnly?: boolean }) {
 	const [files, setFiles] = React.useState<readonly ProjectFile[]>([]);
 	const [baseline, setBaseline] = React.useState<readonly ProjectFile[] | null>(null);
 	const [selected, setSelected] = React.useState<string | null>(null);
@@ -31,7 +31,7 @@ export default function PlaygroundProjectPanel({ workspace, busy }: { workspace:
 	};
 	const file = files.find(file => file.path === selected); const changes = baseline ? projectChanges(baseline, files) : [];
 	const stage = async (selected: FileList | null) => {
-		if (!selected || busy || working) return; setWorking(true); setReviewed(false); setError("");
+		if (!selected || busy || working || readOnly) return; setWorking(true); setReviewed(false); setError("");
 		try {
 			if (selected.length > 256) throw new Error("Select at most 256 files.");
 			let total = 0; const pending: ProjectFile[] = [];
@@ -45,7 +45,7 @@ export default function PlaygroundProjectPanel({ workspace, busy }: { workspace:
 		finally { if (live.current) setWorking(false); }
 	};
 	const uploadOne = async () => {
-		if (busy || working || !reviewed || !imports[0]) return;
+		if (busy || working || readOnly || !reviewed || !imports[0]) return;
 		const exact = imports[0]; setReviewed(false); setWorking(true); setError("");
 		try { await workspace.uploadReviewedFile(exact, true); if (live.current) setImports(previous => previous.slice(1)); }
 		catch (failure) { if (live.current) setError(failure instanceof Error ? failure.message : "Upload failed."); }
@@ -53,8 +53,8 @@ export default function PlaygroundProjectPanel({ workspace, busy }: { workspace:
 	};
 	return <section aria-label="Agent project explorer" className="pgw-recorded-event">
 		<h2>Connected project · explorer, checkpoints and artifacts</h2>
-		<label>Select local UTF-8 project files · not uploaded yet<input type="file" multiple disabled={busy || working} onChange={event => { void stage(event.target.files); event.target.value = ""; }} /></label>
-		{imports[0] && <section key={imports[0].path}><h3>Review next import · {imports.length} remaining</h3><p>Replace /workspace/{imports[0].path}. This is a real file write, not a clarification answer.</p><pre>{imports[0].text}</pre><label><input type="checkbox" disabled={busy || working} checked={reviewed} onChange={event => setReviewed(event.target.checked)} />I reviewed this exact path and contents.</label><button type="button" disabled={busy || working || !reviewed} onClick={() => void uploadOne()}>Approve this file upload once</button><button type="button" disabled={working} onClick={() => { setImports([]); setReviewed(false); }}>Cancel remaining imports</button></section>}
+		{!readOnly && <label>Select local UTF-8 project files · not uploaded yet<input type="file" multiple disabled={busy || working} onChange={event => { void stage(event.target.files); event.target.value = ""; }} /></label>}
+		{!readOnly && imports[0] && <section key={imports[0].path}><h3>Review next import · {imports.length} remaining</h3><p>Replace /workspace/{imports[0].path}. This is a real file write, not a clarification answer.</p><pre>{imports[0].text}</pre><label><input type="checkbox" disabled={busy || working} checked={reviewed} onChange={event => setReviewed(event.target.checked)} />I reviewed this exact path and contents.</label><button type="button" disabled={busy || working || !reviewed} onClick={() => void uploadOne()}>Approve this file upload once</button><button type="button" disabled={working} onClick={() => { setImports([]); setReviewed(false); }}>Cancel remaining imports</button></section>}
 		<p>Inspect the agent’s actual sandbox after it finishes. First inspection becomes the local comparison baseline. Refresh includes command-created files, not just agent write calls. Limits: 256 UTF-8 files, 256 KiB/file, 8 MiB total. Concurrent edits from another client are not an atomic snapshot.</p>
 		<button type="button" disabled={busy || working} onClick={() => void capture()}>Inspect project files</button>
 		<button type="button" disabled={busy || working || baseline === null} onClick={() => { setBaseline(files); setError(""); }}>Use current observation as baseline</button>

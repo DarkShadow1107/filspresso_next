@@ -160,6 +160,15 @@ export class HostedAgentWorkspace {
 			events: [...this.state.events, { kind: "message", text: "New conversation boundary: prior model context was explicitly cleared. Sandbox files are retained; no approvals are retained." }].slice(-256) as AgentLoopEvent[] });
 		return true;
 	}
+	/** Idle-only import of the shared visible thread. No call/result or approval is restored. */
+	continueFromTranscript(turns: readonly NativeConversationTurn[]): boolean {
+		if (this.active || this.state.creationPending || this.state.quarantined || this.state.requiresReset || turns.length >= 16 ||
+			JSON.stringify(turns).length > 196608 || turns.some(turn => turn.history.length || !turn.message.trim() || turn.message.length > 8000 || turn.text.length > 32768)) return false;
+		this.consent.clear(); this.questions.dismiss(); this.queued = null;
+		this.conversation = JSON.parse(JSON.stringify(turns)); this.conversationKey = null;
+		this.publish({ ...this.state, events: [], conversationTurns: turns.length, queuedPrompt: null, pendingApproval: null, pendingQuestion: null });
+		return true;
+	}
 	async uploadReviewedFile(file: ProjectFile, reviewed: boolean): Promise<void> {
 		const workspace = this.state.workspace;
 		if (reviewed !== true || !workspace || this.state.quarantined || this.state.requiresReset) throw new Error("Review this exact write in a reusable workspace first.");
@@ -273,13 +282,14 @@ export class HostedAgentWorkspace {
 		return confirmed;
 	}
 	async stop(clearCapabilities = false) {
+		const hadWork = !!this.active || !!this.state.workspace || !!this.state.quarantined || this.state.conversationTurns > 0;
 		const workspace = this.state.workspace ?? this.state.quarantined; const revision = ++this.revision;
 		this.active?.abort(); this.active = null; this.consent.clear(); this.questions.dismiss(); this.conversation = []; this.conversationKey = null; this.queued = null;
 		this.publish({ ...this.state, phase: workspace || this.state.creationPending ? "stopping" : "idle", workspace: null, quarantined: workspace, pendingApproval: null, pendingQuestion: null, conversationTurns: 0, requiresReset: false, queuedPrompt: null, events: [],
 			...(clearCapabilities ? { models: [], executionEnabled: false } : {}), error: "" });
 		const confirmed = workspace ? await this.discard(workspace) : true;
 		if (this.revision === revision && !this.disposed) this.publish({ ...this.state, phase: this.state.creationPending ? "stopping" : confirmed ? "idle" : "failed", quarantined: confirmed ? null : workspace,
-			error: this.state.creationPending ? "Cancelling sandbox startup; waiting for its response before another workspace can start." : confirmed ? "Stopped and discarded. Model tokens may still have been billed." : "Workspace removal could not be confirmed. Do not reuse it; retry discard or contact an operator." });
+			error: this.state.creationPending ? "Cancelling sandbox startup; waiting for its response before another workspace can start." : confirmed ? hadWork ? "Stopped and discarded. Model tokens may still have been billed." : "" : "Workspace removal could not be confirmed. Do not reuse it; retry discard or contact an operator." });
 	}
 	dispose() { void this.stop(true); this.disposed = true; this.unsubscribe(); this.unsubscribeQuestions(); }
 }

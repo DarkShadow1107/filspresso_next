@@ -12,7 +12,7 @@ import CheckIcon from "@/icons/simple-checked-icon";
 import RefreshIcon from "@/icons/refresh-icon";
 import TrashIcon from "@/icons/trash-icon";
 import CpuIcon from "@/icons/cpu-icon";
-import SparklesIcon from "@/icons/sparkles-icon";
+import BrainIcon from "@/icons/brain-icon";
 import FileIcon from "@/icons/file-description-icon";
 import CameraIcon from "@/icons/camera-icon";
 import AudioIcon from "@/icons/volume-2-icon";
@@ -22,7 +22,7 @@ import GlyphIcon, { type PlaygroundGlyph } from "@/icons/playground-glyph-icon";
 
 const icons = { sidebar: SidebarIcon, new: PenIcon, search: MagnifierIcon, settings: GearIcon, prices: PricesIcon,
 	github: GithubIcon, send: SendIcon, close: CloseIcon, copy: CopyIcon, check: CheckIcon, retry: RefreshIcon,
-	trash: TrashIcon, edit: PenIcon, model: CpuIcon, brain: SparklesIcon, file: FileIcon, image: CameraIcon,
+	trash: TrashIcon, edit: PenIcon, model: CpuIcon, brain: BrainIcon, file: FileIcon, image: CameraIcon,
 	audio: AudioIcon, video: VideoIcon, account: AccountIcon };
 type IconName = keyof typeof icons | PlaygroundGlyph;
 

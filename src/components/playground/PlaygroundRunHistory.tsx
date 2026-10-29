@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { listRecordedRuns, recordedRunLabel, recordedRunLocation, recordedRunOutcome, replayPayloadDisplay, replayRecordedRun, type RecordedRun, type RecordedRunEvent, type RunReplayPage } from "@/lib/playgroundRuns";
+import WorkspaceIcon from "./WorkspaceIcon";
+import WorkspacePicker from "./WorkspacePicker";
 
 /** Recorded payloads are inert text, never Markdown, HTML, tool calls or executable commands. */
 export function RecordedEventCard({ event }: { event: RecordedRunEvent }) {
@@ -51,8 +53,8 @@ function HistoryResults({ sessionUuid }: { sessionUuid?: string }) {
 	}, [sessionUuid]);
 	return <>
 		{!runs && !error && <p role="status">Loading recorded activity…</p>}
-		{error && <p role="alert">{error}</p>}
-		{runs?.length === 0 && <p>No retained activity{sessionUuid ? " is linked to this saved conversation" : " was found"}. Recording is best-effort; an empty log does not prove no work happened.</p>}
+		{error && <div className="pgw-empty-state" role="alert"><WorkspaceIcon name="help" width={30} /><h2>Activity unavailable</h2><p>{error}</p></div>}
+		{runs?.length === 0 && <div className="pgw-empty-state"><WorkspaceIcon name="file" width={32} /><h2>No retained activity</h2><p>{sessionUuid ? "No runs are linked to this conversation." : "Recorded runs will appear here."} Logs can expire; an empty list does not prove no work happened.</p></div>}
 		<div className="pgw-history-layout">
 			<nav aria-label="Recent recorded runs">{runs?.map(run => <button type="button" key={run.runId} aria-current={selected?.runId === run.runId ? "true" : undefined}
 				onClick={() => { setSelected(run); setAfterSequence(-1); }}>
@@ -75,15 +77,11 @@ function HistoryResults({ sessionUuid }: { sessionUuid?: string }) {
 export default function PlaygroundRunHistory({ sessionUuid }: { sessionUuid?: string }) {
 	const [onlyConversation, setOnlyConversation] = React.useState(false);
 	const [revision, setRevision] = React.useState(0);
-	const filter = onlyConversation ? sessionUuid : undefined;
+	const filter = onlyConversation && sessionUuid ? sessionUuid : undefined;
 	return <section className="pgw-run-history" aria-label="Recorded activity">
-		<h1>Recorded activity</h1>
-		<p>Read-only history, not a conversation transcript or a rerun. Refresh to see newly recorded events. Logs are bounded and may expire or be deleted; no completion record does not mean a job is still running.</p>
-		<div className="pgw-history-actions">
-			<label><input type="checkbox" disabled={!sessionUuid} checked={onlyConversation} onChange={event => setOnlyConversation(event.target.checked)} />Only this saved conversation</label>
-			<button type="button" className="pgw-outlined-button" onClick={() => setRevision(value => value + 1)}>Refresh activity</button>
-		</div>
-		<p>Latest 20 runs. The account-wide view includes unlinked first generations and hosted workspace activity.</p>
+		<div className="pgw-section-heading"><WorkspaceIcon name="file" width={26} /><div><span className="pgw-eyebrow">History</span><h1>Activity</h1><p>Recent runs and their recorded events. Read-only, never a rerun.</p></div><button type="button" className="pgw-outlined-button" onClick={() => setRevision(value => value + 1)}><WorkspaceIcon name="retry" width={15} />Refresh activity</button></div>
+		<div className="pgw-activity-filters"><WorkspacePicker label="Activity scope" value={filter ? "conversation" : "account"} icon={null} options={[{ key: "account", label: "All activity" }, ...(sessionUuid ? [{ key: "conversation", label: "This conversation" }] : [])]} onChange={value => setOnlyConversation(value === "conversation")} /><span>Latest 20 runs</span></div>
 		<HistoryResults key={`${filter || "account"}:${revision}`} sessionUuid={filter} />
+		<details className="pgw-advanced"><summary>About these records</summary><p>Not a conversation transcript. Logs are bounded and may expire or be deleted. No completion record does not mean a job is still running. All activity includes first generations and hosted workspace events not linked to a saved conversation.</p></details>
 	</section>;
 }

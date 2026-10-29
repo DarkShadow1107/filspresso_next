@@ -55,6 +55,32 @@ public sealed class AgentConversationSessionTests
         Assert.Equal(2, session.Snapshot.CompletedTurns); Assert.Null(session.Snapshot.QueuedMessage);
     }
     [Fact]
+    public async Task SharedTranscriptChangesModeWithoutReplayingToolsOrRestoringApproval()
+    {
+        var services = new Services(); using var session = new AgentConversationSession(services);
+        await session.SendAsync(Turn);
+        Assert.True(session.ContinueFromTranscript(new[] { new AgentConversationTurn("First request", "Prior answer, not execution permission", Array.Empty<AgentExchange>()) }));
+        await session.SendAsync(Turn with { Mode = AgentMode.Plan, UserMessage = "Inspect only", SystemPrompt = "Read-only instructions" });
+        var plan = services.Requests[1]; Assert.Equal(AgentMode.Plan, plan.Turn.Mode);
+        Assert.Empty(Assert.Single(plan.Turn.Conversation).History);
+        Assert.All(plan.Tools, tool => Assert.True(tool.Effect is ToolEffect.ReadOnly or ToolEffect.Interaction));
+        Assert.Null(session.Snapshot.Approval);
+    }
+    [Fact]
+    public async Task SharedTranscriptCannotReplaceActiveOrFailedContextAndRefusesOverflow()
+    {
+        var pending = new TaskCompletionSource<AgentModelReply>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var services = new Services { OnSend = (_, _) => pending.Task };
+        using var session = new AgentConversationSession(services);
+        var running = session.SendAsync(Turn);
+        Assert.False(session.ContinueFromTranscript(Array.Empty<AgentConversationTurn>()));
+        session.Stop(); await running.WaitAsync(TimeSpan.FromSeconds(5)); pending.SetResult(Answer());
+        Assert.True(session.Snapshot.RequiresReset);
+        Assert.False(session.ContinueFromTranscript(Array.Empty<AgentConversationTurn>()));
+        Assert.True(session.NewConversation());
+        Assert.False(session.ContinueFromTranscript(new[] { new AgentConversationTurn(new string('x', 8001), "Answer", Array.Empty<AgentExchange>()) }));
+    }
+    [Fact]
     public async Task StopClearsQueuedWorkAndSuppressesLateUncooperativeModelOutput()
     {
         var first = new TaskCompletionSource<AgentModelReply>(TaskCreationOptions.RunContinuationsAsynchronously);

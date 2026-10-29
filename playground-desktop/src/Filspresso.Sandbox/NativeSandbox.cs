@@ -93,6 +93,7 @@ public sealed class NativeSandbox : IWorkspaceSandbox, ISandboxSnapshot
             try {
                 # A scoped drive avoids PowerShell normalizing every private ancestor of
                 # the user's profile. No access to those ancestors is granted to fix this.
+                Import-Module Microsoft.PowerShell.Management -ErrorAction Stop
                 New-PSDrive -Name Workspace -PSProvider FileSystem -Root '{{directory.Replace("'", "''")}}' -Scope Global | Out-Null
                 Set-Location -LiteralPath 'Workspace:\'
                 [Environment]::CurrentDirectory = '{{directory.Replace("'", "''")}}'

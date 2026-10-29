@@ -168,10 +168,14 @@ namespace Filspresso.Guest
                     // Never inherit host API keys, tokens, proxies, module paths or user PATH.
                     var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
                     var windows = System.IO.Directory.GetParent(system).FullName;
+                    var trustedModules = System.IO.Path.Combine(system, @"WindowsPowerShell\v1.0\Modules");
                     var temporary = System.IO.Path.Combine(workspace, ".tmp");
                     var variables = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
                         { "APPDATA", temporary }, { "LOCALAPPDATA", temporary }, { "ComSpec", System.IO.Path.Combine(system, "cmd.exe") },
-                        { "Path", system + ";" + System.IO.Path.GetDirectoryName(executable) }, { "SystemRoot", windows },
+                        // The lowbox gets only the inbox Windows PowerShell modules, not the
+                        // caller's PSModulePath. NativeSandbox explicitly imports the
+                        // FileSystem provider from here before using New-PSDrive.
+                        { "Path", system + ";" + System.IO.Path.GetDirectoryName(executable) }, { "PSModulePath", trustedModules }, { "SystemRoot", windows },
                         { "TEMP", temporary }, { "TMP", temporary }, { "USERPROFILE", temporary }, { "windir", windows }
                     };
                     var block = new StringBuilder(); foreach (var variable in variables) block.Append(variable.Key).Append('=').Append(variable.Value).Append('\0');

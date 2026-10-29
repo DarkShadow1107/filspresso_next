@@ -40,7 +40,7 @@ internal sealed class StubHyperVRunner : IPowerShellRunner
     public Task<(int ExitCode, string Output, string Error)> RunWithInputAsync(string script, string standardInput, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         using var document = JsonDocument.Parse(standardInput);
-        var source = Encoding.Unicode.GetString(Convert.FromBase64String(document.RootElement.GetProperty("script").GetString()!));
+        var source = Encoding.UTF8.GetString(Convert.FromBase64String(document.RootElement.GetProperty("script").GetString()!));
         GuestCalls.Add(new GuestCall(script, standardInput, source));
         if (source.Contains("\"ready\":true", StringComparison.Ordinal))
             return OnReady?.Invoke(source, cancellationToken) ?? Reply("{\"version\":1,\"ready\":true}");
@@ -206,7 +206,7 @@ public sealed class HyperVSandboxLifecycleTests
         Assert.Equal(FixtureGuestCredentials.Password, data.RootElement.GetProperty("password").GetString());
         Assert.Contains("-Credential $credential", request.HostScript);
         Assert.Contains("param([string]$encoded)", request.HostScript);
-        Assert.Contains("Unicode.GetString([Convert]::FromBase64String($encoded))", request.HostScript);
+        Assert.Contains("UTF8.GetString([Convert]::FromBase64String($encoded))", request.HostScript);
         var encodedChild = Regex.Match(request.Source, "-EncodedCommand ([A-Za-z0-9+/=]+)").Groups[1].Value;
         Assert.Contains("MODEL_SOURCE_MARKER 界", Encoding.Unicode.GetString(Convert.FromBase64String(encodedChild)));
     }
@@ -373,16 +373,21 @@ public sealed class HyperVSandboxLifecycleTests
         Assert.Equal(SandboxState.Ready, Assert.Single(await sandbox.ListAsync()).State);
     }
 
-    [Fact]
-    public async Task FileWritesAreBoundedPrivatePayloadsWithGuestReparseChecks()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FileWritesAreBoundedPrivatePayloadsWithGuestReparseChecks(bool random)
     {
         var runner = new StubHyperVRunner { OnOperation = (_, _) => StubHyperVRunner.Reply("{\"version\":1,\"written\":true}") };
         var sandbox = runner.Sandbox(); var session = await sandbox.StartAsync("test");
-        await sandbox.WriteFileAsync(session.Id, "src/quoted'file.txt", new byte[262_144]);
+        var contents = new byte[262_144];
+        if (random) System.Security.Cryptography.RandomNumberGenerator.Fill(contents);
+        await sandbox.WriteFileAsync(session.Id, "src/quoted'file界.txt", contents);
         var call = runner.GuestCalls.Last();
         Assert.True(call.Input.Length < PowerShellRunner.MaxInputCharacters);
         Assert.Contains("Open-WorkspaceDirectory", call.Source); Assert.Contains("$fence.Open", call.Source);
-        Assert.Contains("quoted''file.txt", call.Source);
+        Assert.Contains("quoted''file界.txt", call.Source);
+        Assert.Contains(Convert.ToBase64String(contents), call.Source);
         var count = runner.GuestCalls.Count;
         await Assert.ThrowsAsync<SandboxPolicyException>(() => sandbox.WriteFileAsync(session.Id, "a.txt", new byte[262_145]));
         await Assert.ThrowsAsync<ArgumentException>(() => sandbox.RunAsync(session.Id, "echo fixture", "", @"C:\Windows"));

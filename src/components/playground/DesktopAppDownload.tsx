@@ -70,6 +70,7 @@ export default function DesktopAppDownload() {
 	const [info, setInfo] = useState<InstallerInfo | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [checking, setChecking] = useState(false);
+	const [probing, setProbing] = useState(false);
 	const [compatibility, setCompatibility] = useState<DesktopCompatibility | null>(null);
 	const [ackWorking, setAckWorking] = useState(false);
 	const [ackError, setAckError] = useState<string | null>(null);
@@ -102,8 +103,15 @@ export default function DesktopAppDownload() {
 		setAckError(null);
 		const current = ++revision.current;
 		setCompatibility(null); setChecking(true);
+		setProbing(true);
 		const result = await browserDesktopCompatibility(navigator);
-		if (current === revision.current) setCompatibility(result);
+		if (current === revision.current) { setCompatibility(result); setProbing(false); }
+	};
+	const recheck = async () => {
+		const current = ++revision.current;
+		setProbing(true);
+		const result = await browserDesktopCompatibility(navigator);
+		if (current === revision.current) { setCompatibility(result); setProbing(false); }
 	};
 	const close = () => { revision.current++; setChecking(false); setCompatibility(null); setAckWorking(false); setAckError(null); };
 
@@ -185,6 +193,8 @@ export default function DesktopAppDownload() {
 					onDownload={(osClaim) => { void acknowledgeAndDownload(osClaim); }}
 					working={ackWorking}
 					error={ackError}
+					onRecheck={() => void recheck()}
+					checking={probing}
 					alreadyAcknowledged={Boolean(info?.acknowledged && info.productVersion)}
 				/>
 			)}

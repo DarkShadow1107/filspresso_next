@@ -305,6 +305,106 @@ public class DesktopApiClient : IDisposable
         }
     }
 
+    /// <summary>Records the explicit in-app acknowledgement before the server permits the MSI.</summary>
+    public virtual async Task<ApiResult<bool>> AcknowledgeInstallerUpdateAsync(
+        string accessToken,
+        string productVersion,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
+        ArgumentException.ThrowIfNullOrWhiteSpace(productVersion);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/desktop/installer/ack")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new
+            {
+                productVersion,
+                operatingSystem = "Windows",
+            }), Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        try
+        {
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var code = await ReadErrorCodeAsync(response, cancellationToken).ConfigureAwait(false);
+                return ApiResult<bool>.Failure(MapRefusal((int)response.StatusCode, code), response.ReasonPhrase ?? string.Empty, (int)response.StatusCode);
+            }
+            return ApiResult<bool>.Success(true);
+        }
+        catch (Exception error) when (IsTransportError(error, cancellationToken))
+        {
+            return ApiResult<bool>.Failure(ApiError.Unexpected, "Could not acknowledge the desktop update.", 0);
+        }
+    }
+
+    /// <summary>
+    /// Streams the acknowledged MSI into a caller-owned temporary `.part` path.
+    ///
+    /// The response is never buffered in memory. The caller supplies a hard byte ceiling,
+    /// and a response beyond it is deleted and refused rather than written to disk unbounded.
+    /// Redirects are disabled at the client, so the bearer token cannot follow the download
+    /// to an origin the app did not choose.
+    /// </summary>
+    public virtual async Task<ApiResult<long>> DownloadInstallerUpdateAsync(
+        string accessToken,
+        string temporaryPath,
+        long maxBytes,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
+        ArgumentException.ThrowIfNullOrWhiteSpace(temporaryPath);
+        if (maxBytes <= 0) return ApiResult<long>.Failure(ApiError.Unexpected, "The installer size limit is invalid.", 0);
+        using var request = new HttpRequestMessage(HttpMethod.Get, "api/desktop/download");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+        var complete = false;
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromMinutes(16));
+            using var response = await _sourcesHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var code = await ReadErrorCodeAsync(response, timeout.Token).ConfigureAwait(false);
+                return ApiResult<long>.Failure(MapRefusal((int)response.StatusCode, code), response.ReasonPhrase ?? string.Empty, (int)response.StatusCode);
+            }
+            if (response.Content.Headers.ContentLength is { } declared && (declared <= 0 || declared > maxBytes))
+                return ApiResult<long>.Failure(ApiError.Unexpected, "The installer response size is outside the verified range.", 413);
+
+            await using var source = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+            await using var target = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, useAsync: true);
+            var buffer = new byte[64 * 1024];
+            long total = 0;
+            for (;;)
+            {
+                var read = await source.ReadAsync(buffer, timeout.Token).ConfigureAwait(false);
+                if (read == 0) break;
+                total += read;
+                if (total > maxBytes) return ApiResult<long>.Failure(ApiError.Unexpected, "The installer exceeded the verified size limit.", 413);
+                await target.WriteAsync(buffer.AsMemory(0, read), timeout.Token).ConfigureAwait(false);
+                progress?.Report(total);
+            }
+            if (total == 0) return ApiResult<long>.Failure(ApiError.Unexpected, "The installer response was empty.", 502);
+            await target.FlushAsync(timeout.Token).ConfigureAwait(false);
+            complete = true;
+            return ApiResult<long>.Success(total);
+        }
+        catch (Exception error) when (IsTransportError(error, cancellationToken) || error is IOException or UnauthorizedAccessException)
+        {
+            return ApiResult<long>.Failure(ApiError.Unexpected, "Could not download the desktop installer.", 0);
+        }
+        finally
+        {
+            if (!complete)
+            {
+                try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            }
+        }
+    }
+
     /// <summary>
     /// Puts this machine's own facts on record, for the account page.
     /// </summary>

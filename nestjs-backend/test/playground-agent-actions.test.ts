@@ -167,8 +167,8 @@ test("tickets are issued only after successful model settlement, never after bil
 }));
 
 test("bootstrap and SQL migration share the same one-shot metadata schema", () => {
-	const migration = readFileSync(join(__dirname, "../data/migrations/2026-10-playground-agent-actions.sql"), "utf8").replace(/^--.*$/gm, "").trim();
-	assert.equal(migration, AGENT_ACTIONS_SCHEMA.trim()); assert.match(migration, /UNIQUE \(account_id, model_run_id, tool_call_id\)/);
+	const migration = readFileSync(join(__dirname, "../data/migrations/2026-10-playground-agent-actions.sql"), "utf8").replace(/^--.*$/gm, "").replace(/\r\n/g, "\n").trim();
+	assert.equal(migration, AGENT_ACTIONS_SCHEMA.replace(/\r\n/g, "\n").trim()); assert.match(migration, /UNIQUE \(account_id, model_run_id, tool_call_id\)/);
 	assert.doesNotMatch(migration, /arguments_json|stdout|stderr|source_text/);
 });
 

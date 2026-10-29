@@ -42,7 +42,7 @@ jobs:
             - name: Setup Node
               uses: actions/setup-node@v4
               with:
-                  node-version: 20
+                  node-version: 22
                   cache: npm
 
             - name: Install frontend dependencies
@@ -70,7 +70,9 @@ jobs:
             - name: Setup Node
               uses: actions/setup-node@v4
               with:
-                  node-version: 20
+                  # The test script relies on `node --test` glob expansion, which
+                  # is only available on Node >= 22; local development also runs 22.
+                  node-version: 22
                   cache: npm
                   cache-dependency-path: nestjs-backend/package-lock.json
 

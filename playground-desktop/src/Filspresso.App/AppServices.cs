@@ -47,6 +47,25 @@ public sealed class AppServices : IDisposable
             Environment.MachineName,
             AppVersion);
 
+        Updates = new DesktopUpdateChecker(AppVersion, async token =>
+        {
+            if (!await Auth.EnsureAccessTokenAsync(token).ConfigureAwait(false) || Auth.Current is null)
+                return ApiResult<InstallerUpdate>.Failure(ApiError.Unauthenticated, "Sign in to check for updates.", 401);
+            return await _api.GetInstallerUpdateAsync(Auth.Current.AccessToken, token).ConfigureAwait(false);
+        });
+        Updates.Changed += (_, _) => SystemNoticeChanged?.Invoke(this, EventArgs.Empty);
+        var journalPath = Path.Combine(PreferencesStore.DirectoryPath, "update-journal.log");
+        UpdateInstaller = new DesktopInstallerUpdateWorkflow(
+            _api,
+            async token => await Auth.EnsureAccessTokenAsync(token).ConfigureAwait(false) && Auth.Current is { } current
+                ? current.AccessToken
+                : null,
+            AppVersion,
+            Path.Combine(Path.GetTempPath(), "Filspresso", "Playground", "updates"),
+            Environment.ProcessPath ?? string.Empty,
+            journalPath);
+        UpdateInstaller.Changed += (_, _) => SystemNoticeChanged?.Invoke(this, EventArgs.Empty);
+
         Playground = new PlaygroundSession(_api, Auth, LoadEntitlementAsync);
 
         // Signing out clears the session, and the Playground's view of the account has to be
@@ -58,6 +77,8 @@ public sealed class AppServices : IDisposable
             {
                 Entitlement = null;
                 Playground.Reset();
+                Updates.Clear();
+                _maintenanceRan = false;
             }
         };
     }
@@ -228,7 +249,13 @@ public sealed class AppServices : IDisposable
     /// notice points at the account page, and the customer decides. Raised through
     /// <see cref="SystemNoticeChanged"/> so the workspace can render the line when it arrives.
     /// </remarks>
-    public string? NewDesktopBuildVersion { get; private set; }
+    public DesktopUpdateChecker Updates { get; }
+    /// <summary>Verified download and installer hand-off; its journal lives beside user settings.</summary>
+    public DesktopInstallerUpdateWorkflow UpdateInstaller { get; }
+    public string? NewDesktopBuildVersion => Updates.Snapshot.HasUpdate(AppVersion) ? Updates.Snapshot.Package?.ProductVersion : null;
+
+    public Task<bool> InstallDesktopUpdateAsync(CancellationToken cancellationToken = default) =>
+        UpdateInstaller.InstallAsync(Updates.Snapshot.Package, cancellationToken);
 
     /// <summary>Raised when the system maintenance produced a notice the UI may want to draw.</summary>
     public event EventHandler? SystemNoticeChanged;
@@ -239,12 +266,9 @@ public sealed class AppServices : IDisposable
     /// One maintenance pass per run, started on the first successful entitlement load.
     /// </summary>
     /// <remarks>
-    /// Two things happen and both are neutral about failure: the machine's facts go on
-    /// record (the account page's "Playground installed on"), and the server is asked what
-    /// it would publish today, so a newer build can be mentioned. Neither is user-visible
-    /// work, and a refusal or a network failure suppresses the notice rather than showing
-    /// an error -- the entitlement flow the user is actually waiting on is never delayed.
-    /// Facts are read once per run, so the pass is guarded and never re-armed within the run.
+    /// Records machine facts independently of update discovery. A failed or timed-out check-in
+    /// cannot suppress the update checker. Facts are read once per signed-in session; neither
+    /// operation blocks the entitlement answer. Sign-out clears account-scoped update state.
     /// </remarks>
     private async Task RunSystemMaintenanceOnceAsync()
     {
@@ -274,26 +298,9 @@ public sealed class AppServices : IDisposable
             };
             await _api.PostDeviceStateAsync(Auth.Current.AccessToken, report, timeout.Token).ConfigureAwait(false);
 
-            // Update check sits behind the check-in so a server that throttles the burst
-            // still gets the facts it keeps.
-            var update = await _api
-                .GetInstallerUpdateAsync(Auth.Current.AccessToken, timeout.Token)
-                .ConfigureAwait(false);
-
-            if (!update.Ok || update.Value is null || !update.Value.CanDownload || update.Value.ProductVersion is null)
-            {
-                return;
-            }
-
-            if (update.Value.IsNewerThan(AppVersion))
-            {
-                NewDesktopBuildVersion = update.Value.ProductVersion;
-                SystemNoticeChanged?.Invoke(this, EventArgs.Empty);
-            }
         }
         catch (Exception error) when (error is System.Net.Http.HttpRequestException or System.IO.IOException
-            or UnauthorizedAccessException or InvalidOperationException
-            || (error is OperationCanceledException && !timeout.IsCancellationRequested))
+            or UnauthorizedAccessException or InvalidOperationException or OperationCanceledException)
         {
             // Maintenance is optional by definition; every failure here is a suppressed
             // notice, never a broken application state.
@@ -342,6 +349,7 @@ public sealed class AppServices : IDisposable
             // alter the outcome of the entitlement answer the caller is waiting on. It runs
             // once per run (guarded inside), and everything it can fail with is contained.
             _ = RunSystemMaintenanceOnceAsync();
+            _ = Updates.RefreshAsync();
         }
 
         return result;
@@ -355,9 +363,9 @@ public sealed class AppServices : IDisposable
     /// which the desktop app deliberately does not handle, and a payment form belongs in the
     /// browser anyway.
     /// </remarks>
-    public Uri AccountUrl => new(new Uri(WebBaseUrl), "api/pages/account");
+    public Uri AccountUrl => new(new Uri(WebBaseUrl), "?page=account");
 
-    public Uri SubscriptionUrl => new(new Uri(WebBaseUrl), "api/pages/subscription");
+    public Uri SubscriptionUrl => new(new Uri(WebBaseUrl), "?page=subscription");
 
     private static string WebBaseUrl =>
         Environment.GetEnvironmentVariable("FILSPRESSO_WEB_URL") ?? "https://localhost:8443/";

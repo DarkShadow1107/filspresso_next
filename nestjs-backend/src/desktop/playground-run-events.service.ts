@@ -52,6 +52,8 @@ export const RUN_EVENT_KINDS = [
 	"tool.failed",
 	// Compaction
 	"context.compacted",
+	// A chat reply left the user a backend-saved document (name + digest-scale facts only)
+	"document.saved",
 	// Settlement (the billing outcome, distinct from the work: a finished generation whose
 	// charge failed is only diagnosable if both facts are recorded separately)
 	"settlement.succeeded",

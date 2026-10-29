@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="Filspresso.App.InstructionsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Filspresso.App">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="18" Padding="4,0,12,8" MaxWidth="700">
+            <StackPanel Spacing="5"><TextBlock Text="Windows desktop guide" FontSize="11" Foreground="{StaticResource FilspressoAccent}" /><TextBlock Text="Your workspace, with boundaries" FontSize="23" /><TextBlock Text="Hosted models. Local staged files. You decide what runs." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" /></StackPanel>
+            <Border Background="{StaticResource FilspressoSubtleSurface}" CornerRadius="16" Padding="16">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="System &amp; updates" FontSize="16" />
+                    <TextBlock x:Name="SystemFacts" TextWrapping="Wrap" FontSize="12" IsTextSelectionEnabled="True" />
+                    <TextBlock x:Name="VersionFacts" FontSize="12" />
+                    <TextBlock x:Name="UpdateStatus" FontSize="12" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock x:Name="UpdatePackageFacts" FontSize="10" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                    <TextBlock x:Name="LastChecked" FontSize="10" Foreground="{StaticResource FilspressoMuted}" />
+                    <ProgressBar x:Name="UpdateProgress" Minimum="0" Maximum="100" Visibility="Collapsed" />
+                    <CheckBox x:Name="UpdateAcknowledgement" Visibility="Collapsed" Checked="OnUpdateAcknowledgementChanged" Unchecked="OnUpdateAcknowledgementChanged">
+                        <TextBlock Text="I reviewed the version and checksum and want to download and install it. I understand Windows Installer will request permission." TextWrapping="Wrap" />
+                    </CheckBox>
+                    <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="CheckUpdates" Content="Check for updates" Click="OnCheckUpdates" Style="{StaticResource QuietButtonStyle}" /><Button x:Name="InstallUpdate" Content="Install and restart" Click="OnInstallUpdate" Style="{StaticResource QuietButtonStyle}" Visibility="Collapsed" /><Button Content="Recheck PC" Click="OnRecheck" Style="{StaticResource QuietButtonStyle}" /><Button Content="Web account" Click="OnWebAccount" Style="{StaticResource QuietButtonStyle}" /></StackPanel>
+                    <TextBlock Text="Updates download temporarily and install only after you explicitly confirm. The app closes and restarts when Windows Installer finishes. Your Playground settings, credentials and user files are not removed. Unsigned packages may show a Windows warning; back up important project files as usual." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
+                </StackPanel>
+            </Border>
+            <StackPanel Spacing="7"><TextBlock Text="Chat · Plan · Build" FontSize="16" /><TextBlock Text="Choose a mode from the picker. Chat answers questions without executing code. Plan reads imported text and explores; it cannot write files or run commands. Build edits/tests a staged project only after you verify and explicitly start an isolated workspace." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" /></StackPanel>
+            <StackPanel Spacing="7"><TextBlock Text="Start safely" FontSize="16" /><TextBlock Text="Choose Plan or Build in the same composer, then open Workspace → Workspace setup → Verify. Windows Sandbox is preferred (eligible Windows 11 24H2+ edition, virtualization and Sandbox feature required). Home can inspect or explicitly opt in to qualified native restricted mode. Native mode shares the host kernel and is weaker than a VM; there is no silent fallback." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" /><TextBlock Text="The edition/build above come from this PC’s registry, not browser hints. They do not prove isolation is configured or safe. Verification probes and execution approval remain separate." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" /></StackPanel>
+            <StackPanel Spacing="7"><TextBlock Text="Bring a project, review a change" FontSize="16" /><TextBlock Text="Use + to attach sources in Chat; use Project &amp; changes to import a local text baseline for the agent. Nothing is applied to the original folder automatically. Review diffs, export changes and separately confirm applying them. Back up important work. Each write, command and web request needs fresh approval; answering a question is never execution consent." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" /></StackPanel>
+            <StackPanel Spacing="7"><TextBlock Text="Keep context and understand usage" FontSize="16" /><TextBlock Text="Chat, Plan and Build share one thread, draft and composer. Mode changes affect instructions and tool permissions, never restore approvals or start execution. Earlier messages cross the boundary as context data, not executable calls. Oversized agent context is refused rather than silently trimmed. Model turns and summaries are metered. New conversation or leaving the conversation discards its workspace. Export from Settings for a local transcript; saved sessions restore preferences/checkpoints, not full transcripts. Activity is retained metadata, not a rerun; records may expire or be clipped." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" /></StackPanel>
+            <TextBlock Text="This guide is for the installed Windows app. The web Playground has its own Instructions for hosted workspaces and browser limitations." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoAccent}" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

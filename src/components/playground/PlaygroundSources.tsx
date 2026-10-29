@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import WorkspaceIcon from "./WorkspaceIcon";
+import WorkspacePopover from "./WorkspacePopover";
 
 export type SourceContext = { name: string; kind: string; text: string; size?: number; sourceUrl?: string; warnings?: string[] };
 export type PendingSource = Partial<SourceContext> & { id: string; name: string; kind: string; status: "queued" | "reading" | "ready" | "error"; error?: string; preview?: string; file?: File };
@@ -26,29 +27,15 @@ const IMPORT_GROUPS = [
 
 export function AttachmentMenu({ disabled, onFiles }: { disabled: boolean; onFiles: (files: FileList) => void }) {
 	const [open, setOpen] = useState(false);
-	const root = useRef<HTMLDivElement>(null);
 	const trigger = useRef<HTMLButtonElement>(null);
 	const file = useRef<HTMLInputElement>(null);
-	const menu = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		if (!open) return;
-		menu.current?.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
-		const close = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-		document.addEventListener("pointerdown", close);
-		return () => document.removeEventListener("pointerdown", close);
-	}, [open]);
-	return <div className="pgw-attach-menu" ref={root}>
+	const close = useCallback(() => setOpen(false), []);
+	return <div className="pgw-attach-menu">
 		<input type="file" className="pgw-hidden" ref={file} multiple aria-label="Upload attachments" onChange={(event) => { if (event.target.files) onFiles(event.target.files); event.target.value = ""; }} />
 		<button ref={trigger} type="button" className="pgw-icon-button pgw-add-button" aria-label="Attach files" aria-haspopup="menu" aria-expanded={open} title="Import files" disabled={disabled} onClick={() => setOpen(!open)}><WorkspaceIcon name="plus" /></button>
-		{open && <div className="pgw-import-menu" ref={menu} role="menu" aria-label="Import files" onKeyDown={(event) => {
-			if (event.key === "Escape") { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
-			if (event.key === "Tab") setOpen(false);
-			if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
-				event.preventDefault(); const entries = Array.from(menu.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]") || []);
-				const index = entries.indexOf(document.activeElement as HTMLButtonElement);
-				entries[event.key === "Home" ? 0 : event.key === "End" ? entries.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + entries.length) % entries.length]?.focus();
-			}
-		}}>{IMPORT_GROUPS.map((group) => <div role="group" aria-label={group.label} key={group.label}><p className="pgw-import-group">{group.label}</p>{group.items.map((item) => <button type="button" role="menuitem" key={item.label} onClick={() => { if (!file.current) return; file.current.accept = item.accept; setOpen(false); trigger.current?.focus(); file.current.click(); }}><WorkspaceIcon name={item.icon} width={18} /><span><b>{item.label}</b><small>{item.detail}</small></span></button>)}</div>)}<p className="pgw-import-note">Up to 8 sources · 20 MB per file</p></div>}
+		{open && !disabled && <WorkspacePopover anchor={trigger} onClose={close} label="Import files" className="pgw-import-menu" width={244}>
+			{IMPORT_GROUPS.map((group) => <div role="group" aria-label={group.label} key={group.label}><p className="pgw-import-group">{group.label}</p>{group.items.map((item) => <button type="button" role="menuitem" key={item.label} title={item.detail} onClick={() => { if (!file.current) return; file.current.accept = item.accept; close(); trigger.current?.focus(); file.current.click(); }}><WorkspaceIcon name={item.icon} width={16} /><span>{item.label}</span></button>)}</div>)}<p className="pgw-import-note">8 sources · 20 MB each</p>
+		</WorkspacePopover>}
 	</div>;
 }
 

@@ -4,7 +4,7 @@ This service computes subscription pricing, quotes, and tier reconciliation outc
 
 ## 1. Runtime
 
-- Framework: Spring Boot 3.3.x
+- Framework: Spring Boot 4.0.6 / Spring Framework 7.0.9
 - Language: Kotlin 1.9.x on Java 17
 - Default service port (compose): `8084`
 

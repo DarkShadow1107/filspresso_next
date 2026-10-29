@@ -138,6 +138,22 @@ public sealed class AgentConversationSession : IDisposable
         lock (_gate) { if (_active is not null) return false; }
         Stop(true); _spendGate?.Reset(); return true;
     }
+    /// <summary>Idle-only bridge from the shared transcript. Prior turns are inert message
+    /// data: never tool calls, restored execution consent, or a reset of the spend cap.</summary>
+    public bool ContinueFromTranscript(IReadOnlyList<AgentConversationTurn> turns)
+    {
+        var snapshot = turns.ToArray();
+        lock (_gate)
+        {
+            if (_disposed || _active is not null || _requiresReset || snapshot.Length >= 16 ||
+                System.Text.Json.JsonSerializer.Serialize(snapshot).Length > 196608 ||
+                snapshot.Any(turn => turn.History.Count > 0 || string.IsNullOrWhiteSpace(turn.UserMessage) || turn.UserMessage.Length > 8000 || turn.AssistantText.Length > 32768)) return false;
+            _conversation.Clear(); _conversation.AddRange(snapshot.Select(turn => new AgentConversationTurn(turn.UserMessage, turn.AssistantText, Array.Empty<AgentExchange>()))); _events.Clear(); _key = null; _queued = null;
+        }
+        _questions.Dismiss(); _consent.Clear();
+        if (_services is IAgentConsentBinding execution) execution.RevokeApprovals();
+        Notify(); return true;
+    }
     public void Dispose()
     {
         Stop(true); _disposed = true;

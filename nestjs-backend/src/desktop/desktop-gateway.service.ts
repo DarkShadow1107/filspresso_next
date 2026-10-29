@@ -13,6 +13,10 @@ import { desktopModelAccess } from "./desktop-policy";
 import { readInputContext } from "./input-context";
 import { PlaygroundRunEventsService, type RunEventKind, type RunEventStatus, normalizeSessionUuid } from "./playground-run-events.service";
 import { PlaygroundAgentTicketsService, type ActionTicket } from "./playground-agent-tickets.service";
+import { DesktopWebService } from "./desktop-web.service";
+import { PlaygroundDocumentsService } from "./playground-documents.service";
+import { buildWebGroundedPrompt, boundGroundedSystemPrompt, appendBoundedSystemPrompt, extractPlaygroundDocuments, sanitizeSearchResults, webResearchRequested,
+	MAX_WEB_QUERY_LENGTH, type WebSearchResult } from "./playground-chat-tools";
 
 /** Mirrors the web route's clamps, so the two surfaces cannot disagree on what is legal. */
 const MAX_MESSAGE_LENGTH = 8000;
@@ -22,6 +26,19 @@ const MAX_MAX_TOKENS = 131_072;
 const DEFAULT_MAX_TOKENS = 2048;
 const MAX_TEMPERATURE = 2;
 const DEFAULT_TEMPERATURE = 0.7;
+/** Cap on the streamed answer kept only to scan for document fences. */
+const REPLY_SCAN_LIMIT = 240_000;
+/**
+ * The standing instruction that makes one chat turn able to produce a document. Playground
+ * scope only: the desktop client has no document surface to download from yet.
+ */
+const DOCUMENT_INSTRUCTION = [
+	"You can also leave the user a file. When the user's request asks for something to keep -- a document, essay, report, plan, list, recipe, or any long structured answer -- write the complete markdown body once inside this exact fence:",
+	"      [[document: A short title]]",
+	"      ...the full markdown body...",
+	"      [[/document]]",
+	"Do not wrap code blocks inside the fence's name line, and do not write anything after the closing line inside the fence. Keep replying normally in the chat too: the conversation text stays visible, and the fence becomes a downloadable file.",
+].join("\n");
 
 export type DesktopStreamResult = StreamRefusal | { kind: "sent"; requestId: string };
 
@@ -73,6 +90,11 @@ export class DesktopGatewayService {
 		private readonly addons: AddonsService,
 		private readonly events?: PlaygroundRunEventsService,
 		private readonly actionTickets?: PlaygroundAgentTicketsService,
+		// Optional like the recorder: hand-constructed services in tests keep every
+		// existing arity working, and a stream that cannot reach either helper must still
+		// stream -- grounding degrades to plain generation, documents degrade to text.
+		private readonly web?: DesktopWebService,
+		private readonly documents?: PlaygroundDocumentsService,
 	) {}
 
 	/** One durable entry. Fire and move on: the recorder has the fail-open contract. */
@@ -331,6 +353,59 @@ export class DesktopGatewayService {
 		// than the request -- the same reasoning as the web route.
 		const enableThinking = (body?.thinking === true || body?.thinking === "true") && this.tierAllowsThinking(tier);
 
+		// An explicit AbortController rather than AbortSignal.timeout, to match how every
+		// other service in this backend bounds its outbound calls (and to satisfy the
+		// phase7-bounded-io invariant, which is right to insist that a timeout is visible in
+		// the source rather than assumed).
+		//
+		// The bound is on the whole exchange, not on connect: a streaming generation legitimately
+		// runs for minutes, and the thing that must never happen is a socket left open
+		// indefinitely holding a connection from the pool. The web search below shares this
+		// controller, so a client that leaves during the search cannot wake up an upstream
+		// generation afterwards.
+		const upstreamController = new AbortController();
+		res.once?.("close", () => upstreamController.abort());
+
+		// ---- Web grounding (the internet "tool") ----
+		//
+		// The user asks; the server searches; the model cites. There is no function-call
+		// round between model and web -- the generation models served here are small enough
+		// that an emit-JSON-then-wait protocol would misfire more often than it answered.
+		// A failed search is a notice, never a failed generation: an ungrounded answer is
+		// strictly more useful than a refused one.
+		const wantWeb = webResearchRequested(body ?? {});
+		let groundingBlock = "";
+		let webResults: WebSearchResult[] = [];
+		let webNotice = "";
+		let webStatus: "off" | "grounded" | "empty" | "failed" = "off";
+		if (wantWeb && this.web) {
+			if (upstreamController.signal.aborted) return refusal(503, "STREAM_CANCELLED", "The stream was cancelled before generation.");
+			const query = message.slice(0, MAX_WEB_QUERY_LENGTH).trim();
+			try {
+				webResults = sanitizeSearchResults(await this.web.search(query, 5));
+				webStatus = webResults.length ? "grounded" : "empty";
+				if (webResults.length) {
+					groundingBlock = buildWebGroundedPrompt(query, webResults, new Date().toISOString().slice(0, 10));
+				} else {
+					webNotice = "The web search returned no usable results, so this answer is ungrounded and may be out of date.";
+				}
+			} catch {
+				webStatus = "failed";
+				webNotice = "The web search could not be completed right now, so this answer is ungrounded. Please retry the message if the sources matter.";
+			}
+		} else if (wantWeb) {
+			webNotice = "Web research is not wired into this deployment yet, so this answer is ungrounded.";
+		}
+		if (upstreamController.signal.aborted) return refusal(503, "STREAM_CANCELLED", "The stream was cancelled before generation.");
+
+		// The client's own system prompt keeps its clamp; grounding and the document
+		// instruction are appended server-side, and the whole composition keeps a bound
+		// because a runaway system prompt would eat context the conversation needs.
+		const clientSystemPrompt = this.clampText(body?.system_prompt ?? body?.systemPrompt, MAX_SYSTEM_PROMPT_LENGTH);
+		let systemPrompt = clientSystemPrompt;
+		if (groundingBlock) systemPrompt = boundGroundedSystemPrompt(systemPrompt, groundingBlock);
+		if (scope === "playground") systemPrompt = appendBoundedSystemPrompt(systemPrompt, DOCUMENT_INSTRUCTION);
+
 		// Recorded before the gateway call: a run that dies connecting is still a run.
 		this.record(accountId, requestId, "generation.started", {
 			payload: {
@@ -341,21 +416,14 @@ export class DesktopGatewayService {
 				compaction_mode: inputContext.compaction_mode,
 				compact_now: inputContext.compact_now === true,
 				thinking: enableThinking,
+				web_research: webStatus === "grounded" ? "grounded" : webStatus === "off" ? "off" : webStatus,
+				web_results: webResults.length,
+				web_search_failed: webStatus === "failed" ? true : undefined,
 			},
 			sessionUuid,
 			modelKey,
 		});
 
-		// An explicit AbortController rather than AbortSignal.timeout, to match how every
-		// other service in this backend bounds its outbound calls (and to satisfy the
-		// phase7-bounded-io invariant, which is right to insist that a timeout is visible in
-		// the source rather than assumed).
-		//
-		// The bound is on the whole exchange, not on connect: a streaming generation legitimately
-		// runs for minutes, and the thing that must never happen is a socket left open
-		// indefinitely holding a connection from the pool.
-		const upstreamController = new AbortController();
-		res.once?.("close", () => upstreamController.abort());
 		const upstreamTimeout = setTimeout(
 			() => upstreamController.abort(),
 			Number(process.env.DESKTOP_STREAM_TIMEOUT_MS || "960000"),
@@ -370,7 +438,7 @@ export class DesktopGatewayService {
 				body: JSON.stringify({
 					message,
 					...inputContext,
-					system_prompt: this.clampText(body?.system_prompt ?? body?.systemPrompt, MAX_SYSTEM_PROMPT_LENGTH),
+					system_prompt: systemPrompt,
 					text_model: modelFile,
 					temperature: this.clampNumber(body?.temperature, 0, MAX_TEMPERATURE, DEFAULT_TEMPERATURE),
 					max_tokens: Math.round(this.clampNumber(body?.max_tokens ?? body?.maxTokens, 1, MAX_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
@@ -420,6 +488,17 @@ export class DesktopGatewayService {
 		res.setHeader("x-filspresso-request-id", requestId);
 		res.flushHeaders?.();
 
+		// Web research outcomes land on the wire first, before any generated text, so the
+		// client can show citation chips (or the honest "this answer is ungrounded" notice)
+		// while the model is still thinking. A silent search would make a citation the
+		// client can see but not verify.
+		try {
+			if (webNotice) res.write(`data: ${JSON.stringify({ notice: webNotice })}\n\n`);
+			if (webResults.length) res.write(`data: ${JSON.stringify({ sources: webResults })}\n\n`);
+		} catch (writeError) {
+			this.logger.warn(`desktop sources frame could not be written for ${requestId}: ${writeError instanceof Error ? writeError.message : String(writeError)}`);
+		}
+
 		// `await`ed before returning: the controller has already handed the socket over, and
 		// the meter has to keep reading after this method's caller believes it is finished.
 		try {
@@ -456,6 +535,12 @@ export class DesktopGatewayService {
 		let metered = false;
 		let compactionMetered = false;
 		let compactionRecorded = false;
+		// The assembled answer, for document extraction. Scanning happens on the done frame,
+		// when the whole answer is present, so a fence split across TCP reads parses the
+		// same way one that arrived in a single chunk would. Capped: a bounded scan needs a
+		// bounded buffer, and a longer answer changed nothing a document could keep.
+		let answer = "";
+		let documentsEmitted = false;
 
 		const billIfDone = async (line: string) => {
 			const trimmed = line.trim();
@@ -464,11 +549,18 @@ export class DesktopGatewayService {
 			if (!payload || payload === "[DONE]") return;
 			// The compaction block's field names are whatever the Python side chose to emit;
 			// only the ones replay cares about are read, and everything is clamped on record.
-			let event: { done?: boolean; usage?: unknown; context?: { usage?: unknown; compacted?: boolean; inputLimit?: unknown; tokensBefore?: unknown; tokensAfter?: unknown; summary?: unknown } };
+			let event: { delta?: unknown; done?: boolean; usage?: unknown; context?: { usage?: unknown; compacted?: boolean; inputLimit?: unknown; tokensBefore?: unknown; tokensAfter?: unknown; summary?: unknown } };
 			try {
 				event = JSON.parse(payload) as typeof event;
 			} catch {
 				return;
+			}
+			if (typeof event.delta === "string" && answer.length <= REPLY_SCAN_LIMIT) answer += event.delta;
+			if (event.done) {
+				if (scope === "playground" && !documentsEmitted) {
+					documentsEmitted = true;
+					await this.emitReplyDocuments(res, accountId, requestId, sessionUuid, modelKey, answer);
+				}
 			}
 			if (event.context) {
 				// Recorded once per run, whether or not a summary actually came out: a run
@@ -569,6 +661,43 @@ export class DesktopGatewayService {
 		} catch (error) {
 			this.logger.error(`Compaction settlement failed for ${requestId}: ${error instanceof Error ? error.message : String(error)}`);
 			this.record(accountId, requestId, "settlement.failed", { payload: { scope: "compaction", reason: "record_usage_failed" }, sessionUuid, modelKey, status: "failed" });
+		}
+	}
+
+	/**
+	 * Save the fenced documents the model produced this reply, and tell the client about
+	 * each one on the wire.
+	 *
+	 * Fail-open the same way billing is: a document the backend could not store must not
+	 * fail the generation whose text already reached the reader. The answer stays in the
+	 * chat either way; the notice says what did not make it to the account.
+	 */
+	private async emitReplyDocuments(res: ExpressResponse, accountId: number, requestId: string, sessionUuid: string | null, modelKey: string, answer: string): Promise<void> {
+		if (!this.documents) return;
+		const documents = extractPlaygroundDocuments(answer);
+		if (!documents.length) return;
+		let failures = 0;
+		for (const document of documents) {
+			try {
+				const row = await this.documents.create(accountId, { name: document.name, content: document.content, runId: requestId });
+				this.record(accountId, requestId, "document.saved", {
+					payload: { name: document.name, bytes: document.bytes, scope: "reply-fence" },
+					sessionUuid,
+					modelKey,
+				});
+				if (!res.destroyed) {
+					res.write(`data: ${JSON.stringify({ document: { id: String(row.id ?? ""), name: String(row.name ?? document.name), bytes: Number(row.content_bytes ?? document.bytes) } })}\n\n`);
+				}
+			} catch (error) {
+				failures += 1;
+				this.logger.warn(`playground document save failed for ${requestId}: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
+		if (failures && !res.destroyed) {
+			const notice = failures === documents.length
+				? "The reply's document could not be saved to your account. The text remains in the conversation."
+				: `Of the ${documents.length} documents in this reply, ${failures} could not be saved. The text remains in the conversation.`;
+			try { res.write(`data: ${JSON.stringify({ notice })}\n\n`); } catch { /* The socket is gone; nothing else to record. */ }
 		}
 	}
 

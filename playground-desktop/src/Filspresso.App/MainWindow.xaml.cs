@@ -22,16 +22,20 @@ public sealed partial class MainWindow : Window
     private SettingsPage? _settingsPage;
     private RunHistoryPage? _runHistoryPage;
     private AgentReviewPage? _agentReviewPage;
-    private AgentWorkspacePage? _agentWorkspacePage;
     private bool _loaded;
     private bool _refreshing;
+    private bool _railExpanded, _instructionsOpen;
 
     public MainWindow()
     {
+        App.TraceStartup("MainWindow constructor");
         _services = new AppServices(new Uri(
             Environment.GetEnvironmentVariable("FILSPRESSO_BACKEND_URL") ?? "http://localhost:4000/"));
+        App.TraceStartup("AppServices created");
         InitializeComponent();
-        Title = "Spectre Playground · Filspresso";
+        App.TraceStartup("MainWindow XAML loaded");
+        Title = $"Spectre Playground · Filspresso · {_services.AppVersion}";
+        _services.SystemNoticeChanged += OnSystemNotice;
         _services.WindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 860));
         AppWindow.TitleBar.BackgroundColor = Windows.UI.Color.FromArgb(255, 20, 18, 19);
@@ -44,8 +48,8 @@ public sealed partial class MainWindow : Window
             _playgroundPage?.Dispose();
             _runHistoryPage?.Dispose();
             _agentReviewPage?.Dispose();
-            _agentWorkspacePage?.Dispose();
             _services.Dispose();
+            _services.SystemNoticeChanged -= OnSystemNotice;
         };
         ShowSignedOut();
     }
@@ -94,8 +98,6 @@ public sealed partial class MainWindow : Window
                 _runHistoryPage = null;
                 _agentReviewPage?.Dispose();
                 _agentReviewPage = null;
-                _agentWorkspacePage?.Dispose();
-                _agentWorkspacePage = null;
                 await _services.Auth.SignOutAsync();
                 _playgroundPage = null;
                 _accountPanel = null;
@@ -113,6 +115,7 @@ public sealed partial class MainWindow : Window
         ContentFrame.Content = _playgroundPage;
         SetSection("chat");
         await _playgroundPage.RefreshAsync();
+        _ = _services.Updates.RefreshAsync();
     }
 
     private void ShowSignedOut()
@@ -150,7 +153,7 @@ public sealed partial class MainWindow : Window
         {
             _runHistoryPage?.CancelPendingRequests();
             _agentReviewPage?.CancelPendingRequests();
-            _agentWorkspacePage?.CancelPendingRequests();
+            _playgroundPage?.SuspendAgent();
             _accountHost ??= new ScrollViewer
             {
                 Content = _accountPanel,
@@ -187,6 +190,7 @@ public sealed partial class MainWindow : Window
         _refreshing = true;
         try
         {
+            _ = _services.Updates.RefreshAsync();
             if (ContentFrame.Content is ScrollViewer { Content: AccountPanel } && _accountPanel is not null)
             {
                 await _accountPanel.RefreshAsync();
@@ -209,20 +213,12 @@ public sealed partial class MainWindow : Window
     private void SetSection(string section)
     {
         if (_playgroundPage is null) return;
-        if ((section == "review" || section == "agent") && _services.Playground.IsSending)
+        if (section == "review" && _services.Playground.IsSending)
         { EntitlementBar.Message = "Finish or stop Chat generation before opening proposal review."; EntitlementBar.IsOpen = true; return; }
         _runHistoryPage?.CancelPendingRequests();
         _agentReviewPage?.CancelPendingRequests();
-        _agentWorkspacePage?.CancelPendingRequests();
-        PricesNav.Background = SettingsNav.Background = ActivityNav.Background = ReviewNav.Background = AgentNav.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        if (section == "agent")
-        {
-            _agentWorkspacePage ??= new AgentWorkspacePage(_services);
-            ContentFrame.Content = _agentWorkspacePage;
-            AgentNav.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoSurface"];
-            _agentWorkspacePage.Reload(_playgroundPage.SavedSessionUuid);
-            return;
-        }
+        if (section != "chat") _playgroundPage.SuspendAgent();
+        PricesNav.Background = SettingsNav.Background = ActivityNav.Background = ReviewNav.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
         if (section == "review")
         {
             _agentReviewPage ??= new AgentReviewPage(_services);
@@ -255,10 +251,96 @@ public sealed partial class MainWindow : Window
     private void OnPrices(object sender, RoutedEventArgs args) => SetSection("prices");
     private void OnActivity(object sender, RoutedEventArgs args) => SetSection("activity");
     private void OnReview(object sender, RoutedEventArgs args) => SetSection("review");
-    private void OnAgent(object sender, RoutedEventArgs args) => SetSection("agent");
     private void OnNewConversation(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.NewConversation(); }
     private void OnConversations(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(false); }
     private void OnSearch(object sender, RoutedEventArgs args) { SetSection("chat"); _playgroundPage?.ToggleConversations(true); }
+
+    private void OnToggleNavigation(object sender, RoutedEventArgs args)
+    {
+        _railExpanded = !_railExpanded; Rail.Width = _railExpanded ? 210 : 66;
+        foreach (var child in RailItems.Children)
+        {
+            if (child is not Button { Content: StackPanel content } button) continue;
+            button.Width = _railExpanded ? 188 : 42;
+            button.HorizontalContentAlignment = _railExpanded ? HorizontalAlignment.Left : HorizontalAlignment.Center;
+            button.Padding = new Thickness(_railExpanded ? 11 : 0, 0, 0, 0);
+            foreach (var item in content.Children)
+                if (item is TextBlock { Tag: "nav-label" } label) label.Visibility = _railExpanded ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+    private void OnSystemNotice(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() =>
+    {
+        var version = _services.NewDesktopBuildVersion;
+        var install = _services.UpdateInstaller.Snapshot;
+        UpdateBar.Title = install.Running ? "Installing desktop update"
+            : version is not null ? $"Desktop {version} is available"
+            : install.Failed ? "Desktop update did not complete" : string.Empty;
+        UpdateBar.Message = install.Running || install.Failed ? install.Message : _services.Updates.Snapshot.Message;
+        InstallUpdateButton.Content = install.Running ? "Installing…" : "Install update";
+        InstallUpdateButton.IsEnabled = !install.Running && _services.Updates.Snapshot.Package is { CanDownload: true };
+        UpdateBar.IsOpen = version is not null || install.Running || install.Failed;
+    });
+    private async void OnInstallUpdate(object sender, RoutedEventArgs args)
+    {
+        var package = _services.Updates.Snapshot.Package;
+        if (package is null || !_services.Updates.Snapshot.HasUpdate(_services.AppVersion) || !package.CanDownload) return;
+        var confirmation = new CheckBox
+        {
+            Content = new TextBlock
+            {
+                Text = "I have read the update details and want to download and install this package.",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            IsChecked = false,
+        };
+        var details = new StackPanel { Spacing = 12, MaxWidth = 520 };
+        details.Children.Add(new TextBlock
+        {
+            Text = $"Version {package.ProductVersion} · {FormatUpdateBytes(package.Bytes)}\nSHA-256: {package.Sha256}\n\nThe installer downloads to a temporary folder, is checked against the published size and checksum, then Windows Installer asks for permission. This app closes and restarts after installation. Playground settings, credentials and user files are not removed.",
+            TextWrapping = TextWrapping.Wrap,
+            IsTextSelectionEnabled = true,
+        });
+        if (package.Unsigned)
+            details.Children.Add(new TextBlock
+            {
+                Text = "This package is unsigned. Windows may show an unverified-publisher warning during installation.",
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FilspressoAccent"],
+            });
+        details.Children.Add(confirmation);
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            Title = "Install desktop update?",
+            Content = details,
+            PrimaryButtonText = "Download and install",
+            CloseButtonText = "Not now",
+            DefaultButton = ContentDialogButton.Close,
+            IsPrimaryButtonEnabled = false,
+        };
+        confirmation.Checked += (_, _) => dialog.IsPrimaryButtonEnabled = true;
+        confirmation.Unchecked += (_, _) => dialog.IsPrimaryButtonEnabled = false;
+        var choice = await dialog.ShowAsync();
+        if (choice != ContentDialogResult.Primary) return;
+        var shouldExit = await _services.InstallDesktopUpdateAsync();
+        if (shouldExit) Application.Current.Exit();
+    }
+    private static string FormatUpdateBytes(long? bytes) => bytes is > 0
+        ? bytes.Value >= 1024 * 1024 ? $"{bytes.Value / 1024d / 1024d:0.0} MB" : $"{Math.Max(1, bytes.Value / 1024)} KB"
+        : "size unavailable";
+    private async void OnInstructions(object sender, RoutedEventArgs args)
+    {
+        if (_instructionsOpen) return;
+        _instructionsOpen = true;
+        using var page = new InstructionsPage(_services) { MaxHeight = 600 };
+        try
+        {
+            var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "Desktop instructions", Content = page,
+                CloseButtonText = "Done", DefaultButton = ContentDialogButton.Close };
+            await dialog.ShowAsync();
+        }
+        finally { _instructionsOpen = false; }
+    }
 
     private void ShowError(Exception error)
     {

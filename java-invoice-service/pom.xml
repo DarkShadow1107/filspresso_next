@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.5</version>
+        <version>4.0.6</version>
         <relativePath/>
     </parent>
 
@@ -19,14 +19,64 @@
 
     <properties>
         <java.version>17</java.version>
-        <spring-framework.version>6.2.11</spring-framework.version>
-        <tomcat.version>10.1.54</tomcat.version>
+        <spring-framework.version>7.0.9</spring-framework.version>
+        <jackson-bom.version>3.1.4</jackson-bom.version>
+        <jackson-2-bom.version>2.21.8</jackson-2-bom.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Keep Boot 4's framework modules aligned on the patched 7.0.9 release. -->
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-aop</artifactId>
+                <version>${spring-framework.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-beans</artifactId>
+                <version>${spring-framework.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-context</artifactId>
+                <version>${spring-framework.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-core</artifactId>
+                <version>${spring-framework.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-expression</artifactId>
+                <version>${spring-framework.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-web</artifactId>
+                <version>${spring-framework.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-webmvc</artifactId>
+                <version>${spring-framework.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+            <version>4.0.6</version>
+        </dependency>
+        <dependency>
+            <!-- ServiceAssertionFilter uses Jackson 2 APIs directly; pin this compatibility
+                 parser independently while Boot 4 MVC uses patched Jackson 3.1.4. -->
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.21.8</version>
         </dependency>
         <dependency>
             <groupId>com.github.librepdf</groupId>
@@ -36,7 +86,8 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.78.1</version>
+            <!-- CVE-2025-14813 (CRITICAL) fixed in 1.80.2+, CVE-2026-8763 fixed in 1.85+. -->
+            <version>1.86</version>
         </dependency>
     </dependencies>
 

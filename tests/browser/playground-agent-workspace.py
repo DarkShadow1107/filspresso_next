@@ -98,15 +98,16 @@ try:
         page.add_init_script("if (window === window.top) localStorage.setItem('account_profile',JSON.stringify({email:'fixture@example.invalid'}))")
         page.route("**/api/playground/**", respond)
         page.goto(f"http://127.0.0.1:{server.server_port}")
-        expect(page.get_by_role("heading", name="Agent sandbox workspace")).to_be_visible()
-        expect(page.get_by_role("button", name="Run agent · metered follow-ups")).to_be_disabled()
+        expect(page.get_by_role("heading", name="Plan & build")).to_be_visible()
+        expect(page.get_by_role("button", name="Send · metered")).to_be_disabled()
         assert requests == [], "Opening/StrictMode mounting must not request inference/capabilities"
-        page.get_by_role("button", name="Check agent availability").click()
-        expect(page.get_by_role("button", name="Start fresh hosted sandbox")).to_be_enabled()
-        page.get_by_role("button", name="Start fresh hosted sandbox").click()
-        page.get_by_label("Agent workspace mode").select_option("build")
+        page.get_by_role("button", name="Check availability").click()
+        expect(page.get_by_role("button", name="Start workspace", exact=True)).to_be_enabled()
+        page.get_by_role("button", name="Start workspace", exact=True).click()
+        page.get_by_role("button", name="Agent workspace mode").click()
+        page.get_by_role("menuitemradio", name="Build", exact=True).click()
         page.get_by_label("Agent workspace request").fill("Fixture create and test")
-        page.get_by_role("button", name="Run agent · metered follow-ups").click()
+        page.get_by_role("button", name="Send · metered").click()
         questions = page.get_by_role("form", name="Agent clarification questions")
         expect(questions).to_be_visible()
         assert not any(path == "agent/actions" or path.endswith("/execute") for _, path, _ in requests)
@@ -134,7 +135,7 @@ try:
         assert len([1 for _, path, _ in requests if path.endswith("/execute")]) == 2
         assert page.evaluate("window.__agent_injected || null") is None
         page.get_by_label("Agent workspace request").fill("Now explain the result")
-        page.get_by_role("button", name="Run agent · metered follow-ups").click()
+        page.get_by_role("button", name="Send · metered").click()
         expect(page.get_by_text("Run finished · 1 model turns / 0 tools · 10 generated tokens", exact=True)).to_be_visible()
         assert len([1 for _, path, _ in requests if path.endswith("/execute")]) == 2
         explorer = page.get_by_role("region", name="Agent project explorer")
@@ -167,14 +168,15 @@ try:
         artifact = json.loads((directory / "project-artifact.json").read_text(encoding="utf-8"))
         for file in artifact["files"]:
             assert file["sha256"] == hashlib.sha256(file["text"].encode("utf-8")).hexdigest()
-        page.get_by_role("button", name="New conversation / change mode · retain project").click()
-        page.get_by_label("Agent workspace mode").select_option("plan")
+        page.get_by_role("button", name="New conversation", exact=True).click()
+        page.get_by_role("button", name="Agent workspace mode").click()
+        page.get_by_role("menuitemradio", name="Plan", exact=True).click()
         expect(explorer.get_by_role("button", name="a.txt", exact=True)).to_be_visible()
         # Account invalidation clears local state and discards, rather than showing old receipts.
         with page.expect_request(lambda request: request.method == "DELETE" and "/api/playground/sandbox/" in request.url):
             page.evaluate("localStorage.setItem('account_profile',JSON.stringify({email:'different@example.invalid'})); window.dispatchEvent(new Event('session-update'))")
         expect(page.get_by_text("Run finished · 3 model turns / 3 tools · 30 generated tokens", exact=True)).not_to_be_visible()
-        expect(page.get_by_role("button", name="Start fresh hosted sandbox")).to_be_disabled()
+        expect(page.get_by_role("button", name="Start workspace", exact=True)).to_be_disabled()
         expect(explorer).not_to_be_visible()
         assert any(method == "DELETE" for method, _, _ in requests)
         assert errors == [], errors

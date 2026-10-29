@@ -33,9 +33,13 @@ async function main() {
     const svg = markup.match(/<svg[\s\S]*?<\/svg>/)?.[0];
     if (!svg) throw new Error(`No SVG rendered from ${entry.source}`);
     writeIfChanged(path.join(output, `${name}.svg`), svg);
+    // Rasterize the same glyphs for WinUI's unpackaged runtime. SVG/CSS support and
+    // ms-appx URI resolution vary there; a local 3x PNG works without package identity.
+    writeIfChanged(path.join(output, `${name}.png`), await sharp(Buffer.from(svg)).resize(72, 72).png().toBuffer());
     if (name === "send" || name === "stop") {
       const dark = renderToStaticMarkup(React.createElement(Component, { size: 24, color: "#322418", ...entry.props })).match(/<svg[\s\S]*?<\/svg>/)?.[0];
       writeIfChanged(path.join(output, `${name}-dark.svg`), dark);
+      writeIfChanged(path.join(output, `${name}-dark.png`), await sharp(Buffer.from(dark)).resize(72, 72).png().toBuffer());
     }
   }
 

@@ -163,5 +163,6 @@ test("opening/rendering review neither requests inference nor enables the genera
 	const html = renderToStaticMarkup(<PlaygroundAgentReview context={context} />);
 	assert.equal(calls, 0); assert.match(html, /No models are enabled by default/);
 	assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);
-	assert.match(html, /Build proposals · cannot apply or execute/);
+	assert.match(html, /nothing is read, changed or executed/);
+	assert.match(html, /aria-label="Proposal mode" aria-haspopup="menu"/);
 });

@@ -1,11 +1,12 @@
 using System;
+using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace Filspresso.App;
 
-/// <summary>SVGs rendered at build time from the actual src/icons TSX components.</summary>
+/// <summary>3x PNGs rendered from the shared TSX glyphs; no package URI/SVG dependency.</summary>
 public sealed class SharedIcon : UserControl
 {
     private readonly Image _image = new();
@@ -19,5 +20,11 @@ public sealed class SharedIcon : UserControl
         var icon = (SharedIcon)sender;
         icon.RenderIcon(icon.IconName);
     }
-    private void RenderIcon(string name) => _image.Source = new SvgImageSource(new Uri($"ms-appx:///Assets/Icons/{name}{(Tone == "dark" ? "-dark" : string.Empty)}.svg"));
+    private void RenderIcon(string name)
+    {
+        var safe = System.Text.RegularExpressions.Regex.IsMatch(name ?? string.Empty, "^[a-z]+$") ? name : "file";
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Icons", $"{safe}{(Tone == "dark" ? "-dark" : string.Empty)}.png");
+        if (!File.Exists(path)) path = Path.Combine(AppContext.BaseDirectory, "Assets", "Icons", "file.png");
+        _image.Source = new BitmapImage(new Uri(path, UriKind.Absolute));
+    }
 }
