@@ -45,7 +45,7 @@ async function main() {
 	const command: NativeCall = { id: "run_1", name: "run_command", arguments: '{"command":"python3 main.py"}' };
 	const questionFixture = JSON.parse(readFileSync(join(__dirname, "../../../tests/fixtures/playground-question.json"), "utf8"));
 	const question: NativeCall = { id: "question_1", name: "question", arguments: JSON.stringify(questionFixture.form) };
-	const replies = [[question], [read("read_missing")], [write], [read("read_written")], [command], [], [], [{ ...write, id: "write_race" }]];
+	const replies = [[question], [read("read_missing")], [write], [read("read_written")], [], [], [{ ...write, id: "write_race" }]];
 	const fetch = globalThis.fetch;
 	globalThis.fetch = async (input, init) => {
 		if (String(input).startsWith("http://fixture-ai/")) {
@@ -75,7 +75,7 @@ async function main() {
 		};
 		const consent = new AgentConsentQueue(); let approvals = 0;
 		consent.subscribe(() => { const pending = consent.getSnapshot(); if (!pending) return;
-			assert.ok(pending.call.arguments === write.arguments || pending.call.arguments === command.arguments, "Only trusted literal fixture actions are allowed");
+			assert.equal(pending.call.arguments, write.arguments, "Only the trusted literal fixture write is allowed");
 			approvals++; consent.decide(pending.id, true);
 		});
 		const questions = new AgentQuestionQueue(); let questionCount = 0;
@@ -85,19 +85,19 @@ async function main() {
 		});
 		const services = new HostedAgentServices({ id: workspaceId, location: "hosted-docker" }, gateway.agentModels(), consent, io, undefined, questions);
 		const output: AgentLoopEvent[] = [];
-		for await (const event of new NativeAgentLoop(services).run({ model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 }, "build", "Fixture read, write, read and test.")) output.push(event);
-		assert.equal(output.at(-1)?.kind, "finished"); assert.equal(charges.length, 6); assert.equal(approvals, 2); assert.equal(questionCount, 1);
+		for await (const event of new NativeAgentLoop(services).run({ model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 }, "build", "Fixture read, write and read.")) output.push(event);
+		assert.equal(output.at(-1)?.kind, "finished"); assert.equal(charges.length, 5); assert.equal(approvals, 1); assert.equal(questionCount, 1);
 		const calls = output.filter((event): event is Extract<AgentLoopEvent, { kind: "tool.finished" }> => event.kind === "tool.finished");
-		assert.equal(calls.length, 4); assert.equal(calls[0].invocation.result.exitCode, 1);
+		assert.equal(calls.length, 3); assert.equal(calls[0].invocation.result.exitCode, 1);
 		assert.equal(calls[2].invocation.result.stdout, "print('signed-agent-smoke')\n");
-		assert.equal(calls[3].invocation.result.stdout.trim(), "signed-agent-smoke");
-		assert.equal(requests[5].history.length, 5); assert.equal(requests[5].system_prompt, AGENT_SYSTEM_PROMPT);
-		for (const group of requests[5].history) assert.equal(group.tool_calls[0].id, group.tool_results[0].tool_call_id);
-		assert.equal(JSON.parse(requests[5].history[0].tool_results[0].content).grantsExecutionPermission, false);
+		assert.equal(requests[4].history.length, 4); assert.equal(requests[4].system_prompt, AGENT_SYSTEM_PROMPT);
+		assert.equal(requests[4].tools.some(tool => tool.name === command.name), false);
+		for (const group of requests[4].history) assert.equal(group.tool_calls[0].id, group.tool_results[0].tool_call_id);
+		assert.equal(JSON.parse(requests[4].history[0].tool_results[0].content).grantsExecutionPermission, false);
 		const finished = output.at(-1); assert.equal(finished?.kind, "finished");
 		if (finished?.kind !== "finished") throw new Error("Missing completed conversation");
 		for await (const event of new NativeAgentLoop(services).run({ model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 }, "build", "Fixture conversation follow-up.", new AbortController().signal, [finished.conversationTurn])) output.push(event);
-		assert.equal(charges.length, 7); assert.equal(requests[6].conversation?.length, 1); assert.equal(approvals, 2);
+		assert.equal(charges.length, 6); assert.equal(requests[5].conversation?.length, 1); assert.equal(approvals, 1);
 		// Exercise the database CAS with genuinely concurrent dispatch attempts, not a mocked pool.
 		const request = buildProposalReview({ model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 }, "build", "Fixture concurrent approval test.");
 		const racedReply = await io.turn(request, new AbortController().signal); const racedCall = racedReply.tool_calls[0];
@@ -105,16 +105,16 @@ async function main() {
 		await assert.rejects(actions.execute(43, challenge.actionId, { approved: true, sandboxId: workspaceId, call: racedCall }));
 		const raced = await Promise.allSettled([actions.execute(42, challenge.actionId, { approved: true, sandboxId: workspaceId, call: racedCall }), actions.execute(42, challenge.actionId, { approved: true, sandboxId: workspaceId, call: racedCall })]);
 		assert.equal(raced.filter(item => item.status === "fulfilled").length, 1);
-		assert.equal(Number((await pool.query("SELECT COUNT(*) AS count FROM playground_agent_actions WHERE status='complete'")).rows[0].count), 5);
+		assert.equal(Number((await pool.query("SELECT COUNT(*) AS count FROM playground_agent_actions WHERE status='complete'")).rows[0].count), 4);
 		assert.equal(Number((await pool.query("SELECT COUNT(*) AS count FROM playground_agent_actions WHERE tool_name='question'")).rows[0].count), 0);
 		for (let attempt = 0; attempt < 40; attempt++) {
 			const count = Number((await pool.query("SELECT COUNT(*) AS count FROM playground_run_events WHERE kind='tool.finished'")).rows[0].count);
-			if (count === 5) break; await new Promise(resolve => setTimeout(resolve, 50));
+			if (count === 4) break; await new Promise(resolve => setTimeout(resolve, 50));
 		}
 		const durable = (await pool.query("SELECT kind,payload FROM playground_run_events WHERE kind LIKE 'tool.%'")).rows;
-		assert.equal(durable.filter(row => row.kind === "tool.finished").length, 5);
+		assert.equal(durable.filter(row => row.kind === "tool.finished").length, 4);
 		assert.doesNotMatch(JSON.stringify(durable), /signed-agent-smoke|python3 main.py|Which database|PostgreSQL|Accessibility|café/);
-		console.log("PASS: real Docker + PostgreSQL native fixture questions/read/write/read/test/conversation, separate fresh consent, metadata-only evidence, cross-account refusal and concurrent one-shot dispatch. Model/billing are fixtures, not live qualification.");
+		console.log("PASS: real Docker + PostgreSQL native fixture questions/read/write/read/conversation, fresh consent, metadata-only evidence, cross-account refusal and concurrent one-shot dispatch. Model/billing are fixtures, not live qualification.");
 	} finally {
 		if (workspaceId) { try { await sandboxes.request(42, "DELETE", `/sandboxes/${workspaceId}`); } catch { /* Outer smoke scope also removes its own workload labels. */ } }
 		globalThis.fetch = fetch; actions.onModuleDestroy(); await pool.end();
