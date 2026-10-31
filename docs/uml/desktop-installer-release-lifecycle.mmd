@@ -1,0 +1,33 @@
+---
+title: Filspresso Playground - Desktop MSI Publication Lifecycle
+---
+
+flowchart TB
+    Source["Desktop source and new version"] --> Build["Windows Build-Desktop.ps1<br/>tests, WinUI publish, WiX MSI"]
+    Build --> Manifest["Build manifest<br/>version, byte count, SHA-256,<br/>Authenticode status, qualification flag"]
+    Manifest --> Gate{"Release gates complete?"}
+    Gate -->|No| Preview["Preview only<br/>do not label release-ready"]
+    Gate -->|Yes| Sign["Timestamped Authenticode signing<br/>and signature verification"]
+    Sign --> Promote["Publish-DesktopInstaller.ps1<br/>unique version; verify copied hash and size"]
+    Promote --> VersionDir["desktop-installers/<version>/<br/>MSI + package-manifest.json"]
+    VersionDir --> Index["Update desktop-installers/index.json"]
+    VersionDir --> Volume["Copy verified MSI to persistent<br/>DESKTOP_INSTALLER_DIR mount"]
+    Index -. metadata in Git .-> Git["Git push carries source,<br/>index, and manifests only"]
+    Volume --> Backend["NestJS verifies manifest and MSI<br/>SHA-256 before streaming"]
+    Backend --> Info["GET /api/desktop/installer<br/>authenticated version and availability"]
+    Backend --> Download["GET /api/desktop/download<br/>authenticated MSI stream and checksum"]
+    Info --> User["Eligible Playground user"]
+    Download --> User
+    Preview -.-> Deferred["Current 0.3.9 status:<br/>NotSigned; installQualified=false"]
+
+    classDef build fill:#e1f5fe,stroke:#01579b,color:#111
+    classDef gate fill:#fff3e0,stroke:#e65100,color:#111
+    classDef publish fill:#e8f5e9,stroke:#1b5e20,color:#111
+    classDef serve fill:#f3e5f5,stroke:#4a148c,color:#111
+    classDef warning fill:#fce4ec,stroke:#880e4f,color:#111
+
+    class Source,Build,Manifest build
+    class Gate,Sign gate
+    class Promote,VersionDir,Index,Volume,Git publish
+    class Backend,Info,Download,User serve
+    class Preview,Deferred warning

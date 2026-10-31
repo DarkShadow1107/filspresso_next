@@ -1,11 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contextStateFromCheckpoint, deleteServerSession, getServerSession, listServerSessions, preferencesForServerSession, savedSessionFromRow, saveServerSession } from "../../src/lib/playgroundSessions";
+import { contextStateFromCheckpoint, deleteServerSession, getServerSession, listServerSessions, preferencesForServerSession, savedSessionFromRow, saveServerSession, transcriptFromRow } from "../../src/lib/playgroundSessions";
 
 const uuid = "00000000-0000-4000-8000-000000000001";
 const metadata = { session_uuid: uuid, title: "Papers", model_key: "lfm2_5_350m_q8_0", input_context_tokens: 65_536, compaction_mode: "aggressive", source_references: [{ name: "notes.md", kind: "document" }] };
 const checkpoint = { mode: "aggressive", tokensBefore: 40_000, tokensAfter: 12_000, summary: "Keep constraints.", history: [{ role: "user", content: "Retained memory" }, { role: "assistant", content: "Recent answer" }] };
 const current = { model: "lfm2_5_230m_q4_k_m" as const, inputContextTokens: 16_384, compactionMode: "balanced" as const, thinking: false, textSize: "large", enterToSend: false, showStats: false };
+
+test("transcript and tool activity round-trip without changing whitespace", async t => {
+	const transcript = [{ id: "m1", role: "assistant" as const, content: "  hello\n", tools: [{ id: "call1", name: "web_search", arguments: '{"query":"test"}', status: "finished" as const, result: "result\n" }] }];
+	assert.deepEqual(transcriptFromRow(transcript), transcript);
+	assert.equal(transcriptFromRow(null), null);
+	assert.equal(transcriptFromRow([{ role: "system", content: "bad", id: "x" }]), null);
+	t.mock.method(globalThis, "fetch", async (_url: string, options: RequestInit) => {
+		assert.deepEqual(JSON.parse(String(options.body)).transcript, transcript);
+		return Response.json({ session_uuid: uuid });
+	});
+	assert.equal(await saveServerSession({ uuid, title: "Papers", ...current, transcript }), uuid);
+});
 
 test("resume fetches details after a metadata-only list and restores generation preferences", async t => {
 	const paths: string[] = [];

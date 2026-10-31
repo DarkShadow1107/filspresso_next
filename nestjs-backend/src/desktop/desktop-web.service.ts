@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
-import * as dns from "dns/promises";
+import { lookup as dnsLookup } from "node:dns/promises";
+import * as http from "node:http";
+import * as https from "node:https";
+import { isIP } from "node:net";
 import { assertAllowedEgress } from "../common/utils/egressPolicy";
 import { fetchBounded } from "../common/utils/httpClient";
 
@@ -147,41 +150,26 @@ export class DesktopWebService {
 	 * The text is truncated, because the point is to give the model a page to read, not to
 	 * hand it a megabyte of markup.
 	 */
-	async fetchPage(url: string, limit = DEFAULT_FETCH_LIMIT): Promise<WebPage> {
+	async fetchPage(url: string, limit = DEFAULT_FETCH_LIMIT, signal?: AbortSignal): Promise<WebPage> {
 		const target = String(url || "").trim();
 		if (!target) {
 			throw new BadRequestException({ error: "a url is required" });
 		}
-
-		await assertPublicWebUrl(target);
+		if (target.length > 2048) throw new BadRequestException({ error: "the url is too long" });
 
 		const cap = Math.min(Math.max(1000, Number(limit) || DEFAULT_FETCH_LIMIT), MAX_FETCH_LIMIT);
 		let current = target;
 
 		for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
-			const response = await fetchBounded(current, {
-				method: "GET",
-				timeoutMs: FETCH_TIMEOUT_MS,
-				// The body is capped: a hostile page must not be able to flood the model, the
-				// client or the ledger.
-				maxBytes: 4_000_000,
-				// Redirects are followed by hand, so each hop can be re-checked. Letting the
-				// HTTP client follow the chain would let a public URL redirect into the
-				// private network without ever being looked at -- and the default `fetch`
-				// does exactly that.
-				redirect: "manual",
-				headers: { Accept: "text/html,application/xhtml+xml,text/plain" },
-			});
+			const resolved = await assertPublicWebUrl(current);
+			const response = await fetchPinnedPage(current, resolved.address, signal);
 
-			// `location` is a header, not a property of the response.
-			const location = response.headers.get("location");
-			if (response.status >= 300 && response.status < 400 && location) {
-				current = new URL(location, current).toString();
-				await assertPublicWebUrl(current);
+			if (response.status >= 300 && response.status < 400 && response.location) {
+				current = new URL(response.location, current).toString();
 				continue;
 			}
 
-			const html = await response.text();
+			const html = response.body.toString("utf8");
 			const text = DesktopWebService.htmlToText(html);
 			return {
 				url: target,
@@ -242,7 +230,7 @@ export class DesktopWebService {
  * that reads a hostile page can be told to fetch anything, and `169.254.169.254` is a
  * meaningful address on a cloud host.
  */
-export async function assertPublicWebUrl(target: string): Promise<void> {
+export async function assertPublicWebUrl(target: string, resolve: typeof dnsLookup = dnsLookup): Promise<{ hostname: string; address: string }> {
 	let parsed: URL;
 	try {
 		parsed = new URL(target);
@@ -252,6 +240,9 @@ export async function assertPublicWebUrl(target: string): Promise<void> {
 
 	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
 		throw new BadRequestException({ error: "only http and https urls can be fetched" });
+	}
+	if (parsed.username || parsed.password || (parsed.port && parsed.port !== (parsed.protocol === "https:" ? "443" : "80"))) {
+		throw new BadRequestException({ error: "credentials and non-standard ports are not allowed" });
 	}
 
 	const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
@@ -267,25 +258,81 @@ export async function assertPublicWebUrl(target: string): Promise<void> {
 	}
 
 	// A literal address, checked directly.
-	if (isPrivateAddress(host)) {
+	const family = isIP(host);
+	if (family === 6) {
+		throw new BadRequestException({ error: "IPv6 page hosts are not supported by the public-page tool" });
+	}
+	if (family === 4 && isPrivateAddress(host)) {
 		throw new BadRequestException({ error: "that address is not reachable from the web tool" });
 	}
 
-	// And a name that resolves to one, which is the same thing with more steps.
 	let addresses: Array<{ address: string }> = [];
-	try {
-		addresses = await dns.lookup(host, { all: true });
-	} catch {
-		throw new BadRequestException({ error: "that host could not be resolved" });
+	if (family === 4) {
+		addresses = [{ address: host }];
+	} else {
+		try {
+			// Public-page egress is deliberately IPv4-only. Resolve once, reject mixed
+			// public/private answers, and pin the selected public address in the actual
+			// socket lookup below so DNS rebinding cannot change the connection target.
+			addresses = await resolve(host, { all: true, family: 4, verbatim: true });
+		} catch {
+			throw new BadRequestException({ error: "that host could not be resolved to a public IPv4 address" });
+		}
 	}
 	if (!addresses.length) {
-		throw new BadRequestException({ error: "that host could not be resolved" });
+		throw new BadRequestException({ error: "that host could not be resolved to a public IPv4 address" });
 	}
 	for (const entry of addresses) {
 		if (isPrivateAddress(entry.address)) {
 			throw new BadRequestException({ error: "that host resolves to a private address" });
 		}
 	}
+	return { hostname: host, address: addresses[0].address };
+}
+
+/** HTTP(S) request pinned to the public address already validated; redirects are separate hops. */
+export function fetchPinnedPage(target: string, address: string, signal?: AbortSignal): Promise<{ status: number; location: string | undefined; body: Buffer }> {
+	const parsed = new URL(target);
+	const transport = parsed.protocol === "https:" ? https : http;
+	const lookup: NonNullable<http.AgentOptions["lookup"]> = (_hostname, options, callback) => {
+		if (options.all) callback(null, [{ address, family: 4 }]);
+		else callback(null, address, 4);
+	};
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const cleanup = () => signal?.removeEventListener("abort", abort);
+		const finishError = (error: Error) => { if (settled) return; settled = true; cleanup(); reject(error); };
+		const request = transport.request(parsed, {
+			method: "GET", headers: { Accept: "text/html,application/xhtml+xml,text/plain", "User-Agent": "Filspresso-Playground/1.0" },
+			agent: parsed.protocol === "https:" ? new https.Agent({ keepAlive: false, lookup }) : new http.Agent({ keepAlive: false, lookup }),
+		}, response => {
+			const declared = Number(response.headers["content-length"]);
+			if (Number.isFinite(declared) && declared > 4_000_000) { response.destroy(); finishError(new Error("Page response exceeded its byte limit.")); return; }
+			const contentType = String(response.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
+			if (contentType && !["text/html", "application/xhtml+xml", "text/plain", "text/xml", "application/xml"].includes(contentType)) {
+				response.destroy(); finishError(new Error("The public page is not a text document.")); return;
+			}
+			const chunks: Buffer[] = []; let total = 0;
+			response.on("data", (value: Buffer | string) => {
+				const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+				total += chunk.length;
+				if (total > 4_000_000) { response.destroy(new Error("Page response exceeded its byte limit.")); return; }
+				chunks.push(chunk);
+			});
+			response.on("error", finishError);
+			response.on("end", () => {
+				if (settled) return;
+				settled = true; cleanup();
+				resolve({ status: response.statusCode ?? 502, location: response.headers.location, body: Buffer.concat(chunks, total) });
+			});
+		});
+		const abort = () => request.destroy(signal?.reason instanceof Error ? signal.reason : new Error("Page request cancelled."));
+		if (signal?.aborted) { abort(); return; }
+		signal?.addEventListener("abort", abort, { once: true });
+		request.setTimeout(FETCH_TIMEOUT_MS, () => request.destroy(new Error("Page request timed out.")));
+		request.on("error", finishError);
+		request.end();
+	});
 }
 
 /** Whether an address is one that must never be fetched from a user-facing tool. */
@@ -299,7 +346,7 @@ export function isPrivateAddress(address: string): boolean {
 		if (value.startsWith("fc") || value.startsWith("fd")) return true; // unique local
 		if (value.startsWith("fe80")) return true; // link local
 		const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(value);
-		return mapped ? isPrivateAddress(mapped[1]) : false;
+		return mapped ? isPrivateAddress(mapped[1]) : true; // Public-page egress only dials pinned IPv4.
 	}
 
 	const parts = value.split(".");
@@ -320,7 +367,9 @@ export function isPrivateAddress(address: string): boolean {
 	if (a === 172 && b >= 16 && b <= 31) return true; // private
 	if (a === 192 && b === 168) return true; // private
 	if (a === 100 && b >= 64 && b <= 127) return true; // carrier grade NAT
-	if (a === 192 && b === 0) return true; // IETF protocol assignments
+	if (a === 192 && b === 0) return true; // IETF protocol assignments and documentation
 	if (a >= 224) return true; // multicast and reserved
+	if (a === 198 && (b === 18 || b === 19 || (b === 51 && parts[2] === "100"))) return true; // benchmarks and TEST-NET-2
+	if (a === 203 && b === 0 && parts[2] === "113") return true; // TEST-NET-3
 	return false;
 }

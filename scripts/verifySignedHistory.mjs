@@ -16,8 +16,10 @@
  * mandatory going forward without a forbidden history rewrite. As new commits
  * land signed, the boundary rolls forward on its own.
  *
- * SSH signatures are verified against scripts/allowed_signers (committed),
- * passed via `git -c`, so the check needs no per-runner configuration. Keep
+ * SSH signatures are verified against scripts/allowed_signers (committed).
+ * GitHub-generated merge commits are separately checked against GitHub's
+ * verified commit record in this repository; an API failure is not trusted.
+ * Keep
  * the local commit setup in sync:
  *
  *   git config gpg.format ssh
@@ -90,7 +92,23 @@ function signedTipLength(rows, accepted) {
 	return count;
 }
 
-function main() {
+export function isVerifiedGithubMerge(commit, hash) {
+	return commit?.sha === hash && Array.isArray(commit.parents) && commit.parents.length === 2 &&
+		commit.commit?.committer?.name === "GitHub" && commit.commit?.committer?.email === "noreply@github.com" &&
+		commit.commit?.verification?.verified === true && commit.commit?.verification?.reason === "valid";
+}
+
+async function verifiedGithubMerge(hash) {
+	try {
+		const response = await fetch(`https://api.github.com/repos/DarkShadow1107/filspresso_next/commits/${hash}`, {
+			headers: { Accept: "application/vnd.github+json", "User-Agent": "filspresso-signed-history", ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) },
+			redirect: "error", signal: AbortSignal.timeout(10000),
+		});
+		return response.ok && isVerifiedGithubMerge(await response.json(), hash);
+	} catch { return false; }
+}
+
+async function main() {
 	const args = parseArgs();
 	const range = resolveRange(args);
 	const enforce = parseBoolean(args.enforce ?? process.env.SIGNED_HISTORY_ENFORCE, true);
@@ -104,6 +122,10 @@ function main() {
 			const [hash, status] = line.split("\t");
 			return { hash, status: String(status || "N") };
 		});
+
+	// Only the tip can affect pass/fail under the rolling-boundary policy. Do
+	// not turn unverified contributor signatures into trusted signatures.
+	if (rows.length && !accepted.has(rows[0].status) && await verifiedGithubMerge(rows[0].hash)) rows[0].status = "G";
 
 	if (rows.length === 0) {
 		console.log(JSON.stringify({ status: "success", range, checked: 0, message: "No commits in range" }, null, 2));
@@ -144,4 +166,4 @@ function main() {
 	console.log(JSON.stringify({ status: "success", reason: signedTip === rows.length ? "entire range signed" : "tip segment above most recent unsigned commit is signed", ...report }, null, 2));
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

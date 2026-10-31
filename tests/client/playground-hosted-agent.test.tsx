@@ -14,7 +14,7 @@ const context = { model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 };
 const sandboxId = "00000000-0000-4000-8000-000000000042";
 const sandbox = { id: sandboxId, location: "hosted-docker", network: "disabled", workspace: "/workspace", ephemeral: true, policyVersion: 2 };
 const write: NativeCall = { id: "write_1", name: "write_file", arguments: '{"path":"main.py","text":"print(1)"}' };
-const command: NativeCall = { id: "run_1", name: "run_command", arguments: '{"command":"python3 main.py"}' };
+const command: NativeCall = { id: "run_1", name: "write_file", arguments: '{"path":"result.txt","text":"result"}' };
 let sequence = 0;
 const response = (calls: NativeCall[] = []): NativeAgentReply => ({ version: 1, runId: "dsk-" + (++sequence).toString(16).padStart(24, "0"), settlement: "succeeded", text: calls.length ? "Proposed." : "Finished.", finish_reason: calls.length ? "tool_calls" : "stop", tool_calls: calls,
 	usage: { prompt_tokens: 100, completion_tokens: 10 }, action_tickets: calls.map(call => ({ tool_call_id: call.id, token: "e30." + "a".repeat(43), expires_at: Math.floor(Date.now() / 1000) + 300 })) });
@@ -30,7 +30,7 @@ function setup() {
 			if (method === "DELETE") return { stopped: true };
 			const body = raw as { call: NativeCall; approved: boolean };
 			if (path === "/api/playground/agent/actions") {
-				const challenge = { actionId: crypto.randomUUID(), runId: "exec-" + (++sequence).toString(16).padStart(24, "0"), sandboxId, toolCallId: body.call.id, requiresApproval: body.call.name !== "read_file", expiresAt: Math.floor(Date.now() / 1000) + 300 };
+				const challenge = { actionId: crypto.randomUUID(), runId: "exec-" + (++sequence).toString(16).padStart(24, "0"), sandboxId, toolCallId: body.call.id, requiresApproval: !["read_file", "list_files", "list_documents", "read_document"].includes(body.call.name), expiresAt: Math.floor(Date.now() / 1000) + 300 };
 				challenges.set(body.call.id, challenge); return { version: 1, ...challenge };
 			}
 			const challenge = challenges.get(body.call.id)!; assert.ok(challenge);
@@ -134,7 +134,7 @@ test("rendering exposes explicit controls but no startup request, automatic exec
 	let calls = 0; t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error(); });
 	const html = renderToStaticMarkup(<PlaygroundAgentWorkspace context={context} />);
 	assert.equal(calls, 0); assert.match(html, /Check availability to see whether/); assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);
-	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /fresh approval per write\/command/);
+	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /fresh approval for file\/document changes/);
 });
 
 test("idle cleanup never invents a stopped job or billing warning", async () => {
@@ -155,7 +155,7 @@ test("shared thread continues in Plan with only read tools and no inherited Buil
 	await state.workspace.run(context, "plan", "Now inspect only");
 	const plan = requests[1] as { mode: string; conversation: unknown[]; tools: { name: string }[] };
 	assert.equal(plan.mode, "plan"); assert.equal(plan.conversation.length, 1);
-	assert.deepEqual(plan.tools.map(tool => tool.name), ["read_file", "question"]);
+	assert.deepEqual(plan.tools.map(tool => tool.name), ["list_files", "read_file", "list_documents", "read_document", "web_search", "fetch_page", "question"]);
 	assert.equal(state.workspace.getSnapshot().workspace?.id, sandboxId);
 	assert.equal(state.posts.some(post => post.path.endsWith("/execute")), false);
 	await state.workspace.stop();

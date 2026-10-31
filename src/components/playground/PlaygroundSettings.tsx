@@ -11,8 +11,6 @@ export type PlaygroundPreferences = {
 	inputContextTokens: number;
 	compactionMode: CompactionMode;
 	thinking: boolean;
-	/** Chat asks the server to ground the answer in a fresh web search. */
-	webResearch: boolean;
 	textSize: "small" | "standard" | "large";
 	enterToSend: boolean;
 };
@@ -22,7 +20,6 @@ export const DEFAULT_PREFERENCES: PlaygroundPreferences = {
 	inputContextTokens: CONTEXT_LEVELS[0],
 	compactionMode: "balanced",
 	thinking: false,
-	webResearch: false,
 	textSize: "standard",
 	enterToSend: true,
 };
@@ -73,7 +70,6 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 							<small>Summarizes older conversation at the selected threshold. Recent turns and your original transcript are kept. Summary model usage is metered.</small>
 						</label>
 						{thinkingAllowed && <label className="pgw-switch-row"><span><b>Thinking mode</b><small>Show the model’s reasoning alongside its answer.</small></span><input type="checkbox" role="switch" checked={draft.thinking} disabled={streaming} onChange={(event) => setDraft({ ...draft, thinking: event.target.checked })} /></label>}
-						<label className="pgw-switch-row"><span><b>Internet access</b><small>The reply is grounded in a fresh server-side web search with visible sources. It costs a few seconds more.</small></span><input type="checkbox" role="switch" checked={draft.webResearch} disabled={streaming} onChange={(event) => setDraft({ ...draft, webResearch: event.target.checked })} /></label>
 						<label className="pgw-switch-row"><span><b>Enter to send</b><small>Use Shift + Enter for a new line.</small></span><input type="checkbox" role="switch" checked={draft.enterToSend} onChange={(event) => setDraft({ ...draft, enterToSend: event.target.checked })} /></label>
 					</>}
 					{section === "display" && <>
@@ -90,7 +86,7 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 							event.target.value = "";
 						}} /><button type="button" className="pgw-outlined-button" disabled={streaming} onClick={() => fileRef.current?.click()}><WorkspaceIcon name="transfer" /> Import conversation</button></div>
 					</>}
-					<p className="pgw-settings-note">Preferences are saved in this browser. Conversations stay in this page unless you export them.</p>
+					<p className="pgw-settings-note">Preferences are saved in this browser. Conversation text, attached source text and tool activity are saved to your account, within the transcript size limit.</p>
 					{notice && <p className="pgw-notice" role="status">{notice}</p>}
 					{section !== "transfer" && <div className="pgw-settings-actions">
 						<button type="button" className="pgw-outlined-button" disabled={streaming} onClick={() => { setDraft(DEFAULT_PREFERENCES); setNotice("Defaults restored. Save to apply them."); }}><WorkspaceIcon name="retry" /> Reset to default</button>

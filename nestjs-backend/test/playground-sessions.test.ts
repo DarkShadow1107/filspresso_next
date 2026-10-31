@@ -11,7 +11,42 @@ import {
 	normalizeClientSessionId,
 	normalizeSessionWrite,
 	normalizeSourceReferences,
+	normalizeTranscript,
 } from "../src/desktop/playground-sessions.service";
+
+test("transcripts retain exact content and tool activity, and reject oversize writes", () => {
+	const transcript = [{ id: "u1", role: "user", content: "  code\n\n" }, { id: "a1", role: "assistant", content: "done", tools: [{ id: "call1", name: "web_search", arguments: '{"query":"test"}', status: "finished", result: "ok\n" }] }];
+	assert.deepEqual(normalizeTranscript(transcript), transcript);
+	assert.deepEqual(normalizeSessionWrite({ transcript }).transcript, transcript);
+	assert.throws(() => normalizeTranscript([{ id: "x", role: "system", content: "bad" }]));
+	assert.throws(() => normalizeTranscript(Array.from({ length: 201 }, () => transcript[0])));
+	assert.throws(() => normalizeTranscript([{ id: "x", role: "user", content: "x".repeat(700_001) }]));
+});
+
+test("transcript writes and reads remain account-scoped and lists remain metadata-only", async () => {
+	const uuid = "00000000-0000-4000-8000-000000000001";
+	const transcript = [{ id: "1", role: "assistant", content: "  exact\n", tools: [{ id: "c1", name: "read_file", arguments: "{}", status: "finished", result: "ok" }] }];
+	const queries: Array<{ sql: string; params: unknown[] }> = [];
+	const service = new PlaygroundSessionsService({ getPool: () => ({ connect: async () => ({
+		query: async (sql: string, params: unknown[]) => {
+			queries.push({ sql, params });
+			if (sql.includes("COUNT(*)")) return { rows: [{ total: "1" }] };
+			return { rows: [{ session_uuid: uuid, transcript }] };
+		}, release() {},
+	}) }) } as unknown as DatabaseService);
+	await service.create(42, { transcript });
+	assert.match(queries[0].sql, /transcript/);
+	assert.equal(queries[0].params[0], 42);
+	assert.deepEqual(JSON.parse(queries[0].params[8] as string), transcript);
+	await service.update(42, uuid, { transcript });
+	assert.match(queries[1].sql, /account_id = \$2/);
+	assert.deepEqual(queries[1].params.slice(0, 2), [uuid, 42]);
+	await service.get(42, uuid);
+	assert.match(queries[2].sql, /transcript/);
+	assert.deepEqual(queries[2].params, [uuid, 42]);
+	await service.list(42);
+	assert.doesNotMatch(queries[3].sql, /transcript/);
+});
 
 test("a checkpoint that is not an object is an empty one", () => {
 	assert.deepEqual(normalizeActiveContext(undefined), {});

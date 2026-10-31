@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Delete, Get, Header, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Controller, Delete, Get, Header, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { ExactPlaygroundBody } from "../common/pipes/exact-playground-body";
 import { Throttle } from "@nestjs/throttler";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { PlaygroundRunEventsService } from "./playground-run-events.service";
@@ -33,13 +34,14 @@ export class PlaygroundSessionsController {
 	) {}
 
 	@Get("sessions")
+	@Header("Cache-Control", "no-store")
 	list(@Req() req: Caller, @Query("limit") limit?: string, @Query("offset") offset?: string) {
 		return this.sessions.list(accountId(req), Number(limit), Number(offset));
 	}
 
 	@Post("sessions")
 	@Throttle({ default: { limit: 30, ttl: 60_000 } })
-	async create(@Req() req: Caller, @Body() body: Record<string, unknown>) {
+	async create(@Req() req: Caller, @ExactPlaygroundBody() body: Record<string, unknown>) {
 		try { return await this.sessions.create(accountId(req), body ?? {}); }
 		catch (error) {
 			if (error instanceof InvalidSessionInputError) throw new BadRequestException({ error: "INVALID_SESSION_INPUT", message: error.message });
@@ -48,6 +50,7 @@ export class PlaygroundSessionsController {
 	}
 
 	@Get("sessions/:uuid")
+	@Header("Cache-Control", "no-store")
 	get(@Req() req: Caller, @Param("uuid") uuid: string) {
 		if (!UUID_PATTERN.test(uuid)) throw new BadRequestException("Invalid session id.");
 		return this.sessions.get(accountId(req), uuid);
@@ -55,7 +58,7 @@ export class PlaygroundSessionsController {
 
 	@Patch("sessions/:uuid")
 	@Throttle({ default: { limit: 60, ttl: 60_000 } })
-	async update(@Req() req: Caller, @Param("uuid") uuid: string, @Body() body: Record<string, unknown>) {
+	async update(@Req() req: Caller, @Param("uuid") uuid: string, @ExactPlaygroundBody() body: Record<string, unknown>) {
 		if (!UUID_PATTERN.test(uuid)) throw new BadRequestException("Invalid session id.");
 		try { return await this.sessions.update(accountId(req), uuid, body ?? {}); }
 		catch (error) {

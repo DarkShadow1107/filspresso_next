@@ -101,7 +101,9 @@ public sealed class PowerShellRunnerTests
             }
             'PARSED'
             """;
-        var result = await new PowerShellRunner().RunWithInputAsync(parserOnly, JsonSerializer.Serialize(new { scripts }), TimeSpan.FromSeconds(15));
+        // Hosted Windows runners can take longer to start PowerShell under load. This test
+        // only parses generated scripts; the production transport timeout is unchanged.
+        var result = await new PowerShellRunner().RunWithInputAsync(parserOnly, JsonSerializer.Serialize(new { scripts }), TimeSpan.FromSeconds(60));
         Assert.True(result.ExitCode == 0, result.Error);
         Assert.Equal("PARSED", result.Output.Trim());
     }

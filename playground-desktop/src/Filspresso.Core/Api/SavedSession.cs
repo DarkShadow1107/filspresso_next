@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Filspresso.Core.Storage;
 
@@ -15,10 +17,7 @@ public sealed record SavedSourceReference
 }
 
 /// <summary>
-/// One server-saved conversation: the resume state (preferences, the last compaction
-/// checkpoint, named source references), deliberately not the transcript. The transcript
-/// stays client-local in both clients; the checkpoint here is the compaction artifact, so
-/// a conversation keeps its context across a lost browser or app session.
+/// One account-scoped conversation. A null transcript is a legacy resume-only row.
 /// </summary>
 public sealed record SavedSession
 {
@@ -29,6 +28,7 @@ public sealed record SavedSession
     [JsonPropertyName("compaction_mode")] public string CompactionMode { get; init; } = "balanced";
     [JsonPropertyName("source_references")] public SavedSourceReference[] SourceReferences { get; init; } = Array.Empty<SavedSourceReference>();
     [JsonPropertyName("active_context")] public ContextState? ActiveContext { get; init; }
+    [JsonPropertyName("transcript")] public SavedTranscriptMessage[]? Transcript { get; init; }
     [JsonPropertyName("updated_at")] public DateTimeOffset UpdatedAt { get; init; }
 
     internal static bool IsSessionUuid(string? value) => value is { Length: 36 } &&
@@ -65,6 +65,28 @@ public sealed record SavedSession
     }
 }
 
+public sealed record SavedToolActivity
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = string.Empty;
+    [JsonPropertyName("name")] public string Name { get; init; } = string.Empty;
+    [JsonPropertyName("arguments")] public string Arguments { get; init; } = string.Empty;
+    [JsonPropertyName("status")] public string Status { get; init; } = "proposed";
+    [JsonPropertyName("result")] public string? Result { get; init; }
+}
+
+public sealed record SavedTranscriptMessage
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = Guid.NewGuid().ToString();
+    [JsonPropertyName("role")] public string Role { get; init; } = "user";
+    [JsonPropertyName("content")] public string Content { get; init; } = string.Empty;
+    [JsonPropertyName("model")] public string? Model { get; init; }
+    [JsonPropertyName("reasoning")] public string? Reasoning { get; init; }
+    [JsonPropertyName("sources")] public PreparedSource[]? Sources { get; init; }
+    [JsonPropertyName("tools")] public SavedToolActivity[]? Tools { get; init; }
+    // Preserve web-client metadata (documents, citations, token counts) on desktop saves.
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
+}
+
 /// <summary>The write payload; camelCase field names, per the Nest session validator.</summary>
 public sealed record SessionWrite
 {
@@ -75,4 +97,5 @@ public sealed record SessionWrite
     /// <summary>The live checkpoint the generation actually produced, re-validated by the save path.</summary>
     [JsonPropertyName("activeContext")] public ContextState? ActiveContext { get; init; }
     [JsonPropertyName("sourceReferences")] public SavedSourceReference[]? SourceReferences { get; init; }
+    [JsonPropertyName("transcript")] public SavedTranscriptMessage[]? Transcript { get; init; }
 }

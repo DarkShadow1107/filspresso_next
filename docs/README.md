@@ -6,7 +6,7 @@ It includes:
 
 - complete document map and purpose
 - screenshot gallery embedded from `docs/screenshots/`
-- UML gallery embedded from `docs/uml/*.svg`
+- selected UML gallery embedded from `docs/uml/*.svg`; the full architecture set is embedded in the root `README.md`
 - security docs summary with explicit runbook intent
 - maintenance rules for keeping docs consistent with implementation
 
@@ -142,7 +142,7 @@ Assistant privacy and usage policy content.
 
 ## 4. UML Diagram Gallery (docs/uml)
 
-All UML assets are tracked both as Mermaid source (`.mmd`) and rendered SVG (`.svg`).
+All UML assets are tracked both as Mermaid source (`.mmd`) and rendered SVG (`.svg`). This file embeds representative diagrams; the root README contains the complete diagram set.
 
 1. System context
 
@@ -193,6 +193,16 @@ Source: `uml/coffee-stock-read-path.mmd`
 
 ![Stock Safe Checkout Flow](uml/stock-safe-checkout-flow.svg)
 Source: `uml/stock-safe-checkout-flow.mmd`
+
+11. Current CI and deployment boundaries
+
+![Current CI and Deployment Boundaries](uml/cicd-pipeline-diagram.svg)
+Source: `uml/cicd-pipeline-diagram.mmd`
+
+12. Desktop installer publication lifecycle
+
+![Desktop Installer Publication Lifecycle](uml/desktop-installer-release-lifecycle.svg)
+Source: `uml/desktop-installer-release-lifecycle.mmd`
 
 ## 5. Checklist and Backlog Usage
 

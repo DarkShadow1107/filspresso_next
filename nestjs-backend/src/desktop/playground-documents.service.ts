@@ -103,12 +103,12 @@ export class PlaygroundDocumentsService {
 		} finally { client.release(); }
 	}
 
-	async delete(accountId: number, uuid: string): Promise<boolean> {
+	async delete(accountId: number, uuid: string, expectedName?: string): Promise<boolean> {
 		const client = await this.db.getPool().connect();
 		try {
 			const result = await client.query(
-				"DELETE FROM playground_documents WHERE account_id = $1 AND id = $2::uuid",
-				[accountId, uuid],
+				"DELETE FROM playground_documents WHERE account_id = $1 AND id = $2::uuid AND ($3::text IS NULL OR name = $3)",
+				[accountId, uuid, expectedName ?? null],
 			);
 			return (result.rowCount ?? 0) > 0;
 		} finally { client.release(); }

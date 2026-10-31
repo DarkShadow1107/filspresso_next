@@ -30,6 +30,9 @@ $productVersion = [string]$manifest.productVersion
 if ($productVersion -notmatch '^[0-9]+(\.[0-9]+){1,3}$') { throw "package-manifest.json does not name a valid productVersion." }
 
 $targetVersionDir = Join-Path $desktop $productVersion
+if (Test-Path -LiteralPath $targetVersionDir) {
+    throw "Version $productVersion already exists. Refusing to overwrite an existing installer publication."
+}
 New-Item -ItemType Directory -Path $targetVersionDir -Force | Out-Null
 
 $msiTarget = Join-Path $targetVersionDir 'Filspresso.Playground.msi'

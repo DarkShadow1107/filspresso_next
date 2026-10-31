@@ -24,12 +24,17 @@ jobs:
               with:
                   fetch-depth: 0
 
+            - name: Test merge signature verification policy
+              run: node --test tests/signed-history-github-merge.test.mjs
+
             - name: Verify signed commit history (advisory on pull requests)
               if: github.event_name == 'pull_request'
               run: node scripts/verifySignedHistory.mjs --enforce=false
 
             - name: Verify signed commit history (enforced)
               if: github.event_name != 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: node scripts/verifySignedHistory.mjs --enforce=true
 
     frontend-security:

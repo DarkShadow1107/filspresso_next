@@ -1,9 +1,12 @@
 import { BadRequestException, ConflictException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException, type OnModuleInit, type OnModuleDestroy } from "@nestjs/common";
 import * as crypto from "crypto";
 import { DatabaseService } from "../database/database.service";
-import { PlaygroundAgentTicketsService, actionDigest, executableCall } from "./playground-agent-tickets.service";
+import { PlaygroundAgentTicketsService, actionDigest, executableCall, isAgentWorkspacePath } from "./playground-agent-tickets.service";
 import { PlaygroundSandboxService } from "./playground-sandbox.service";
 import { PlaygroundRunEventsService, type RunEventKind } from "./playground-run-events.service";
+import { DesktopWebService } from "./desktop-web.service";
+import { sanitizeSearchResults } from "./playground-chat-tools";
+import { PlaygroundDocumentsService, InvalidDocumentInputError } from "./playground-documents.service";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -17,7 +20,8 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 	private sweepTimer?: ReturnType<typeof setInterval>;
 	private readonly records = new Map<string, Promise<void>>();
 	constructor(private readonly db: DatabaseService, private readonly tickets: PlaygroundAgentTicketsService,
-		private readonly sandboxes: PlaygroundSandboxService, private readonly events: PlaygroundRunEventsService) {}
+		private readonly sandboxes: PlaygroundSandboxService, private readonly events: PlaygroundRunEventsService, private readonly web?: DesktopWebService,
+		private readonly documents?: PlaygroundDocumentsService) {}
 	onModuleInit() { this.sweepTimer = setInterval(() => { void this.sweep(); }, 60 * 60_000); this.sweepTimer.unref(); }
 	onModuleDestroy() { if (this.sweepTimer) clearInterval(this.sweepTimer); }
 	private async sweep() {
@@ -65,7 +69,7 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 		const row = inserted.rows[0] ?? (await this.db.getPool().query<ActionRow>(`SELECT * FROM playground_agent_actions WHERE account_id=$1 AND model_run_id=$2 AND tool_call_id=$3`, [account, claims.run, proposal.call.id])).rows[0];
 		if (!row || row.status !== "pending" || row.sandbox_id !== raw.sandboxId || row.arguments_sha256 !== claims.digest || row.tool_name !== proposal.call.name || new Date(row.expires_at).getTime() <= Date.now()) throw new ConflictException({ error: "AGENT_ACTION_ALREADY_USED" });
 		return { version: 1, actionId: row.action_id, runId: row.execution_run_id, sandboxId: row.sandbox_id, toolCallId: row.tool_call_id,
-			requiresApproval: row.effect !== "read_only", expiresAt: Math.floor(new Date(row.expires_at).getTime() / 1000) };
+			requiresApproval: row.effect !== "read_only" || row.tool_name === "web_search" || row.tool_name === "fetch_page", expiresAt: Math.floor(new Date(row.expires_at).getTime() / 1000) };
 	}
 	async execute(account: number, id: string, raw: unknown, signal?: AbortSignal) {
 		this.enabled();
@@ -74,6 +78,7 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 		const previous = found.rows[0]; if (!previous) throw new NotFoundException();
 		let proposal;
 		try { proposal = executableCall(raw.call, previous.mode); } catch { throw new BadRequestException({ error: "INVALID_AGENT_ACTION" }); }
+		if (previous.scope === "playground" && proposal.call.name === "run_command") throw new BadRequestException({ error: "WEB_AGENT_COMMANDS_DISABLED" });
 		if (!this.tickets.modelEnabled(previous.model_key) || previous.sandbox_id !== raw.sandboxId || previous.tool_call_id !== proposal.call.id || previous.tool_name !== proposal.call.name || previous.effect !== proposal.effect || previous.arguments_sha256 !== actionDigest(proposal.call)) throw new ConflictException({ error: "AGENT_ACTION_CHANGED" });
 		if (raw.approved) {
 			const owned = await this.sandboxes.request(account, "GET", `/sandboxes/${previous.sandbox_id}`, undefined, signal);
@@ -91,14 +96,35 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 			this.record(row, "tool.declined", { approved: false, authority: "authenticated_client_decision", executed: false }, "complete");
 			return { version: 1, actionId: id, status: "declined", executed: false };
 		}
-		this.record(row, "tool.approval", { approved: true, authority: row.effect === "read_only" ? "plan_build_read_policy" : "authenticated_client_decision" });
+		this.record(row, "tool.approval", { approved: true, authority: row.effect === "read_only" && row.tool_name !== "web_search" ? "plan_build_read_policy" : "authenticated_client_decision" });
 		let dispatched = false;
 		try {
 			signal?.throwIfAborted();
 			dispatched = true; const started = performance.now();
 			this.record(row, "tool.started", { authority: "server_dispatch" });
-			let result: { stdout: string; stderr: string; exitCode: number; timedOut: boolean; durationMs?: number };
-			if (proposal.call.name === "run_command") result = await this.sandboxes.agentCommand(account, row.sandbox_id, proposal.args.command, signal);
+			let result: { stdout: string; stderr: string; exitCode: number; timedOut: boolean; durationMs?: number; truncated?: boolean };
+			if (proposal.call.name === "web_search" || proposal.call.name === "fetch_page") {
+				try {
+					if (!this.web) throw new Error("Public web tools are unavailable.");
+					if (proposal.call.name === "web_search") {
+						const results = sanitizeSearchResults(await this.web.search(proposal.args.query, 5));
+						result = { stdout: JSON.stringify({ results }), stderr: "", exitCode: 0, timedOut: false };
+					} else {
+						const page = await this.web.fetchPage(proposal.args.url, 16_000, signal);
+						result = { stdout: JSON.stringify(page), stderr: "", exitCode: 0, timedOut: false };
+					}
+				} catch {
+					signal?.throwIfAborted();
+					result = { stdout: "", stderr: "The public web request was refused or unavailable.", exitCode: 1, timedOut: false };
+				}
+			}
+			else if (proposal.call.name === "list_files") {
+				const body = await this.sandboxes.request(account, "GET", `/sandboxes/${row.sandbox_id}/files`, undefined, signal);
+				if (!Array.isArray(body.files) || body.files.length > 1000 || body.files.some(path => typeof path !== "string" || !isAgentWorkspacePath(path))) throw new Error("Invalid workspace listing.");
+				const files = (body.files as string[]).slice(0, 128);
+				result = { stdout: JSON.stringify({ files }), stderr: "", exitCode: 0, timedOut: false, truncated: body.files.length > files.length };
+			}
+			else if (proposal.call.name === "run_command") result = await this.sandboxes.agentCommand(account, row.sandbox_id, proposal.args.command, signal);
 			else if (proposal.call.name === "read_file") {
 				try {
 					const body = await this.sandboxes.request(account, "GET", `/sandboxes/${row.sandbox_id}/file?${new URLSearchParams({ path: proposal.args.path })}`, undefined, signal);
@@ -108,10 +134,33 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 					if (!(error instanceof HttpException) || error.getStatus() !== 400) throw error;
 					result = { stdout: "", stderr: "Read refused: file is missing, binary, too large or not a regular workspace file.", exitCode: 1, timedOut: false };
 				}
-			} else {
+			} else if (proposal.call.name === "write_file") {
 				const body = await this.sandboxes.request(account, "PUT", `/sandboxes/${row.sandbox_id}/file`, { path: proposal.args.path, text: proposal.args.text }, signal);
 				if (body.path !== proposal.args.path || body.bytes !== Buffer.byteLength(proposal.args.text, "utf8")) throw new Error("Invalid file write receipt.");
 				result = { stdout: "Workspace file saved.", stderr: "", exitCode: 0, timedOut: false };
+			} else if (proposal.call.name === "list_documents") {
+				if (!this.documents) throw new Error("Account documents are unavailable.");
+				const listing = await this.documents.list(account, 50);
+				result = { stdout: JSON.stringify({ documents: listing.documents }), stderr: "", exitCode: 0, timedOut: false };
+			} else if (proposal.call.name === "read_document") {
+				if (!this.documents) throw new Error("Account documents are unavailable.");
+				const document = await this.documents.get(account, proposal.args.id);
+				if (typeof document.content !== "string" || typeof document.id !== "string" || document.id !== proposal.args.id) throw new Error("Invalid account document receipt.");
+				const output = document.content.slice(0, 15_000);
+				result = { stdout: output, stderr: "", exitCode: 0, timedOut: false, truncated: output.length < document.content.length };
+			} else if (proposal.call.name === "save_document") {
+				if (!this.documents) throw new Error("Account documents are unavailable.");
+				try {
+					const saved = await this.documents.create(account, { name: proposal.args.name, content: proposal.args.content, runId: row.model_run_id });
+					result = { stdout: JSON.stringify({ id: saved.id, name: saved.name, content_bytes: saved.content_bytes }), stderr: "", exitCode: 0, timedOut: false };
+				} catch (error) {
+					if (!(error instanceof InvalidDocumentInputError)) throw error;
+					result = { stdout: "", stderr: "The document was not saved. Check the document limit and content requirements.", exitCode: 1, timedOut: false };
+				}
+			} else {
+				if (!this.documents) throw new Error("Account documents are unavailable.");
+				const deleted = await this.documents.delete(account, proposal.args.id, proposal.args.name);
+				result = { stdout: deleted ? "Account document deleted." : "No account document with that ID was found.", stderr: deleted ? "" : "Not found.", exitCode: deleted ? 0 : 1, timedOut: false };
 			}
 			signal?.throwIfAborted();
 			if (result.timedOut) throw new Error("Workload was stopped or did not quiesce.");
@@ -123,7 +172,7 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 			const clip = (text: string, budget: number) => { let value = text.slice(0, budget); if (/[\uD800-\uDBFF]$/.test(value)) value = value.slice(0, -1); return value; };
 			const stdout = clip(result.stdout, outBudget), stderr = clip(result.stderr, 16_000 - outBudget);
 			return { version: 1, actionId: id, runId: row.execution_run_id, sandboxId: row.sandbox_id, toolCallId: row.tool_call_id, status: "complete", executed: true,
-				result: { stdout, stderr, exitCode: result.exitCode, timedOut: false, durationMs, truncated: stdout !== result.stdout || stderr !== result.stderr } };
+				result: { stdout, stderr, exitCode: result.exitCode, timedOut: false, durationMs, truncated: result.truncated === true || stdout !== result.stdout || stderr !== result.stderr } };
 		} catch {
 			let discarded = false;
 			if (dispatched) {

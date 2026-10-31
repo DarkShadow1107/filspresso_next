@@ -18,6 +18,7 @@ import type { PlaygroundRunEventsService } from "../src/desktop/playground-run-e
 import type { BillingService } from "../src/billing/billing.service";
 import type { AddonsService } from "../src/billing/addons.service";
 import type { AgentCall, AgentRequest, AgentReply } from "../src/desktop/playground-agent-contract";
+import type { DesktopWebService } from "../src/desktop/desktop-web.service";
 
 const fixture = JSON.parse(readFileSync(join(__dirname, "../../tests/fixtures/playground-agent.json"), "utf8"));
 const sandboxId = "00000000-0000-4000-8000-000000000042";
@@ -31,7 +32,7 @@ async function enabled(work: () => Promise<void>) {
 	Object.assign(process.env, values);
 	try { await work(); } finally { for (const key of Object.keys(values)) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } }
 }
-function setup() {
+function setup(web?: DesktopWebService, documents?: Record<string, any>) {
 	const tickets = new PlaygroundAgentTicketsService(); const rows: Array<Record<string, unknown>> = []; const sql: Array<{ text: string; values: unknown[] }> = [];
 	let failClaim = false, failCommit = false; const calls: string[] = []; const recorded: Array<{ kind: string; options: unknown }> = [];
 	const pool = { query: async (text: string, values: unknown[] = []) => {
@@ -61,6 +62,7 @@ function setup() {
 			if (path === "/health") return { available: true, location: "hosted-docker", network: "disabled", policyVersion: 2, descendantPolicy: "freeze-check-discard" };
 			if (method === "DELETE") return { stopped: true };
 			if (method === "PUT") return { path: "main.py", bytes: Buffer.byteLength((body as { text: string }).text) };
+			if (path.endsWith("/files")) return { files: ["main.py"] };
 			if (path.includes("/file?")) return { path: "src/main.py", text: "file source" };
 			return { id: sandboxId, location: "hosted-docker", policyVersion: 2 };
 		},
@@ -69,9 +71,9 @@ function setup() {
 	const observed = new EventEmitter();
 	const events = { record: async (_account: number, _run: string, kind: string, options: unknown) => { recorded.push({ kind, options }); observed.emit(kind); } } as unknown as PlaygroundRunEventsService;
 	const waitForEvent = async (kind: string) => { if (!recorded.some(event => event.kind === kind)) await once(observed, kind, { signal: AbortSignal.timeout(3000) }); };
-	const service = new PlaygroundAgentActionsService({ getPool: () => pool } as unknown as DatabaseService, tickets, broker as unknown as PlaygroundSandboxService, events);
+	const service = new PlaygroundAgentActionsService({ getPool: () => pool } as unknown as DatabaseService, tickets, broker as unknown as PlaygroundSandboxService, events, web, documents as any);
 	const prepare = async (call = write) => {
-		const { request, reply } = build(call); const ticket = tickets.issue(42, request, reply, runId, "playground")[0].token;
+		const { request, reply } = build(call); const ticket = tickets.issue(42, request, reply, runId, call.name === "run_command" ? "desktop" : "playground")[0].token;
 		return service.prepare(42, { ticket, sandboxId, call });
 	};
 	return { service, tickets, rows, sql, broker, calls, recorded, prepare, waitForEvent, pool, events, failClaim: () => { failClaim = true; }, failCommit: () => { failCommit = true; } };
@@ -87,7 +89,17 @@ test("action APIs stay JWT-guarded and default-disabled without creating a works
 test("execution policy is fixed independently of native client schemas/effects", () => {
 	assert.equal(executableCall(write, "build").effect, "mutation"); assert.throws(() => executableCall(write, "plan"));
 	for (const call of [{ ...write, arguments: '{"path":"../escape","text":"x"}' }, { ...write, arguments: '{"path":"a","path":"b","text":"x"}' }, { ...write, arguments: '{"path":"a","text":"x","extra":true}' }, { ...write, name: "custom_tool" }, { ...write, effect: "read_only" }]) assert.throws(() => executableCall(call, "build"));
+	assert.equal(executableCall({ id: "list1", name: "list_files", arguments: "{}" }, "plan").effect, "read_only");
+	assert.throws(() => executableCall({ id: "page1", name: "fetch_page", arguments: '{"url":"ftp://example.com/"}' }, "plan"), /Invalid public page URL/);
+	assert.throws(() => executableCall({ id: "doc1", name: "save_document", arguments: '{"name":"x","content":"y"}' }, "plan"));
 });
+
+test("web scope never receives a command action ticket", async () => enabled(async () => {
+	const { request, reply } = build(command);
+	const tickets = new PlaygroundAgentTicketsService();
+	assert.deepEqual(tickets.issue(42, request, reply, runId, "playground"), []);
+	assert.equal(tickets.issue(42, request, reply, runId, "desktop").length, 1);
+}));
 
 test("signed proposal tickets bind account, model receipt, mode, tool ID and exact argument bytes", async () => enabled(async () => {
 	const state = setup(); const { request, reply } = build(); const ticket = state.tickets.issue(42, request, reply, runId, "playground")[0];
@@ -117,6 +129,71 @@ test("a denied action is consumed without broker dispatch or fabricated executio
 	assert.equal(result.executed, false); assert.equal(state.rows[0].status, "declined"); assert.equal(state.calls.some(value => value.startsWith("PUT")), false);
 	assert.equal(state.recorded.some(event => event.kind === "tool.started"), false);
 	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write }), ConflictException);
+}));
+
+test("web search is ticket-bound, requires approval and uses the hosted provider once", async () => enabled(async () => {
+	const queries: string[] = [];
+	const web = { search: async (query: string) => { queries.push(query); return [{ title: "Example", url: "https://example.com/", snippet: "Result" }]; } } as unknown as DesktopWebService;
+	const state = setup(web);
+	const call: AgentCall = { id: "search1", name: "web_search", arguments: '{"query":"coffee"}' };
+	assert.equal(executableCall(call, "plan").effect, "read_only");
+	const action = await state.prepare(call);
+	assert.equal(action.requiresApproval, true);
+	assert.deepEqual(queries, []);
+	const result = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call });
+	assert.equal(result.executed, true);
+	assert.deepEqual(queries, ["coffee"]);
+	assert.match(JSON.stringify(result), /example\.com/);
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call }), ConflictException);
+	assert.deepEqual(queries, ["coffee"]);
+}));
+
+test("public page fetch is DNS-fenced by the service, ticket-bound and separately approved", async () => enabled(async () => {
+	const urls: string[] = [];
+	const web = { fetchPage: async (url: string, limit: number) => { urls.push(url); assert.equal(limit, 16_000); return { url, finalUrl: url, title: "Example", text: "Untrusted page", truncated: false }; } } as unknown as DesktopWebService;
+	const state = setup(web);
+	const call: AgentCall = { id: "fetch1", name: "fetch_page", arguments: '{"url":"https://example.com/"}' };
+	assert.equal(executableCall(call, "plan").effect, "read_only");
+	const action = await state.prepare(call);
+	assert.equal(action.requiresApproval, true); assert.deepEqual(urls, []);
+	const result = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call });
+	assert.equal(result.executed, true); assert.match(JSON.stringify(result), /Untrusted page/); assert.deepEqual(urls, ["https://example.com/"]);
+}));
+
+test("workspace listing is a bounded read-only broker action", async () => enabled(async () => {
+	const state = setup();
+	const call: AgentCall = { id: "files1", name: "list_files", arguments: "{}" };
+	const action = await state.prepare(call); assert.equal(action.requiresApproval, false);
+	const result = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call });
+	assert.equal(result.executed, true); assert.match(JSON.stringify(result), /main.py/);
+	assert.equal(state.calls.some(value => value === "GET /sandboxes/00000000-0000-4000-8000-000000000042/files"), true);
+}));
+
+test("workspace listing and account documents stay account scoped; document writes/deletes require approval", async () => enabled(async () => {
+	const seen: unknown[] = [];
+	const docs = {
+		list: async (account: number) => { seen.push(["list", account]); return { version: 1, documents: [{ id: "00000000-0000-4000-8000-000000000011", name: "Notes", content_bytes: 14 }] }; },
+		get: async (account: number, id: string) => { seen.push(["get", account, id]); return { id, name: "Notes", content: "private account note" }; },
+		create: async (account: number, input: unknown) => { seen.push(["create", account, input]); return { id: "00000000-0000-4000-8000-000000000012", name: "Saved", content_bytes: 5 }; },
+		delete: async (account: number, id: string, name: string) => { seen.push(["delete", account, id, name]); return true; },
+	};
+	const state = setup(undefined, docs);
+	const listingCall: AgentCall = { id: "listdocs", name: "list_documents", arguments: "{}" };
+	const listing = await state.prepare(listingCall); assert.equal(listing.requiresApproval, false);
+	const listed = await state.service.execute(42, listing.actionId, { approved: true, sandboxId, call: listingCall });
+	assert.match(JSON.stringify(listed), /Notes/);
+	const readCall: AgentCall = { id: "readdoc", name: "read_document", arguments: '{"id":"00000000-0000-4000-8000-000000000011"}' };
+	const read = await state.prepare(readCall); assert.equal(read.requiresApproval, false);
+	const readResult = await state.service.execute(42, read.actionId, { approved: true, sandboxId, call: readCall }); assert.match(JSON.stringify(readResult), /private account note/);
+	const saveCall: AgentCall = { id: "savedoc", name: "save_document", arguments: '{"name":"Saved","content":"hello"}' };
+	const save = await state.prepare(saveCall); assert.equal(save.requiresApproval, true);
+	await state.service.execute(42, save.actionId, { approved: true, sandboxId, call: saveCall });
+	const deleteCall: AgentCall = { id: "deletedoc", name: "delete_document", arguments: '{"id":"00000000-0000-4000-8000-000000000011","name":"Notes"}' };
+	const remove = await state.prepare(deleteCall); assert.equal(remove.requiresApproval, true);
+	await state.service.execute(42, remove.actionId, { approved: true, sandboxId, call: deleteCall });
+	assert.deepEqual(seen.map(item => (item as unknown[])[0]), ["list", "get", "create", "delete"]);
+	assert.ok(seen.every(item => (item as unknown[])[1] === 42));
+	assert.equal((seen[3] as unknown[])[3], "Notes");
 }));
 
 test("concurrent approve/execute requests dispatch once and trust only observed broker output", async () => enabled(async () => {

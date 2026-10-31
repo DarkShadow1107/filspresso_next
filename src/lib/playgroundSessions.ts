@@ -1,22 +1,20 @@
 import { CONTEXT_LEVELS, isPlaygroundModelKey, type ModelKey } from "@/lib/modelAccess";
 import { compactionMode, type CompactionMode, type ContextState } from "@/lib/playgroundContext";
+import type { SourceContext } from "@/components/playground/PlaygroundSources";
+import type { DocumentFrame } from "@/lib/playgroundDocuments";
 
 /**
  * Client access to the server's durable Playground sessions (see
  * `nestjs-backend/src/desktop/playground-sessions.service.ts` through the
  * `/api/playground/sessions` proxy).
  *
- * A server session holds a conversation's *resume state* — preferences, named source
- * references, and the last compaction checkpoint — deliberately not the transcript. What
- * this enables over localStorage: a conversation survives a lost browser session and can
- * continue coherently (its compacted context intact) on the same account.
- *
- * Every call is fail-open in the recorder's spirit: durable state is an enhancement to the
- * conversation, so a lost save, list or delete never surfaces as an error the user has to
- * read, let alone one that costs them a reply.
+ * The server stores bounded account-scoped transcripts alongside resume state. Callers
+ * must surface failed saves: a reply is still visible but may not survive a reload.
  */
 
 export type SavedSourceReference = { name?: string; kind?: string; sourceUrl?: string; size?: number };
+export type SavedToolActivity = { id: string; name: string; arguments: string; status: "proposed" | "finished"; result?: string };
+export type SavedMessage = { id: string; role: "user" | "assistant"; content: string; reasoning?: string; model?: ModelKey; failed?: boolean; seconds?: number; outputTokens?: number; inputTokens?: number; sources?: SourceContext[]; webSources?: Array<{ title: string; url: string; snippet: string }>; documents?: DocumentFrame[]; tools?: SavedToolActivity[] };
 
 export type SavedSession = {
 	uuid: string;
@@ -27,6 +25,8 @@ export type SavedSession = {
 	sourceReferences: SavedSourceReference[];
 	/** The retained checkpoint, or nothing when no compaction event was ever saved. */
 	activeContext: ContextState | null;
+	/** NULL indicates a legacy resume-only session. */
+	transcript: SavedMessage[] | null;
 	updatedAt: string;
 };
 
@@ -38,9 +38,10 @@ export type ServerSessionSave = {
 	compactionMode: string;
 	activeContext?: ContextState | null;
 	sourceReferences?: SavedSourceReference[];
+	transcript?: SavedMessage[];
 };
 
-type SessionRow = { session_uuid?: unknown; title?: unknown; model_key?: unknown; input_context_tokens?: unknown; compaction_mode?: unknown; source_references?: unknown; active_context?: unknown; updated_at?: unknown };
+type SessionRow = { session_uuid?: unknown; title?: unknown; model_key?: unknown; input_context_tokens?: unknown; compaction_mode?: unknown; source_references?: unknown; active_context?: unknown; transcript?: unknown; updated_at?: unknown };
 type SessionListPayload = { sessions?: unknown };
 
 const SAVE_LIMIT_MS = 8_000;
@@ -54,6 +55,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isContextLevel(value: unknown): value is number {
 	return (CONTEXT_LEVELS as readonly number[]).includes(Number(value));
+}
+
+export function transcriptFromRow(value: unknown): SavedMessage[] | null {
+	if (!Array.isArray(value) || value.length > 200) return null;
+	if (!value.every(item => isRecord(item) && typeof item.id === "string" && item.id.length > 0 && item.id.length <= 64 &&
+		(item.role === "user" || item.role === "assistant") && typeof item.content === "string")) return null;
+	return value.map((raw): SavedMessage => {
+		const item = raw as Record<string, unknown>;
+		const message: SavedMessage = { id: item.id as string, role: item.role as "user" | "assistant", content: item.content as string };
+		if (typeof item.reasoning === "string") message.reasoning = item.reasoning;
+		if (typeof item.model === "string" && isPlaygroundModelKey(item.model)) message.model = item.model;
+		if (typeof item.failed === "boolean") message.failed = item.failed;
+		for (const key of ["seconds", "outputTokens", "inputTokens"] as const) if (typeof item[key] === "number" && Number.isFinite(item[key]) && item[key] >= 0) message[key] = item[key];
+		if (Array.isArray(item.sources)) message.sources = item.sources.filter((source): source is SourceContext => isRecord(source) && typeof source.name === "string" && typeof source.kind === "string" && typeof source.text === "string");
+		if (Array.isArray(item.webSources)) message.webSources = item.webSources.filter((source): source is { title: string; url: string; snippet: string } => isRecord(source) && typeof source.title === "string" && typeof source.url === "string" && /^https?:\/\//i.test(source.url) && typeof source.snippet === "string");
+		if (Array.isArray(item.documents)) message.documents = item.documents.filter((doc): doc is DocumentFrame => isRecord(doc) && typeof doc.id === "string" && typeof doc.name === "string" && typeof doc.bytes === "number");
+		if (Array.isArray(item.tools)) message.tools = item.tools.filter((tool): tool is SavedToolActivity => isRecord(tool) && typeof tool.id === "string" && typeof tool.name === "string" && typeof tool.arguments === "string" && (tool.status === "proposed" || tool.status === "finished") && (tool.result === undefined || typeof tool.result === "string"));
+		return message;
+	});
 }
 
 /** A checkpoint row to what the workspace treats as a live compaction event. */
@@ -100,6 +120,7 @@ export function savedSessionFromRow(row: unknown): SavedSession | null {
 			}))
 			: [],
 		activeContext,
+		transcript: transcriptFromRow(row.transcript),
 		updatedAt: typeof row.updated_at === "string" ? row.updated_at : "",
 	};
 }
@@ -147,7 +168,8 @@ export async function saveServerSession(request: ServerSessionSave): Promise<str
 			model: isPlaygroundModelKey(request.model) ? request.model : undefined,
 			inputContextTokens: isContextLevel(request.inputContextTokens) ? request.inputContextTokens : undefined,
 			compactionMode: compactionMode(request.compactionMode),
-			activeContext: request.activeContext ? checkpointFromContextState(request.activeContext) : undefined,
+			activeContext: request.activeContext === null ? null : request.activeContext ? checkpointFromContextState(request.activeContext) : undefined,
+			transcript: request.transcript,
 			sourceReferences: request.sourceReferences
 				?.filter((source) => typeof source?.name === "string" && Boolean(source.name))
 				.slice(0, MAX_SAVED_SOURCES)

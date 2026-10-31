@@ -10,7 +10,7 @@ export default function PlaygroundAgentQuestion({ challenge, answer }: { challen
 	let valid = false; try { validateQuestionDecision(challenge, decision); valid = true; } catch { /* Incomplete answers remain local. */ }
 	const update = (index: number, value: QuestionAnswer) => setAnswers(previous => previous.map((item, current) => current === index ? value : item));
 	return <form aria-label="Agent clarification questions" className="pgw-recorded-event" onSubmit={event => { event.preventDefault(); if (valid && !sent) { setSent(true); answer(decision); } }}>
-		<h2>The agent has questions</h2><p>Answers clarify your request. They do not approve file changes or commands.</p>
+		<h2>The agent has questions</h2><p>Answers clarify your request. They never approve file or document changes, or external web requests.</p>
 		{challenge.form.questions.map((question, index) => <fieldset key={index} disabled={sent}>
 			<legend>{question.header}: {question.question}</legend><p>{question.multiple ? "Choose one or more, or type your own answer." : "Choose one, or type your own answer."}</p>
 			{question.options.map((option, optionIndex) => <label key={optionIndex} style={{ display: "block" }}>

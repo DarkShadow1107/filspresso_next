@@ -118,6 +118,10 @@ export async function ensureAppSchema(pool: Pool) {
       )
     `);
 
+    // Existing installations have resume-only rows. NULL distinguishes those from a
+    // deliberately saved empty transcript; no historical messages can be reconstructed.
+    await client.query(`ALTER TABLE playground_sessions ADD COLUMN IF NOT EXISTS transcript JSONB`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS playground_run_events (
         id BIGSERIAL PRIMARY KEY,

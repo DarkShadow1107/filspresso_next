@@ -55,7 +55,9 @@ export class HostedAgentServices implements AgentLoopServices {
 		if (item.challenge) return item.challenge;
 		const body = await this.io.json("/api/playground/agent/actions", "POST", { ticket: item.ticket, sandboxId: this.workspace.id, call: item.call }, signal, 25_000);
 		if (body.version !== 1 || typeof body.actionId !== "string" || !UUID.test(body.actionId) || typeof body.runId !== "string" || !EXEC.test(body.runId) ||
-			body.sandboxId !== this.workspace.id || body.toolCallId !== item.call.id || body.requiresApproval !== (item.call.name !== "read_file") || !Number.isSafeInteger(body.expiresAt) || Number(body.expiresAt) * 1000 <= Date.now()) throw new Error("Invalid server action challenge.");
+			body.sandboxId !== this.workspace.id || body.toolCallId !== item.call.id ||
+			body.requiresApproval !== !["read_file", "list_files", "list_documents", "read_document"].includes(item.call.name) ||
+			!Number.isSafeInteger(body.expiresAt) || Number(body.expiresAt) * 1000 <= Date.now()) throw new Error("Invalid server action challenge.");
 		return item.challenge = freeze(body as unknown as Challenge);
 	}
 	approve = async (approval: AgentApproval, signal: AbortSignal) => {

@@ -4,15 +4,15 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Filspresso.App">
     <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
         <StackPanel Spacing="8">
-            <Button Content="Workspace…" Click="OnWorkspaceOptions" Style="{StaticResource QuietButtonStyle}" HorizontalAlignment="Left" ToolTipService.ToolTip="Project files, model availability and isolated execution setup" />
+            <Button Content="Project files…" Click="OnWorkspaceOptions" Style="{StaticResource QuietButtonStyle}" HorizontalAlignment="Left" ToolTipService.ToolTip="Import and export project files" />
             <TextBlock x:Name="Status" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
             <TextBlock x:Name="Error" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" Foreground="{StaticResource FilspressoAccent}" FontSize="12" />
         </StackPanel>
         <ContentDialog x:Name="WorkspaceDialog" Title="Workspace" CloseButtonText="Done" DefaultButton="Close">
             <ScrollViewer MaxHeight="520"><StackPanel Spacing="14" MinWidth="400">
-            <TextBlock Text="Your original folder is never edited automatically. Check the model, import a project, and start isolation only when you need it." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
-            <Button x:Name="CheckButton" Content="Check model availability" Click="OnCheck" Style="{StaticResource QuietButtonStyle}" HorizontalAlignment="Left" />
-            <Expander x:Name="WorkspaceSetup" Header="Workspace setup" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <TextBlock Text="Your original folder is never edited automatically. Import a project and review changes before exporting them." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
+            <Button x:Name="CheckButton" Visibility="Collapsed" Content="Check model availability" Click="OnCheck" Style="{StaticResource QuietButtonStyle}" HorizontalAlignment="Left" />
+            <Expander x:Name="WorkspaceSetup" Visibility="Collapsed" Header="Workspace setup" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                 <StackPanel Spacing="12">
                     <TextBlock x:Name="SystemCheck" TextWrapping="Wrap" FontSize="12" />
                     <TextBlock Text="Execution isolation · fixed while active" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />

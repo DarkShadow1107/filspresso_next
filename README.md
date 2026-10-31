@@ -2,7 +2,7 @@
 
 Filspresso Next is a full-stack coffee commerce platform that combines e-commerce, AI assistance, and IoT-ready machine orchestration.
 
-It is built with Next.js (App Router), NestJS, PostgreSQL, Redis, a Python AI service (FastAPI + Tanka model stack), and polyglot domain services in Java, Kotlin, and Go.
+It is built with Next.js (App Router), NestJS, PostgreSQL, Redis, a Python AI service (Flask + Tanka/model stack), and polyglot domain services in Java, Kotlin, Go, and Rust.
 
 Playground enhancement status and remaining work: [ENHANCEMENT.md](ENHANCEMENT.md).
 Optional hosted Docker execution setup: [playground-sandbox/README.md](playground-sandbox/README.md).
@@ -23,9 +23,9 @@ This section is a quick ADR-style summary for new contributors.
 - Use Go for operational event ingestion and lightweight service endpoints where startup speed and memory efficiency matter.
 - Keep PostgreSQL as the primary database because current architecture depends on transaction-heavy commerce flows plus extension-oriented AI/chemistry capabilities.
 
-## 0.1 Current Revision Change Log (Beta-3)
+## 0.1 Historical Change Log (Beta-3)
 
-This section tracks the most recent cross-service changes reflected in the current workspace.
+This section records cross-service changes from the Beta-3 snapshot; use the later sections and repository history for current workspace status.
 
 ### Invoice and order experience updates
 
@@ -54,6 +54,16 @@ This section tracks the most recent cross-service changes reflected in the curre
 - Refreshed UML source references and added additional architecture diagrams in Mermaid source form.
 - Added explicit technology tradeoff and performance-comparison matrix.
 - Added explicit security-control comparison matrix and service hardening rationale.
+- Added the desktop MSI publication lifecycle, current signing/qualification status, deployment boundary, and deferred-work rationale.
+
+## 0.2 Current Delivery Snapshot (2026-10-31)
+
+- The latest desktop installer manifest is **0.3.9**. Its MSI is **NotSigned** and `installQualified: false`; the local artifact matches its recorded byte count and SHA-256. It is a preview publication, not a signed or lifecycle-qualified release.
+- The latest verified application rollout is to the **local Docker Compose stack**. This repository does not evidence a separate public production deployment.
+- The root README embeds all current UML/workflow diagrams; each `.mmd` source and its rendered `.svg` live under `docs/uml/`.
+- Deferred work—including desktop isolation qualification, MSI signing/lifecycle tests, real payment-provider integration, external security review, and production infrastructure—is detailed in [Known Gaps And Suggested Next Improvements](#24-known-gaps-and-suggested-next-improvements).
+
+See [Deployment Guide](#20-deployment-guide) for the exact installer checksum, publication procedure, artifact-storage boundary, and deployment steps.
 
 ## Quick Start For New Contributors (5 Minutes)
 
@@ -61,7 +71,7 @@ If you are new to this repository, use this section first.
 
 ### 1) Prerequisites
 
-- Node.js 20+
+- Node.js 22+ (matches the current CI and backend test runtime)
 - npm 10+
 - Docker Desktop (recommended)
 - Python 3.10+ (only required if you run AI service outside Docker)
@@ -275,7 +285,8 @@ without one and silently so:
 ## Table Of Contents
 
 - [0. Architecture Decision Snapshot](#0-architecture-decision-snapshot)
-- [0.1 Current Revision Change Log (Beta-3)](#01-current-revision-change-log-beta-3)
+- [0.1 Historical Change Log (Beta-3)](#01-historical-change-log-beta-3)
+- [0.2 Current Delivery Snapshot (2026-10-31)](#02-current-delivery-snapshot-2026-10-31)
 - [1. Product Overview](#1-product-overview)
 - [2. Architecture At A Glance](#2-architecture-at-a-glance)
 - [2.1 Full App UML (Component, Deployment, Domain)](#21-full-app-uml-component-deployment-domain)
@@ -402,6 +413,10 @@ The following UML set covers the full platform from code modules to runtime cont
 
 ![IoT Command Lifecycle](docs/uml/iot-command-lifecycle-sequence.svg)
 
+#### Invoice rendering sequence
+
+![Invoice Rendering Sequence](docs/uml/invoice-rendering-sequence.svg)
+
 ### 2.4 Security UML
 
 #### The AI service is not an open door
@@ -488,6 +503,10 @@ The provider's host must be in `INTERNAL_EGRESS_ALLOWLIST`, like any other outbo
 
 ![CI/CD Pipeline](docs/uml/cicd-pipeline-diagram.svg)
 
+#### Desktop MSI release lifecycle
+
+![Desktop MSI Publication Lifecycle](docs/uml/desktop-installer-release-lifecycle.svg)
+
 ---
 
 ## 3. Technology Stack
@@ -504,7 +523,7 @@ The provider's host must be in `INTERNAL_EGRESS_ALLOWLIST`, like any other outbo
 ### Backend (Commerce API)
 
 - Node.js 20+ runtime
-- NestJS 10 (TypeScript, modular architecture)
+- NestJS 11 (TypeScript, modular architecture)
 - PostgreSQL access via pg
 - Security and middleware: helmet, cors, @nestjs/jwt, argon2, @nestjs/throttler, multer
 - Argon2id password hashing with bcrypt migration/rehash support
@@ -1234,7 +1253,7 @@ This section documents how Filspresso is currently secured, how security is moni
 
 #### Authentication and session model
 
-- JWT tokens are verified with explicit HS256 algorithm constraints
+- JWT verification uses the configured signing mode and explicit algorithm allowlists; EdDSA is supported when enabled, with HS256 compatibility mode
 - JWT authentication requires a matching active server-side session record
 - admin authentication is session-backed and refreshed with bounded session lifetimes
 - logout removes server-side session entries
@@ -1242,7 +1261,7 @@ This section documents how Filspresso is currently secured, how security is moni
 
 #### Password and credential security
 
-- passwords are hashed with bcrypt (cost factor 12)
+- passwords are hashed with Argon2id; legacy bcrypt hashes are verified and rehashed on successful login
 - login input is normalized and size-bounded
 - dummy-hash comparison is used for unknown users to reduce timing-based account enumeration
 
@@ -1695,12 +1714,13 @@ You can automate capture with Playwright/Cypress in CI and export to docs/screen
 
 ## 19. Testing, Validation, And Quality Gates
 
-This repository currently ships two GitHub Actions workflows that together enforce CI quality and deployment policy posture:
+This repository currently defines three GitHub Actions workflows. They validate code, build the Windows desktop installer, and optionally apply cluster admission policies; they do **not** automatically publish a public web release or deploy the application stack.
 
 - `.github/workflows/security-ci.yml`
 - `.github/workflows/enforce-cluster-security-policies.yml`
+- `.github/workflows/playground-desktop.yml`
 
-It focuses on build integrity and dependency security for frontend, backend, and Python layers.
+The current workflow map is shown in [the CI/CD diagram](docs/uml/cicd-pipeline-diagram.svg) (source: `docs/uml/cicd-pipeline-diagram.mmd`).
 
 ### CI workflow summary
 
@@ -1712,32 +1732,49 @@ Triggers:
 
 - push to any branch
 - pull request events
+- scheduled dependency/security scan
 - manual run from GitHub Actions UI (`workflow_dispatch`)
 
 Execution platform:
 
 - `ubuntu-latest`
 
-### CI jobs and checks (what runs in GitHub)
+### Security CI jobs and checks (what runs in GitHub)
 
-1. Frontend Security Checks
+1. Signed commit-history policy
+
+- evaluates commit-signature policy (advisory on pull requests; enforced on other triggers)
+
+2. Frontend Security Checks
 
 - install dependencies with `npm ci` (root)
 - run `npm run lint`
 - run `npm run build`
 - run `npm audit --audit-level=high`
 
-2. Backend Security Checks
+3. Backend Security Checks
 
 - working directory: `nestjs-backend`
 - install dependencies with `npm ci`
 - run `npm audit --audit-level=high`
+- build NestJS and run its regression tests
 
-3. Python Dependency Audit
+4. Python Dependency Audit
 
 - install `pip-audit`
 - run `pip-audit -r requirements.txt`
 - run `pip-audit -r models/requirements.txt`
+
+5. Supply-chain checks
+
+- verify Docker base-image and deployment-signature policy assets
+- sign and verify a CI security manifest using the workflow identity
+- publish build provenance, create an SPDX SBOM, and scan the repository with Trivy
+
+### Other workflow boundaries
+
+- `playground-desktop.yml` builds/tests the Windows MSI on matching pull requests, `main` pushes, or manual runs. It uploads a short-lived Actions artifact; the separate signing job is conditional on signing configuration. The workflow does not promote the MSI into `desktop-installers/` or deploy it.
+- `enforce-cluster-security-policies.yml` runs manually or for selected policy changes on `main`; it applies Kyverno policies only when the cluster credential is configured. It is not an application deployment workflow.
 
 ### How to run CI from GitHub UI
 
@@ -2005,6 +2042,10 @@ The workflow fails when any of the following happen:
 
 ## 20. Deployment Guide
 
+### Deployment status (2026-10-31)
+
+The verified rollout recorded for this project is to the **local Docker Compose stack**. No separate public production infrastructure, public domain, managed database, or production deployment target is configured by this repository. The topology and commands below are deployment guidance; they are not evidence that a public production deployment has occurred.
+
 ### Production topology
 
 - Next.js web service/container
@@ -2021,11 +2062,13 @@ The workflow fails when any of the following happen:
 4. Deploy Next.js and verify frontend integration
 5. Execute smoke flows: login, browse, cart, checkout, AI chat
 
-### Recommended hardened deployment command
+### Hardened Compose deployment / local verification
 
 ```bash
 docker compose --env-file security.env.example -f docker-compose.yml -f docker-compose.security.yml up --build -d
 ```
+
+Replace `security.env.example` with a deployment-specific environment file containing real, independently generated secrets before using this profile outside a disposable local environment. The example file is a template, not a production secret store. Provision the target host, TLS/domain, persistent data, backups, monitoring, and rollback path separately before calling this a production deployment.
 
 ### Post-deploy security verification
 
@@ -2055,6 +2098,24 @@ docker inspect filspresso_backend --format '{{.Config.User}} {{.HostConfig.Reado
 - health checks green
 - rollback path prepared
 - backup snapshot taken before schema-impacting release
+
+### Desktop MSI publication and release gates
+
+The desktop MSI is a separate Windows build artifact. The backend serves an already-built package; it does not build the installer. Current repository publication metadata identifies **0.3.9** as latest (`desktop-installers/index.json`). The MSI in `desktop-installers/0.3.9/` is **83,133,260 bytes**, SHA-256 `1f7cc68430ca21c4635bec82be1061ecffd154472a8c08740aafbd99338e3217`; its manifest records `signature: NotSigned` and `installQualified: false`. The local payload matches those recorded size and hash values. This is a checksum/integrity match, **not** proof of publisher identity, safety, or a completed install lifecycle.
+
+![Desktop MSI publication and serving lifecycle](docs/uml/desktop-installer-release-lifecycle.svg)
+Source: [`docs/uml/desktop-installer-release-lifecycle.mmd`](docs/uml/desktop-installer-release-lifecycle.mmd).
+
+To build and promote a **new, unique version** from a Windows release environment:
+
+```powershell
+./playground-desktop/build/Build-Desktop.ps1 -ProductVersion "<new-version>"
+./playground-desktop/build/Publish-DesktopInstaller.ps1 -SourceDirectory ./playground-desktop/artifacts -RepositoryRoot .
+```
+
+The build script runs its packaging checks and emits a manifest. The publish script refuses to overwrite an existing version, copies the MSI to `desktop-installers/<version>/`, verifies its byte count and SHA-256 against the build manifest, writes a version manifest, and updates `desktop-installers/index.json`. The MSI payload is intentionally git-ignored; Git commits carry the index/manifests and source, **not the MSI bytes**. Therefore a push alone does not transfer the installer to another server. Copy the exact verified version directory to persistent storage mounted at `DESKTOP_INSTALLER_DIR` (the local Compose default is `./desktop-installers` mounted read-only at `/app/downloads`) before that deployment can serve it. The authenticated metadata endpoint is `GET /api/desktop/installer`; the download endpoint is `GET /api/desktop/download`.
+
+The current MSI is an existing preview publication, not a new signed or lifecycle-qualified release. The Windows signing job is conditional on the repository's signing configuration and certificate secrets. Before a future package is described as release-ready, require a valid timestamped Authenticode signature and verification, a completed elevated install/upgrade/uninstall test on a disposable supported Windows machine, and the relevant live sandbox/isolation qualification. A checksum or optional manifest MAC does not replace Authenticode signing or runtime qualification. See [`playground-desktop/README.md`](playground-desktop/README.md) and [`docs/playground-beta6-qualification.md`](docs/playground-beta6-qualification.md) for the detailed package and qualification boundaries.
 
 ---
 
@@ -2169,11 +2230,29 @@ docker inspect filspresso_backend --format '{{.Config.User}} {{.HostConfig.Reado
 
 ## 24. Known Gaps And Suggested Next Improvements
 
+The following is the current boundary between implemented controls and work that remains unqualified. A test fixture, build, diagram, or hash check is not a substitute for the live operational evidence named below.
+
 - Add OpenAPI specs for NestJS and Python APIs
 - Add route-level formal contracts (JSON schema)
 - Add CI job that captures screenshots for all pages and updates docs/screenshots automatically
 - Add full observability stack (metrics + traces + alerting)
 - Add canary/blue-green deployment strategy
+
+### Deferred isolation, security, signing, and deployment work
+
+| Area | Current state and limitation | What remains, why it is deferred, and the next evidence gate |
+| --- | --- | --- |
+| Desktop execution isolation | The current desktop direction uses Windows Sandbox; command networking is disabled and each proposed write/command needs fresh consent. Build execution is capability-gated. The explicit native-restricted option shares the Windows kernel and is weaker; it is not a VM. No design can honestly claim absolute isolation. | Live per-machine verification, supported Windows Sandbox version checks, hostile/failure-path qualification, and release qualification remain separate gates. Running them changes machine state and requires a supported, disposable Windows environment. Without the current receipt, execution remains disabled; there is no host-shell, WSL, Docker, or automatic weaker-mode fallback. Package installation alone does not qualify isolation. |
+| Desktop sandbox coverage | Text inspection and source previews are not the same as executing a live application. Command egress, automatic dependency installation, binary/large artifacts, and secure live HTML/JavaScript previews are not enabled. | A separate, uncredentialed preview origin, tightly scoped egress, lifetime controls, crash-safe recovery, and browser/hostile-content tests must be designed and qualified before adding these capabilities. Keeping networking and live previews disabled avoids treating a same-origin proxy or a source listing as a sandbox. |
+| MSI publisher identity | Published version 0.3.9 is `NotSigned` and `installQualified: false`. Its SHA-256 matches its manifest, which checks the bytes against the recorded digest but does not prove who built or published them. | A timestamped Authenticode signature must be produced and verified using a real certificate and protected signing secrets. The optional CI signing job is conditional; the current manifest confirms this package was not signed. Until signing and lifecycle qualification are complete, Windows may show an unknown-publisher warning and the MSI must remain a preview, not a qualified release. |
+| Installer lifecycle | Build and packaging checks create an MSI, but the current publication is not evidence of an elevated install, upgrade, or uninstall on a supported Windows system. | Exercise install/upgrade/uninstall and user-data cleanup on a disposable machine or snapshot; capture results and publish a new version only after review. Installer changes affect machine state, so source compilation and unit tests alone are insufficient. |
+| Public deployment | The last verified rollout was the local Compose stack. This repository does not configure a separate public production environment or prove a public deployment. The MSI directory is a local read-only Compose mount by default. | An operator must select/provision the host or cloud target, domain/TLS, managed or backed-up database, durable artifact storage, secrets, monitoring, access control, and a rollback/restore procedure. The repository's example topology and a green local stack do not supply those external resources. |
+| Security assurance and keys | The codebase has automated audits, hardened Compose options, authorization controls, and integrity checks, but these do not constitute a certification or independent security assessment. External KMS/HSM custody, full alert ownership, and complete service-edge enforcement are not uniformly deployed. | Close the documented Titan/platform backlog with a threat-model review, independent penetration test, key-custody and rotation integration, production policy enforcement, and measured incident-response drills. Those items require independent reviewers and operator-owned infrastructure; until then, describe controls individually and do not claim full security. |
+| Payments and subscriptions | Checkout, wallet, refill, renewals, and refunds currently update an application ledger; no payment-service provider moves real money. A `paid` ledger state is not bank settlement. | Select and contract a PSP, then validate provider webhooks, idempotency, charge/refund failures, reconciliation, dunning, and legal terms before real-money use. No provider credentials or approved commercial policy are configured in the current project. The payment warning above describes this distinction. |
+| AI quality and privacy | Model output and retrieval are fallible; an answer may be incomplete or wrong. Model-dependent features and live billing are distinct from fixture tests, and model behavior depends on model/version/data. | Add representative evaluation sets, provenance/refresh rules for retrieval data, privacy/retention review, abuse monitoring, and live-model qualification. Until then, AI responses are assistance, not guaranteed facts or professional advice. |
+| Performance and recovery | The architecture has no published target-environment benchmark or demonstrated public high-availability/restore objective in this repository. | Establish workload-based latency/throughput targets, load tests, backup-restore drills, and multi-instance failure tests against the selected deployment target before promising production SLOs. |
+
+These controls are intentionally staged rather than represented as finished: machine-dependent isolation, publisher identity, financial settlement, and public operations each need evidence from a real environment and accountable operator, not a source-code assertion.
 
 ---
 

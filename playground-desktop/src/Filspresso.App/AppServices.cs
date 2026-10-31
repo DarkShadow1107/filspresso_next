@@ -35,6 +35,7 @@ public sealed class AppServices : IDisposable
         var store = new WindowsCredentialStore(
             Environment.GetEnvironmentVariable("FILSPRESSO_CREDENTIAL_PREFIX") ?? DesktopDataPaths.CredentialPrefix);
         PreferencesStore = new DesktopPreferencesStore(Environment.GetEnvironmentVariable("FILSPRESSO_PROFILE_DIR"));
+        ConversationsStore = new LocalConversations(PreferencesStore.DirectoryPath);
         Preferences = PreferencesStore.Load();
 
         DeviceId = store.GetOrCreateDeviceIdAsync().GetAwaiter().GetResult();
@@ -84,6 +85,7 @@ public sealed class AppServices : IDisposable
     }
 
     public string DeviceId { get; }
+    public LocalConversations ConversationsStore { get; }
 
     public string AppVersion =>
         typeof(AppServices).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";

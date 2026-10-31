@@ -15,8 +15,7 @@ import { PlaygroundRunEventsService, type RunEventKind, type RunEventStatus, nor
 import { PlaygroundAgentTicketsService, type ActionTicket } from "./playground-agent-tickets.service";
 import { DesktopWebService } from "./desktop-web.service";
 import { PlaygroundDocumentsService } from "./playground-documents.service";
-import { buildWebGroundedPrompt, boundGroundedSystemPrompt, appendBoundedSystemPrompt, extractPlaygroundDocuments, sanitizeSearchResults, webResearchRequested,
-	MAX_WEB_QUERY_LENGTH, type WebSearchResult } from "./playground-chat-tools";
+import { appendBoundedSystemPrompt, extractPlaygroundDocuments, webResearchRequested } from "./playground-chat-tools";
 
 /** Mirrors the web route's clamps, so the two surfaces cannot disagree on what is legal. */
 const MAX_MESSAGE_LENGTH = 8000;
@@ -93,7 +92,7 @@ export class DesktopGatewayService {
 		// Optional like the recorder: hand-constructed services in tests keep every
 		// existing arity working, and a stream that cannot reach either helper must still
 		// stream -- grounding degrades to plain generation, documents degrade to text.
-		private readonly web?: DesktopWebService,
+		_web?: DesktopWebService,
 		private readonly documents?: PlaygroundDocumentsService,
 	) {}
 
@@ -340,6 +339,7 @@ export class DesktopGatewayService {
 			this.record(accountId, requestId, "generation.refused", { payload: { status, error, message, model: modelKey, scope }, sessionUuid, modelKey });
 			return { kind: "refused", status, error, message };
 		};
+		if (webResearchRequested(body)) return refusal(400, "WEB_GROUNDING_REMOVED", "Automatic web grounding was removed. Use agent mode and approve a web search instead.");
 
 		// Resolved once, then passed down explicitly. Holding it on the service instance would
 		// be a race: Nest services are singletons, so two streams in flight would overwrite each
@@ -360,50 +360,17 @@ export class DesktopGatewayService {
 		//
 		// The bound is on the whole exchange, not on connect: a streaming generation legitimately
 		// runs for minutes, and the thing that must never happen is a socket left open
-		// indefinitely holding a connection from the pool. The web search below shares this
-		// controller, so a client that leaves during the search cannot wake up an upstream
-		// generation afterwards.
+		// indefinitely holding a connection from the pool.
 		const upstreamController = new AbortController();
 		res.once?.("close", () => upstreamController.abort());
 
-		// ---- Web grounding (the internet "tool") ----
-		//
-		// The user asks; the server searches; the model cites. There is no function-call
-		// round between model and web -- the generation models served here are small enough
-		// that an emit-JSON-then-wait protocol would misfire more often than it answered.
-		// A failed search is a notice, never a failed generation: an ungrounded answer is
-		// strictly more useful than a refused one.
-		const wantWeb = webResearchRequested(body ?? {});
-		let groundingBlock = "";
-		let webResults: WebSearchResult[] = [];
-		let webNotice = "";
-		let webStatus: "off" | "grounded" | "empty" | "failed" = "off";
-		if (wantWeb && this.web) {
-			if (upstreamController.signal.aborted) return refusal(503, "STREAM_CANCELLED", "The stream was cancelled before generation.");
-			const query = message.slice(0, MAX_WEB_QUERY_LENGTH).trim();
-			try {
-				webResults = sanitizeSearchResults(await this.web.search(query, 5));
-				webStatus = webResults.length ? "grounded" : "empty";
-				if (webResults.length) {
-					groundingBlock = buildWebGroundedPrompt(query, webResults, new Date().toISOString().slice(0, 10));
-				} else {
-					webNotice = "The web search returned no usable results, so this answer is ungrounded and may be out of date.";
-				}
-			} catch {
-				webStatus = "failed";
-				webNotice = "The web search could not be completed right now, so this answer is ungrounded. Please retry the message if the sources matter.";
-			}
-		} else if (wantWeb) {
-			webNotice = "Web research is not wired into this deployment yet, so this answer is ungrounded.";
-		}
 		if (upstreamController.signal.aborted) return refusal(503, "STREAM_CANCELLED", "The stream was cancelled before generation.");
 
-		// The client's own system prompt keeps its clamp; grounding and the document
-		// instruction are appended server-side, and the whole composition keeps a bound
+		// The client's own system prompt keeps its clamp; the document instruction is
+		// appended server-side, and the whole composition keeps a bound
 		// because a runaway system prompt would eat context the conversation needs.
 		const clientSystemPrompt = this.clampText(body?.system_prompt ?? body?.systemPrompt, MAX_SYSTEM_PROMPT_LENGTH);
 		let systemPrompt = clientSystemPrompt;
-		if (groundingBlock) systemPrompt = boundGroundedSystemPrompt(systemPrompt, groundingBlock);
 		if (scope === "playground") systemPrompt = appendBoundedSystemPrompt(systemPrompt, DOCUMENT_INSTRUCTION);
 
 		// Recorded before the gateway call: a run that dies connecting is still a run.
@@ -416,9 +383,6 @@ export class DesktopGatewayService {
 				compaction_mode: inputContext.compaction_mode,
 				compact_now: inputContext.compact_now === true,
 				thinking: enableThinking,
-				web_research: webStatus === "grounded" ? "grounded" : webStatus === "off" ? "off" : webStatus,
-				web_results: webResults.length,
-				web_search_failed: webStatus === "failed" ? true : undefined,
 			},
 			sessionUuid,
 			modelKey,
@@ -487,17 +451,6 @@ export class DesktopGatewayService {
 		res.setHeader("X-Accel-Buffering", "no");
 		res.setHeader("x-filspresso-request-id", requestId);
 		res.flushHeaders?.();
-
-		// Web research outcomes land on the wire first, before any generated text, so the
-		// client can show citation chips (or the honest "this answer is ungrounded" notice)
-		// while the model is still thinking. A silent search would make a citation the
-		// client can see but not verify.
-		try {
-			if (webNotice) res.write(`data: ${JSON.stringify({ notice: webNotice })}\n\n`);
-			if (webResults.length) res.write(`data: ${JSON.stringify({ sources: webResults })}\n\n`);
-		} catch (writeError) {
-			this.logger.warn(`desktop sources frame could not be written for ${requestId}: ${writeError instanceof Error ? writeError.message : String(writeError)}`);
-		}
 
 		// `await`ed before returning: the controller has already handed the socket over, and
 		// the meter has to keep reading after this method's caller believes it is finished.
