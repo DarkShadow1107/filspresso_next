@@ -93,12 +93,13 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const searchRef = useRef<HTMLInputElement>(null);
 	const abortRef = useRef<AbortController | null>(null);
 	const agentStartingRef = useRef(false);
+	const agentPreparationRef = useRef<AbortController | null>(null);
 	const resumeRef = useRef<AbortController | null>(null);
 	const githubRef = useRef<HTMLButtonElement>(null);
 	const attachments = usePlaygroundSources();
 	const thinkingAllowed = tierCanUseThinkingModel(tier);
 	const model = preferences.model;
-	useEffect(() => () => { void agent.stop(true); }, [agent, conversationId, model, preferences.inputContextTokens, preferences.compactionMode]);
+	useEffect(() => () => { agentPreparationRef.current?.abort(); void agent.stop(true); }, [agent, conversationId, model, preferences.inputContextTokens, preferences.compactionMode]);
 	useEffect(() => {
 		const identity = () => { const account = readAccountSession(); return account?.email || account?.username || null; };
 		let account = identity();
@@ -420,6 +421,8 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const sendAgent = async (runMode: "plan" | "build" = mode === "build" ? "build" : "plan") => {
 		if (streaming || agentBusy || agentStartingRef.current) return;
 		agentStartingRef.current = true;
+		const preparation = new AbortController();
+		agentPreparationRef.current = preparation;
 		setStreaming(true);
 		try {
 			if (editingFrom !== null) throw new Error("Cancel the message edit before using agent tools.");
@@ -431,8 +434,10 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			if (!agent.getSnapshot().workspace) {
 				setNotice("Preparing an isolated workspace…");
 				await agent.check();
+				preparation.signal.throwIfAborted();
 				if (!agent.getSnapshot().executionEnabled || !agent.getSnapshot().models.includes(model)) throw new Error(agent.getSnapshot().error || "Tools are unavailable for this model or deployment.");
 				await agent.startSandbox();
+				preparation.signal.throwIfAborted();
 			}
 			if (!agent.getSnapshot().workspace) throw new Error(agent.getSnapshot().error || "The isolated workspace could not be started. Please retry.");
 			const history = conversationContext(messages.map(message => ({ ...message, content: messageWithSources(message) })));
@@ -454,8 +459,8 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			const unsubscribe = agent.subscribe(update);
 			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }, runMode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
 			finally { unsubscribe(); }
-		} catch (failure) { setNotice(failure instanceof Error ? failure.message : "The agent request could not start."); }
-		finally { agentStartingRef.current = false; setStreaming(false); }
+		} catch (failure) { setNotice(preparation.signal.aborted ? "Agent preparation stopped." : failure instanceof Error ? failure.message : "The agent request could not start."); }
+		finally { if (agentPreparationRef.current === preparation) agentPreparationRef.current = null; agentStartingRef.current = false; setStreaming(false); }
 	};
 	const submit = () => mode === "chat" && !explicitlyRequestsWebSearch(input) ? void send() : void sendAgent(mode === "build" ? "build" : "plan");
 
@@ -592,7 +597,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 									<button type="button" ref={contextButtonRef} className="pgw-icon-button pgw-context-ring-wrap" aria-label="Context usage" aria-haspopup="menu" aria-expanded={contextOpen} title="Context usage" onClick={() => setContextOpen(open => !open)}><svg className="pgw-context-ring" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" className="pgw-context-ring-track" /><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" strokeLinecap="round" strokeDasharray={2 * Math.PI * 11} strokeDashoffset={2 * Math.PI * 11 * (1 - (contextPercent ?? 0) / 100)} transform="rotate(-90 16 16)" className="pgw-context-ring-value" data-level={contextPercent !== null && contextPercent >= 95 ? "high" : contextPercent !== null && contextPercent >= 80 ? "elevated" : "ok"} /></svg></button>
 									{contextOpen && <WorkspacePopover anchor={contextButtonRef} onClose={closeContext} label="Context usage" className="pgw-context-popup" width={280}><div className="pgw-context-popup-heading"><strong>Context</strong><span>{measuredInputTokens === undefined ? "Not measured" : `${measuredInputTokens.toLocaleString()} / ${measuredInputLimit.toLocaleString()}`}</span></div>{contextPercent === null || measuredInputTokens === undefined ? <p>No context measurement available yet.</p> : <><div className="pgw-context-progress" aria-hidden="true"><span style={{ width: `${contextPercent}%` }} data-level={contextPercent >= 95 ? "high" : contextPercent >= 80 ? "elevated" : "ok"} /></div><div className="pgw-context-popup-heading"><span>{contextPercent}% of input limit</span><span>{Math.max(0, measuredInputLimit - measuredInputTokens).toLocaleString()} remaining</span></div><p>Last measured input, not live KV cache usage. The next request may differ.</p></>}{mode === "chat" && messages.length >= 2 && <button type="button" role="menuitem" className="pgw-outlined-button" disabled={streaming} onClick={() => { setCompactNext(!compactNext); closeContext(); }}>{compactNext ? "Cancel queued compaction" : "Compact on next send"}</button>}</WorkspacePopover>}
 									<WorkspacePicker label="Model" disabled={streaming} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
-									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => { abortRef.current?.abort(); if (!abortRef.current) void agent.stop(); }}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={agentBusy || (!input.trim() && !attachments.contexts.length) || !attachments.ready || (mode !== "chat" && agentState.requiresReset)}><WorkspaceIcon name="send" /></button>}
+									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => { abortRef.current?.abort(); agentPreparationRef.current?.abort(); if (!abortRef.current) void agent.stop(); }}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={agentBusy || (!input.trim() && !attachments.contexts.length) || !attachments.ready || (mode !== "chat" && agentState.requiresReset)}><WorkspaceIcon name="send" /></button>}
 								</div>
 							</div>
 						</form>
