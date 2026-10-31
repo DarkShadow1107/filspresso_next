@@ -126,7 +126,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 					inputContextTokens: (CONTEXT_LEVELS as readonly number[]).includes(Number(saved.inputContextTokens ?? saved.maxTokens)) ? Number(saved.inputContextTokens ?? saved.maxTokens) : DEFAULT_PREFERENCES.inputContextTokens,
 					compactionMode: compactionMode(saved.compactionMode),
 					thinking: thinkingAllowed && saved.thinking === true,
-					webResearch: saved.webResearch === true,
+					webResearch: false,
 					textSize: saved.textSize === "small" || saved.textSize === "large" ? saved.textSize : "standard",
 					enterToSend: saved.enterToSend !== false,
 				});
@@ -330,7 +330,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			const response = await fetch("/api/playground/chat", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", "x-kafelot-fingerprint": getOrCreateFingerprint(), "x-kafelot-scope": "general" },
-				body: JSON.stringify({ message: prompt, model, input_context_tokens: preferences.inputContextTokens, compaction_mode: preferences.compactionMode, compact_now: compactNext, contexts: sources, history, thinking: thinkingAllowed && preferences.thinking, web_research: preferences.webResearch, session_uuid: sessionIds.current.get(conversationId) }),
+				body: JSON.stringify({ message: prompt, model, input_context_tokens: preferences.inputContextTokens, compaction_mode: preferences.compactionMode, compact_now: compactNext, contexts: sources, history, thinking: thinkingAllowed && preferences.thinking, session_uuid: sessionIds.current.get(conversationId) }),
 				signal: controller.signal,
 			});
 			if (!response.ok) {
@@ -407,7 +407,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		} finally {
 			if (abortRef.current === controller) { abortRef.current = null; setStreaming(false); }
 		}
-	}, [input, editingFrom, messages, model, preferences.inputContextTokens, preferences.compactionMode, preferences.thinking, preferences.webResearch, thinkingAllowed, waitUntilLoaded, attachments, conversationId, compactNext]);
+	}, [input, editingFrom, messages, model, preferences.inputContextTokens, preferences.compactionMode, preferences.thinking, thinkingAllowed, waitUntilLoaded, attachments, conversationId, compactNext]);
 
 	const sendAgent = async () => {
 		if (mode === "chat" || streaming || agentBusy) return;
@@ -426,8 +426,9 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			setInput(""); setNotice(""); setStreaming(true); attachments.clear();
 			const update = () => {
 				const snapshot = agent.getSnapshot(); const events = snapshot.events.slice(firstEvent);
-				const content = events.flatMap(event => event.kind === "message" ? [event.text] : event.kind === "tool.finished" ? [`\nTool result · ${event.invocation.call.name}\n${agentResultText(event.invocation)}`] : event.kind === "question.answered" ? [`Clarification answers (not execution consent): ${JSON.stringify(event.decision.answers)}`] : []).join("\n\n");
-				setMessages(previous => previous.map(message => message.id === id ? { ...message, content: content || (snapshot.phase === "failed" ? snapshot.error : ""), failed: snapshot.phase === "failed" } : message));
+				const content = events.flatMap(event => event.kind === "message" ? [event.text] : event.kind === "tool.proposed" ? [`Tool · ${event.call.name} (proposed)`] : event.kind === "tool.finished" ? [`Tool result · ${event.invocation.call.name}\n${agentResultText(event.invocation)}`] : event.kind === "question.answered" ? [`Clarification answers (not execution consent): ${JSON.stringify(event.decision.answers)}`] : event.kind === "stopped" ? [`Agent stopped: ${event.message}`] : []).join("\n\n");
+				const failure = snapshot.phase === "failed" && snapshot.error && !events.some(event => event.kind === "stopped") ? snapshot.error : "";
+				setMessages(previous => previous.map(message => message.id === id ? { ...message, content: [content, failure].filter(Boolean).join("\n\n"), failed: snapshot.phase === "failed" } : message));
 			};
 			const unsubscribe = agent.subscribe(update);
 			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }, mode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
@@ -544,14 +545,6 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 						<AgentInteractions workspace={agent} />
 						{mode !== "chat" && <><InlineAgentWorkspace workspace={agent} model={model} mode={mode} busy={agentBusy || streaming} />{agentState.error && <p className="pgw-notice" role="status">{agentState.error}</p>}</>}
 						<div className="pgw-context-status" aria-live="polite">
-							{measuredInputTokens !== undefined && contextPercent !== null && <span className="pgw-context-ring-wrap">
-								<svg className="pgw-context-ring" viewBox="0 0 36 36" width="30" height="30" role="img" aria-label={`Input context ${contextPercent}% used`}>
-									<circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3.4" className="pgw-context-ring-track" />
-									<circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3.4" strokeLinecap="round" strokeDasharray={`${contextPercent} 100`} transform="rotate(-90 18 18)" className="pgw-context-ring-value" data-level={contextPercent >= 80 ? "high" : contextPercent >= 45 ? "elevated" : "ok"} />
-									<text x="18" y="21.5" textAnchor="middle" className="pgw-context-ring-label">{contextPercent}</text>
-								</svg>
-								<span>Last measured input: {measuredInputTokens.toLocaleString()} / {formatContextTokens(measuredInputLimit)}</span>
-							</span>}
 							{contextState?.compacted && <details><summary>Context compacted · {contextState.tokensBefore.toLocaleString()} → {contextState.tokensAfter.toLocaleString()} tokens</summary><p>Original messages are unchanged. Summary inference is metered.</p><pre>{contextState.summary}</pre></details>}
 						</div>
 						<form className="pgw-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
@@ -569,14 +562,14 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 									<WorkspacePicker label="Compaction mode" icon="settings" disabled={streaming} value={preferences.compactionMode} options={COMPACTION_OPTIONS} onChange={value => savePreferences({ ...preferences, compactionMode: compactionMode(value) })} />
 								</div>
 								<div className="pgw-composer-right">
-									<button type="button" className="pgw-icon-button pgw-web-toggle" aria-label="Internet access" title={mode !== "chat" ? "Internet in chat mode only" : `Web grounding · ${preferences.webResearch ? "on" : "off"}`} aria-pressed={preferences.webResearch} disabled={streaming || agentBusy || mode !== "chat"} onClick={() => savePreferences({ ...preferences, webResearch: !preferences.webResearch })}><WorkspaceIcon name="search" width={18} height={18} /></button>
 									{thinkingAllowed && <button type="button" className="pgw-icon-button pgw-thinking-toggle" aria-label="Thinking mode" title={mode !== "chat" ? "Thinking · controlled by the agent model in Plan and Build" : `Thinking · ${preferences.thinking ? "on" : "off"}`} aria-pressed={preferences.thinking} disabled={streaming || agentBusy || mode !== "chat"} onClick={() => savePreferences({ ...preferences, thinking: !preferences.thinking })}><WorkspaceIcon name="brain" width={18} height={18} /></button>}
+									{measuredInputTokens !== undefined && contextPercent !== null && <span className="pgw-context-ring-wrap" title={`Last measured input: ${measuredInputTokens.toLocaleString()} / ${formatContextTokens(measuredInputLimit)}`}><svg className="pgw-context-ring" viewBox="0 0 36 36" width="30" height="30" role="img" aria-label={`Input context ${contextPercent}% used`}><circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3.4" className="pgw-context-ring-track" /><circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3.4" strokeLinecap="round" strokeDasharray={`${contextPercent} 100`} transform="rotate(-90 18 18)" className="pgw-context-ring-value" data-level={contextPercent >= 80 ? "high" : contextPercent >= 45 ? "elevated" : "ok"} /><text x="18" y="21.5" textAnchor="middle" className="pgw-context-ring-label">{contextPercent}</text></svg></span>}
 									<WorkspacePicker label="Model" disabled={streaming} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
 									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => { abortRef.current?.abort(); if (mode !== "chat") void agent.stop(); }}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={agentBusy || (!input.trim() && !attachments.contexts.length) || !attachments.ready || (mode !== "chat" && (!agentState.workspace || !agentState.models.includes(model) || agentState.requiresReset))}><WorkspaceIcon name="send" /></button>}
 								</div>
 							</div>
 						</form>
-						<div className="pgw-mode-guidance" role="status">{mode === "chat" ? preferences.webResearch ? "Chat · answers and attachments, grounded with web search" : "Chat · answers and attachments" : mode === "plan" ? "Plan · read and explore, no changes or commands" : "Build · staged changes, approval for each action"}</div>
+						<div className="pgw-mode-guidance" role="status">{mode === "chat" ? "Chat · answers and attachments" : mode === "plan" ? "Plan · read and explore, no changes or commands" : "Build · staged changes, approval for each action"}</div>
 						<div className="pgw-composer-footnote">{streaming && modelLoad.isLoading ? <span role="status">Loading {MODEL_LABEL_BY_KEY[model]} · {modelLoad.progress}%</span> : <span>Hosted model <i>·</i> 128K context <i>·</i> {access === "addon" ? "Wallet billing" : `${tier.toUpperCase()} plan`}</span>}{mode === "chat" && messages.length >= 2 && <button type="button" className="pgw-text-button" disabled={streaming} aria-pressed={compactNext} onClick={() => setCompactNext(!compactNext)}>{compactNext ? "Compaction queued ✓" : "Compact next send"}</button>}</div>
 					</div>
 				</div>}

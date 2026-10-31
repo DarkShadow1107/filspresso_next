@@ -73,7 +73,6 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 							<small>Summarizes older conversation at the selected threshold. Recent turns and your original transcript are kept. Summary model usage is metered.</small>
 						</label>
 						{thinkingAllowed && <label className="pgw-switch-row"><span><b>Thinking mode</b><small>Show the model’s reasoning alongside its answer.</small></span><input type="checkbox" role="switch" checked={draft.thinking} disabled={streaming} onChange={(event) => setDraft({ ...draft, thinking: event.target.checked })} /></label>}
-						<label className="pgw-switch-row"><span><b>Internet access</b><small>The reply is grounded in a fresh server-side web search with visible sources. It costs a few seconds more.</small></span><input type="checkbox" role="switch" checked={draft.webResearch} disabled={streaming} onChange={(event) => setDraft({ ...draft, webResearch: event.target.checked })} /></label>
 						<label className="pgw-switch-row"><span><b>Enter to send</b><small>Use Shift + Enter for a new line.</small></span><input type="checkbox" role="switch" checked={draft.enterToSend} onChange={(event) => setDraft({ ...draft, enterToSend: event.target.checked })} /></label>
 					</>}
 					{section === "display" && <>
