@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Filspresso.Core.Tools;
+using Filspresso.Core.Api;
 using Filspresso.Harness;
 using Filspresso.Sandbox;
 using Microsoft.UI.Xaml;
@@ -42,6 +43,13 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
     private bool _build;
     internal event EventHandler? StateChanged;
     internal event EventHandler<string>? OutputChanged;
+    internal SavedToolActivity[] ToolActivity => _conversation?.Snapshot.Events
+        .OfType<AgentEvent.ToolStarting>()
+        .Select(start => {
+            var finished = _conversation.Snapshot.Events.OfType<AgentEvent.ToolFinished>().LastOrDefault(item => item.Invocation.Call.Id == start.Call.Id);
+            return new SavedToolActivity { Id = start.Call.Id, Name = start.Call.Name, Arguments = start.Call.ArgumentsJson,
+                Status = finished is null ? "proposed" : "finished", Result = finished is null ? null : $"Exit {finished.Invocation.Result.ExitCode}\n{finished.Invocation.Result.StandardOutput}\n{finished.Invocation.Result.StandardError}" };
+        }).ToArray() ?? Array.Empty<SavedToolActivity>();
     internal bool IsBusy => _startingSandbox || _projectBusy || _checking is not null || _conversation?.Snapshot.Busy == true;
     internal bool CanSend => _active && !IsBusy && _conversation?.Snapshot.RequiresReset == false && _transport?.SupportsConversation == true && _transport.SupportsModel(_model ?? string.Empty) && (!_build || _execution?.Workspace is not null);
     public void SelectMode(bool build)

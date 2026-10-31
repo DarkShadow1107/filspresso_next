@@ -26,7 +26,7 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-                <TextBlock Grid.Row="6" Text="This session only. Export a conversation to keep a copy. A conversation saved on the server resumes with its preferences and compaction checkpoint; transcripts stay on this PC." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
+                <TextBlock Grid.Row="6" Text="Messages, source text and tool activity are saved to your account when possible. Export a conversation for a local copy. Older saved sessions may contain only a checkpoint." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
             </Grid>
         </Border>
         <Grid Grid.Column="1" RowDefinitions="Auto,*">
@@ -47,6 +47,7 @@
                                 <Border Background="{Binding BubbleBrush}" CornerRadius="14" Padding="14,10" HorizontalAlignment="{Binding BubbleAlignment}">
                                     <StackPanel Spacing="10">
                                         <Expander Header="Thinking" Visibility="{Binding ReasoningVisibility}" HorizontalAlignment="Stretch"><TextBlock Text="{Binding Reasoning}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="12" Foreground="{StaticResource FilspressoMuted}" /></Expander>
+                                        <Expander Header="Tool activity" Visibility="{Binding ToolsVisibility}" HorizontalAlignment="Stretch"><TextBlock Text="{Binding ToolSummary}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="12" Foreground="{StaticResource FilspressoMuted}" /></Expander>
                                         <local:MessageContent Text="{Binding Text}" TextSize="{Binding TextSize}" />
                                         <TextBlock Text="{Binding SourceNames}" Foreground="{StaticResource FilspressoMuted}" FontSize="10" TextWrapping="Wrap" />
                                     </StackPanel>

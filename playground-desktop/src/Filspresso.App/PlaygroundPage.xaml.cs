@@ -49,6 +49,8 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     // app session starts local conversations anew, and the server's own list is the only
     // durable resume surface.
     private readonly Dictionary<string, string> _sessionUuids = new();
+    private readonly Dictionary<string, ContextState> _legacyContexts = new();
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
     private readonly List<SavedSession> _serverSessions = new();
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true, WriteIndented = true };
 
@@ -245,7 +247,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     private void ShowCheckpoint(ContextState state)
     {
         ContextHint.Text = $"Last measured input: {state.TokensAfter:N0} / {state.InputLimit / 1024}K · {state.Mode} compaction";
-        ContextSummary.Text = $"{state.TokensBefore:N0} → {state.TokensAfter:N0} tokens. The full transcript stays client-local. Summary inference is metered.\n\n{state.Summary}";
+        ContextSummary.Text = $"{state.TokensBefore:N0} → {state.TokensAfter:N0} tokens. Original messages are unchanged. Summary inference is metered.\n\n{state.Summary}";
         ContextSummaryPanel.Visibility = Visibility.Visible;
     }
 
@@ -421,7 +423,6 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         RenderSelection();
         var watch = Stopwatch.StartNew();
         var firstText = true;
-        var finished = false;
         try
         {
             await foreach (var update in _session.SendAsync(prompt, selected.ModelKey,
@@ -451,7 +452,6 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
                         answer.Reasoning += think.Text;
                         break;
                     case PlaygroundEvent.Finished done:
-                        finished = true;
                         answer.Metadata = done.Usage.EstimatedCostRon is { } cost
                             ? $"{done.Usage.InputTokens + done.Usage.OutputTokens:N0} tokens · {watch.Elapsed.TotalSeconds:0.0} s · about {cost:0.000000} RON"
                             : $"{watch.Elapsed.TotalSeconds:0.0} s · usage unavailable";
@@ -464,11 +464,6 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
                 }
                 Transcript.ScrollIntoView(answer);
             }
-            // The conversation's server session: created by the first completed generation and
-            // patched by every later one. Persisting is fail-open — a lost save never costs a
-            // reply — and the checkpoint is re-validated against the exact history this send
-            // used, so a saved context can never disagree with a conversation the user edited.
-            if (finished) _ = PersistServerSessionAsync(originalHistory, sources, selected.ModelKey, prompt, preferences);
         }
         catch (OperationCanceledException) { if (firstText) answer.Text = "Generation stopped."; answer.Metadata = "Stopped"; }
         catch (Exception error) when (error is System.Net.Http.HttpRequestException or IOException or InvalidOperationException)
@@ -479,6 +474,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         finally
         {
             answer.IsComplete = true;
+            await PersistServerSessionAsync(sources, selected.ModelKey, prompt, preferences);
             _inFlight = null;
             if (!_disposed) { RememberConversation(); Render(); }
         }
@@ -510,29 +506,30 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         agent.OutputChanged += output;
         try { await agent.SendFromComposerAsync(request, history); }
         catch (Exception error) when (error is InvalidOperationException or OperationCanceledException) { answer.Text = error.Message; }
-        finally { agent.OutputChanged -= output; answer.IsComplete = true; _inFlight = null; if (!_disposed) { RememberConversation(); Render(); } }
+        finally
+        {
+            agent.OutputChanged -= output;
+            answer.Tools = agent.ToolActivity;
+            answer.IsComplete = true;
+            await PersistServerSessionAsync(sources, _services.Preferences.ModelKey, prompt, _services.Preferences);
+            _inFlight = null;
+            if (!_disposed) { RememberConversation(); Render(); }
+        }
     }
 
     /// <summary>
-    /// Saves the conversation's resume state to its server session, fire-and-forget.
+    /// Saves a bounded conversation snapshot to its account-scoped server session.
     /// </summary>
     /// <remarks>
-    /// The save is fail-open like the recorder: every failure mode inside the API client is
-    /// returned as a result, and nothing here can cost the user a reply or an error dialog.
-    /// The stored checkpoint is the compaction artifact for the exact history this send used
-    /// — after an edit or regeneration that diverged from it, no checkpoint is sent at all,
-    /// and the server keeps what it already had. Titles and source references are named
-    /// pointers; the transcript itself never leaves this PC.
+    /// Snapshots include source text and tool activity. Saves are serialized to prevent an
+    /// earlier request from overwriting a later turn, and failures are reported to the user.
     /// </remarks>
-    private async Task PersistServerSessionAsync(TranscriptLine[] originalHistory, PreparedSource[] sources, string modelKey, string fallbackTitle, DesktopPreferences preferences)
+    private async Task PersistServerSessionAsync(PreparedSource[] sources, string modelKey, string fallbackTitle, DesktopPreferences preferences)
     {
         var conversationId = _conversationId;
-        var checkpoint = _checkpoints.TryGetValue(conversationId, out var saved) &&
-                saved.Original.Length <= originalHistory.Length &&
-                saved.Original.Select((line, index) => ReferenceEquals(line, originalHistory[index])).All(match => match)
-            ? saved.State
-            : null;
-        var title = originalHistory.Length > 0 ? originalHistory[0].Text : fallbackTitle;
+        var account = _services.Auth.Current?.Email;
+        var checkpoint = _legacyContexts.GetValueOrDefault(conversationId);
+        var title = _transcript.FirstOrDefault(line => line.IsUser)?.Text ?? fallbackTitle;
         var write = new SessionWrite
         {
             Title = title,
@@ -542,10 +539,27 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
             ActiveContext = checkpoint,
             SourceReferences = sources.Length > 0 ? sources.Where(source => !string.IsNullOrWhiteSpace(source.Name)).Select(source =>
                 new SavedSourceReference { Name = source.Name, Kind = source.Kind, Size = source.Size, SourceUrl = source.SourceUrl }).ToArray() : null,
+            Transcript = _transcript.Select(line => (line.Saved ?? new SavedTranscriptMessage { Id = line.Id }) with
+            {
+                Role = line.IsUser ? "user" : "assistant", Content = line.Text,
+                Model = line.IsUser ? null : line.Saved?.Model ?? modelKey,
+                Reasoning = line.Reasoning, Sources = line.Sources, Tools = line.Tools,
+            }).ToArray(),
         };
-        var result = await _services.SaveSavedSessionAsync(_sessionUuids.TryGetValue(conversationId, out var uuid) ? uuid : null, write);
-        if (_disposed || !result.Ok || result.Value is null) return;
-        _sessionUuids[conversationId] = result.Value;
+        await _saveLock.WaitAsync();
+        try
+        {
+            if (_disposed || account is null || _services.Auth.Current?.Email != account) return;
+            var result = await _services.SaveSavedSessionAsync(_sessionUuids.TryGetValue(conversationId, out var uuid) ? uuid : null, write);
+            if (_disposed || _services.Auth.Current?.Email != account) return;
+            if (!result.Ok || result.Value is null)
+            {
+                if (!_disposed) ShowSourceError("Conversation could not be saved. Export it before leaving; the limit is 200 messages and 700 KB.");
+                return;
+            }
+            _sessionUuids[conversationId] = result.Value;
+        }
+        finally { _saveLock.Release(); }
         // A page session that never stops creating conversations would otherwise let this
         // map grow without end; stale entries are harmless, and the server's list stays the
         // durable record of which conversations exist.
@@ -572,10 +586,14 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         var index = _transcript.IndexOf(line);
         if (index > 0 && _transcript[index - 1].IsUser) await SendAsync(_transcript[index - 1].Text, index - 1);
     }
-    private void OnDeleteMessage(object sender, RoutedEventArgs args)
+    private async void OnDeleteMessage(object sender, RoutedEventArgs args)
     {
         if (_inFlight is null && (sender as Button)?.Tag is TranscriptLine line)
-        { _transcript.Remove(line); _editingFrom = null; EditingPanel.Visibility = Visibility.Collapsed; UpdateChatLayout(); }
+        {
+            _transcript.Remove(line); _editingFrom = null; EditingPanel.Visibility = Visibility.Collapsed; UpdateChatLayout();
+            if (_sessionUuids.ContainsKey(_conversationId))
+                await PersistServerSessionAsync(Array.Empty<PreparedSource>(), _services.Preferences.ModelKey, "Conversation", _services.Preferences);
+        }
     }
 
     private void RememberConversation()
@@ -673,15 +691,27 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         _transcript.Clear();
         ClearSources();
         ResetContextDisplay();
+        if (saved.Transcript is { } transcript)
+        {
+            foreach (var message in transcript.Where(message => message.Role is "user" or "assistant" && message.Content is not null).Take(200))
+            {
+                var label = message.Role == "user" ? "You" : _session.Catalogue.Models.FirstOrDefault(model => model.ModelKey == message.Model)?.Label ?? "Model";
+                var line = CreateLine(message.Role == "user", label, message.Content);
+                line.Saved = message; line.Reasoning = message.Reasoning ?? string.Empty;
+                line.Sources = message.Sources ?? Array.Empty<PreparedSource>(); line.Tools = message.Tools;
+                _transcript.Add(line);
+            }
+        }
         if (checkpoint is not null)
         {
             // The checkpoint is registered without original lines, so the next send continues
             // exactly from the retained history, and the meter shows the restored measurement.
             _checkpoints[nextId] = (Array.Empty<TranscriptLine>(), checkpoint.History, checkpoint);
+            _legacyContexts[nextId] = checkpoint;
             ShowCheckpoint(checkpoint);
         }
-        SessionResumeHint.Text = (checkpoint is null ? "Restored preferences only: no saved compaction checkpoint." : "Resumed the last compaction checkpoint, not the full transcript.") +
-            (saved.SourceReferences is { Length: > 0 } ? " Attach source files again if needed; saved references are not file contents." : string.Empty);
+        SessionResumeHint.Text = saved.Transcript is not null ? "Conversation restored from your account." :
+            (checkpoint is null ? "This older session saved preferences only; original messages were not stored." : "This older session has only a compaction checkpoint; original messages were not stored.");
         PromptBox.Text = string.Empty; _editingFrom = null; EditingPanel.Visibility = Visibility.Collapsed;
         ShowModelsOnly(false); UpdateChatLayout();
         RenderConversations();
@@ -777,6 +807,12 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
 
     public sealed class TranscriptLine(bool isUser, string role, string text) : INotifyPropertyChanged
     {
+        public string Id { get; } = Guid.NewGuid().ToString();
+        public SavedTranscriptMessage? Saved { get; set; }
+        private SavedToolActivity[]? _tools;
+        public SavedToolActivity[]? Tools { get => _tools; set { _tools = value; Changed(nameof(ToolSummary)); Changed(nameof(ToolsVisibility)); } }
+        public string ToolSummary => string.Join("\n\n", (Tools ?? Array.Empty<SavedToolActivity>()).Select(tool => $"{tool.Name} · {tool.Status}\n{tool.Arguments}\n{tool.Result}"));
+        public Visibility ToolsVisibility => Tools is { Length: > 0 } ? Visibility.Visible : Visibility.Collapsed;
         private string _text = text;
         private string _reasoning = string.Empty;
         private string _metadata = string.Empty;

@@ -32,7 +32,7 @@ export function AgentInteractions({ workspace }: { workspace: HostedAgentWorkspa
 export function FreshActionApproval({ approval, decide }: { approval: AgentApproval; decide: (id: string, approved: boolean) => unknown }) {
 	const [reviewed, setReviewed] = React.useState(false);
 	return <section aria-label="Fresh action approval" className="pgw-recorded-event">
-		<h2>Approve this action once?</h2><p>{approval.call.name} · {approval.effect} · Sandbox {approval.workspace.id}</p>
+		<h2>Approve this action once?</h2><p>{approval.call.name} · {approval.effect} · Sandbox {approval.workspace.id}</p>{approval.call.name === "web_search" && <p>This query will be sent to an external search provider. Review it for private information before approving.</p>}
 		<p>Exact JSON arguments · untrusted model data. Approval applies only to this action in this temporary sandbox. Commands may change or delete sandbox files.</p>
 		<pre>{approval.call.arguments}</pre>
 		<label><span><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /> I have reviewed this exact action and sandbox.</span></label>

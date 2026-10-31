@@ -7,13 +7,8 @@ import { playgroundModelFile, playgroundTextModelKeys } from "./text-models";
 /**
  * Account-scoped resume state for the Playground.
  *
- * This is deliberately *not* a transcript store. Both clients keep conversations client-local,
- * and `ENHANCEMENT.md` leaves cross-device sync as an open product question; making the server
- * a second, quieter copy of every message would settle that question silently and in the wrong
- * place before anyone had decided anything. What this table holds is the *active context*: the
- * client's preferences, named source references (never the source text), and the last
- * compaction checkpoint -- the state a conversation needs to continue coherently after a reload
- * or to be handed to the other client without shipping its whole history.
+ * Each account can retain a bounded transcript, including tool activity, alongside its
+ * active context. Legacy rows have a NULL transcript and cannot reconstruct lost messages.
  *
  * ## Additive on purpose
  *
@@ -46,6 +41,7 @@ export type SessionWrite = {
 	compactionMode?: unknown;
 	activeContext?: unknown;
 	sourceReferences?: unknown;
+	transcript?: unknown;
 };
 
 export type SessionUpdate = {
@@ -55,6 +51,7 @@ export type SessionUpdate = {
 	compactionMode?: string;
 	activeContext?: Record<string, unknown>;
 	sourceReferences?: Array<Record<string, unknown>>;
+	transcript?: Array<Record<string, unknown>>;
 };
 
 /**
@@ -127,6 +124,18 @@ export function normalizeSourceReferences(value: unknown): Array<Record<string, 
  */
 export class InvalidSessionInputError extends Error {}
 
+/** Reject the whole write rather than silently saving a partial conversation. */
+export function normalizeTranscript(value: unknown): Array<Record<string, unknown>> {
+	if (!Array.isArray(value) || value.length > 200 || Buffer.byteLength(JSON.stringify(value), "utf8") > 700_000)
+		throw new InvalidSessionInputError("Conversation exceeds the saved transcript limit (200 messages or 700 KB). Export it before continuing.");
+	for (const item of value) {
+		if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.id !== "string" || item.id.length > 64 || !item.id ||
+			(item.role !== "user" && item.role !== "assistant") || typeof item.content !== "string")
+			throw new InvalidSessionInputError("The conversation contains an invalid message.");
+	}
+	return value as Array<Record<string, unknown>>;
+}
+
 export function normalizeSessionWrite(body: SessionWrite): SessionUpdate {
 	const update: SessionUpdate = {};
 	if (typeof body.title === "string" && body.title.trim()) update.title = body.title.trim().slice(0, MAX_TITLE);
@@ -145,6 +154,7 @@ export function normalizeSessionWrite(body: SessionWrite): SessionUpdate {
 	}
 	if (body.activeContext !== undefined) update.activeContext = normalizeActiveContext(body.activeContext);
 	if (body.sourceReferences !== undefined) update.sourceReferences = normalizeSourceReferences(body.sourceReferences);
+	if (body.transcript !== undefined) update.transcript = normalizeTranscript(body.transcript);
 	return update;
 }
 
@@ -168,9 +178,9 @@ export class PlaygroundSessionsService {
 		const client = await this.db.getPool().connect();
 		try {
 			const result = await client.query(
-				`INSERT INTO playground_sessions (account_id, session_uuid, title, model_key, input_context_tokens, compaction_mode, active_context, source_references)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb) RETURNING *`,
-				[accountId, uuidv4(), update.title ?? "New conversation", update.modelKey ?? DEFAULT_MODEL_KEY, update.inputContextTokens ?? 16_384, update.compactionMode ?? "balanced", JSON.stringify(update.activeContext ?? {}), JSON.stringify(update.sourceReferences ?? [])],
+				`INSERT INTO playground_sessions (account_id, session_uuid, title, model_key, input_context_tokens, compaction_mode, active_context, source_references, transcript)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb) RETURNING *`,
+				[accountId, uuidv4(), update.title ?? "New conversation", update.modelKey ?? DEFAULT_MODEL_KEY, update.inputContextTokens ?? 16_384, update.compactionMode ?? "balanced", JSON.stringify(update.activeContext ?? {}), JSON.stringify(update.sourceReferences ?? []), update.transcript === undefined ? null : JSON.stringify(update.transcript)],
 			);
 			return result.rows[0];
 		} finally { client.release(); }
@@ -201,7 +211,7 @@ export class PlaygroundSessionsService {
 		const client = await this.db.getPool().connect();
 		try {
 			const result = await client.query(
-				`SELECT session_uuid, title, model_key, input_context_tokens, compaction_mode, active_context, source_references, created_at, updated_at
+				`SELECT session_uuid, title, model_key, input_context_tokens, compaction_mode, active_context, source_references, transcript, created_at, updated_at
 				 FROM playground_sessions WHERE session_uuid = $1 AND account_id = $2 AND is_active = TRUE`,
 				[uuid, accountId],
 			);
@@ -222,6 +232,7 @@ export class PlaygroundSessionsService {
 		if (update.compactionMode !== undefined) bind("compaction_mode", update.compactionMode);
 		if (update.activeContext !== undefined) bind("active_context", JSON.stringify(update.activeContext));
 		if (update.sourceReferences !== undefined) bind("source_references", JSON.stringify(update.sourceReferences));
+		if (update.transcript !== undefined) bind("transcript", JSON.stringify(update.transcript));
 		const client = await this.db.getPool().connect();
 		try {
 			const result = await client.query(
@@ -239,7 +250,7 @@ export class PlaygroundSessionsService {
 		const client = await this.db.getPool().connect();
 		try {
 			const result = await client.query(
-				`UPDATE playground_sessions SET is_active = FALSE, updated_at = NOW()
+				`UPDATE playground_sessions SET is_active = FALSE, updated_at = NOW(), transcript = NULL, active_context = '{}'::jsonb, source_references = '[]'::jsonb, title = 'Deleted conversation'
 				 WHERE session_uuid = $1 AND account_id = $2 AND is_active = TRUE RETURNING id`,
 				[uuid, accountId],
 			);

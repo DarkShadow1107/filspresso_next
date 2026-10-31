@@ -15,6 +15,19 @@ namespace Filspresso.Core.Tests;
 
 public sealed class SavedSessionsTests
 {
+    [Fact]
+    public void TranscriptRoundTripsToolActivityAndWebMetadata()
+    {
+        const string json = "{\"session_uuid\":\"00000000-0000-4000-8000-000000000001\",\"transcript\":[{\"id\":\"m1\",\"role\":\"assistant\",\"content\":\"  reply\\n\",\"tools\":[{\"id\":\"c1\",\"name\":\"web_search\",\"arguments\":\"{}\",\"status\":\"finished\",\"result\":\"ok\"}],\"inputTokens\":42}]}";
+        var session = JsonSerializer.Deserialize<SavedSession>(json)!;
+        var message = Assert.Single(session.Transcript!);
+        Assert.Equal("  reply\n", message.Content);
+        Assert.Equal("web_search", Assert.Single(message.Tools!).Name);
+        var roundTrip = JsonSerializer.Serialize(new SessionWrite { Transcript = session.Transcript });
+        using var document = JsonDocument.Parse(roundTrip);
+        Assert.Equal(42, document.RootElement.GetProperty("transcript")[0].GetProperty("inputTokens").GetInt32());
+    }
+
     private sealed class Handler : HttpMessageHandler
     {
         private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>> _reply;

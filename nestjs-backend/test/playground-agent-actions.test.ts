@@ -18,6 +18,7 @@ import type { PlaygroundRunEventsService } from "../src/desktop/playground-run-e
 import type { BillingService } from "../src/billing/billing.service";
 import type { AddonsService } from "../src/billing/addons.service";
 import type { AgentCall, AgentRequest, AgentReply } from "../src/desktop/playground-agent-contract";
+import type { DesktopWebService } from "../src/desktop/desktop-web.service";
 
 const fixture = JSON.parse(readFileSync(join(__dirname, "../../tests/fixtures/playground-agent.json"), "utf8"));
 const sandboxId = "00000000-0000-4000-8000-000000000042";
@@ -31,7 +32,7 @@ async function enabled(work: () => Promise<void>) {
 	Object.assign(process.env, values);
 	try { await work(); } finally { for (const key of Object.keys(values)) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } }
 }
-function setup() {
+function setup(web?: DesktopWebService) {
 	const tickets = new PlaygroundAgentTicketsService(); const rows: Array<Record<string, unknown>> = []; const sql: Array<{ text: string; values: unknown[] }> = [];
 	let failClaim = false, failCommit = false; const calls: string[] = []; const recorded: Array<{ kind: string; options: unknown }> = [];
 	const pool = { query: async (text: string, values: unknown[] = []) => {
@@ -69,7 +70,7 @@ function setup() {
 	const observed = new EventEmitter();
 	const events = { record: async (_account: number, _run: string, kind: string, options: unknown) => { recorded.push({ kind, options }); observed.emit(kind); } } as unknown as PlaygroundRunEventsService;
 	const waitForEvent = async (kind: string) => { if (!recorded.some(event => event.kind === kind)) await once(observed, kind, { signal: AbortSignal.timeout(3000) }); };
-	const service = new PlaygroundAgentActionsService({ getPool: () => pool } as unknown as DatabaseService, tickets, broker as unknown as PlaygroundSandboxService, events);
+	const service = new PlaygroundAgentActionsService({ getPool: () => pool } as unknown as DatabaseService, tickets, broker as unknown as PlaygroundSandboxService, events, web);
 	const prepare = async (call = write) => {
 		const { request, reply } = build(call); const ticket = tickets.issue(42, request, reply, runId, "playground")[0].token;
 		return service.prepare(42, { ticket, sandboxId, call });
@@ -117,6 +118,23 @@ test("a denied action is consumed without broker dispatch or fabricated executio
 	assert.equal(result.executed, false); assert.equal(state.rows[0].status, "declined"); assert.equal(state.calls.some(value => value.startsWith("PUT")), false);
 	assert.equal(state.recorded.some(event => event.kind === "tool.started"), false);
 	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write }), ConflictException);
+}));
+
+test("web search is ticket-bound, requires approval and uses the hosted provider once", async () => enabled(async () => {
+	const queries: string[] = [];
+	const web = { search: async (query: string) => { queries.push(query); return [{ title: "Example", url: "https://example.com/", snippet: "Result" }]; } } as unknown as DesktopWebService;
+	const state = setup(web);
+	const call: AgentCall = { id: "search1", name: "web_search", arguments: '{"query":"coffee"}' };
+	assert.equal(executableCall(call, "plan").effect, "read_only");
+	const action = await state.prepare(call);
+	assert.equal(action.requiresApproval, true);
+	assert.deepEqual(queries, []);
+	const result = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call });
+	assert.equal(result.executed, true);
+	assert.deepEqual(queries, ["coffee"]);
+	assert.match(JSON.stringify(result), /example\.com/);
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call }), ConflictException);
+	assert.deepEqual(queries, ["coffee"]);
 }));
 
 test("concurrent approve/execute requests dispatch once and trust only observed broker output", async () => enabled(async () => {

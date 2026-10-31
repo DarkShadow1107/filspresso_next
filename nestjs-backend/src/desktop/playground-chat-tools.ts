@@ -1,16 +1,8 @@
 /**
- * Two deterministic "tools" the Playground chat can exercise without a function-calling
- * loop: optional web grounding, and document creation.
+ * Shared bounded search-result sanitization and document extraction helpers.
  *
- * Neither one asks the model to emit a tool-choice JSON blob. The generation models the
- * Playground serves are small (the 230M default above all), and a function-calling protocol
- * is exactly the kind of thing a small model cannot be trusted to produce. So both tools are
- * plain boundaries in the stream instead:
- *
- * - Web grounding runs BEFORE generation. The user's message is the query, the server
- *   performs the search through the same provider the desktop's `web_search` tool uses, and
- *   the sources are injected into the system prompt as quoted, dated, numbered context. The
- *   model cannot choose what to search for, so it cannot steer the search inward.
+ * The legacy grounding formatting helpers below are retained for compatibility tests only;
+ * the gateway no longer invokes them. Web searches now use the agent action boundary.
  * - Documents are detected in the finished answer as a fenced block. The fence is parsed
  *   server-side after the frame that ends the generation, and only exact, bounded matches
  *   are saved -- anything that does not parse stays visible in the chat as ordinary text

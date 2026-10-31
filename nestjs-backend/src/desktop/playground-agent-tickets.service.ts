@@ -24,16 +24,17 @@ function workspacePath(value: string): boolean {
 /** Execution policy is fixed by the SERVER, never by a caller's tool effect/schema. */
 export function executableCall(raw: unknown, mode: "plan" | "build"): ExecutableCall {
 	if (!object(raw) || Object.keys(raw).some(key => !["id", "name", "arguments"].includes(key)) || typeof raw.id !== "string" || !CALL.test(raw.id) ||
-		typeof raw.name !== "string" || !["read_file", "write_file", "run_command"].includes(raw.name) || (mode !== "plan" && mode !== "build") || (mode === "plan" && raw.name !== "read_file")) throw new Error("Invalid executable tool.");
+		typeof raw.name !== "string" || !["read_file", "write_file", "run_command", "web_search"].includes(raw.name) || (mode !== "plan" && mode !== "build") || (mode === "plan" && raw.name !== "read_file" && raw.name !== "web_search")) throw new Error("Invalid executable tool.");
 	const parsed = parseAgentArguments(raw.arguments);
-	const fields = raw.name === "read_file" ? ["path"] : raw.name === "write_file" ? ["path", "text"] : ["command"];
+	const fields = raw.name === "read_file" ? ["path"] : raw.name === "write_file" ? ["path", "text"] : raw.name === "web_search" ? ["query"] : ["command"];
 	if (Object.keys(parsed).length !== fields.length || fields.some(key => typeof parsed[key] !== "string")) throw new Error("Invalid executable arguments.");
 	const args = parsed as Record<string, string>;
-	if (raw.name !== "run_command" && !workspacePath(args.path)) throw new Error("Invalid workspace path.");
+	if ((raw.name === "read_file" || raw.name === "write_file") && !workspacePath(args.path)) throw new Error("Invalid workspace path.");
+	if (raw.name === "web_search" && (!args.query.trim() || Array.from(args.query).length > 512)) throw new Error("Invalid search query.");
 	if (raw.name === "write_file" && Array.from(args.text).length > 12_000) throw new Error("File proposal too large.");
 	if (raw.name === "run_command" && (!args.command.trim() || Array.from(args.command).length > 4000)) throw new Error("Invalid command.");
 	return { call: { id: raw.id, name: raw.name, arguments: raw.arguments as string }, args,
-		effect: raw.name === "read_file" ? "read_only" : raw.name === "write_file" ? "mutation" : "execution" };
+		effect: raw.name === "read_file" || raw.name === "web_search" ? "read_only" : raw.name === "write_file" ? "mutation" : "execution" };
 }
 
 /** Short-lived, account/call/digest-bound MODEL evidence, not consent. Nothing retains raw

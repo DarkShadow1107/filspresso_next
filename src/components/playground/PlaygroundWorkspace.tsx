@@ -15,35 +15,23 @@ import DesktopAppDownload from "./DesktopAppDownload";
 import WorkspaceIcon from "./WorkspaceIcon";
 import { AttachmentMenu, GithubProjectDialog, SourceList, usePlaygroundSources, type SourceContext } from "./PlaygroundSources";
 import { COMPACTION_OPTIONS, compactionMode, type ContextState } from "@/lib/playgroundContext";
-import { deleteServerSession, getServerSession, listServerSessions, preferencesForServerSession, saveServerSession, type SavedSession } from "@/lib/playgroundSessions";
+import { deleteServerSession, getServerSession, listServerSessions, preferencesForServerSession, saveServerSession, type SavedSession, type SavedMessage, type SavedToolActivity } from "@/lib/playgroundSessions";
 import PlaygroundRuntime from "./PlaygroundRuntime";
 import PlaygroundRunHistory from "./PlaygroundRunHistory";
 import PlaygroundAgentReview from "./PlaygroundAgentReview";
 import { AgentInteractions, InlineAgentWorkspace } from "./PlaygroundAgentWorkspace";
 import { HostedAgentWorkspace, agentResultText } from "@/lib/playgroundHostedAgent";
 import { conversationContext } from "@/lib/playgroundConversationContext";
+import { displayToolText } from "@/lib/playgroundToolText";
 import { readAccountSession } from "@/lib/accountSession";
 import WorkspacePicker from "./WorkspacePicker";
 import PlaygroundHelp from "./PlaygroundHelp";
 import { downloadDocument, createDocument, type DocumentFrame } from "@/lib/playgroundDocuments";
 
 type WebSource = { title: string; url: string; snippet: string };
-type Message = {
-	id: string;
-	role: "user" | "assistant";
-	content: string;
-	reasoning?: string;
-	model?: PlaygroundPreferences["model"];
-	failed?: boolean;
-	seconds?: number;
-	outputTokens?: number;
-	inputTokens?: number;
-	sources?: SourceContext[];
-	webSources?: WebSource[];
-	documents?: DocumentFrame[];
-};
+type Message = SavedMessage;
 type Conversation = { id: string; title: string; messages: Message[] };
-type StreamEvent = { delta?: string; reasoning?: string; notice?: string; error?: string; context?: ContextState; usage?: { completion_tokens?: number; prompt_tokens?: number }; sources?: WebSource[]; document?: DocumentFrame };
+type StreamEvent = { delta?: string; reasoning?: string; notice?: string; error?: string; done?: boolean; context?: ContextState; usage?: { completion_tokens?: number; prompt_tokens?: number }; sources?: WebSource[]; document?: DocumentFrame };
 const PREFERENCES_KEY = "filspresso_playground_preferences_v2";
 const titleFor = (messages: Message[]) => messages.find((message) => message.role === "user")?.content.slice(0, 54) || "New conversation";
 /** "294 t/s" — output divided by measured wall time, computed for display only. */
@@ -88,6 +76,10 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	// Local conversation id -> server session uuid. In-memory only: a reload starts local
 	// conversations anew, and the server's own list is the only durable resume surface.
 	const sessionIds = useRef(new Map<string, string>());
+	const saveQueues = useRef(new Map<string, Promise<void>>());
+	const legacySessions = useRef(new Set<string>());
+	const legacyContexts = useRef(new Map<string, ContextState>());
+	const accountRevision = useRef(0);
 	const shellRef = useRef<HTMLDivElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const composerRef = useRef<HTMLDivElement>(null);
@@ -104,10 +96,29 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	useEffect(() => {
 		const identity = () => { const account = readAccountSession(); return account?.email || account?.username || null; };
 		let account = identity();
-		const changed = () => { const next = identity(); if (next !== account || !next) { void agent.stop(true); abortRef.current?.abort(); setMessages([]); setInput(""); } account = next; };
+		const changed = () => { const next = identity(); if (next !== account || !next) { accountRevision.current++; sessionIds.current.clear(); checkpoints.current.clear(); legacySessions.current.clear(); legacyContexts.current.clear(); setConversations([]); setServerSessions([]); void agent.stop(true); abortRef.current?.abort(); setMessages([]); setInput(""); } account = next; };
 		window.addEventListener("session-update", changed); window.addEventListener("storage", changed);
 		return () => { window.removeEventListener("session-update", changed); window.removeEventListener("storage", changed); };
 	}, [agent]);
+	// Serialize snapshots per conversation, so a slow create or older PATCH cannot
+	// overwrite a later turn. Failed saves remain visible instead of promising persistence.
+	useEffect(() => {
+		if (streaming || agentBusy || (!messages.length && (!sessionIds.current.has(conversationId) || legacySessions.current.has(conversationId)))) return;
+		const id = conversationId; const revision = accountRevision.current; const snapshot = messages;
+		const previous = saveQueues.current.get(id) ?? Promise.resolve();
+		const next = previous.catch(() => undefined).then(async () => {
+			if (revision !== accountRevision.current) return;
+			const legacyCheckpoint = legacyContexts.current.get(id);
+			const uuid = await saveServerSession({ uuid: sessionIds.current.get(id), title: titleFor(snapshot), model,
+				inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode,
+				activeContext: legacyCheckpoint ?? null, transcript: snapshot });
+			if (revision !== accountRevision.current) return;
+			if (uuid) sessionIds.current.set(id, uuid);
+			else setNotice("This conversation could not be saved. It is still visible here; export it before leaving or retry after checking your connection. Saved transcripts are limited to 200 messages and 700 KB.");
+		});
+		saveQueues.current.set(id, next);
+		void next.finally(() => { if (saveQueues.current.get(id) === next) saveQueues.current.delete(id); });
+	}, [messages, conversationId, streaming, agentBusy, model, preferences.inputContextTokens, preferences.compactionMode]);
 	const recommendations = [
 		attachments.sources.some((source) => source.kind === "video" && source.status !== "error") && !isVisionModelKey(model) ? { key: VISION_MODEL_450M, description: "A Vision-Language (VL) model is recommended for video." } as const : null,
 		attachments.sources.some((source) => source.kind === "audio" && source.status !== "error") && !isAudioModelKey(model) ? { key: AUDIO_MODEL_1_5B, description: "An Audio model is recommended for this audio file." } as const : null,
@@ -126,7 +137,6 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 					inputContextTokens: (CONTEXT_LEVELS as readonly number[]).includes(Number(saved.inputContextTokens ?? saved.maxTokens)) ? Number(saved.inputContextTokens ?? saved.maxTokens) : DEFAULT_PREFERENCES.inputContextTokens,
 					compactionMode: compactionMode(saved.compactionMode),
 					thinking: thinkingAllowed && saved.thinking === true,
-					webResearch: false,
 					textSize: saved.textSize === "small" || saved.textSize === "large" ? saved.textSize : "standard",
 					enterToSend: saved.enterToSend !== false,
 				});
@@ -221,6 +231,18 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		setSidebarOpen(false);
 		attachments.clear();
 	};
+	const forgetConversation = async (localId: string | null, knownUuid?: string) => {
+		const revision = accountRevision.current;
+		const ids = localId ? [localId] : [...sessionIds.current.entries()].filter(([, uuid]) => uuid === knownUuid).map(([id]) => id);
+		setConversations(previous => previous.filter(item => !ids.includes(item.id)));
+		if (localId === conversationId) { setMessages([]); setConversationId(crypto.randomUUID()); setContextState(null); }
+		await Promise.all(ids.map(id => saveQueues.current.get(id) ?? Promise.resolve()));
+		if (revision !== accountRevision.current) return;
+		const uuid = knownUuid ?? (localId ? sessionIds.current.get(localId) : undefined);
+		if (uuid && !await deleteServerSession(uuid)) { setNotice("The saved conversation could not be deleted. Please retry from the saved conversations list."); return; }
+		for (const id of ids) { sessionIds.current.delete(id); checkpoints.current.delete(id); legacySessions.current.delete(id); legacyContexts.current.delete(id); }
+		if (uuid) setServerSessions(previous => previous.filter(item => item.uuid !== uuid));
+	};
 	/**
 	 * Resume a server-saved conversation: keep the context the server retained (the
 	 * compaction checkpoint, the conversation's preferences), not the transcript -- which
@@ -241,9 +263,10 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		savePreferences(preferencesForServerSession(saved, preferences));
 		const nextId = crypto.randomUUID();
 		sessionIds.current.set(nextId, saved.uuid);
-		if (saved.activeContext) checkpoints.current.set(nextId, { ids: [], history: saved.activeContext.history || [], state: saved.activeContext });
+		if (saved.activeContext) { legacySessions.current.add(nextId); legacyContexts.current.set(nextId, saved.activeContext); checkpoints.current.set(nextId, { ids: [], history: saved.activeContext.history || [], state: saved.activeContext }); }
+		else if (!saved.transcript) legacySessions.current.add(nextId);
 		setConversationId(nextId);
-		setMessages([]);
+		setMessages(saved.transcript || []);
 		setContextState(saved.activeContext ? { ...saved.activeContext, inputLimit: saved.activeContext.inputLimit || saved.inputContextTokens } : null);
 		setCompactNext(false);
 		setInput("");
@@ -252,7 +275,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		setSidebarOpen(false);
 		setView("chat");
 		attachments.clear();
-		setNotice(`${saved.activeContext ? "Resumed from the last compaction checkpoint, not the full transcript." : "Restored preferences only: this conversation has no saved compaction checkpoint."}${saved.sourceReferences.length ? " Source references are saved, but source files must be attached again if needed." : ""}`);
+		setNotice(saved.transcript ? "Conversation restored from your account." : `${saved.activeContext ? "This older session has only a compaction checkpoint; the original messages were not stored." : "This older session saved preferences only; the original messages were not stored."}${saved.sourceReferences.length ? " Source files must be attached again if needed." : ""}`);
 		window.requestAnimationFrame(() => inputRef.current?.focus());
 	};
 	const exportConversation = () => {
@@ -343,6 +366,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			const decoder = new TextDecoder();
 			let pending = "";
 			let noticeText = "";
+			let completed = false;
 			const consume = (line: string) => {
 				if (!line.startsWith("data:")) return;
 				const data = line.slice(5).trim();
@@ -350,6 +374,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				let event: StreamEvent;
 				try { event = JSON.parse(data) as StreamEvent; } catch { return; }
 				if (event.error) throw new Error(event.error);
+				if (event.done === true) completed = true;
 				if (event.context) {
 					setContextState(event.context);
 					if (event.context.compacted && event.context.history) {
@@ -374,35 +399,12 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				update({ content: accumulated, reasoning: reasoning || undefined });
 				if (done) { consume(pending); break; }
 			}
+			if (!completed) throw new Error("The response ended before the model reported completion. The partial answer was kept; please retry if needed.");
 			update({ content: accumulated || noticeText || "The model returned no answer.", reasoning: reasoning || undefined, failed: !accumulated, outputTokens, inputTokens: promptTokens, webSources: webSources ?? undefined, documents: documents ?? undefined, seconds: (performance.now() - generationStarted) / 1000 });
 			if (noticeText) setNotice(noticeText);
-			// The conversation's server session: created by the first completed generation and
-			// patched by every later one. The lib swallows failures -- a lost save never costs
-			// a reply -- and the checkpoint is re-validated against the exact history this send
-			// used, so a saved context can never disagree with a conversation the user edited.
-			const persisted = checkpoints.current.get(conversationId);
-			void (async () => {
-				const uuid = await saveServerSession({
-					uuid: sessionIds.current.get(conversationId),
-					title: originalHistory[0]?.content || prompt,
-					model,
-					inputContextTokens: preferences.inputContextTokens,
-					compactionMode: preferences.compactionMode,
-					activeContext: persisted?.ids.every((id, index) => originalHistory[index]?.id === id) ? persisted.state : null,
-					sourceReferences: sources.length ? sources.map(({ name, kind, size, sourceUrl }) => ({ name, kind, size, sourceUrl })) : undefined,
-				});
-				if (uuid) {
-					sessionIds.current.set(conversationId, uuid);
-					// A page session that never stops creating conversations would otherwise
-					// let this map grow without end; stale entries are harmless anyway.
-					if (sessionIds.current.size > 32) {
-						const [oldest] = sessionIds.current.keys();
-						if (oldest) sessionIds.current.delete(oldest);
-					}
-				}
-			})();
 		} catch (error) {
 			const stopped = controller.signal.aborted;
+			if (!stopped) setNotice(error instanceof Error ? error.message : "The request was interrupted. The partial answer was kept.");
 			update({ content: stopped ? accumulated || "Generation stopped." : accumulated || (error instanceof Error ? error.message : "The request failed."), reasoning: reasoning || undefined, failed: !stopped, outputTokens, inputTokens: promptTokens, webSources: webSources ?? undefined, documents: documents ?? undefined, seconds: generationStarted ? (performance.now() - generationStarted) / 1000 : undefined });
 		} finally {
 			if (abortRef.current === controller) { abortRef.current = null; setStreaming(false); }
@@ -426,9 +428,14 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			setInput(""); setNotice(""); setStreaming(true); attachments.clear();
 			const update = () => {
 				const snapshot = agent.getSnapshot(); const events = snapshot.events.slice(firstEvent);
-				const content = events.flatMap(event => event.kind === "message" ? [event.text] : event.kind === "tool.proposed" ? [`Tool · ${event.call.name} (proposed)`] : event.kind === "tool.finished" ? [`Tool result · ${event.invocation.call.name}\n${agentResultText(event.invocation)}`] : event.kind === "question.answered" ? [`Clarification answers (not execution consent): ${JSON.stringify(event.decision.answers)}`] : event.kind === "stopped" ? [`Agent stopped: ${event.message}`] : []).join("\n\n");
+				const content = events.flatMap(event => event.kind === "message" ? [event.text] : event.kind === "question.answered" ? [`Clarification answers (not execution consent): ${JSON.stringify(event.decision.answers)}`] : event.kind === "stopped" ? [`Agent stopped: ${event.message}`] : []).join("\n\n");
+				const tools: SavedToolActivity[] = [];
+				for (const event of events) {
+					if (event.kind === "tool.proposed") tools.push({ id: event.call.id, name: event.call.name, arguments: event.call.arguments, status: "proposed" });
+					if (event.kind === "tool.finished") { const tool = tools.find(item => item.id === event.invocation.call.id); if (tool) { tool.status = "finished"; tool.result = agentResultText(event.invocation); } }
+				}
 				const failure = snapshot.phase === "failed" && snapshot.error && !events.some(event => event.kind === "stopped") ? snapshot.error : "";
-				setMessages(previous => previous.map(message => message.id === id ? { ...message, content: [content, failure].filter(Boolean).join("\n\n"), failed: snapshot.phase === "failed" } : message));
+				setMessages(previous => previous.map(message => message.id === id ? { ...message, content: [content, failure].filter(Boolean).join("\n\n"), tools, failed: snapshot.phase === "failed" } : message));
 			};
 			const unsubscribe = agent.subscribe(update);
 			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }, mode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
@@ -460,7 +467,8 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const filteredConversations = allConversations.filter((chat) => `${chat.title} ${chat.messages.map((message) => message.content).join(" ")}`.toLowerCase().includes(search.toLowerCase()));
 	// The conversation in view is served by its own session row; resuming it into itself
 	// would fork the context, so it is not offered twice.
-	const serverConversations = serverSessions.filter((session) => session.uuid !== sessionIds.current.get(conversationId) && session.title.toLowerCase().includes(search.toLowerCase()));
+	const visibleSessionIds = new Set(allConversations.map(chat => sessionIds.current.get(chat.id)).filter(Boolean));
+	const serverConversations = serverSessions.filter((session) => !visibleSessionIds.has(session.uuid) && session.title.toLowerCase().includes(search.toLowerCase()));
 	const empty = !messages.length;
 	const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
 	const measuredInputTokens = lastAssistant?.inputTokens ?? (contextState ? contextState.tokensAfter : undefined);
@@ -491,17 +499,17 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				<p className="pgw-sidebar-caption">This session</p>
 				<div className="pgw-conversation-list">{filteredConversations.map((chat) => <div className="pgw-conversation-row" key={chat.id} data-active={chat.id === conversationId}>
 					<button type="button" disabled={streaming} onClick={() => openConversation(chat)}>{chat.title}</button>
-					<button type="button" className="pgw-icon-button" disabled={streaming} aria-label={`Delete conversation: ${chat.title}`} onClick={() => { setConversations((previous) => previous.filter((item) => item.id !== chat.id)); if (chat.id === conversationId) { setMessages([]); setConversationId(crypto.randomUUID()); } }}><WorkspaceIcon name="trash" width={15} height={15} /></button>
+					<button type="button" className="pgw-icon-button" disabled={streaming} aria-label={`Delete conversation: ${chat.title}`} onClick={() => void forgetConversation(chat.id)}><WorkspaceIcon name="trash" width={15} height={15} /></button>
 				</div>)}</div>
 				{!filteredConversations.length && <p className="pgw-sidebar-empty">{search ? "No conversations match your search." : "Your conversations will appear here."}</p>}
-				<p className="pgw-sidebar-note">Kept for this page session. Export a conversation to keep a copy.</p>
+				<p className="pgw-sidebar-note">Current-page conversations are saved to your account when possible.</p>
 				{serverConversations.length > 0 && <>
 					<p className="pgw-sidebar-caption">Saved on the server</p>
 					<div className="pgw-conversation-list">{serverConversations.map((session) => <div className="pgw-conversation-row" key={session.uuid}>
 						<button type="button" disabled={streaming} onClick={() => void resumeServerSession(session)}>{session.title}</button>
-						<button type="button" className="pgw-icon-button" disabled={streaming} aria-label={`Forget server-saved conversation: ${session.title}`} onClick={() => { resumeRef.current?.abort(); void deleteServerSession(session.uuid).then((deleted) => { if (deleted) setServerSessions((previous) => previous.filter((item) => item.uuid !== session.uuid)); }); }}><WorkspaceIcon name="trash" width={15} height={15} /></button>
+						<button type="button" className="pgw-icon-button" disabled={streaming} aria-label={`Forget server-saved conversation: ${session.title}`} onClick={() => { resumeRef.current?.abort(); void forgetConversation(null, session.uuid); }}><WorkspaceIcon name="trash" width={15} height={15} /></button>
 					</div>)}</div>
-					<p className="pgw-sidebar-note">Preferences and the last compaction checkpoint resume here. Transcripts stay in your browser.</p>
+					<p className="pgw-sidebar-note">Saved messages and tool activity can be restored here. Older sessions may contain only a checkpoint.</p>
 				</>}
 			</aside>}
 			<div className="pgw-main">
@@ -520,10 +528,13 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 					{!empty && <div className="pgw-scroll" ref={scrollRef} role="log" aria-label="Conversation" aria-busy={streaming}>
 						<div className="pgw-transcript">{messages.map((message, index) => {
 							const isCurrent = streaming && index === messages.length - 1 && message.role === "assistant";
+							const display = message.role === "assistant" ? displayToolText(message.content, isCurrent) : { text: message.content, names: [] };
 							return <article key={message.id} className={`pgw-message pgw-message-${message.role}`} data-failed={message.failed}>
 								{message.role === "user" ? <><p className="pgw-user-text">{message.content}</p>{message.sources?.length ? <div className="pgw-message-sources">{message.sources.map((source, sourceIndex) => <span key={sourceIndex}><WorkspaceIcon name={source.kind === "github" ? "github" : "paperclip"} width={13} />{source.name}</span>)}</div> : null}</> : <>
 									{message.reasoning && <details className="pgw-reasoning"><summary>Thinking</summary><PlaygroundMessageContent text={message.reasoning} /></details>}
-									{message.content ? <PlaygroundMessageContent text={message.content} /> : <p className="pgw-generating" role="status"><span /><span /><span /><em>{modelLoad.isLoading ? "Loading model…" : "Thinking…"}</em></p>}
+									{message.tools?.map(tool => <details className="pgw-tool-activity" key={tool.id}><summary><WorkspaceIcon name="settings" width={15} height={15} /> <strong>{tool.name}</strong><span>{tool.status === "finished" ? "finished" : "proposed"}</span></summary><pre>{tool.arguments}</pre>{tool.result && <pre>{tool.result}</pre>}</details>)}
+									{display.names.map((name, i) => <details className="pgw-tool-activity" key={`${name}:${i}`}><summary><strong>{name}</strong><span>Not executed</span></summary><p>The model wrote tool syntax as text. It was not a verified tool call and was not executed.</p></details>)}
+									{display.text ? <PlaygroundMessageContent text={display.text} /> : isCurrent && !display.names.length ? <p className="pgw-generating" role="status"><span /><span /><span /><em>{modelLoad.isLoading ? "Loading model…" : "Thinking…"}</em></p> : null}
 									{!isCurrent && message.webSources?.length ? <div className="pgw-web-sources" aria-label="Web sources"><span className="pgw-web-sources-label"><WorkspaceIcon name="search" width={13} height={13} /> Web sources</span>{message.webSources.map((source, sourceIndex) => <a key={`${source.url}:${sourceIndex}`} href={source.url} target="_blank" rel="noreferrer nofollow">{source.title}</a>)}</div> : null}
 									{!isCurrent && message.documents?.length ? <div className="pgw-message-docs" aria-label="Saved documents">{message.documents.map((document) => <button key={document.id} type="button" className="pgw-document-chip" title="Download document" onClick={() => void downloadDocument(document.id, document.name)}><WorkspaceIcon name="file" width={13} height={13} /><span>{document.name}</span><em>{formatDocumentBytes(document.bytes)}</em><WorkspaceIcon name="download" width={13} height={13} /></button>)}</div> : null}
 									{!isCurrent && <div className="pgw-message-meta"><span className="pgw-model-badge"><WorkspaceIcon name="model" width={14} height={14} /> {MODEL_LABEL_BY_KEY[message.model || model]}</span>{message.inputTokens !== undefined && <span>{message.inputTokens.toLocaleString()} in</span>}{message.outputTokens !== undefined && <span>{message.outputTokens.toLocaleString()} out</span>}{message.seconds !== undefined && <span>{message.seconds.toFixed(1)} s</span>}{formatTokensPerSecond(message.outputTokens, message.seconds) && <span>{formatTokensPerSecond(message.outputTokens, message.seconds)}</span>}</div>}
@@ -563,7 +574,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 								</div>
 								<div className="pgw-composer-right">
 									{thinkingAllowed && <button type="button" className="pgw-icon-button pgw-thinking-toggle" aria-label="Thinking mode" title={mode !== "chat" ? "Thinking · controlled by the agent model in Plan and Build" : `Thinking · ${preferences.thinking ? "on" : "off"}`} aria-pressed={preferences.thinking} disabled={streaming || agentBusy || mode !== "chat"} onClick={() => savePreferences({ ...preferences, thinking: !preferences.thinking })}><WorkspaceIcon name="brain" width={18} height={18} /></button>}
-									{measuredInputTokens !== undefined && contextPercent !== null && <span className="pgw-context-ring-wrap" title={`Last measured input: ${measuredInputTokens.toLocaleString()} / ${formatContextTokens(measuredInputLimit)}`}><svg className="pgw-context-ring" viewBox="0 0 36 36" width="30" height="30" role="img" aria-label={`Input context ${contextPercent}% used`}><circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3.4" className="pgw-context-ring-track" /><circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="3.4" strokeLinecap="round" strokeDasharray={`${contextPercent} 100`} transform="rotate(-90 18 18)" className="pgw-context-ring-value" data-level={contextPercent >= 80 ? "high" : contextPercent >= 45 ? "elevated" : "ok"} /><text x="18" y="21.5" textAnchor="middle" className="pgw-context-ring-label">{contextPercent}</text></svg></span>}
+									<span className="pgw-context-ring-wrap" title={contextPercent === null || measuredInputTokens === undefined ? "Context usage: not measured yet" : `Last measured input: ${measuredInputTokens.toLocaleString()} / ${formatContextTokens(measuredInputLimit)} · ${contextPercent}%`}><svg className="pgw-context-ring" viewBox="0 0 32 32" width="20" height="20" role="img" aria-label={contextPercent === null ? "Context usage: not measured yet" : `Last measured input context: ${contextPercent}% used`}><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" className="pgw-context-ring-track" /><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" strokeLinecap="round" strokeDasharray={2 * Math.PI * 11} strokeDashoffset={2 * Math.PI * 11 * (1 - (contextPercent ?? 0) / 100)} transform="rotate(-90 16 16)" className="pgw-context-ring-value" data-level={contextPercent !== null && contextPercent >= 95 ? "high" : contextPercent !== null && contextPercent >= 80 ? "elevated" : "ok"} /></svg></span>
 									<WorkspacePicker label="Model" disabled={streaming} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
 									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => { abortRef.current?.abort(); if (mode !== "chat") void agent.stop(); }}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={agentBusy || (!input.trim() && !attachments.contexts.length) || !attachments.ready || (mode !== "chat" && (!agentState.workspace || !agentState.models.includes(model) || agentState.requiresReset))}><WorkspaceIcon name="send" /></button>}
 								</div>

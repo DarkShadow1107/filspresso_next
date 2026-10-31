@@ -4,6 +4,8 @@ import { DatabaseService } from "../database/database.service";
 import { PlaygroundAgentTicketsService, actionDigest, executableCall } from "./playground-agent-tickets.service";
 import { PlaygroundSandboxService } from "./playground-sandbox.service";
 import { PlaygroundRunEventsService, type RunEventKind } from "./playground-run-events.service";
+import { DesktopWebService } from "./desktop-web.service";
+import { sanitizeSearchResults } from "./playground-chat-tools";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -17,7 +19,7 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 	private sweepTimer?: ReturnType<typeof setInterval>;
 	private readonly records = new Map<string, Promise<void>>();
 	constructor(private readonly db: DatabaseService, private readonly tickets: PlaygroundAgentTicketsService,
-		private readonly sandboxes: PlaygroundSandboxService, private readonly events: PlaygroundRunEventsService) {}
+		private readonly sandboxes: PlaygroundSandboxService, private readonly events: PlaygroundRunEventsService, private readonly web?: DesktopWebService) {}
 	onModuleInit() { this.sweepTimer = setInterval(() => { void this.sweep(); }, 60 * 60_000); this.sweepTimer.unref(); }
 	onModuleDestroy() { if (this.sweepTimer) clearInterval(this.sweepTimer); }
 	private async sweep() {
@@ -65,7 +67,7 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 		const row = inserted.rows[0] ?? (await this.db.getPool().query<ActionRow>(`SELECT * FROM playground_agent_actions WHERE account_id=$1 AND model_run_id=$2 AND tool_call_id=$3`, [account, claims.run, proposal.call.id])).rows[0];
 		if (!row || row.status !== "pending" || row.sandbox_id !== raw.sandboxId || row.arguments_sha256 !== claims.digest || row.tool_name !== proposal.call.name || new Date(row.expires_at).getTime() <= Date.now()) throw new ConflictException({ error: "AGENT_ACTION_ALREADY_USED" });
 		return { version: 1, actionId: row.action_id, runId: row.execution_run_id, sandboxId: row.sandbox_id, toolCallId: row.tool_call_id,
-			requiresApproval: row.effect !== "read_only", expiresAt: Math.floor(new Date(row.expires_at).getTime() / 1000) };
+			requiresApproval: row.effect !== "read_only" || row.tool_name === "web_search", expiresAt: Math.floor(new Date(row.expires_at).getTime() / 1000) };
 	}
 	async execute(account: number, id: string, raw: unknown, signal?: AbortSignal) {
 		this.enabled();
@@ -91,14 +93,24 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 			this.record(row, "tool.declined", { approved: false, authority: "authenticated_client_decision", executed: false }, "complete");
 			return { version: 1, actionId: id, status: "declined", executed: false };
 		}
-		this.record(row, "tool.approval", { approved: true, authority: row.effect === "read_only" ? "plan_build_read_policy" : "authenticated_client_decision" });
+		this.record(row, "tool.approval", { approved: true, authority: row.effect === "read_only" && row.tool_name !== "web_search" ? "plan_build_read_policy" : "authenticated_client_decision" });
 		let dispatched = false;
 		try {
 			signal?.throwIfAborted();
 			dispatched = true; const started = performance.now();
 			this.record(row, "tool.started", { authority: "server_dispatch" });
 			let result: { stdout: string; stderr: string; exitCode: number; timedOut: boolean; durationMs?: number };
-			if (proposal.call.name === "run_command") result = await this.sandboxes.agentCommand(account, row.sandbox_id, proposal.args.command, signal);
+			if (proposal.call.name === "web_search") {
+				try {
+					if (!this.web) throw new Error("Web search is unavailable.");
+					const results = sanitizeSearchResults(await this.web.search(proposal.args.query, 5));
+					result = { stdout: JSON.stringify({ results }), stderr: "", exitCode: 0, timedOut: false };
+				} catch {
+					signal?.throwIfAborted();
+					result = { stdout: "", stderr: "Web search is unavailable or the provider refused this request.", exitCode: 1, timedOut: false };
+				}
+			}
+			else if (proposal.call.name === "run_command") result = await this.sandboxes.agentCommand(account, row.sandbox_id, proposal.args.command, signal);
 			else if (proposal.call.name === "read_file") {
 				try {
 					const body = await this.sandboxes.request(account, "GET", `/sandboxes/${row.sandbox_id}/file?${new URLSearchParams({ path: proposal.args.path })}`, undefined, signal);

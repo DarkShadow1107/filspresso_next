@@ -99,63 +99,15 @@ test("document fences parse exactly: unclosed, empty, oversized and extra docume
 	assert.equal(extractPlaygroundDocuments(undefined as never as string).length, 0);
 });
 
-test("web_research grounds the generation, cites first on the wire, and settles the answer usage", async () => {
+test("removed web grounding rejects legacy requests without searching or generating", async () => {
 	const charges: Array<Record<string, unknown>> = [];
-	const seenUpstream: Array<string> = [];
-	const web = { search: async (query: string, limit: number) => {
-		assert.equal(query, "What changed in browsers this month?");
-		assert.equal(limit, 5);
-		return [{ title: "Interop 2026", url: "https://example.com/interop", snippet: "New engine features." },
-			{ title: "Second source", url: "https://example.com/second", snippet: "More detail." }];
-	} };
-	const previousFetch = globalThis.fetch;
-	globalThis.fetch = async (_url, init) => {
-		seenUpstream.push(String((init?.body as { system_prompt?: string; message?: string })?.message));
-		await Promise.resolve();
-		const parsed = JSON.parse(String(init!.body)) as { system_prompt: string };
-		assert.match(parsed.system_prompt, /<web-grounding>\n\r?\s*Web research/);
-		assert.match(parsed.system_prompt, /https:\/\/example\.com\/interop/);
-		return upstreamFrames([{ delta: "Here is the answer." }, { done: true, usage: { prompt_tokens: 123, completion_tokens: 9 } }]);
-	};
-	try {
-		const res = new Reply();
-		const result = await funded(charges, web).streamChat(res as unknown as ExpressResponse, 42, "max", WEB_MODEL, "playground");
-		assert.equal(result.kind, "sent");
-		// The citation chips land before any generated text, so the client can show them
-		// while the model is still thinking.
-		assert.ok(res.body.indexOf('"sources"') >= 0 && res.body.indexOf('"sources"') < res.body.indexOf('"delta"'), res.body.slice(0, 400));
-		assert.match(res.body, /"title":"Interop 2026"/);
-		assert.equal(charges.length, 1);
-		assert.equal(charges[0].usage && (charges[0].usage as Record<string, number>).inputTokens, 123);
-	} finally { globalThis.fetch = previousFetch; }
-});
-
-test("a failed search notices honestly and the answer continues ungrounded", async () => {
-	const charges: Array<Record<string, unknown>> = [];
-	const web = { search: async () => { throw new ServiceUnavailableProbe(); } };
-	const previousFetch = globalThis.fetch;
-	globalThis.fetch = async () => upstreamFrames([{ delta: "Plain answer." }, { done: true, usage: { prompt_tokens: 5, completion_tokens: 1 } }]);
-	try {
-		const res = new Reply();
-		assert.equal((await funded(charges, web).streamChat(res as unknown as ExpressResponse, 42, "max", WEB_MODEL, "playground")).kind, "sent");
-		assert.match(res.body, /ungrounded/);
-		assert.equal(res.body.includes('"sources"'), false);
-		assert.equal(charges.length, 1);
-	} finally { globalThis.fetch = previousFetch; }
-});
-
-class ServiceUnavailableProbe extends Error {}
-
-test("web_research without a search service answers ungrounded instead of failing the stream", async () => {
-	const charges: Array<Record<string, unknown>> = [];
-	const previousFetch = globalThis.fetch;
-	globalThis.fetch = async () => upstreamFrames([{ done: true, usage: { prompt_tokens: 5, completion_tokens: 1 } }]);
-	try {
-		const res = new Reply();
-		assert.equal((await funded(charges).streamChat(res as unknown as ExpressResponse, 42, "max", WEB_MODEL, "playground")).kind, "sent");
-		assert.match(res.body, /not wired into this deployment/);
-		assert.equal(res.body.includes('"sources"'), false);
-	} finally { globalThis.fetch = previousFetch; }
+	let searched = false;
+	const web = { search: async () => { searched = true; return []; } };
+	const result = await funded(charges, web).streamChat(new Reply() as unknown as ExpressResponse, 42, "max", WEB_MODEL, "playground");
+	assert.equal(result.kind, "refused");
+	if (result.kind === "refused") assert.equal(result.error, "WEB_GROUNDING_REMOVED");
+	assert.equal(searched, false);
+	assert.equal(charges.length, 0);
 });
 
 test("a fenced document in a playground reply is stored once and announced before done", async () => {

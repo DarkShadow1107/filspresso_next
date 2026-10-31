@@ -155,7 +155,7 @@ test("shared thread continues in Plan with only read tools and no inherited Buil
 	await state.workspace.run(context, "plan", "Now inspect only");
 	const plan = requests[1] as { mode: string; conversation: unknown[]; tools: { name: string }[] };
 	assert.equal(plan.mode, "plan"); assert.equal(plan.conversation.length, 1);
-	assert.deepEqual(plan.tools.map(tool => tool.name), ["read_file", "question"]);
+	assert.deepEqual(plan.tools.map(tool => tool.name), ["read_file", "web_search", "question"]);
 	assert.equal(state.workspace.getSnapshot().workspace?.id, sandboxId);
 	assert.equal(state.posts.some(post => post.path.endsWith("/execute")), false);
 	await state.workspace.stop();
