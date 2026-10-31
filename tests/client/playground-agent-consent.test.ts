@@ -55,3 +55,12 @@ test("invalid/read-only consent challenges cannot be turned into execution permi
 		assert.equal(queue.getSnapshot(), null);
 	}
 });
+
+test("a public page fetch can request read-only consent only for its exact URL call", async () => {
+	const queue = new AgentConsentQueue();
+	const action = { ...approval(), call: { id: "fetch_1", name: "fetch_page", arguments: '{"url":"https://example.com/"}' }, effect: "read_only" } as AgentApproval;
+	const pending = queue.request(action, new AbortController().signal);
+	assert.equal(queue.getSnapshot()?.call.name, "fetch_page");
+	assert.equal(queue.decide(action.id, true), true);
+	assert.deepEqual(await pending, { approvalId: action.id, approved: true });
+});

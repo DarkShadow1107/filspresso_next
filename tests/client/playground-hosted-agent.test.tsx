@@ -30,7 +30,7 @@ function setup() {
 			if (method === "DELETE") return { stopped: true };
 			const body = raw as { call: NativeCall; approved: boolean };
 			if (path === "/api/playground/agent/actions") {
-				const challenge = { actionId: crypto.randomUUID(), runId: "exec-" + (++sequence).toString(16).padStart(24, "0"), sandboxId, toolCallId: body.call.id, requiresApproval: body.call.name !== "read_file", expiresAt: Math.floor(Date.now() / 1000) + 300 };
+				const challenge = { actionId: crypto.randomUUID(), runId: "exec-" + (++sequence).toString(16).padStart(24, "0"), sandboxId, toolCallId: body.call.id, requiresApproval: !["read_file", "list_files", "list_documents", "read_document"].includes(body.call.name), expiresAt: Math.floor(Date.now() / 1000) + 300 };
 				challenges.set(body.call.id, challenge); return { version: 1, ...challenge };
 			}
 			const challenge = challenges.get(body.call.id)!; assert.ok(challenge);
@@ -134,7 +134,7 @@ test("rendering exposes explicit controls but no startup request, automatic exec
 	let calls = 0; t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error(); });
 	const html = renderToStaticMarkup(<PlaygroundAgentWorkspace context={context} />);
 	assert.equal(calls, 0); assert.match(html, /Check availability to see whether/); assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);
-	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /fresh approval per write\/command/);
+	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /fresh approval for file\/document changes/);
 });
 
 test("idle cleanup never invents a stopped job or billing warning", async () => {
@@ -155,7 +155,7 @@ test("shared thread continues in Plan with only read tools and no inherited Buil
 	await state.workspace.run(context, "plan", "Now inspect only");
 	const plan = requests[1] as { mode: string; conversation: unknown[]; tools: { name: string }[] };
 	assert.equal(plan.mode, "plan"); assert.equal(plan.conversation.length, 1);
-	assert.deepEqual(plan.tools.map(tool => tool.name), ["read_file", "web_search", "question"]);
+	assert.deepEqual(plan.tools.map(tool => tool.name), ["list_files", "read_file", "list_documents", "read_document", "web_search", "fetch_page", "question"]);
 	assert.equal(state.workspace.getSnapshot().workspace?.id, sandboxId);
 	assert.equal(state.posts.some(post => post.path.endsWith("/execute")), false);
 	await state.workspace.stop();

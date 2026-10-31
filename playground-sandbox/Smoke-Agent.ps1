@@ -1,4 +1,4 @@
-param([switch]$SkipBuild, [string]$DockerSocket = '/var/run/docker.sock', [string]$PostgresImage = 'filspresso_next-postgres:latest')
+param([switch]$SkipBuild, [switch]$LiveModel, [string]$DockerSocket = '/var/run/docker.sock', [string]$PostgresImage = 'filspresso_next-postgres:latest')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $name = 'filspresso-agent-check-' + [Guid]::NewGuid().ToString('N').Substring(0, 10)
@@ -6,7 +6,7 @@ $brokerName = "$name-broker"
 $databaseName = "$name-db"
 $brokerPort = Get-Random -Minimum 18000 -Maximum 19000
 $databasePort = Get-Random -Minimum 19000 -Maximum 20000
-$keys = @('PLAYGROUND_SANDBOX_KEY', 'PLAYGROUND_SANDBOX_TEST_URL', 'PLAYGROUND_SANDBOX_NAMESPACE', 'PLAYGROUND_AGENT_TEST_DATABASE_URL', 'PLAYGROUND_AGENT_ACTION_KEY', 'POSTGRES_PASSWORD')
+$keys = @('PLAYGROUND_SANDBOX_KEY', 'PLAYGROUND_SANDBOX_TEST_URL', 'PLAYGROUND_SANDBOX_NAMESPACE', 'PLAYGROUND_AGENT_TEST_DATABASE_URL', 'PLAYGROUND_AGENT_ACTION_KEY', 'PLAYGROUND_AGENT_MODEL_FILES', 'PLAYGROUND_AGENT_EXECUTION_ENABLED', 'PLAYGROUND_AGENT_LIVE_MODEL', 'AI_SERVICE_KEY', 'POSTGRES_PASSWORD')
 $previous = @{}
 foreach ($key in $keys) { $previous[$key] = [Environment]::GetEnvironmentVariable($key, 'Process') }
 $brokerCreated = $false
@@ -21,6 +21,14 @@ try {
     $env:POSTGRES_PASSWORD = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
     $env:PLAYGROUND_SANDBOX_KEY = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
     $env:PLAYGROUND_AGENT_ACTION_KEY = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+    $env:PLAYGROUND_AGENT_MODEL_FILES = 'LFM2.5-230M-Q4_K_M.gguf'
+    $env:PLAYGROUND_AGENT_EXECUTION_ENABLED = 'true'
+    if ($LiveModel) {
+        $aiLine = Get-Content -LiteralPath (Join-Path $root '.env') | Where-Object { $_ -match '^\s*AI_SERVICE_KEY=' } | Select-Object -Last 1
+        if ($null -eq $aiLine -or $aiLine -notmatch '^\s*AI_SERVICE_KEY=(.+)$' -or [string]::IsNullOrWhiteSpace($Matches[1])) { throw 'Live qualification requires AI_SERVICE_KEY in the repository .env file.' }
+        $env:AI_SERVICE_KEY = $aiLine.Substring($aiLine.IndexOf('=') + 1).Trim()
+        $env:PLAYGROUND_AGENT_LIVE_MODEL = 'true'
+    } else { $env:PLAYGROUND_AGENT_LIVE_MODEL = 'false' }
     $env:PLAYGROUND_SANDBOX_NAMESPACE = $name
     $env:PLAYGROUND_SANDBOX_TEST_URL = "http://127.0.0.1:$brokerPort"
     $env:PLAYGROUND_AGENT_TEST_DATABASE_URL = "postgresql://agent_smoke:$env:POSTGRES_PASSWORD@127.0.0.1:$databasePort/agent_smoke"

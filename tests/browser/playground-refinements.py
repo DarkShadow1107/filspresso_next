@@ -108,7 +108,7 @@ try:
         expect(page.get_by_role("button", name="Playground mode")).to_contain_text("Build")
         expect(page.get_by_label("Message", exact=True)).to_have_value("Keep this draft across modes")
         assert composer.evaluate("element => element === document.querySelector('textarea[aria-label=Message]')")
-        expect(page.get_by_role("button", name="Send message")).to_be_disabled()
+        expect(page.get_by_role("button", name="Send message")).to_be_enabled()
         expect(page.get_by_title("Thinking · controlled by the agent model in Plan and Build")).to_be_visible()
         expect(page.locator('[data-icon="brain"]')).to_be_visible()
         page.get_by_role("button", name="Open web instructions").click()
@@ -119,7 +119,7 @@ try:
         page.get_by_role("button", name="Playground mode").click()
         page.get_by_role("menuitemradio", name="Plan", exact=True).click()
         expect(page.get_by_label("Message", exact=True)).to_have_value("Keep this draft across modes")
-        expect(page.get_by_text("Plan · read and explore, no changes or commands", exact=True)).to_be_visible()
+        expect(page.get_by_text("Plan · read and research without changing files", exact=True)).to_be_visible()
         page.get_by_role("button", name="Playground mode").click()
         page.get_by_role("menuitemradio", name="Chat", exact=True).click()
         expect(page.get_by_label("Message", exact=True)).to_have_value("Keep this draft across modes")
@@ -191,10 +191,10 @@ try:
         page.get_by_label("Message", exact=True).fill("Remember this shared thread")
         page.get_by_role("button", name="Send message", exact=True).click()
         expect(page.get_by_text("Fixture paragraph 34.", exact=False)).to_be_visible()
-        native_requests, executions = [], []
+        native_requests, executions, sandbox_requests = [], [], []
         sandbox_id = "00000000-0000-4000-8000-000000000043"
         challenge = {"version": 1, "actionId": str(uuid.uuid4()), "runId": "exec-" + "a" * 24, "sandboxId": sandbox_id,
-                     "toolCallId": "unified_command", "requiresApproval": True, "expiresAt": 4102444800}
+                     "toolCallId": "unified_write", "requiresApproval": True, "expiresAt": 4102444800}
         def agent_fixture(route):
             path = urlparse(route.request.url).path
             body = route.request.post_data_json if route.request.post_data else {}
@@ -205,7 +205,7 @@ try:
                         "interactionProtocols": ["question-v1"], "conversationProtocol": "completed-turns-v1"}
             elif path.endswith("/turn"):
                 native_requests.append(body)
-                calls = [{"id": "unified_command", "name": "run_command", "arguments": '{"command":"fixture-only"}'}] if body["mode"] == "build" and not body["history"] else []
+                calls = [{"id": "unified_write", "name": "write_file", "arguments": '{"path":"fixture.txt","text":"fixture-only"}'}] if body["mode"] == "build" and not body["history"] else []
                 data = {"version": 1, "runId": "dsk-" + str(len(native_requests)).zfill(24), "settlement": "succeeded", "text": "Plan fixture answer" if body["mode"] == "plan" else "Build fixture answer",
                         "finish_reason": "tool_calls" if calls else "stop", "tool_calls": calls, "usage": {"prompt_tokens": 100, "completion_tokens": 10},
                         "action_tickets": [{"tool_call_id": c["id"], "token": "e30." + "a" * 43, "expires_at": 4102444800} for c in calls]}
@@ -217,21 +217,19 @@ try:
                 data = challenge
             route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
         def sandbox_fixture(route):
+            sandbox_requests.append((route.request.method, urlparse(route.request.url).path))
             data = {"stopped": True} if route.request.method == "DELETE" else {"id": sandbox_id, "location": "hosted-docker", "network": "disabled", "workspace": "/workspace", "ephemeral": True, "policyVersion": 2}
             route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
         page.route("**/api/playground/agent/**", agent_fixture)
         page.route("**/api/playground/sandbox**", sandbox_fixture)
         page.get_by_role("button", name="Playground mode").click()
         page.get_by_role("menuitemradio", name="Plan", exact=True).click()
-        page.locator(".pgw-workspace-options > summary").click()
-        page.get_by_role("button", name="Check availability", exact=True).click()
-        expect(page.get_by_role("button", name="Start workspace", exact=True)).to_be_enabled()
-        page.get_by_role("button", name="Start workspace", exact=True).click()
         page.get_by_label("Message", exact=True).fill("Plan from the earlier chat")
         page.get_by_role("button", name="Send message", exact=True).click()
         expect(page.get_by_text("Plan fixture answer", exact=True)).to_be_visible()
+        assert ("POST", "/api/playground/sandbox") in sandbox_requests, "sending an agent prompt should start its isolated workspace automatically"
         assert native_requests[0]["conversation"][0]["message"] == "Remember this shared thread"
-        assert all(tool["name"] in ["read_file", "question"] for tool in native_requests[0]["tools"])
+        assert [tool["name"] for tool in native_requests[0]["tools"]] == ["list_files", "read_file", "list_documents", "read_document", "web_search", "fetch_page", "question"]
         page.get_by_role("button", name="Playground mode").click()
         page.get_by_role("menuitemradio", name="Build", exact=True).click()
         page.get_by_label("Message", exact=True).fill("Build after planning")
@@ -250,7 +248,7 @@ try:
         page.get_by_role("button", name="New conversation", exact=True).click()
         assert errors == [], errors
         browser.close()
-        print("PASS: shared composer/draft/thread, Chat/Plan/Build context, read-only Plan tools, fresh Build denial, responsive layout, brain tooltip and compact unsigned dialog. APIs/model/actions are fixtures; no live execution.")
+        print("PASS: shared composer/draft/thread, Chat/Plan/Build context, automatic isolated workspace startup, read-only Plan tools, fresh Build denial, responsive layout, brain tooltip and compact unsigned dialog. APIs/model/actions are fixtures; no live execution.")
 finally:
     server.shutdown()
     server.server_close()

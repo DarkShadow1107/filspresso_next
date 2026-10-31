@@ -195,6 +195,10 @@ test("the documents service rejects oversized content and scopes every statement
 	await assert.rejects(service.get(42, "00000000-0000-4000-8000-000000000000"), /DOCUMENT_NOT_FOUND|not found|Not Found/i);
 	const listed = await service.list(42, 999);
 	assert.equal(listed.documents.length, 0);
+	await service.delete(42, "00000000-0000-4000-8000-000000000011", "My report");
+	const deleted = created.find(entry => entry.sql.startsWith("DELETE"))!;
+	assert.match(deleted.sql, /account_id = \$1.*id = \$2::uuid.*name = \$3/s);
+	assert.deepEqual(deleted.values, [42, "00000000-0000-4000-8000-000000000011", "My report"]);
 });
 
 test("bootstrap and SQL migration share the same documents schema", () => {

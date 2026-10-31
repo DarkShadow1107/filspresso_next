@@ -448,13 +448,16 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			const update = () => {
 				const snapshot = agent.getSnapshot(); const events = snapshot.events.slice(firstEvent);
 				const content = events.flatMap(event => event.kind === "message" ? [event.text] : event.kind === "question.answered" ? [`Clarification answers (not execution consent): ${JSON.stringify(event.decision.answers)}`] : event.kind === "stopped" ? [`Agent stopped: ${event.message}`] : []).join("\n\n");
+				const receipts = events.filter((event): event is Extract<(typeof events)[number], { kind: "model.receipt" }> => event.kind === "model.receipt");
+				const inputTokens = receipts.at(-1)?.usage.prompt_tokens;
+				const outputTokens = receipts.reduce((total, receipt) => total + receipt.usage.completion_tokens, 0);
 				const tools: SavedToolActivity[] = [];
 				for (const event of events) {
 					if (event.kind === "tool.proposed") tools.push({ id: event.call.id, name: event.call.name, arguments: event.call.arguments, status: "proposed" });
 					if (event.kind === "tool.finished") { const tool = tools.find(item => item.id === event.invocation.call.id); if (tool) { tool.status = "finished"; tool.result = agentResultText(event.invocation); } }
 				}
 				const failure = snapshot.phase === "failed" && snapshot.error && !events.some(event => event.kind === "stopped") ? snapshot.error : "";
-				setMessages(previous => previous.map(message => message.id === id ? { ...message, content: [content, failure].filter(Boolean).join("\n\n"), tools, failed: snapshot.phase === "failed" } : message));
+				setMessages(previous => previous.map(message => message.id === id ? { ...message, content: [content, failure].filter(Boolean).join("\n\n"), tools, inputTokens, outputTokens, failed: snapshot.phase === "failed" } : message));
 			};
 			const unsubscribe = agent.subscribe(update);
 			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }, runMode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
@@ -492,7 +495,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const empty = !messages.length;
 	const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
 	const measuredInputTokens = lastAssistant?.inputTokens ?? (contextState ? contextState.tokensAfter : undefined);
-	const measuredInputLimit = contextState?.inputLimit || preferences.inputContextTokens;
+	const measuredInputLimit = preferences.inputContextTokens;
 	const contextPercent = measuredInputTokens !== undefined && measuredInputLimit > 0
 		? Math.min(100, Math.max(0, Math.round((measuredInputTokens / measuredInputLimit) * 100)))
 		: null;
