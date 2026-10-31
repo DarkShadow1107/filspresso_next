@@ -14,7 +14,7 @@ const context = { model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 };
 const sandboxId = "00000000-0000-4000-8000-000000000042";
 const sandbox = { id: sandboxId, location: "hosted-docker", network: "disabled", workspace: "/workspace", ephemeral: true, policyVersion: 2 };
 const write: NativeCall = { id: "write_1", name: "write_file", arguments: '{"path":"main.py","text":"print(1)"}' };
-const command: NativeCall = { id: "run_1", name: "run_command", arguments: '{"command":"python3 main.py"}' };
+const command: NativeCall = { id: "run_1", name: "write_file", arguments: '{"path":"result.txt","text":"result"}' };
 let sequence = 0;
 const response = (calls: NativeCall[] = []): NativeAgentReply => ({ version: 1, runId: "dsk-" + (++sequence).toString(16).padStart(24, "0"), settlement: "succeeded", text: calls.length ? "Proposed." : "Finished.", finish_reason: calls.length ? "tool_calls" : "stop", tool_calls: calls,
 	usage: { prompt_tokens: 100, completion_tokens: 10 }, action_tickets: calls.map(call => ({ tool_call_id: call.id, token: "e30." + "a".repeat(43), expires_at: Math.floor(Date.now() / 1000) + 300 })) });

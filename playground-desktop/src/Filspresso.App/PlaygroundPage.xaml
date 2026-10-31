@@ -26,7 +26,7 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-                <TextBlock Grid.Row="6" Text="Messages, source text and tool activity are saved to your account when possible. Export a conversation for a local copy. Older saved sessions may contain only a checkpoint." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
+                <TextBlock Grid.Row="6" Text="Desktop conversations and tool activity are stored on this device, not synced to your account. Export a conversation for a backup." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
             </Grid>
         </Border>
         <Grid Grid.Column="1" RowDefinitions="Auto,*">

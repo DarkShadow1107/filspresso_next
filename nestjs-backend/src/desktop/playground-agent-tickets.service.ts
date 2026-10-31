@@ -51,6 +51,7 @@ export class PlaygroundAgentTicketsService {
 		if (!this.configured() || !this.modelEnabled(request.model) || !RUN.test(run) || !Number.isSafeInteger(account) || account <= 0) return [];
 		const expires = Math.floor(Date.now() / 1000) + ACTION_TTL_SECONDS;
 		return reply.tool_calls.flatMap(call => {
+			if (scope === "playground" && call.name === "run_command") return [];
 			try { executableCall(call, request.mode); } catch { return []; }
 			const claims: ActionClaims = { version: 1, account, run, model: request.model, mode: request.mode, call: call.id, name: call.name,
 				digest: actionDigest(call), expires, session: request.session_uuid ?? null, scope };
@@ -69,6 +70,7 @@ export class PlaygroundAgentTicketsService {
 			!Number.isSafeInteger(claims.expires) || claims.expires <= now || claims.expires > now + ACTION_TTL_SECONDS ||
 			(claims.session !== null && !UUID.test(claims.session)) || !["desktop", "playground"].includes(claims.scope)) throw new Error("Expired or mismatched model ticket.");
 		const proposal = executableCall(rawCall, claims.mode);
+		if (claims.scope === "playground" && proposal.call.name === "run_command") throw new Error("Web agent command execution is disabled.");
 		if (proposal.call.id !== claims.call || proposal.call.name !== claims.name || actionDigest(proposal.call) !== claims.digest) throw new Error("The action differs from the settled model proposal.");
 		return { claims, proposal };
 	}

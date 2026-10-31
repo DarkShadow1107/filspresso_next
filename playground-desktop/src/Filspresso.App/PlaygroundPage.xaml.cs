@@ -37,6 +37,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     private bool _rendering;
     private bool _refreshing;
     private bool _disposed;
+    private string? _displayAccount;
     private int? _editingFrom;
     private bool _thinking;
     private string _suggestionState = string.Empty;
@@ -58,12 +59,13 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     private AgentWorkspacePage? _agent;
     private bool AgentBusy => _agent?.IsBusy == true;
     private bool AgentMode => ChatModePicker.SelectedIndex > 0;
-    public string? SavedSessionUuid => _sessionUuids.GetValueOrDefault(_conversationId);
+    public string? SavedSessionUuid => null; // Desktop conversations are never server sessions.
 
     public PlaygroundPage(AppServices services, PlaygroundSession session)
     {
         _services = services;
         _session = session;
+        _displayAccount = services.Auth.Current?.Email;
         InitializeComponent();
         Transcript.ItemsSource = _transcript;
         SourcesList.ItemsSource = _sources;
@@ -93,7 +95,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         RememberConversation();
         RenderConversations();
         if (search) ConversationSearch.Focus(FocusState.Programmatic);
-        _ = RefreshServerSessionsAsync();
+        _ = RefreshLocalConversationsAsync();
     }
 
     public void NewConversation()
@@ -114,7 +116,18 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         PromptBox.Focus(FocusState.Programmatic);
     }
 
-    private void OnSessionChanged(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => { if (!_disposed) Render(); });
+    private void OnSessionChanged(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (_disposed) return;
+        var account = _services.Auth.Current?.Email;
+        if (!string.Equals(account, _displayAccount, StringComparison.OrdinalIgnoreCase))
+        {
+            _inFlight?.Cancel(); ResetAgent(); _transcript.Clear(); _conversations.Clear();
+            _checkpoints.Clear(); _legacyContexts.Clear(); _sessionUuids.Clear(); _serverSessions.Clear();
+            _conversationId = Guid.NewGuid().ToString(); _displayAccount = account; ClearSources();
+        }
+        Render();
+    });
     private void OnPreferencesChanged(object? sender, EventArgs args) { ApplyPreferences(); Render(); }
 
     private void ApplyPreferences()
@@ -428,7 +441,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
             await foreach (var update in _session.SendAsync(prompt, selected.ModelKey,
                 inputContextTokens: preferences.InputContextTokens, contexts: sources, history: history,
                 compactionMode: preferences.CompactionMode, compactNow: _compactNext,
-                sessionUuid: _sessionUuids.TryGetValue(_conversationId, out var sessionUuid) ? sessionUuid : null,
+                sessionUuid: null,
                 thinking: _thinking && _services.Entitlement?.Tier is "max" or "ultimate",
                 cancellationToken: cancellation.Token))
             {
@@ -528,7 +541,6 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
     {
         var conversationId = _conversationId;
         var account = _services.Auth.Current?.Email;
-        var checkpoint = _legacyContexts.GetValueOrDefault(conversationId);
         var title = _transcript.FirstOrDefault(line => line.IsUser)?.Text ?? fallbackTitle;
         var write = new SessionWrite
         {
@@ -536,7 +548,6 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
             Model = modelKey,
             InputContextTokens = preferences.InputContextTokens,
             CompactionMode = preferences.CompactionMode,
-            ActiveContext = checkpoint,
             SourceReferences = sources.Length > 0 ? sources.Where(source => !string.IsNullOrWhiteSpace(source.Name)).Select(source =>
                 new SavedSourceReference { Name = source.Name, Kind = source.Kind, Size = source.Size, SourceUrl = source.SourceUrl }).ToArray() : null,
             Transcript = _transcript.Select(line => (line.Saved ?? new SavedTranscriptMessage { Id = line.Id }) with
@@ -550,20 +561,11 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         try
         {
             if (_disposed || account is null || _services.Auth.Current?.Email != account) return;
-            var result = await _services.SaveSavedSessionAsync(_sessionUuids.TryGetValue(conversationId, out var uuid) ? uuid : null, write);
-            if (_disposed || _services.Auth.Current?.Email != account) return;
-            if (!result.Ok || result.Value is null)
-            {
-                if (!_disposed) ShowSourceError("Conversation could not be saved. Export it before leaving; the limit is 200 messages and 700 KB.");
-                return;
-            }
-            _sessionUuids[conversationId] = result.Value;
+            await Task.Run(() => _services.ConversationsStore.Save(account, new LocalConversation(conversationId, title, DateTimeOffset.UtcNow, write.Transcript!)));
         }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
+        { if (!_disposed) ShowSourceError("The conversation could not be saved on this device. Export it before closing, and check disk access and space."); }
         finally { _saveLock.Release(); }
-        // A page session that never stops creating conversations would otherwise let this
-        // map grow without end; stale entries are harmless, and the server's list stays the
-        // durable record of which conversations exist.
-        if (_sessionUuids.Count > 32) _sessionUuids.Remove(_sessionUuids.Keys.First());
     }
 
     private TranscriptLine CreateLine(bool isUser, string role, string text) => new(isUser, role, text)
@@ -591,8 +593,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         if (_inFlight is null && (sender as Button)?.Tag is TranscriptLine line)
         {
             _transcript.Remove(line); _editingFrom = null; EditingPanel.Visibility = Visibility.Collapsed; UpdateChatLayout();
-            if (_sessionUuids.ContainsKey(_conversationId))
-                await PersistServerSessionAsync(Array.Empty<PreparedSource>(), _services.Preferences.ModelKey, "Conversation", _services.Preferences);
+            await PersistServerSessionAsync(Array.Empty<PreparedSource>(), _services.Preferences.ModelKey, "Conversation", _services.Preferences);
         }
     }
 
@@ -602,7 +603,6 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         _conversations.RemoveAll(chat => chat.Id == _conversationId);
         var title = _transcript.FirstOrDefault(line => line.IsUser)?.Text ?? "Conversation";
         _conversations.Insert(0, new(_conversationId, title[..Math.Min(54, title.Length)], _transcript.ToArray()));
-        if (_conversations.Count > 30) _conversations.RemoveAt(_conversations.Count - 1);
     }
     private void RenderConversations()
     {
@@ -611,7 +611,33 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
             chat.Title.Contains(ConversationSearch.Text, StringComparison.OrdinalIgnoreCase) ||
             chat.Messages.Any(line => line.Text.Contains(ConversationSearch.Text, StringComparison.OrdinalIgnoreCase))).ToArray();
         _rendering = false;
-        RenderServerConversations();
+    }
+
+    private async Task RefreshLocalConversationsAsync()
+    {
+        var account = _services.Auth.Current?.Email;
+        if (_disposed || string.IsNullOrWhiteSpace(account)) return;
+        try
+        {
+            var saved = await Task.Run(() => _services.ConversationsStore.List(account));
+            if (_disposed || _services.Auth.Current?.Email != account) return;
+            foreach (var item in saved)
+            {
+                if (item.Id == _conversationId || _conversations.Any(chat => chat.Id == item.Id)) continue;
+                var lines = item.Messages.Where(message => message.Role is "user" or "assistant" && message.Content is not null).Select(message =>
+                {
+                    var label = message.Role == "user" ? "You" : _session.Catalogue.Models.FirstOrDefault(model => model.ModelKey == message.Model)?.Label ?? "Model";
+                    var line = CreateLine(message.Role == "user", label, message.Content);
+                    line.Saved = message; line.Reasoning = message.Reasoning ?? string.Empty;
+                    line.Sources = message.Sources ?? Array.Empty<PreparedSource>(); line.Tools = message.Tools;
+                    return line;
+                }).ToArray();
+                _conversations.Add(new Conversation(item.Id, item.Title, lines));
+            }
+            RenderConversations();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { if (!_disposed) ShowSourceError("Local conversations could not be read. Check disk access."); }
     }
 
     /// <summary>

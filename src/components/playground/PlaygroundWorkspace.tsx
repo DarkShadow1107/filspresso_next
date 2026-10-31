@@ -19,10 +19,11 @@ import { deleteServerSession, getServerSession, listServerSessions, preferencesF
 import PlaygroundRuntime from "./PlaygroundRuntime";
 import PlaygroundRunHistory from "./PlaygroundRunHistory";
 import PlaygroundAgentReview from "./PlaygroundAgentReview";
-import { AgentInteractions, InlineAgentWorkspace } from "./PlaygroundAgentWorkspace";
+import { AgentInteractions } from "./PlaygroundAgentWorkspace";
 import { HostedAgentWorkspace, agentResultText } from "@/lib/playgroundHostedAgent";
 import { conversationContext } from "@/lib/playgroundConversationContext";
 import { displayToolText } from "@/lib/playgroundToolText";
+import { explicitlyRequestsWebSearch } from "@/lib/playgroundToolIntent";
 import { readAccountSession } from "@/lib/accountSession";
 import WorkspacePicker from "./WorkspacePicker";
 import PlaygroundHelp from "./PlaygroundHelp";
@@ -87,6 +88,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
 	const abortRef = useRef<AbortController | null>(null);
+	const agentStartingRef = useRef(false);
 	const resumeRef = useRef<AbortController | null>(null);
 	const githubRef = useRef<HTMLButtonElement>(null);
 	const attachments = usePlaygroundSources();
@@ -353,7 +355,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			const response = await fetch("/api/playground/chat", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", "x-kafelot-fingerprint": getOrCreateFingerprint(), "x-kafelot-scope": "general" },
-				body: JSON.stringify({ message: prompt, model, input_context_tokens: preferences.inputContextTokens, compaction_mode: preferences.compactionMode, compact_now: compactNext, contexts: sources, history, thinking: thinkingAllowed && preferences.thinking, session_uuid: sessionIds.current.get(conversationId) }),
+				body: JSON.stringify({ message: prompt, model, input_context_tokens: preferences.inputContextTokens, compaction_mode: preferences.compactionMode, compact_now: compactNext, contexts: sources, history, thinking: thinkingAllowed && preferences.thinking, system_prompt: `The user's device reports the current date and time as ${new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(new Date())} (${Intl.DateTimeFormat().resolvedOptions().timeZone}). This is based on the device clock, not web research.`, session_uuid: sessionIds.current.get(conversationId) }),
 				signal: controller.signal,
 			});
 			if (!response.ok) {
@@ -411,16 +413,24 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		}
 	}, [input, editingFrom, messages, model, preferences.inputContextTokens, preferences.compactionMode, preferences.thinking, thinkingAllowed, waitUntilLoaded, attachments, conversationId, compactNext]);
 
-	const sendAgent = async () => {
-		if (mode === "chat" || streaming || agentBusy) return;
-		if (!agentState.workspace || !agentState.executionEnabled || !agentState.models.includes(model)) { setNotice("Open Workspace to check availability and explicitly start an isolated workspace. Chat is still available."); return; }
+	const sendAgent = async (runMode: "plan" | "build" = mode === "build" ? "build" : "plan") => {
+		if (streaming || agentBusy || agentStartingRef.current) return;
+		agentStartingRef.current = true;
+		setStreaming(true);
 		try {
 			if (editingFrom !== null) throw new Error("Cancel the message edit before using agent tools.");
 			const sources = attachments.contexts;
 			const prompt = input.trim() || (sources.length ? "Please analyze the attached sources." : "");
 			if (!prompt || !attachments.ready) return;
 			const request = messageWithSources({ id: "", role: "user", content: prompt, sources });
-			if (request.length > 8000) throw new Error("These sources exceed the agent message limit. Use Workspace to import project files instead; nothing was silently removed.");
+			if (request.length > 8000) throw new Error("These sources exceed the agent message limit; nothing was silently removed.");
+			if (!agent.getSnapshot().workspace) {
+				setNotice("Preparing an isolated workspace…");
+				await agent.check();
+				if (!agent.getSnapshot().executionEnabled || !agent.getSnapshot().models.includes(model)) throw new Error(agent.getSnapshot().error || "Tools are unavailable for this model or deployment.");
+				await agent.startSandbox();
+			}
+			if (!agent.getSnapshot().workspace) throw new Error(agent.getSnapshot().error || "The isolated workspace could not be started. Please retry.");
 			const history = conversationContext(messages.map(message => ({ ...message, content: messageWithSources(message) })));
 			if (!agent.continueFromTranscript(history)) throw new Error("This workspace needs cleanup before another request. Discard it and start fresh; previous approval is never reused.");
 			const id = crypto.randomUUID(); const firstEvent = agent.getSnapshot().events.length;
@@ -438,11 +448,12 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				setMessages(previous => previous.map(message => message.id === id ? { ...message, content: [content, failure].filter(Boolean).join("\n\n"), tools, failed: snapshot.phase === "failed" } : message));
 			};
 			const unsubscribe = agent.subscribe(update);
-			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }, mode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
-			finally { unsubscribe(); setStreaming(false); }
+			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }, runMode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
+			finally { unsubscribe(); }
 		} catch (failure) { setNotice(failure instanceof Error ? failure.message : "The agent request could not start."); }
+		finally { agentStartingRef.current = false; setStreaming(false); }
 	};
-	const submit = () => mode === "chat" ? void send() : void sendAgent();
+	const submit = () => mode === "chat" && !explicitlyRequestsWebSearch(input) ? void send() : void sendAgent(mode === "build" ? "build" : "plan");
 
 	const [savingDocument, setSavingDocument] = useState<string | null>(null);
 	// A user gesture saves a reply the model did not fence. Same backend, same account scoped
@@ -554,7 +565,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 						{balanceGate && <AiBalanceExhausted gate={balanceGate} />}
 						{notice && <p className="pgw-notice" role="status">{notice}</p>}
 						<AgentInteractions workspace={agent} />
-						{mode !== "chat" && <><InlineAgentWorkspace workspace={agent} model={model} mode={mode} busy={agentBusy || streaming} />{agentState.error && <p className="pgw-notice" role="status">{agentState.error}</p>}</>}
+						{mode !== "chat" && agentState.error && <p className="pgw-notice" role="status">{agentState.error}</p>}
 						<div className="pgw-context-status" aria-live="polite">
 							{contextState?.compacted && <details><summary>Context compacted · {contextState.tokensBefore.toLocaleString()} → {contextState.tokensAfter.toLocaleString()} tokens</summary><p>Original messages are unchanged. Summary inference is metered.</p><pre>{contextState.summary}</pre></details>}
 						</div>
@@ -576,11 +587,11 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 									{thinkingAllowed && <button type="button" className="pgw-icon-button pgw-thinking-toggle" aria-label="Thinking mode" title={mode !== "chat" ? "Thinking · controlled by the agent model in Plan and Build" : `Thinking · ${preferences.thinking ? "on" : "off"}`} aria-pressed={preferences.thinking} disabled={streaming || agentBusy || mode !== "chat"} onClick={() => savePreferences({ ...preferences, thinking: !preferences.thinking })}><WorkspaceIcon name="brain" width={18} height={18} /></button>}
 									<span className="pgw-context-ring-wrap" title={contextPercent === null || measuredInputTokens === undefined ? "Context usage: not measured yet" : `Last measured input: ${measuredInputTokens.toLocaleString()} / ${formatContextTokens(measuredInputLimit)} · ${contextPercent}%`}><svg className="pgw-context-ring" viewBox="0 0 32 32" width="20" height="20" role="img" aria-label={contextPercent === null ? "Context usage: not measured yet" : `Last measured input context: ${contextPercent}% used`}><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" className="pgw-context-ring-track" /><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" strokeLinecap="round" strokeDasharray={2 * Math.PI * 11} strokeDashoffset={2 * Math.PI * 11 * (1 - (contextPercent ?? 0) / 100)} transform="rotate(-90 16 16)" className="pgw-context-ring-value" data-level={contextPercent !== null && contextPercent >= 95 ? "high" : contextPercent !== null && contextPercent >= 80 ? "elevated" : "ok"} /></svg></span>
 									<WorkspacePicker label="Model" disabled={streaming} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
-									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => { abortRef.current?.abort(); if (mode !== "chat") void agent.stop(); }}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={agentBusy || (!input.trim() && !attachments.contexts.length) || !attachments.ready || (mode !== "chat" && (!agentState.workspace || !agentState.models.includes(model) || agentState.requiresReset))}><WorkspaceIcon name="send" /></button>}
+									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => { abortRef.current?.abort(); if (!abortRef.current) void agent.stop(); }}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={agentBusy || (!input.trim() && !attachments.contexts.length) || !attachments.ready || (mode !== "chat" && agentState.requiresReset)}><WorkspaceIcon name="send" /></button>}
 								</div>
 							</div>
 						</form>
-						<div className="pgw-mode-guidance" role="status">{mode === "chat" ? "Chat · answers and attachments" : mode === "plan" ? "Plan · read and explore, no changes or commands" : "Build · staged changes, approval for each action"}</div>
+						<div className="pgw-mode-guidance" role="status">{mode === "chat" ? "Chat · answers and attachments; ask to search the web" : mode === "plan" ? "Plan · read and research without changing files" : "Build · propose staged file changes for approval; no code execution"}</div>
 						<div className="pgw-composer-footnote">{streaming && modelLoad.isLoading ? <span role="status">Loading {MODEL_LABEL_BY_KEY[model]} · {modelLoad.progress}%</span> : <span>Hosted model <i>·</i> 128K context <i>·</i> {access === "addon" ? "Wallet billing" : `${tier.toUpperCase()} plan`}</span>}{mode === "chat" && messages.length >= 2 && <button type="button" className="pgw-text-button" disabled={streaming} aria-pressed={compactNext} onClick={() => setCompactNext(!compactNext)}>{compactNext ? "Compaction queued ✓" : "Compact next send"}</button>}</div>
 					</div>
 				</div>}

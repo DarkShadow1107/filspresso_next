@@ -76,6 +76,7 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 		const previous = found.rows[0]; if (!previous) throw new NotFoundException();
 		let proposal;
 		try { proposal = executableCall(raw.call, previous.mode); } catch { throw new BadRequestException({ error: "INVALID_AGENT_ACTION" }); }
+		if (previous.scope === "playground" && proposal.call.name === "run_command") throw new BadRequestException({ error: "WEB_AGENT_COMMANDS_DISABLED" });
 		if (!this.tickets.modelEnabled(previous.model_key) || previous.sandbox_id !== raw.sandboxId || previous.tool_call_id !== proposal.call.id || previous.tool_name !== proposal.call.name || previous.effect !== proposal.effect || previous.arguments_sha256 !== actionDigest(proposal.call)) throw new ConflictException({ error: "AGENT_ACTION_CHANGED" });
 		if (raw.approved) {
 			const owned = await this.sandboxes.request(account, "GET", `/sandboxes/${previous.sandbox_id}`, undefined, signal);

@@ -57,6 +57,13 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         if (IsBusy) return;
         _build = build;
         Render();
+        _ = PrepareModeAsync();
+    }
+    private async Task PrepareModeAsync()
+    {
+        await CheckAvailabilityAsync();
+        if (_active && !_disposed && _build && _transport?.SupportsConversation == true && _transport.SupportsModel(_model ?? string.Empty))
+            await StartExecutionAsync();
     }
     private async void OnWorkspaceOptions(object sender, RoutedEventArgs args)
     {
@@ -107,7 +114,7 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         Status.Text = _startingSandbox && _startingProgress is { Length: > 0 } ? _startingProgress :
             _checking is not null ? "Checking model tool support…" : state.Stopping ? "Stopping; waiting for cleanup." :
             state.Question is not null ? "Waiting for clarification, not execution consent." : state.Approval is not null ? "Waiting for separate, exact-action execution consent." :
-            state.Busy ? "Working · metered model turns" : available ? _build && !started ? "Build needs an isolated workspace. Open Workspace to set it up." : "Ready" : "Open Workspace to check model availability. Chat remains available.";
+            state.Busy ? "Working · metered model turns" : available ? _build && !started ? "The isolated Build environment is not available." : "Ready" : "Agent tools are unavailable for this model or deployment. Chat remains available.";
         if (state.QueuedMessage is not null) Status.Text += "\nQueued follow-up: " + state.QueuedMessage;
         Error.Text = state.Error.Length > 0 ? state.Error : _availabilityError;
         ExecutionStatus.Text = _executionStatus;
@@ -208,7 +215,8 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
             panel.Children.Add(custom); _answers.Add((options, custom)); QuestionFields.Children.Add(panel);
         }
     }
-    private async void OnCheck(object sender, RoutedEventArgs args)
+    private async void OnCheck(object sender, RoutedEventArgs args) => await CheckAvailabilityAsync();
+    private async Task CheckAvailabilityAsync()
     {
         if (!_active || _transport is not { } transport || _checking is not null || _conversation?.Snapshot.Busy == true) return;
         using var checking = new CancellationTokenSource(TimeSpan.FromSeconds(8)); _checking = checking; _availabilityError = string.Empty; Render();
@@ -231,11 +239,11 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         if (string.IsNullOrEmpty(_executionStatus)) _executionStatus = "Verify Windows Sandbox, then start a fresh Build workspace. No automatic fallback.";
         Render();
     }
-    private async void OnEnableExecution(object sender, RoutedEventArgs args)
+    private async void OnEnableExecution(object sender, RoutedEventArgs args) => await StartExecutionAsync();
+    private async Task StartExecutionAsync()
     {
         if (!_active || _disposed) return;
         if (_execution?.Workspace is not null || _execution?.NeedsCleanup == true || _startingSandbox || _projectBusy || _conversation?.Snapshot.Busy == true || _transport is not { } transport || _checkpoints is not { } checkpoints) return;
-        WorkspaceDialog.Hide();
         _execution?.Dispose(); _execution = null;
         using var starting = new CancellationTokenSource(TimeSpan.FromMinutes(5)); _starting = starting;
         var isolation = SelectedIsolation;
@@ -253,7 +261,7 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
             var created = await _services.CreateExecutionServicesAsync(transport, checkpoints, starting.Token, isolation, nativeAcknowledged);
             if (!_active || !ReferenceEquals(transport, _transport)) { created.Services?.Dispose(); return; }
             _executionStatus = created.Status;
-            if (created.Services is not { } execution) return;
+            if (created.Services is not { } execution) { _availabilityError = created.Status; return; }
             _execution = execution;
             var (ok, error) = await execution.EnsureWorkspaceAsync(cancellationToken: starting.Token, report: text => DispatcherQueue.TryEnqueue(() =>
             {

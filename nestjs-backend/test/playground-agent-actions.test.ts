@@ -72,7 +72,7 @@ function setup(web?: DesktopWebService) {
 	const waitForEvent = async (kind: string) => { if (!recorded.some(event => event.kind === kind)) await once(observed, kind, { signal: AbortSignal.timeout(3000) }); };
 	const service = new PlaygroundAgentActionsService({ getPool: () => pool } as unknown as DatabaseService, tickets, broker as unknown as PlaygroundSandboxService, events, web);
 	const prepare = async (call = write) => {
-		const { request, reply } = build(call); const ticket = tickets.issue(42, request, reply, runId, "playground")[0].token;
+		const { request, reply } = build(call); const ticket = tickets.issue(42, request, reply, runId, call.name === "run_command" ? "desktop" : "playground")[0].token;
 		return service.prepare(42, { ticket, sandboxId, call });
 	};
 	return { service, tickets, rows, sql, broker, calls, recorded, prepare, waitForEvent, pool, events, failClaim: () => { failClaim = true; }, failCommit: () => { failCommit = true; } };
@@ -89,6 +89,13 @@ test("execution policy is fixed independently of native client schemas/effects",
 	assert.equal(executableCall(write, "build").effect, "mutation"); assert.throws(() => executableCall(write, "plan"));
 	for (const call of [{ ...write, arguments: '{"path":"../escape","text":"x"}' }, { ...write, arguments: '{"path":"a","path":"b","text":"x"}' }, { ...write, arguments: '{"path":"a","text":"x","extra":true}' }, { ...write, name: "custom_tool" }, { ...write, effect: "read_only" }]) assert.throws(() => executableCall(call, "build"));
 });
+
+test("web scope never receives a command action ticket", async () => enabled(async () => {
+	const { request, reply } = build(command);
+	const tickets = new PlaygroundAgentTicketsService();
+	assert.deepEqual(tickets.issue(42, request, reply, runId, "playground"), []);
+	assert.equal(tickets.issue(42, request, reply, runId, "desktop").length, 1);
+}));
 
 test("signed proposal tickets bind account, model receipt, mode, tool ID and exact argument bytes", async () => enabled(async () => {
 	const state = setup(); const { request, reply } = build(); const ticket = state.tickets.issue(42, request, reply, runId, "playground")[0];
