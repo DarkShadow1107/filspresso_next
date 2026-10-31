@@ -371,6 +371,15 @@
 .pgw-context-ring { flex: 0 0 auto; overflow: visible; }
 .pgw-context-ring-track { stroke: currentColor; opacity: .1; }
 .pgw-context-ring-value { stroke: currentColor; opacity: .7; transition: stroke-dashoffset 250ms ease, stroke 200ms ease; }
+.pgw-context-popup { padding: 14px; font-size: 12px; }
+.pgw-context-popup-heading { display: flex; justify-content: space-between; gap: 12px; color: #b9aaa0; }
+.pgw-context-popup-heading strong { color: #f2e5dc; font-size: 14px; }
+.pgw-context-popup p { margin: 10px 0; color: #a99b91; line-height: 1.4; }
+.pgw-context-popup .pgw-outlined-button { width: 100%; margin-top: 5px; }
+.pgw-context-progress { height: 6px; margin: 12px 0 8px; overflow: hidden; border-radius: 6px; background: #493e38; }
+.pgw-context-progress span { display: block; height: 100%; background: #b9a89a; border-radius: inherit; }
+.pgw-context-progress span[data-level="elevated"] { background: #dca653; }
+.pgw-context-progress span[data-level="high"] { background: #e2766b; }
 .pgw-context-ring-value[data-level="elevated"] { stroke: #d49b63; }
 .pgw-context-ring-value[data-level="high"] { stroke: #d97565; }
 .pgw-web-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 14px; color: #a99c91; font-size: 10px; }
