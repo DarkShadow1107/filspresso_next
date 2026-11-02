@@ -31,9 +31,19 @@ cells indicate closer vectors, **not** truth, causal importance, quality or auth
 Display the model/index version, labels, sample count, color scale and missing values.
 Normalize and exclude zero or non-finite vectors before calculating similarities. An
 attention heatmap is different: its cells depict a model layer/head's attention weights;
-attention is not a reliable standalone explanation of causality. This repository does
-not currently produce or validate either model heatmap. Any figure below is a conceptual
-categorical comparison, not measured similarity, a model benchmark or an attention plot.
+attention is not a reliable standalone explanation of causality.
+
+![Measured MiniLM cosine similarity on four synthetic queries and four synthetic documents](figures/minilm-similarity-example.svg)
+
+This figure was generated locally using the configured MiniLM GGUF, eight fixed
+synthetic texts and `scripts/generate_minilm_heatmap.py`. Cells are measured cosine
+similarities, not answers or attention weights. The model ranks each deliberately
+related document highest for these four hand-picked queries; this tiny, non-blind
+example is **not a benchmark**, does not establish retrieval accuracy for the coffee
+database, and may differ with another model, tokenizer or pooling configuration.
+Color uses the full -1 to +1 scale. Reproduce it in a trusted environment with the
+embedding endpoint available, e.g. `python scripts/generate_minilm_heatmap.py > heatmap.svg`.
+The table below is a conceptual categorical comparison, not a measured heatmap.
 
 | Qualitative resource heatmap | Parameter storage | Context/KV pressure | Additional component |
 | --- | --- | --- | --- |
