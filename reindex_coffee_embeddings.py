@@ -1,7 +1,8 @@
 """Build a versioned MiniLM index without changing or deleting coffee facts.
 
-Run explicitly inside the configured AI environment after confirming the MiniLM
-GGUF and pooling match MINILM_INDEX_ID. The entire update commits atomically.
+Run explicitly inside the configured AI environment after the database owner
+installs the migration and grants index access. Confirm the MiniLM GGUF and
+pooling match MINILM_INDEX_ID. The entire update commits atomically.
 """
 import argparse
 import sys
@@ -13,13 +14,6 @@ from models.tanka import MINILM_INDEX_ID
 def reindex():
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS coffee_fact_embeddings (
-                    fact_id INTEGER NOT NULL REFERENCES coffee_facts(id) ON DELETE CASCADE,
-                    model_id TEXT NOT NULL, fact_text TEXT NOT NULL,
-                    embedding vector(384) NOT NULL, PRIMARY KEY (fact_id, model_id)
-                )
-            """)
             cur.execute("SELECT id, fact FROM coffee_facts ORDER BY id")
             facts = cur.fetchall()
             for fact_id, fact in facts:

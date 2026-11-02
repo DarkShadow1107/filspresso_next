@@ -70,8 +70,12 @@ pooling requires a **new identifier and a complete reindex**. The default identi
 names the locally inspected GGUF hash prefix `5a30b84d`; verify the actual artifact and
 pooling before using it. The system does not independently attest the remote server's
 model hash, so an incorrectly configured endpoint can still produce an incompatible
-index. Back up the database, apply schema changes under appropriate privileges, and
-run `python reindex_coffee_embeddings.py --apply` in the configured AI environment.
+index. Back up the database and have its owner apply
+`nestjs-backend/data/migrate_coffee_fact_embeddings.sql`. Grant the configured AI
+service role only `SELECT, INSERT, UPDATE` on `coffee_fact_embeddings` for indexing
+(or run indexing under a distinct maintenance role and grant the serving role only
+`SELECT`). Do not grant write access to `coffee_facts`. Then run
+`python reindex_coffee_embeddings.py --apply` in the configured AI environment.
 The transaction rolls back on an encoding or concurrent-fact-change failure. A partly
 indexed corpus may return incomplete results; monitor coverage and rebuild on changes.
 
