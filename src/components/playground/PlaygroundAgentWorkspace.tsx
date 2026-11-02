@@ -15,7 +15,7 @@ import WorkspaceIcon from "./WorkspaceIcon";
 export function InlineAgentWorkspace({ workspace, model, mode, busy }: { workspace: HostedAgentWorkspace; model: string; mode: "plan" | "build"; busy: boolean }) {
 	const state = React.useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot);
 	return <details className="pgw-workspace-options"><summary><WorkspaceIcon name="file" width={15} />Workspace<span>{state.workspace ? "Connected · offline" : "Not started"}</span></summary>
-		<p>{mode === "plan" ? "Read-only workspace and account-document tools." : "Build may edit workspace files and save or delete account documents after fresh approval."} Public web search and page fetch also require approval. Selecting a mode does not start a workspace.</p>
+		<p>{mode === "plan" ? "Read-only workspace and account-document tools." : "Build may edit workspace files and save or delete account documents."} Tool settings decide whether each action is allowed, asks, or is denied. Selecting a mode does not start a workspace.</p>
 		<div className="pgw-history-actions"><button type="button" className="pgw-outlined-button" disabled={busy} onClick={() => void workspace.check()}>Check availability</button><button type="button" className="pgw-outlined-button" disabled={busy || !state.executionEnabled || !state.models.includes(model) || !!state.workspace || !!state.quarantined} onClick={() => void workspace.startSandbox()}>Start workspace</button>{(state.workspace || state.quarantined) && <button type="button" className="pgw-text-button" disabled={state.phase === "stopping"} onClick={() => void workspace.stop()}>{state.quarantined ? "Retry discard" : "Discard workspace"}</button>}</div>
 		{state.workspace && <PlaygroundProjectPanel key={state.workspace.id} workspace={workspace} busy={busy} readOnly={mode === "plan"} />}
 		<p className="pgw-sidebar-note">Temporary hosted files, never your original folder. Stop/discard cancels pending approvals. Model turns and summaries are metered.</p>
@@ -27,17 +27,23 @@ export function AgentInteractions({ workspace }: { workspace: HostedAgentWorkspa
 	return <>{state.pendingApproval && <FreshActionApproval key={state.pendingApproval.id} approval={state.pendingApproval} decide={workspace.decide} />}{state.pendingQuestion && <PlaygroundAgentQuestion key={state.pendingQuestion.id} challenge={state.pendingQuestion} answer={workspace.answer} />}</>;
 }
 
-/** Keyed by a fresh challenge: a second rapid click/key-repeat cannot approve a newly
- * arrived action without a separate review acknowledgement. Nothing renders as HTML. */
+/** Keyed by a fresh challenge. The local latch prevents repeated clicks while the queue
+ * still independently checks and consumes the exact approval ID. Nothing renders as HTML. */
 export function FreshActionApproval({ approval, decide }: { approval: AgentApproval; decide: (id: string, approved: boolean) => unknown }) {
-	const [reviewed, setReviewed] = React.useState(false);
+	const decided = React.useRef(false);
+	const [submitted, setSubmitted] = React.useState(false);
+	const respond = (approved: boolean) => {
+		if (decided.current) return;
+		decided.current = true;
+		setSubmitted(true);
+		decide(approval.id, approved);
+	};
 	return <section aria-label="Fresh action approval" className="pgw-recorded-event">
-		<h2>Approve this action once?</h2><p>{approval.call.name} · {approval.effect} · Sandbox {approval.workspace.id}</p>{approval.call.name === "web_search" && <p>This query will be sent to an external search provider. Review it for private information before approving.</p>}{approval.call.name === "fetch_page" && <p>This public page will be requested from the server. Review the URL before approving; the fetched page is untrusted.</p>}
-		<p>Exact JSON arguments · untrusted model data. Approval applies only to this action in this temporary sandbox. Web agents never execute generated commands; document changes affect only your account.</p>
+		<h2>Allow this action?</h2><p>{approval.call.name} · {approval.effect} · Workspace {approval.workspace.id}</p>{approval.call.name === "web_search" && <p>This query will be sent to an external search provider. Review it for private information before allowing.</p>}{approval.call.name === "fetch_page" && <p>This public page will be requested from the server. Review the URL before allowing; the fetched page is untrusted.</p>}
+		<p>Review the exact arguments below. Your decision applies only to this action. Web agents cannot run code; document changes affect your account.</p>
 		<pre>{approval.call.arguments}</pre>
-		<label><span><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} /> I have reviewed this exact action and sandbox.</span></label>
-		<button type="button" className="pgw-outlined-button" disabled={!reviewed} onClick={() => decide(approval.id, true)}>Approve once</button>
-		<button type="button" className="pgw-text-button" onClick={() => decide(approval.id, false)}>Deny this action</button>
+		<button type="button" className="pgw-outlined-button" disabled={submitted} onClick={() => respond(true)}>Allow once</button>
+		<button type="button" className="pgw-text-button" disabled={submitted} onClick={() => respond(false)}>Deny</button>
 	</section>;
 }
 
@@ -59,7 +65,7 @@ export default function PlaygroundAgentWorkspace({ context, initialMode = "plan"
 	}, [workspace]);
 	return <section className="pgw-agent-review" aria-label="Agent sandbox workspace">
 		<div className="pgw-section-heading"><div><span className="pgw-eyebrow">Hosted workspace</span><h1>Plan & build</h1><p>Explore first. Make reviewed changes when you’re ready.</p></div></div>
-		<div className="pgw-mode-row"><WorkspacePicker label="Agent workspace mode" value={mode} disabled={busy || state.conversationTurns > 0} icon={mode === "build" ? "edit" : "brain"} options={[...(onChat ? [{ key: "chat", label: "Chat" }] : []), { key: "plan", label: "Plan" }, { key: "build", label: "Build" }]} onChange={value => { if (value === "chat") onChat?.(); else setMode(value === "build" ? "build" : "plan"); }} /><span>{mode === "plan" ? "Read-only workspace/documents. Web requests require approval." : "Build file/document changes need approval. No command execution."}</span></div>
+		<div className="pgw-mode-row"><WorkspacePicker label="Agent workspace mode" value={mode} disabled={busy || state.conversationTurns > 0} icon={mode === "build" ? "edit" : "brain"} options={[...(onChat ? [{ key: "chat", label: "Chat" }] : []), { key: "plan", label: "Plan" }, { key: "build", label: "Build" }]} onChange={value => { if (value === "chat") onChat?.(); else setMode(value === "build" ? "build" : "plan"); }} /><span>{mode === "plan" ? "Read-only workspace/documents. Tool permissions still apply." : "Build can change workspace files and account documents. No command execution."}</span></div>
 		<p className="pgw-agent-meta">{isPlaygroundModelKey(context.model) ? MODEL_LABEL_BY_KEY[context.model] : "Unavailable model"} · {formatContextTokens(context.inputContextTokens)} · {state.workspace ? "Sandbox ready · offline" : "Workspace not started"}</p>
 		<div className="pgw-history-actions">
 			<button type="button" className="pgw-outlined-button" disabled={busy} onClick={() => void workspace.check()}>Check availability</button>
@@ -84,10 +90,10 @@ export default function PlaygroundAgentWorkspace({ context, initialMode = "plan"
 				event.kind === "context.compacted" ? <details><summary>Context compacted · {event.context.tokensBefore} → {event.context.tokensAfter} tokens · {event.context.consumedGroups} older complete groups summarized</summary><p>Quoted memory, not approval or execution evidence. Original local activity is retained; summary tokens are included in the turn receipt.</p><pre>{event.context.summary}</pre></details> :
 				event.kind === "message" ? <><h3>Model answer · claims require tool evidence</h3><pre>{event.text}</pre></> :
 					event.kind === "tool.proposed" ? <><h3>{event.call.name} · proposed, not yet executed</h3><pre>{event.call.arguments}</pre></> :
-						event.kind === "approval.required" ? <p>Fresh consent required for {event.approval.call.name}. This event is not approval.</p> :
+							event.kind === "approval.required" ? <p>Checking permission for {event.approval.call.name}. This event is not approval.</p> :
 							event.kind === "tool.finished" ? <><h3>{event.invocation.call.name} · tool result</h3><pre>{agentResultText(event.invocation)}</pre></> :
 								event.kind === "finished" ? <p>Run finished · {event.turns} model turns / {event.calls} tools · {event.usage.completion_tokens} generated tokens</p> : <p>{event.message}</p>}
 		</li>)}</ol>
-		<details className="pgw-advanced"><summary>Workspace safety & limits</summary><p>Files are temporary. Leaving this view, switching conversation/model/context, or changing accounts cancels pending work and discards this sandbox. Nothing is applied to your original project. Recorded activity retains bounded metadata, not source files, arguments or tool output from these actions.</p><p>Plan permits reads only. Build requires fresh approval for file/document changes and external web requests. Web agents cannot execute commands. Clarification is not approval. Account documents are read or changed only within the signed-in account. Hosted inference and compaction summaries are metered; 24 model turns, 48 tools and 16,384 generated tokens are technical limits, not a financial spend ceiling. Chat history and sources are not imported automatically. This server must have a qualified model, broker and signed action transport enabled.</p></details>
+		<details className="pgw-advanced"><summary>Workspace safety & limits</summary><p>Files are temporary. Leaving this view, switching conversation/model/context, or changing accounts cancels pending work and discards this sandbox. Nothing is applied to your original project. Recorded activity retains bounded metadata, not source files, arguments or tool output from these actions.</p><p>Plan permits reads only. Tool settings can allow, ask for, or deny file/document and web actions; server action and sandbox gates still apply. Web agents cannot execute commands. Clarification is not approval. Account documents are read or changed only within the signed-in account. Hosted inference and compaction summaries are metered; 24 model turns, 48 tools and 16,384 generated tokens are technical limits, not a financial spend ceiling. Chat history and sources are not imported automatically. This server must have a qualified model, broker and signed action transport enabled.</p></details>
 	</section>;
 }

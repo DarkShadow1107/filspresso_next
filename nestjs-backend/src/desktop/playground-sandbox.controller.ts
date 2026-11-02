@@ -1,7 +1,6 @@
-import { BadRequestException, Controller, Delete, Get, Param, Post, Put, Query, Req, Res, UseGuards } from "@nestjs/common";
+import { BadRequestException, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Query, Req, UseGuards } from "@nestjs/common";
 import { ExactPlaygroundBody } from "../common/pipes/exact-playground-body";
 import { Throttle } from "@nestjs/throttler";
-import type { Response } from "express";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { PlaygroundSandboxService } from "./playground-sandbox.service";
 
@@ -36,8 +35,7 @@ export class PlaygroundSandboxController {
 	}
 	@Post(":id/run")
 	@Throttle({ default: { limit: 12, ttl: 60_000 } })
-	async run(@Req() req: Caller, @Param("id") id: string, @ExactPlaygroundBody() body: { command?: unknown; approved?: unknown }, @Res() res: Response) {
-		if (typeof body?.command !== "string" || !body.command.trim() || body.command.length > 4000 || body.approved !== true) throw new BadRequestException("Review a command and explicitly approve execution");
-		return this.sandboxes.run(Number(req.user?.id), identity(id), { command: body.command, approved: true, timeoutSeconds: 30 }, res);
+	run(): never {
+		throw new ForbiddenException({ error: "WEB_COMMAND_EXECUTION_DISABLED", message: "Running code or commands is not available in the web Playground." });
 	}
 }

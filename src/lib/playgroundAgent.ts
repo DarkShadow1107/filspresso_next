@@ -18,11 +18,28 @@ const object = (value: unknown): value is Record<string, unknown> => !!value && 
 const CALL_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_BYTES = 1_048_576;
 
+/** Only a bounded server error code is exposed; response bodies are never rendered. */
+export class AgentTransportError extends Error {
+	constructor(readonly status: number, readonly code: string) { super(`Model request failed (HTTP ${status}${code ? ` · ${code}` : ""}).`); }
+}
+
 export async function readAgentJson(url: string, init: RequestInit, signal: AbortSignal | undefined, timeoutMs: number, requireVersion = true): Promise<Record<string, unknown>> {
 	const deadline = AbortSignal.timeout(timeoutMs);
 	const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;
 	const response = await fetch(url, { ...init, redirect: "error", cache: "no-store", signal: combined });
-	if (!response.ok) { void response.body?.cancel().catch(() => undefined); throw new Error(response.status === 401 ? "Sign in to use native agent transport." : "Native agent transport refused this turn. No automatic retry was attempted."); }
+	if (!response.ok) {
+		let code = "";
+		const reader = response.body?.getReader();
+		if (reader) {
+			try {
+				const chunks: Uint8Array[] = []; let size = 0;
+				for (;;) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > 8192) break; chunks.push(part.value); }
+				if (size <= 8192) { const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; } const body = JSON.parse(new TextDecoder().decode(bytes)) as { error?: unknown }; if (typeof body.error === "string" && /^[A-Z][A-Z0-9_]{1,63}$/.test(body.error)) code = body.error; }
+			} catch { /* Untrusted or unavailable error body. */ }
+			finally { void reader.cancel().catch(() => undefined); reader.releaseLock(); }
+		}
+		throw new AgentTransportError(response.status, code);
+	}
 	if (!response.body || Number(response.headers.get("content-length")) > MAX_BYTES) { void response.body?.cancel().catch(() => undefined); throw new Error("Invalid native agent response."); }
 	const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
 	let abort!: () => void;

@@ -197,14 +197,14 @@ test("workspace listing and account documents stay account scoped; document writ
 }));
 
 test("concurrent approve/execute requests dispatch once and trust only observed broker output", async () => enabled(async () => {
-	const state = setup(); const action = await state.prepare(command);
-	const replies = await Promise.allSettled([state.service.execute(42, action.actionId, { approved: true, sandboxId, call: command }), state.service.execute(42, action.actionId, { approved: true, sandboxId, call: command })]);
-	assert.equal(replies.filter(value => value.status === "fulfilled").length, 1); assert.equal(state.calls.filter(value => value === "COMMAND").length, 1);
+	const state = setup(); const action = await state.prepare(write);
+	const replies = await Promise.allSettled([state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write }), state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write })]);
+	assert.equal(replies.filter(value => value.status === "fulfilled").length, 1); assert.equal(state.calls.filter(value => value.startsWith("PUT")).length, 1);
 	await state.waitForEvent("tool.finished");
 	assert.equal(state.rows[0].status, "complete"); assert.ok(state.recorded.some(event => event.kind === "tool.finished"));
 	assert.deepEqual(state.recorded.map(event => event.kind), ["tool.approval", "tool.started", "tool.finished"]);
-	assert.doesNotMatch(JSON.stringify(state.recorded), /python3 main.py|test output/);
-	await assert.rejects(state.prepare(command), ConflictException);
+	assert.doesNotMatch(JSON.stringify(state.recorded), /sensitive source text/);
+	await assert.rejects(state.prepare(write), ConflictException);
 }));
 
 test("cross-account, changed arguments/workspace and non-boolean decisions cannot consume a pending action", async () => enabled(async () => {
@@ -224,12 +224,19 @@ test("database claim failure prevents dispatch; outcome commit failure invalidat
 	assert.equal(after.rows[0].status, "failed"); assert.equal(after.calls.filter(value => value.startsWith("DELETE")).length, 1);
 }));
 
-test("a stopped/non-quiescent broker result fails closed and is never retried", async () => enabled(async () => {
-	const state = setup(); const action = await state.prepare(command); state.broker.agentCommand = async () => { state.calls.push("COMMAND"); return { stdout: "", stderr: "", exitCode: -1, timedOut: true, durationMs: 10 }; };
-	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: command }), ServiceUnavailableException);
-	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: command }), ConflictException);
+test("an unconfirmed broker write fails closed and is never retried", async () => enabled(async () => {
+	const state = setup(); const action = await state.prepare(write); const request = state.broker.request;
+	state.broker.request = async (...args: Parameters<typeof request>) => { if (args[1] === "PUT") { state.calls.push("PUT interrupted"); throw new Error("Unconfirmed write"); } return request(...args); };
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write }), ServiceUnavailableException);
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write }), ConflictException);
 	await state.waitForEvent("tool.failed");
-	assert.equal(state.calls.filter(value => value === "COMMAND").length, 1); assert.ok(state.recorded.some(event => event.kind === "tool.failed"));
+	assert.equal(state.calls.filter(value => value === "PUT interrupted").length, 1); assert.ok(state.recorded.some(event => event.kind === "tool.failed"));
+}));
+
+test("desktop-scoped command tickets cannot dispatch through the web action service", async () => enabled(async () => {
+	const state = setup();
+	await assert.rejects(state.prepare(command), BadRequestException);
+	assert.equal(state.calls.includes("COMMAND"), false);
 }));
 
 test("tickets are issued only after successful model settlement, never after billing failure", async t => enabled(async () => {
@@ -250,30 +257,29 @@ test("bootstrap and SQL migration share the same one-shot metadata schema", () =
 });
 
 test("cancellation immediately after the atomic claim prevents dispatch and cannot reopen the claim", async () => enabled(async () => {
-	const state = setup(); const action = await state.prepare(command); const cancel = new AbortController();
+	const state = setup(); const action = await state.prepare(write); const cancel = new AbortController();
 	const query = state.pool.query; state.pool.query = async (...args) => { const result = await query(...args); if (args[0].includes("SET status=$3")) cancel.abort(); return result; };
-	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: command }, cancel.signal), ServiceUnavailableException);
-	assert.equal(state.calls.includes("COMMAND"), false); assert.equal(state.calls.some(call => call.startsWith("DELETE")), false);
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write }, cancel.signal), ServiceUnavailableException);
+	assert.equal(state.calls.some(call => call.startsWith("PUT")), false); assert.equal(state.calls.some(call => call.startsWith("DELETE")), false);
 	assert.equal(state.rows[0].status, "failed");
-	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: command }), ConflictException);
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write }), ConflictException);
 }));
 
 test("cancellation after dispatch uses independent cleanup and never retries the action", async () => enabled(async () => {
-	const state = setup(); const action = await state.prepare(command); const cancel = new AbortController();
-	state.broker.agentCommand = async () => { state.calls.push("COMMAND"); cancel.abort(); return { stdout: "unconfirmed", stderr: "", exitCode: 0, timedOut: false, durationMs: 10 }; };
+	const state = setup(); const action = await state.prepare(write); const cancel = new AbortController();
 	const request = state.broker.request;
-	state.broker.request = async (...args: Parameters<typeof request>) => { if (args[1] === "DELETE") { assert.equal(cancel.signal.aborted, true); assert.equal(args[4]?.aborted, false); } return request(...args); };
-	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: command }, cancel.signal), ServiceUnavailableException);
-	assert.equal(state.calls.filter(call => call === "COMMAND").length, 1); assert.equal(state.calls.filter(call => call.startsWith("DELETE")).length, 1);
+	state.broker.request = async (...args: Parameters<typeof request>) => { if (args[1] === "PUT") { state.calls.push("PUT interrupted"); cancel.abort(); return { path: "main.py", bytes: Buffer.byteLength("sensitive source text") }; } if (args[1] === "DELETE") { assert.equal(cancel.signal.aborted, true); assert.equal(args[4]?.aborted, false); } return request(...args); };
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write }, cancel.signal), ServiceUnavailableException);
+	assert.equal(state.calls.filter(call => call === "PUT interrupted").length, 1); assert.equal(state.calls.filter(call => call.startsWith("DELETE")).length, 1);
 	assert.equal(state.rows[0].status, "failed");
 }));
 
 test("an unavailable recorder cannot block dispatch or become one-shot execution authority", async () => enabled(async () => {
-	const state = setup(); const action = await state.prepare(command);
+	const state = setup(); const action = await state.prepare(write);
 	let release!: () => void; const paused = new Promise<void>(resolve => { release = resolve; });
 	state.events.record = async () => paused;
-	const reply = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call: command });
-	assert.equal(reply.executed, true); assert.equal(state.calls.filter(call => call === "COMMAND").length, 1);
-	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: command }), ConflictException);
+	const reply = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write });
+	assert.equal(reply.executed, true); assert.equal(state.calls.filter(call => call.startsWith("PUT")).length, 1);
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call: write }), ConflictException);
 	release();
 }));

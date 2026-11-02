@@ -58,12 +58,11 @@
             </Border>
             <Border x:Name="ApprovalBorder" Grid.Row="2" Visibility="Collapsed" BorderBrush="{StaticResource FilspressoBorder}" BorderThickness="1" CornerRadius="14" Padding="16">
                 <StackPanel Spacing="12">
-                    <TextBlock Text="Separate execution approval" FontSize="20" />
+                    <TextBlock Text="Allow this action?" FontSize="20" />
                     <TextBlock x:Name="ApprovalText" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Consolas" FontSize="12" />
-                    <CheckBox x:Name="ReviewedAction" Content="I reviewed this exact action and workspace." />
                     <StackPanel Orientation="Horizontal" Spacing="12">
-                        <Button Content="Approve once" Click="OnApprove" Style="{StaticResource QuietButtonStyle}" />
-                        <Button Content="Deny this action" Click="OnDeny" Style="{StaticResource QuietButtonStyle}" />
+                        <Button Content="Allow once" Click="OnApprove" Style="{StaticResource QuietButtonStyle}" />
+                        <Button Content="Deny" Click="OnDeny" Style="{StaticResource QuietButtonStyle}" />
                     </StackPanel>
                 </StackPanel>
             </Border>

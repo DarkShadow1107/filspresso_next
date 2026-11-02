@@ -1,4 +1,6 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import type { Response } from "express";
+import { EXPORT_MIME, exportDocument, type ExportFormat } from "./playground-document-export";
 import { Throttle } from "@nestjs/throttler";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { InvalidDocumentInputError, PlaygroundDocumentsService } from "./playground-documents.service";
@@ -44,6 +46,18 @@ export class PlaygroundDocumentsController {
 	@Get(":uuid")
 	get(@Req() req: Caller, @Param("uuid") uuid: string) {
 		return this.documents.get(accountId(req), documentId(uuid));
+	}
+
+	@Get(":uuid/export/:format")
+	@Throttle({ default: { limit: 12, ttl: 60_000 } })
+	async export(@Req() req: Caller, @Param("uuid") uuid: string, @Param("format") format: string, @Res() res: Response) {
+		if (!Object.hasOwn(EXPORT_MIME, format)) throw new BadRequestException("Unsupported document format.");
+		const row = await this.documents.get(accountId(req), documentId(uuid));
+		const bytes = await exportDocument(row.name as string, row.content as string, format as ExportFormat);
+		res.setHeader("Content-Type", EXPORT_MIME[format as ExportFormat]);
+		res.setHeader("Content-Disposition", `attachment; filename="document.${format}"`);
+		res.setHeader("Cache-Control", "private, no-store");
+		res.send(bytes);
 	}
 
 	@Delete(":uuid")

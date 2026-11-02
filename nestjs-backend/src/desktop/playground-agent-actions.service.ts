@@ -55,6 +55,9 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 		let verified;
 		try { verified = this.tickets.verify(raw.ticket, account, raw.call); } catch { throw new BadRequestException({ error: "INVALID_MODEL_ACTION_TICKET" }); }
 		const { claims, proposal } = verified;
+		// This service is exposed by the web action controller. A desktop-scoped ticket
+		// must not turn that hosted workspace into a web command executor either.
+		if (proposal.call.name === "run_command") throw new BadRequestException({ error: "WEB_AGENT_COMMANDS_DISABLED" });
 		const owned = await this.sandboxes.request(account, "GET", `/sandboxes/${raw.sandboxId}`, undefined, signal);
 		if (owned.id !== raw.sandboxId || owned.location !== "hosted-docker" || owned.policyVersion !== 2) throw new ServiceUnavailableException({ error: "AGENT_SANDBOX_NOT_QUALIFIED" });
 		signal?.throwIfAborted();
@@ -78,7 +81,7 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 		const previous = found.rows[0]; if (!previous) throw new NotFoundException();
 		let proposal;
 		try { proposal = executableCall(raw.call, previous.mode); } catch { throw new BadRequestException({ error: "INVALID_AGENT_ACTION" }); }
-		if (previous.scope === "playground" && proposal.call.name === "run_command") throw new BadRequestException({ error: "WEB_AGENT_COMMANDS_DISABLED" });
+		if (proposal.call.name === "run_command") throw new BadRequestException({ error: "WEB_AGENT_COMMANDS_DISABLED" });
 		if (!this.tickets.modelEnabled(previous.model_key) || previous.sandbox_id !== raw.sandboxId || previous.tool_call_id !== proposal.call.id || previous.tool_name !== proposal.call.name || previous.effect !== proposal.effect || previous.arguments_sha256 !== actionDigest(proposal.call)) throw new ConflictException({ error: "AGENT_ACTION_CHANGED" });
 		if (raw.approved) {
 			const owned = await this.sandboxes.request(account, "GET", `/sandboxes/${previous.sandbox_id}`, undefined, signal);
@@ -124,7 +127,6 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 				const files = (body.files as string[]).slice(0, 128);
 				result = { stdout: JSON.stringify({ files }), stderr: "", exitCode: 0, timedOut: false, truncated: body.files.length > files.length };
 			}
-			else if (proposal.call.name === "run_command") result = await this.sandboxes.agentCommand(account, row.sandbox_id, proposal.args.command, signal);
 			else if (proposal.call.name === "read_file") {
 				try {
 					const body = await this.sandboxes.request(account, "GET", `/sandboxes/${row.sandbox_id}/file?${new URLSearchParams({ path: proposal.args.path })}`, undefined, signal);

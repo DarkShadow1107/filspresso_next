@@ -5,6 +5,7 @@ import { PLAYGROUND_MODEL_KEYS, CONTEXT_LEVELS, MODEL_LABEL_BY_KEY, TEXT_MODEL_2
 import WorkspaceIcon from "./WorkspaceIcon";
 import { COMPACTION_OPTIONS, type CompactionMode } from "@/lib/playgroundContext";
 import PlaygroundDocumentsManager from "./PlaygroundDocuments";
+import { DEFAULT_TOOL_PERMISSIONS, WEB_AGENT_TOOLS, normalizeToolPermissions, type ToolPermission, type ToolPermissions } from "@/lib/playgroundToolPermissions";
 
 export type PlaygroundPreferences = {
 	model: ModelKey;
@@ -13,6 +14,7 @@ export type PlaygroundPreferences = {
 	thinking: boolean;
 	textSize: "small" | "standard" | "large";
 	enterToSend: boolean;
+	toolPermissions: ToolPermissions;
 };
 
 export const DEFAULT_PREFERENCES: PlaygroundPreferences = {
@@ -22,6 +24,7 @@ export const DEFAULT_PREFERENCES: PlaygroundPreferences = {
 	thinking: false,
 	textSize: "standard",
 	enterToSend: true,
+	toolPermissions: { ...DEFAULT_TOOL_PERMISSIONS },
 };
 
 export default function PlaygroundSettings({ preferences, thinkingAllowed, streaming, onSave, onExport, onImport, hasMessages }: {
@@ -33,11 +36,11 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 	onImport: (file: File) => Promise<void>;
 	hasMessages: boolean;
 }) {
-	const [section, setSection] = useState<"general" | "display" | "documents" | "transfer">("general");
+	const [section, setSection] = useState<"general" | "display" | "tools" | "documents" | "transfer">("general");
 	const [draft, setDraft] = useState(preferences);
 	const [notice, setNotice] = useState("");
 	const fileRef = useRef<HTMLInputElement>(null);
-	const heading = section === "general" ? "General" : section === "display" ? "Display" : section === "documents" ? "Documents" : "Import / Export";
+	const heading = section === "general" ? "General" : section === "display" ? "Display" : section === "tools" ? "Tool permissions" : section === "documents" ? "Documents" : "Import / Export";
 
 	return (
 		<div className="pgw-settings">
@@ -45,7 +48,7 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 			<div className="pgw-settings-layout">
 				<nav className="pgw-settings-nav" aria-label="Settings sections">
 					{([
-						["general", "settings", "General"], ["display", "display", "Display"], ["documents", "file", "Documents"], ["transfer", "transfer", "Import / Export"],
+						["general", "settings", "General"], ["display", "display", "Display"], ["tools", "settings", "Tools"], ["documents", "file", "Documents"], ["transfer", "transfer", "Import / Export"],
 					] as const).map(([key, icon, label]) => (
 						<button type="button" key={key} aria-current={section === key ? "page" : undefined} onClick={() => { setSection(key); setNotice(""); }}><WorkspaceIcon name={icon} />{label}</button>
 					))}
@@ -58,7 +61,7 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 							<select value={draft.model} disabled={streaming} onChange={(event) => setDraft({ ...draft, model: event.target.value as ModelKey })}>
 								{PLAYGROUND_MODEL_KEYS.map((key) => <option key={key} value={key}>{MODEL_LABEL_BY_KEY[key]}</option>)}
 							</select>
-							<small>All models have a 128K context window. You can also switch models in the composer.</small>
+							<small>Available input limits are configuration options; a model’s validated context may be shorter. You can also switch models in the composer.</small>
 						</label>
 						<label className="pgw-setting">
 							<span>Maximum input tokens</span>
@@ -75,6 +78,11 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 					{section === "display" && <>
 						<label className="pgw-setting"><span>Message text size</span><select value={draft.textSize} onChange={(event) => setDraft({ ...draft, textSize: event.target.value as PlaygroundPreferences["textSize"] })}><option value="small">Small</option><option value="standard">Standard</option><option value="large">Large</option></select><small>Adjust the conversation’s text size without changing the rest of the interface.</small></label>
 						<div className="pgw-type-preview" data-size={draft.textSize}><span>Preview</span><p>A little space to think. A direct conversation with your model.</p></div>
+					</>}
+					{section === "tools" && <>
+						<p>Choose whether each web agent tool is allowed, asks each time, or is denied. These browser-wide preferences do not override server authorization, model availability or sandbox restrictions. Allowing a tool can perform future actions without another prompt.</p>
+						<p>Web Playground cannot run code or commands, regardless of these settings. Settings apply to new agent runs, not an action already in progress.</p>
+						{WEB_AGENT_TOOLS.map(name => <label className="pgw-setting" key={name}><span>{name.replaceAll("_", " ")}</span><select aria-label={`${name} permission`} disabled={streaming} value={normalizeToolPermissions(draft.toolPermissions)[name]} onChange={event => setDraft({ ...draft, toolPermissions: { ...normalizeToolPermissions(draft.toolPermissions), [name]: event.target.value as ToolPermission } })}><option value="allow">Allow</option><option value="ask">Ask each time</option><option value="deny">Deny</option></select></label>)}
 					</>}
 					{section === "documents" && <PlaygroundDocumentsManager streaming={streaming} />}
 					{section === "transfer" && <>

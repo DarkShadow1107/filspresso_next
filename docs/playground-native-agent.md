@@ -1,5 +1,25 @@
 # Native agents — proposals, gated hosted actions and paired compaction
 
+**Desktop Plan design clarification:** the desired Plan workspace is a disposable
+isolated project copy: commands may change the copy for verification, but must not
+apply changes to the original project. This differs from an immutable snapshot.
+Plan command execution and its non-apply boundary are not implemented yet; Plan
+remains inspection-only. Native restricted isolation uses a shared Windows kernel,
+whereas Windows Sandbox is a separate VM; both require their own current,
+machine-specific qualification and neither may silently replace the other.
+
+**Web tool settings:** the shared web Playground has browser-wide per-tool Allow, Ask,
+and Deny preferences. Read-only workspace/document tools default to Allow; workspace
+writes, document changes, web search and page fetch default to Ask. Explicit Allow
+skips the local prompt for subsequent runs, while Deny refuses the action before
+dispatch. The signed server action, account, deployment and sandbox checks remain in
+force. The web agent still cannot run commands. Preferences are a client convenience,
+not server-enforced organization policy; they do not yet apply to the desktop.
+Historical descriptions below of mandatory fresh prompts on the web refer to the
+default Ask policy, not tools explicitly set to Allow.
+The authenticated manual web workspace command route also refuses commands; it is
+a temporary file workspace. Historical manual-execution descriptions remain below.
+
 **Current desktop composition:** imported-text Inspect/Plan plus an explicitly started,
 live-qualified Windows Sandbox Build workspace. Approved web tools are backend lookups,
 not guest networking. See [`playground-windows-sandbox.md`](playground-windows-sandbox.md).

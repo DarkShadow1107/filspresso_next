@@ -126,11 +126,15 @@ public sealed class ThemeContractTests
         var xaml = File.ReadAllText(Path.Combine(AppDirectory(), "AgentWorkspacePage.xaml"));
         Assert.Contains("x:Name=\"WorkspaceSetup\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Header=\"Project &amp; changes\"", xaml, StringComparison.Ordinal);
-        foreach (var control in new[] { "VerifySandboxButton", "EnableExecutionButton", "ReviewedAction", "ApprovalBorder", "QuestionBorder" })
+        foreach (var control in new[] { "VerifySandboxButton", "EnableExecutionButton", "ApprovalBorder", "QuestionBorder" })
             Assert.Contains($"x:Name=\"{control}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Content=\"Allow once\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Content=\"Deny\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReviewedAction", xaml, StringComparison.Ordinal);
         var code = File.ReadAllText(Path.Combine(AppDirectory(), "AgentWorkspacePage.xaml.cs"));
         Assert.Contains("(!_build || _execution?.Workspace is not null)", code, StringComparison.Ordinal);
         Assert.Contains("WindowsPlatformProbe.TryReadSystemReport()", code, StringComparison.Ordinal);
+        Assert.Contains("_approvalId = null; _conversation?.Decide(id, true)", code, StringComparison.Ordinal);
         Assert.DoesNotContain("x:Name=\"PromptBox\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Back to chat", xaml, StringComparison.Ordinal);
     }

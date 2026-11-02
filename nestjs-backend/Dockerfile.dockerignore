@@ -17,7 +17,10 @@ desktop-installers
 playground-desktop
 playground-sandbox
 models
-public
+public/*
+!public/fonts/
+public/fonts/*
+!public/fonts/poppins-v24-devanagari_latin_latin-ext-regular.ttf
 docs
 tests
 test

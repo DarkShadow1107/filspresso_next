@@ -9,6 +9,7 @@ import { AgentConsentQueue } from "../../src/lib/playgroundAgentConsent";
 import { parseNativeAgentReply, type NativeAgentReply, type NativeCall } from "../../src/lib/playgroundAgent";
 import { buildProposalReview } from "../../src/lib/playgroundAgentReview";
 import PlaygroundAgentWorkspace from "../../src/components/playground/PlaygroundAgentWorkspace";
+import { normalizeToolPermissions, permissionForTool } from "../../src/lib/playgroundToolPermissions";
 
 const context = { model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 };
 const sandboxId = "00000000-0000-4000-8000-000000000042";
@@ -134,7 +135,46 @@ test("rendering exposes explicit controls but no startup request, automatic exec
 	let calls = 0; t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error(); });
 	const html = renderToStaticMarkup(<PlaygroundAgentWorkspace context={context} />);
 	assert.equal(calls, 0); assert.match(html, /Check availability to see whether/); assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);
-	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /fresh approval for file\/document changes/);
+	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /Tool settings can allow, ask for, or deny/);
+});
+
+test("tool settings default safely and cannot enable web command execution", () => {
+	const defaults = normalizeToolPermissions({ write_file: "invalid", run_command: "allow", read_file: "deny" });
+	assert.equal(defaults.write_file, "ask");
+	assert.equal(defaults.read_file, "deny");
+	assert.equal(permissionForTool(defaults, "run_command"), "deny");
+});
+
+test("an explicitly allowed mutation still uses a signed one-shot server action", async () => {
+	const state = setup(); state.workspace.setToolPermissions({ write_file: "allow" });
+	state.replies.push(response([write]), response()); await state.workspace.check(); await state.workspace.startSandbox();
+	await state.workspace.run(context, "build", "Create a file.");
+	assert.equal(state.workspace.getSnapshot().pendingApproval, null);
+	assert.equal(state.posts.filter(post => post.path === "/api/playground/agent/actions").length, 1);
+	assert.equal(state.posts.filter(post => post.path.endsWith("/execute")).length, 1);
+	await state.workspace.stop();
+});
+
+test("denied tools never reach server action preparation or dispatch", async () => {
+	const state = setup(); state.workspace.setToolPermissions({ write_file: "deny" });
+	state.replies.push(response([write]), response()); await state.workspace.check(); await state.workspace.startSandbox();
+	await state.workspace.run(context, "build", "Create a file.");
+	assert.equal(state.posts.some(post => post.path === "/api/playground/agent/actions" || post.path.endsWith("/execute")), false);
+	assert.ok(state.workspace.getSnapshot().events.some(event => event.kind === "tool.finished" && event.invocation.refused));
+	await state.workspace.stop();
+});
+
+test("read tools can ask for an exact decision and settings cannot change during a run", async () => {
+	const state = setup(); state.workspace.setToolPermissions({ read_file: "ask" });
+	state.replies.push(response([{ id: "read_1", name: "read_file", arguments: '{"path":"main.py"}' }]), response());
+	await state.workspace.check(); await state.workspace.startSandbox();
+	const running = state.workspace.run(context, "plan", "Read.");
+	const pending = (await waitFor(state.workspace, value => !!value.pendingApproval)).pendingApproval!;
+	assert.equal(pending.call.name, "read_file"); assert.equal(state.workspace.setToolPermissions({ read_file: "allow" }), false);
+	assert.equal(state.posts.some(post => post.path.endsWith("/execute")), false);
+	state.workspace.decide(pending.id, true); await running;
+	assert.equal(state.posts.filter(post => post.path.endsWith("/execute")).length, 1);
+	await state.workspace.stop();
 });
 
 test("idle cleanup never invents a stopped job or billing warning", async () => {

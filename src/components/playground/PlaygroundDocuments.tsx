@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { deleteDocument, downloadDocument, listDocuments, type PlaygroundDocumentRef } from "@/lib/playgroundDocuments";
+import { deleteDocument, downloadDocument, listDocuments, type DocumentFormat, type PlaygroundDocumentRef } from "@/lib/playgroundDocuments";
 import WorkspaceIcon from "./WorkspaceIcon";
 
 /**
@@ -16,6 +16,7 @@ export default function PlaygroundDocumentsManager({ streaming }: { streaming?: 
 	const [loaded, setLoaded] = useState(false);
 	const [notice, setNotice] = useState("");
 	const [busyId, setBusyId] = useState<string | null>(null);
+	const [format, setFormat] = useState<DocumentFormat>("pdf");
 
 	const refresh = useCallback(async () => {
 		const rows = await listDocuments();
@@ -47,7 +48,7 @@ export default function PlaygroundDocumentsManager({ streaming }: { streaming?: 
 		setBusyId(row.id);
 		setNotice("");
 		try {
-			const failure = await downloadDocument(row.id, row.name);
+			const failure = await downloadDocument(row.id, row.name, format);
 			if (failure) setNotice(failure);
 		} finally { setBusyId(null); }
 	};
@@ -66,6 +67,7 @@ export default function PlaygroundDocumentsManager({ streaming }: { streaming?: 
 		<div className="pgw-documents">
 			<div className="pgw-documents-head">
 				<p className="pgw-sidebar-caption">Saved on the server · delete a document to free space if storage is full</p>
+				<label>Download format <select aria-label="Document download format" value={format} onChange={event => setFormat(event.target.value as DocumentFormat)}><option value="pdf">PDF</option><option value="docx">DOCX</option><option value="pptx">PPTX</option><option value="xlsx">XLSX</option><option value="md">Markdown</option></select></label>
 				<button type="button" className="pgw-text-button" disabled={streaming || busyId !== null} onClick={() => void refresh()}>Refresh</button>
 			</div>
 			{loaded && !documents.length && <p className="pgw-sidebar-note">No documents yet. In chat, answers left in a document file appear here and in the conversation.</p>}

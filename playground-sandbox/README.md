@@ -1,5 +1,11 @@
 # Hosted Playground execution
 
+**Web command restriction:** the authenticated web Playground's manual `:id/run`
+endpoint now refuses commands, and its web agent does not offer `run_command`.
+The broker's command implementation and smoke tests remain as infrastructure and
+historical evidence; their presence does not make code execution available through
+the web Playground. References to the earlier manual command flow below are historical.
+
 The web Playground's **Open execution workspace** panel uses this optional Docker
 executor. Chat responses and uploaded sources are never automatically executed.
 The first implementation supports Python 3.11 and POSIX shell commands, explicit

@@ -23,6 +23,7 @@ RUN apk add --no-cache dumb-init \
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
+COPY public/fonts/poppins-v24-devanagari_latin_latin-ext-regular.ttf ./assets/playground-export.ttf
 
 COPY src/data/coffee.generated.json ./bootstrap-data/coffee.generated.json
 COPY src/data/machines.generated.json ./bootstrap-data/machines.generated.json

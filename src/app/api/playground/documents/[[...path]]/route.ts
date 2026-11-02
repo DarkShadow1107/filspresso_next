@@ -19,7 +19,9 @@ function isDocumentId(segment: string) {
  */
 async function proxy(request: NextRequest, context: Context) {
 	const { path = [] } = await context.params;
-	if (path.length > 1 || path.some(part => !isDocumentId(part))) return Response.json({ message: "Invalid documents operation." }, { status: 400 });
+	const valid = path.length === 0 || (path.length === 1 && isDocumentId(path[0])) ||
+		(path.length === 3 && request.method === "GET" && isDocumentId(path[0]) && path[1] === "export" && ["pdf", "docx", "pptx", "xlsx"].includes(path[2]));
+	if (!valid) return Response.json({ message: "Invalid documents operation." }, { status: 400 });
 	const target = `/api/playground/documents${path.length ? `/${path.join("/")}` : ""}`;
 	return proxyBackendRequest(request, target, { timeoutMs: 25_000, retry: request.method === "GET" });
 }

@@ -62,7 +62,7 @@ def respond(route):
     elif path == "agent/turn":
         calls = [{"id": "question_1", "name": "question", "arguments": json.dumps(question_fixture["form"])}] if turn == 0 else [
             {"id": "write_1", "name": "write_file", "arguments": json.dumps({"path": "main.py", "text": '<script>window.__agent_injected=1</script>'})},
-            {"id": "run_1", "name": "run_command", "arguments": json.dumps({"command": "python3 main.py"})},
+            {"id": "write_2", "name": "write_file", "arguments": json.dumps({"path": "result.txt", "text": "fixture result"})},
         ] if turn == 1 else []
         if turn == 1:
             clarification = json.loads(body["history"][0]["tool_results"][0]["content"])
@@ -119,18 +119,14 @@ try:
         questions.get_by_role("button", name="Submit answers").click()
         approval = page.get_by_role("region", name="Fresh action approval")
         expect(approval).to_be_visible()
-        expect(approval.get_by_role("button", name="Approve once")).to_be_disabled()
+        expect(approval.get_by_role("button", name="Allow once")).to_be_enabled()
         assert not any(path.endswith("/execute") for _, path, _ in requests)
         assert page.evaluate("window.__agent_injected || null") is None
-        approval.get_by_role("checkbox").check()
-        approval.get_by_role("button", name="Approve once").click()
-        expect(approval.get_by_text("run_command · execution", exact=False)).to_be_visible()
-        # The new action must require its OWN acknowledgement; a rapid second click/key-repeat
-        # on the old control must not authorize it implicitly.
-        expect(approval.get_by_role("button", name="Approve once")).to_be_disabled()
-        expect(approval.get_by_role("checkbox")).not_to_be_checked()
-        approval.get_by_role("checkbox").check()
-        approval.get_by_role("button", name="Approve once").click()
+        approval.get_by_role("button", name="Allow once").click()
+        expect(approval.get_by_text('"path": "result.txt"', exact=False)).to_be_visible()
+        # The new action has its own challenge and must not be authorized by the first click.
+        assert len([1 for _, path, _ in requests if path.endswith("/execute")]) == 1
+        approval.get_by_role("button", name="Allow once").click()
         expect(page.get_by_text("Run finished · 3 model turns / 3 tools · 30 generated tokens", exact=True)).to_be_visible()
         assert len([1 for _, path, _ in requests if path.endswith("/execute")]) == 2
         assert page.evaluate("window.__agent_injected || null") is None

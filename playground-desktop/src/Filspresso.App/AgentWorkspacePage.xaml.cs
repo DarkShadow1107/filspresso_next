@@ -143,7 +143,7 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         ApprovalBorder.Visibility = state.Approval is null ? Visibility.Collapsed : Visibility.Visible;
         if (state.Approval?.Id != _approvalId)
         {
-            _approvalId = state.Approval?.Id; ReviewedAction.IsChecked = false;
+            _approvalId = state.Approval?.Id;
             ApprovalText.Text = state.Approval is { } approval ? $"{approval.Call.Name} · {approval.Effect} · Workspace {approval.Workspace.Id}\n{approval.Call.ArgumentsJson}\nCommands may change/delete sandbox files. This decision applies only to this exact action." : string.Empty;
         }
         RenderCheckpoints();
@@ -429,8 +429,8 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         if (!_conversation.Answer(new(1, id, false, Array.AsReadOnly(answers)))) Error.Text = "Answer every question with a valid choice or your own answer. This is not execution approval.";
     }
     private void OnDismiss(object sender, RoutedEventArgs args) { if (_questionId is { } id) _conversation?.Answer(new(1, id, true, Array.Empty<QuestionAnswer>())); }
-    private void OnApprove(object sender, RoutedEventArgs args) { if (_approvalId is { } id && ReviewedAction.IsChecked == true) _conversation?.Decide(id, true); }
-    private void OnDeny(object sender, RoutedEventArgs args) { if (_approvalId is { } id) _conversation?.Decide(id, false); }
+    private void OnApprove(object sender, RoutedEventArgs args) { if (_approvalId is { } id) { _approvalId = null; _conversation?.Decide(id, true); } }
+    private void OnDeny(object sender, RoutedEventArgs args) { if (_approvalId is { } id) { _approvalId = null; _conversation?.Decide(id, false); } }
     private void OnAccountChanged(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => { if (!_disposed && (!_services.Auth.IsSignedIn || !string.Equals(_account, _services.Auth.Current?.Email, StringComparison.OrdinalIgnoreCase))) CancelPendingRequests(); });
     private void OnPreferencesChanged(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => { if (!_disposed && _active && (_services.Preferences.ModelKey != _model || _services.Preferences.InputContextTokens != _context || _services.Preferences.CompactionMode != _compaction)) Reload(_session); });
     public void CancelPendingRequests()

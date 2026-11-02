@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { NativeAgentLoop, AgentPolicyRefusal, DEFAULT_AGENT_LIMITS, type AgentLoopEvent, type AgentLoopServices, type AgentApproval, type AgentApprovalDecision, type AgentToolResult, type AgentWorkspace } from "../../src/lib/playgroundAgentLoop";
 import { AgentConsentQueue } from "../../src/lib/playgroundAgentConsent";
-import type { NativeAgentReply, NativeAgentRequest, NativeCall } from "../../src/lib/playgroundAgent";
+import { AgentTransportError, type NativeAgentReply, type NativeAgentRequest, type NativeCall } from "../../src/lib/playgroundAgent";
 import { validateAgentRequest } from "../../nestjs-backend/src/desktop/playground-agent-contract";
 
 const context = { model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 };
@@ -81,6 +81,15 @@ test("Build performs reads and writes only through the supplied sandbox and fres
 	assert.equal(services.requests[1].history[0].tool_results.length, 3); assert.equal(services.aborts.length, 0);
 	const finished = events.at(-1); assert.equal(finished?.kind, "finished");
 	if (finished?.kind === "finished") assert.deepEqual(finished.usage, { prompt_tokens: 40, completion_tokens: 8 });
+});
+
+test("a refused follow-up exposes a safe status and preserves the completed tool result without retry", async () => {
+	const services = new Services(); let turns = 0;
+	services.onTurn = async () => { if (++turns === 1) return reply([call()]); throw new AgentTransportError(503, "MODEL_BUSY"); };
+	const events = await collect(new NativeAgentLoop(services));
+	stopped(events); assert.equal(turns, 2); assert.equal(services.invocations.length, 1);
+	assert.ok(events.some(event => event.kind === "tool.finished"));
+	assert.ok(events.some(event => event.kind === "stopped" && event.message.includes("HTTP 503 · MODEL_BUSY")));
 });
 
 test("web Build does not offer or execute model-generated commands", async () => {

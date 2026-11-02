@@ -73,18 +73,22 @@ export async function createDocument(name: string, markdown: string): Promise<Pl
 }
 
 /** Download one document through the user's own session, as a local markdown file. */
-export async function downloadDocument(uuid: string, name: string): Promise<string | null> {
+export type DocumentFormat = "md" | "pdf" | "docx" | "pptx" | "xlsx";
+export async function downloadDocument(uuid: string, name: string, format: DocumentFormat = "md"): Promise<string | null> {
 	if (!UUID_PATTERN.test(uuid)) return null;
 	try {
-		const response = await fetch(`/api/playground/documents/${encodeURIComponent(uuid)}`, { cache: "no-store", signal: AbortSignal.timeout(SAVE_LIMIT_MS * 4) });
+		const response = await fetch(`/api/playground/documents/${encodeURIComponent(uuid)}${format === "md" ? "" : `/export/${format}`}`, { cache: "no-store", signal: AbortSignal.timeout(SAVE_LIMIT_MS * 4) });
 		if (!response.ok) return "The document could not be downloaded. Please retry.";
-		const row = await response.json().catch(() => null) as { content?: unknown;mime?: unknown } | null;
-		if (!isRecord(row) || typeof row.content !== "string") return "The document came back empty. Please retry.";
-		const blob = new Blob([row.content], { type: `${typeof row.mime === "string" && row.mime ? row.mime : "text/markdown"};charset=utf-8` });
+		let blob: Blob;
+		if (format === "md") {
+			const row = await response.json().catch(() => null) as { content?: unknown; mime?: unknown } | null;
+			if (!isRecord(row) || typeof row.content !== "string") return "The document came back empty. Please retry.";
+			blob = new Blob([row.content], { type: "text/markdown;charset=utf-8" });
+		} else blob = await response.blob();
 		const url = URL.createObjectURL(blob);
 		const link = document.createElement("a");
 		link.href = url;
-		link.download = fileNameFor(name);
+		link.download = fileNameFor(name, format);
 		link.click();
 		window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 		return null;
@@ -100,7 +104,7 @@ export async function deleteDocument(uuid: string): Promise<boolean> {
 	} catch { return false; }
 }
 
-function fileNameFor(name: string): string {
+function fileNameFor(name: string, format: DocumentFormat): string {
 	const safe = name.replace(/[\x00-\x1f\x7f\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_DOCUMENT_NAME);
-	return `${safe || "document"}.md`;
+	return `${safe || "document"}.${format}`;
 }

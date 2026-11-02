@@ -211,7 +211,7 @@
 .pgw-generating span:nth-child(3) { animation-delay: 0.4s; }
 .pgw-generating em { font-size: 11px; font-style: normal; margin-left: 8px; }
 @keyframes pgw-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
-.pgw-reasoning { margin: 0 0 18px; padding: 9px 14px; border-left: 2px solid #6a4a32; background: #1b1715; border-radius: 0 8px 8px 0; }
+.pgw-reasoning { margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--pgw-border); background: var(--pgw-surface); border-radius: 10px; }
 .pgw-reasoning summary { color: #c3a68e; font-size: 12px; cursor: pointer; }
 .pgw-reasoning .pgw-message-text { font-size: 0.9em; color: #b2a397; margin-top: 12px; }
 .pgw-code { margin: 20px 0; border: 1px solid #3b2f27; border-radius: 10px; background: #191615; overflow: hidden; }
@@ -474,6 +474,6 @@ body:has(.pgw) .header_body { background: #100f10; }
  .pgw-section-heading h1 { font-size: 22px; }
 }
 .pgw-tool-activity { margin: .5rem 0; border: 1px solid var(--pgw-border, #d9d9d9); border-radius: .65rem; overflow: hidden; }
-.pgw-tool-activity summary { display: flex; gap: .5rem; align-items: center; cursor: pointer; padding: .55rem .7rem; }
+.pgw-tool-activity summary { display: flex; gap: .5rem; align-items: center; cursor: pointer; padding: .7rem .85rem; background: var(--pgw-surface); }
 .pgw-tool-activity summary span { margin-left: auto; font-size: .8em; opacity: .7; }
 .pgw-tool-activity pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow: auto; margin: 0; padding: .6rem .7rem; }

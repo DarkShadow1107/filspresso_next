@@ -1,10 +1,11 @@
 import { nativeAgentModels, nativeConversationModels, nativeAgentTurn, readAgentJson, type NativeAgentRequest, type NativeCall, type NativeConversationTurn } from "./playgroundAgent";
-import { NativeAgentLoop, type AgentApproval, type AgentInvocation, type AgentLoopEvent, type AgentLoopServices, type AgentWorkspace } from "./playgroundAgentLoop";
+import { AgentPolicyRefusal, NativeAgentLoop, type AgentApproval, type AgentInvocation, type AgentLoopEvent, type AgentLoopServices, type AgentWorkspace } from "./playgroundAgentLoop";
 import { AgentConsentQueue } from "./playgroundAgentConsent";
 import { AgentQuestionQueue, type QuestionChallenge, type QuestionDecision } from "./playgroundQuestions";
 import { buildProposalReview, type ReviewContext, type ReviewMode } from "./playgroundAgentReview";
 import { isPlaygroundModelKey, isVisionModelKey, isAudioModelKey } from "./modelAccess";
 import { validateProject, type ProjectFile } from "./playgroundProject";
+import { normalizeToolPermissions, permissionForTool, type ToolPermissions } from "./playgroundToolPermissions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const EXEC = /^exec-[0-9a-f]{24}$/;
@@ -25,7 +26,8 @@ export class HostedAgentServices implements AgentLoopServices {
 	discardConfirmed = false;
 	readonly ask?: (question: QuestionChallenge, signal: AbortSignal) => Promise<QuestionDecision>;
 	constructor(readonly workspace: AgentWorkspace, private readonly models: readonly string[], private readonly consent: AgentConsentQueue, private readonly io = defaultIo,
-		private readonly discardWorkspace?: (workspace: AgentWorkspace) => Promise<boolean>, private readonly questions?: AgentQuestionQueue) {
+		private readonly discardWorkspace?: (workspace: AgentWorkspace) => Promise<boolean>, private readonly questions?: AgentQuestionQueue,
+		private readonly permissions: ToolPermissions = normalizeToolPermissions(null)) {
 		if (questions) this.ask = (question, signal) => {
 			if (this.invalidated) return Promise.reject(new Error("Questions are unavailable."));
 			return questions.request(question, signal);
@@ -62,11 +64,13 @@ export class HostedAgentServices implements AgentLoopServices {
 	}
 	approve = async (approval: AgentApproval, signal: AbortSignal) => {
 		const item = this.item(approval.workspace, approval.call);
+		const permission = permissionForTool(this.permissions, item.call.name);
+		if (permission === "deny") return { approvalId: approval.id, approved: false };
 		const challenge = await this.prepare(item, signal);
 		signal.throwIfAborted();
 		this.item(approval.workspace, approval.call);
 		if (!challenge.requiresApproval) throw new Error("Unexpected approval policy.");
-		const decision = await this.consent.request(approval, signal);
+		const decision = permission === "allow" ? { approvalId: approval.id, approved: true } : await this.consent.request(approval, signal);
 		if (decision.approved && decision.approvalId === approval.id && !signal.aborted) item.approved = true;
 		else if (!signal.aborted) {
 			item.consumed = true;
@@ -75,7 +79,17 @@ export class HostedAgentServices implements AgentLoopServices {
 		return decision;
 	};
 	invoke = async (workspace: AgentWorkspace, call: NativeCall, signal: AbortSignal) => {
-		const item = this.item(workspace, call); const challenge = await this.prepare(item, signal);
+		const item = this.item(workspace, call);
+		const permission = permissionForTool(this.permissions, call.name);
+		if (permission === "deny") throw new AgentPolicyRefusal("Tool denied in settings.");
+		if (permission === "ask" && ["list_files", "read_file", "list_documents", "read_document"].includes(call.name)) {
+			const approval: AgentApproval = { id: crypto.randomUUID(), workspace, call, effect: "read_only" };
+			const decision = await this.consent.request(approval, signal);
+			signal.throwIfAborted();
+			this.item(workspace, call);
+			if (!decision.approved || decision.approvalId !== approval.id) throw new AgentPolicyRefusal("Tool denied.");
+		}
+		const challenge = await this.prepare(item, signal);
 		signal.throwIfAborted();
 		if (this.invalidated || item.consumed) throw new Error("Changed or consumed action.");
 		if (challenge.requiresApproval && !item.approved) throw new Error("Fresh approval is required.");
@@ -105,6 +119,13 @@ export type HostedAgentSnapshot = {
 
 /** Client-local, revision-safe composition. Opening it performs no network/execution. */
 export class HostedAgentWorkspace {
+	private permissions: ToolPermissions = normalizeToolPermissions(null);
+	/** Settings are snapshotted for each run; they cannot be changed during an action. */
+	setToolPermissions(value: unknown): boolean {
+		if (this.active || this.disposed) return false;
+		this.permissions = normalizeToolPermissions(value);
+		return true;
+	}
 	private state: HostedAgentSnapshot = freeze({ phase: "idle", models: [], executionEnabled: false, workspace: null, quarantined: null, creationPending: false, pendingApproval: null, pendingQuestion: null, conversationTurns: 0, requiresReset: false, queuedPrompt: null, events: [], error: "" });
 	private readonly listeners = new Set<() => void>();
 	private readonly consent = new AgentConsentQueue();
@@ -239,7 +260,7 @@ export class HostedAgentWorkspace {
 		const job = this.begin("running"); if (!job) return;
 		this.conversationKey = key;
 		const { controller, revision } = job; this.publish({ ...this.state, events: [...this.state.events, { kind: "user.message", text: prompt }].slice(-256) as AgentLoopEvent[] });
-		const services = new HostedAgentServices(workspace, models, this.consent, this.io, value => this.discard(value), this.questions);
+		const services = new HostedAgentServices(workspace, models, this.consent, this.io, value => this.discard(value), this.questions, normalizeToolPermissions(this.permissions));
 		let completed = false; let next: typeof this.queued = null;
 		try {
 			for await (const event of new NativeAgentLoop(services).run({ ...context }, mode, prompt, controller.signal, this.conversation)) {
