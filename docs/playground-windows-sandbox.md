@@ -1,21 +1,20 @@
 # Desktop Inspect → Build → Review (Windows Sandbox)
 
-This is the current desktop direction. It replaces custom-image Hyper-V as the **default
-application composition**, not as an automatic fallback. The previous Hyper-V library and
+This is the current desktop direction. It replaces custom-image Hyper-V as the **preferred
+VM application composition**. If VM setup, qualification or startup is unavailable, the app
+can offer a separately qualified native restricted backend after explicit confirmation; it
+is never entered silently. The previous Hyper-V library and
 operator tools remain available for their original managed deployments, but its receipts,
 VHDX and stored guest account cannot enable the new default backend.
 
 ## What users can do
 
-- **Inspect/Plan:** import a bounded local UTF-8 text baseline; the model can list/read that
-  in-memory copy and ask clarification questions. No VM or arbitrary host-file reader is
-  required. File contents enter hosted inference only when requested by a tool.
-- **Build:** explicitly start a fresh Windows-owned Sandbox VM, seed the baseline (or start
-  empty), and let the agent propose `write_file` and `run_command`. Every action still needs
-  separate, exact one-shot consent. The existing native model allowlist/metering applies.
-  On machines without the Sandbox CLI, an explicitly acknowledged **native restricted
-  isolation** mode is available as a separate, weaker opt-in (below); it is never entered
-  automatically or offered as a "retry" after the VM refuses.
+- **Plan:** inspect bounded imported text and ask questions. Plan is currently read-only;
+  command execution in a disposable copy remains pending a safe mode-transition boundary.
+- **Build:** use the same staged-copy boundary, with approved `write_file` and `run_command`.
+  Every mutation/command needs separate, exact one-shot consent. Reviewed changes can be
+  exported only through the separately confirmed, conflict-checked Build exporter. The
+  existing native model allowlist/metering applies.
 - **Review:** view diffs from direct writes **and command-generated text edits**. A bounded
   post-command snapshot is validated atomically before replacing the review state. Review
   and apply the changed files to a chosen destination through the conflict-checked, one-shot
@@ -52,8 +51,10 @@ bypasses either mode's checks. Unknown/unsupported CLI behavior fails closed.
    30 days. Updates require re-verification; previous receipts are archived, not silently
    treated as evidence for a new build. Model, billing and installed-MSI qualification are
    separate. The app remains non-elevated for ordinary use.
-5. **Start fresh Build workspace**, check native model availability, and send your task.
-   Missing qualification keeps execution disabled; Inspect remains available.
+5. **Start a fresh Build workspace**, check native model availability, and send your
+   task. If Windows Sandbox is unavailable or fails qualification/startup, the app offers a
+   one-time native restricted fallback. Accepting first runs its independent fixed safety
+   qualification if no current receipt exists; it does not need a Windows Sandbox receipt.
 
 Equivalent explicit console commands, using the verifier shipped beside the application:
 
@@ -65,15 +66,17 @@ Equivalent explicit console commands, using the verifier shipped beside the appl
 ## Native restricted isolation (explicit, weaker opt-in)
 
 Machines without the Sandbox CLI, virtualization or a Pro-class edition can still use Build
-after choosing **native restricted isolation** in the conversation page and acknowledging its
-limits in a dialog that names the shared kernel. It is a **staged-copy execution mode**, not
-an automatic fallback: VM refusal never grants it, and no host-shell, WSL, Docker, or
-unrestricted-process path exists at any point.
+with **native restricted isolation**. The user can choose it directly or accept the
+one-time fallback offered after VM setup/qualification/startup failure. The dialog names the
+shared kernel and confirms the weaker boundary. It is a **staged-copy execution mode**; VM
+failure never grants it without explicit confirmation. No unrestricted host-shell, WSL, Docker,
+or unqualified-process path exists.
 
 - Mechanism: an AppContainer lowbox child with UI restrictions, a private desktop, a Job
   Object, and a fresh per-session profile under an application-owned staging tree. Commands
   get a scrubbed environment (no inherited broker secrets or user PATH) and **no network**.
-- **Not a VM, not Codex MXC.** It shares the Windows kernel and much of the host filesystem
+- **Codex-style, but not a VM or Codex MXC.** This is Filspresso's independent OS-restricted
+  process implementation. It shares the Windows kernel and much of the host filesystem
   ACL surface with the user profile; predictable isolation is weaker and public/system
   application resources may remain readable. Prefer Windows Sandbox for unfamiliar code.
 - Verification is separate from the VM receipt: `native-sandbox --confirm` runs AppContainer,
@@ -87,10 +90,9 @@ unrestricted-process path exists at any point.
 & 'C:\Program Files\Filspresso Playground\qualification\Filspresso.Qualify.exe' native-sandbox-recover --confirm
 ```
 
-There is no fallback to a host shell, WSL, Docker or an unqualified custom guest. A Codex-like
-**workflow** does not require adopting Codex's different OS sandbox implementation; the native
-mode above is an independent, explicitly labelled capability, never a substitute presented
-where a VM was refused.
+There is no fallback to a host shell, WSL, Docker or an unqualified custom guest. The native
+restricted process backend is the explicit, independently qualified Codex-style alternative
+when the Windows Sandbox VM is unavailable; it is never presented as equivalent to a VM.
 
 ## Network is two different permissions
 
@@ -110,14 +112,16 @@ PowerShell and Windows-provided tools can create/run code immediately after real
 
 ## Boundary and implementation
 
-- `WindowsSandbox.cs`: `wsb start --id`, `exec --run-as System`, `stop --id` and strict raw
-  inventory. Only trusted administration executes on the host. Guest source remains a
-  file on a read-only mapping, never interpolated into a host command. CLI `exec` has no
-  process stdout support, so a separate reply mapping carries bounded inert JSON.
+- `WindowsSandbox.cs`: `wsb start --id`, `share`, `exec --run-as System`, `stop --id` and
+  strict raw inventory. Only trusted administration executes on the host. Each exchange
+  attaches a fresh, pinned read-only shard under a fresh guest path; guest source is never
+  interpolated into a host command. CLI `exec` has no process stdout support, so a separate
+  reply mapping carries bounded inert JSON.
 - `WindowsSandboxConfiguration.cs`: networking, vGPU, clipboard, audio/video and printer
-  sharing explicitly **disabled**; Protected Client enabled; 4 GiB memory. Exactly two
-  app-owned mappings: immutable-to-guest input and guest-writable reply output, **not**
-  the repository/home directory. XML is generated with a serializer, not string injection.
+  sharing explicitly **disabled**; Protected Client enabled; 4 GiB memory. Exactly one
+  app-owned guest-writable reply mapping is configured, **not** the repository/home directory.
+  Request scripts and boundary source use per-exchange read-only `wsb share` attachments.
+  XML is generated with a serializer, not string injection.
 - The guest uses the existing pinned-handle fence, fresh capability-free AppContainer and
   verified job limits before command resume. SYSTEM is the trusted **guest broker** identity,
   never the generated command's authority. Qualification must prove the command cannot write
@@ -136,6 +140,12 @@ PowerShell and Windows-provided tools can create/run code immediately after real
   Staging is retained under `%LOCALAPPDATA%\Filspresso\Playground\windows-sandbox` for
   inspection, not recursively deleted while it may contain guest-controlled content.
   These files can contain private source and must be treated as sensitive local data.
+
+- **Current device/update finding:** the updated `wsb` CLI can start and share a VM, but the
+  live qualification command probe on this machine fails when a session-0 guest broker starts
+  its AppContainer PowerShell child (`STATUS_DLL_INIT_FAILED`, `0xC0000142`). No Windows Sandbox
+  receipt is issued. The app therefore offers the independent native restricted fallback after
+  explicit confirmation; it does not weaken the VM gate or silently retry on the host.
 
 ## Explicit limits
 
@@ -162,11 +172,11 @@ PowerShell and Windows-provided tools can create/run code immediately after real
 
 ## Evidence on this development PC
 
-Read-only inspection reports Windows 11 Pro **25H2 build 26200.9711**, but no `wsb.exe`
-command or installed Windows Sandbox package. No feature was enabled, no restart/installation
-was attempted, and no Windows Sandbox receipt has been created. Actual VM qualification is
-therefore blocked on setup. Native Windows component tests from the previous work remain
-component evidence only. Final test/build totals are recorded in the task handoff.
+On the examined Windows 11 Pro update the installed `wsb` CLI started a VM and fresh shares,
+but the live AppContainer PowerShell probe failed with `0xC0000142`; no VM receipt was
+issued. Separately, the native restricted qualification and the packaged native qualifier
+passed their fixed checks on this device/build. This does not qualify an installed MSI or
+establish a universal guarantee across devices or later Windows updates.
 
 Final checks: **453/453 desktop tests** (Debug and Release), **103/103 web client tests**,
 and **18 native maintenance checks** pass. WinUI publish and unsigned MSI **0.3.2** package

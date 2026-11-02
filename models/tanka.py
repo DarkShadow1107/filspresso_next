@@ -9,6 +9,7 @@ import base64
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import struct
@@ -37,6 +38,9 @@ AUDIO_MODEL_1_5B = "LFM2.5-Audio-1.5B-Q4_0.gguf"
 # Still loaded, but only as the internal coffee_facts retrieval embedder. It is
 # not offered as a chat model: LFM2.5 230M replaced it for the Free plan.
 TEXT_MODEL_MINILM = "MiniLM-L6-v2.gguf"
+# Embeddings from another GGUF, tokenizer or pooling configuration are not interchangeable.
+# Change this identifier and rebuild the separate index whenever those inputs change.
+MINILM_INDEX_ID = os.getenv("MINILM_INDEX_ID", "minilm-l6-v2-gguf-5a30b84d-pooling-default-v1")
 
 # The context the Kafelot chat runs with.
 #
@@ -177,8 +181,8 @@ class TankaModel:
 
     def __init__(self):
         # Legacy local embedding/image runtimes were removed from this service.
-        self._nlp_status = "removed"
-        self._nlp_error = "legacy-minilm-clip-molscribe-removed"
+        self._nlp_status = "not_attempted"
+        self._nlp_error = ""
 
         # Kept for health payload compatibility.
         self._qwen_model = None
@@ -271,24 +275,41 @@ class TankaModel:
         self._warmup_state: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
-    # Lexical fallback compatibility
+    # MiniLM embedding service for the coffee-fact retrieval path
     # ------------------------------------------------------------------
 
     def _load_nlp(self):
-        # Legacy sentence-transformers runtime is intentionally removed.
-        self._nlp_status = "removed"
-        self._nlp_error = "legacy-minilm-clip-molscribe-removed"
+        # The encoder is served separately; do not load sentence-transformers here.
+        return None
 
     def encode(self, text: str) -> list | None:
-        _ = text
-        self._load_nlp()
-        return None
+        if not isinstance(text, str) or not text.strip() or len(text) > 8192:
+            return None
+        base_url = self._model_base_urls.get(TEXT_MODEL_MINILM, "").rstrip("/")
+        if not base_url:
+            return None
+        try:
+            # encode is called from the retrieval worker thread, not the async event loop.
+            # Keep this timeout below the caller's retrieval deadline.
+            response = httpx.post(base_url + "/v1/embeddings", json={"model": TEXT_MODEL_MINILM, "input": text},
+                                  headers=self._llama_headers(), timeout=5.0, trust_env=False)
+            response.raise_for_status()
+            entries = response.json().get("data")
+            vector = entries[0].get("embedding") if isinstance(entries, list) and len(entries) == 1 and isinstance(entries[0], dict) else None
+            if not isinstance(vector, list) or len(vector) != 384 or any(isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x) for x in vector):
+                raise ValueError("Invalid MiniLM embedding")
+            self._nlp_status, self._nlp_error = "ready", ""
+            return vector
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, OverflowError) as exc:
+            self._nlp_status, self._nlp_error = "unavailable", type(exc).__name__
+            logger.warning("MiniLM embedding unavailable (%s)", type(exc).__name__)
+            return None
 
     def nlp_status(self) -> dict:
         return {
             "status": self._nlp_status,
-            "backend": "Lexical fallback (legacy MiniLM embedding runtime removed)",
-            "loaded": False,
+            "backend": "llama.cpp MiniLM embeddings (lexical fallback when unavailable)",
+            "loaded": self._nlp_status == "ready",
             "error": self._nlp_error,
         }
 

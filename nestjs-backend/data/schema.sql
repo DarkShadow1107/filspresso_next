@@ -304,6 +304,16 @@ CREATE TABLE IF NOT EXISTS coffee_facts (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Separately versioned embeddings: never assume older coffee_facts vectors use
+-- the same model or tokenizer. Reindex on model/pooling changes.
+CREATE TABLE IF NOT EXISTS coffee_fact_embeddings (
+    fact_id INTEGER NOT NULL REFERENCES coffee_facts(id) ON DELETE CASCADE,
+    model_id TEXT NOT NULL,
+    fact_text TEXT NOT NULL,
+    embedding vector(384) NOT NULL,
+    PRIMARY KEY (fact_id, model_id)
+);
+
 -- =============================================================================
 -- SUBSCRIPTIONS TABLE
 -- =============================================================================

@@ -23,7 +23,9 @@ been implemented. It does **not** turn unperformed live checks into passing evid
   command. The privileged remoting account is not the workload's security authority.
   Only the disposable workspace is granted Modify access/low integrity; the per-command
   lowbox also has OS-managed private storage. Windows binaries/libraries remain readable.
-  There is no host-shell, WSL, Sandbox or hosted-Docker fallback for desktop commands.
+  There is no unrestricted host-shell, WSL, Docker or unqualified-process fallback. The
+  separate native restricted backend is offered only after explicit consent and its own
+  current receipt; it is not a replacement for VM qualification.
 - **Jobs and limits:** create the root suspended, assign the job and inspect its actual
   AppContainer token/capability count and installed job limits before resuming. Only three
   stdio handles are inherited. No breakaway: 32 processes, 512 MiB/process, 1 GiB/job,

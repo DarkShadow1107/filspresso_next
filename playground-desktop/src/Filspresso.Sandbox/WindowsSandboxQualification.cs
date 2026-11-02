@@ -42,9 +42,9 @@ public static class WindowsSandboxQualification
         {
             using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
             var edition = PlatformRequirementCheck.ParseEdition(key?.GetValue("EditionID") as string, key?.GetValue("InstallationType") as string);
-            if (!PlatformRequirementCheck.EditionSupportsHyperV(edition)) return "Windows Sandbox requires a supported Pro, Enterprise or Education edition; no host-execution fallback exists.";
-            if (Environment.OSVersion.Version.Build < 26100) return "Automated execution requires Windows 11 24H2 or newer and the updated Windows Sandbox client. Repository inspection remains available.";
-            if (!File.Exists(WindowsSandboxCli.ExecutablePath)) return "Windows Sandbox setup required: enable Windows Sandbox in Windows Features (administrator approval; a restart may be needed), then open it once to finish its client update. No VHDX or guest password is needed.";
+            if (!PlatformRequirementCheck.EditionSupportsHyperV(edition)) return "Windows Sandbox requires a supported Pro, Enterprise or Education edition. A separately qualified native restricted alternative may be available; unrestricted host execution is never used.";
+            if (Environment.OSVersion.Version.Build < 26100) return "Windows Sandbox VM execution requires Windows 11 24H2 or newer and the updated client. Repository inspection remains available; native restricted mode can be qualified separately.";
+            if (!File.Exists(WindowsSandboxCli.ExecutablePath)) return "Windows Sandbox setup required: enable Windows Sandbox in Windows Features (administrator approval; a restart may be needed), then open it once to finish its client update. The app can offer a separately qualified native restricted fallback; no VHDX or guest password is needed.";
             return string.Empty;
         }
     }

@@ -16,8 +16,8 @@
                 <StackPanel Spacing="12">
                     <TextBlock x:Name="SystemCheck" TextWrapping="Wrap" FontSize="12" />
                     <TextBlock Text="Execution isolation · fixed while active" FontSize="11" Foreground="{StaticResource FilspressoMuted}" />
-                    <local:ChoicePicker x:Name="IsolationBox" Options="Windows Sandbox VM · preferred|Native restricted · shared host kernel" SelectedIndex="0" HorizontalAlignment="Left" SelectionChanged="OnIsolationChanged" AutomationProperties.Name="Execution isolation" />
-                    <TextBlock Text="Windows Sandbox is preferred. Native restricted mode shares the host kernel and is not a VM or Codex MXC. Both use a staged copy with offline commands. Verify the selected boundary before starting." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
+                    <local:ChoicePicker x:Name="IsolationBox" Options="Windows Sandbox VM · preferred|Codex-style native restricted · shared host kernel" SelectedIndex="0" HorizontalAlignment="Left" SelectionChanged="OnIsolationChanged" AutomationProperties.Name="Execution isolation" />
+                    <TextBlock Text="Plan is read-only. Build uses approved commands and direct writes in a staged project copy with reviewed export. Windows Sandbox is preferred. If its verification or startup fails, the native restricted fallback is offered only after confirmation; it shares the host kernel and is not a VM or Codex MXC. Each backend needs independent qualification." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource FilspressoMuted}" />
                     <TextBlock x:Name="ExecutionStatus" TextWrapping="Wrap" FontSize="12" />
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <Button x:Name="VerifySandboxButton" Content="Verify setup…" Click="OnVerifySandbox" Style="{StaticResource QuietButtonStyle}" />

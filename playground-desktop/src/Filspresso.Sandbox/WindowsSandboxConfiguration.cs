@@ -6,20 +6,22 @@ namespace Filspresso.Sandbox;
 
 public static class WindowsSandboxConfiguration
 {
-    public const string GuestInput = @"C:\filspresso-in";
+    // Config-mapped input folders do not distribute file content on current Windows builds.
+    // Requests travel as freshly attached read-only shares instead: one shard folder per
+    // exchange, under a fresh guest path, so the attach snapshot is always complete.
+    public const string GuestSharesRoot = @"C:\filspresso-shards";
     public const string GuestOutput = @"C:\filspresso-out";
-    public static string Create(string input, string output)
+    public static string GuestSharePath(string nonce) => GuestSharesRoot + @"\s" + nonce;
+    // No user-selected path or original repository is accepted by the application here.
+    public static string Create(string output)
     {
-        input = PinnedLocalPath.Normalize(input); output = PinnedLocalPath.Normalize(output);
-        if (input.Equals(output, StringComparison.OrdinalIgnoreCase) || input.StartsWith(output + "\\", StringComparison.OrdinalIgnoreCase) ||
-            output.StartsWith(input + "\\", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Separate sibling staging folders are required.");
-        // No user-selected path or original repository is accepted by the application here.
+        output = PinnedLocalPath.Normalize(output);
         return new XElement("Configuration",
             new XElement("Networking", "Disable"), new XElement("vGPU", "Disable"),
             new XElement("ClipboardRedirection", "Disable"), new XElement("AudioInput", "Disable"),
             new XElement("VideoInput", "Disable"), new XElement("PrinterRedirection", "Disable"),
             new XElement("ProtectedClient", "Enable"), new XElement("MemoryInMB", 4096),
-            new XElement("MappedFolders", Mapping(input, GuestInput, true), Mapping(output, GuestOutput, false)))
+            new XElement("MappedFolders", Mapping(output, GuestOutput, false)))
             .ToString(SaveOptions.DisableFormatting);
     }
     private static XElement Mapping(string host, string guest, bool readOnly) => new("MappedFolder",

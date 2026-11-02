@@ -567,6 +567,7 @@ services:
             - /models/MiniLM-L6-v2.gguf
             - --alias
             - MiniLM-L6-v2.gguf
+            - --embedding
             - --host
             - 0.0.0.0
             - --port

@@ -38,6 +38,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # the runtime mounts instead. Any new module under models/ must be added here or
 # the container fails at import with ModuleNotFoundError.
 COPY app.py .
+COPY reindex_coffee_embeddings.py .
 COPY iot_db.py .
 COPY models/__init__.py ./models/__init__.py
 COPY models/tanka.py ./models/tanka.py

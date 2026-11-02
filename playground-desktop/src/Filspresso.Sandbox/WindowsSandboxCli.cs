@@ -15,14 +15,14 @@ public interface IWindowsSandboxCli
     Task<SandboxCliResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken);
 }
 
-/// <summary>Only wsb administration is launched on the host. Guest source is a file on a
-/// read-only mapping, never host PowerShell, shell interpolation, or a generated executable.</summary>
+/// <summary>Only wsb administration is launched on the host. Guest source is a file inside
+/// a read-only share, never host PowerShell, shell interpolation, or a generated executable.</summary>
 public sealed class WindowsSandboxCli : IWindowsSandboxCli
 {
     public static string ExecutablePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\WindowsApps\wsb.exe");
     public async Task<SandboxCliResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        if (arguments.Count == 0 || arguments[0] is not ("list" or "start" or "exec" or "stop") ||
+        if (arguments.Count == 0 || arguments[0] is not ("list" or "start" or "share" or "exec" or "stop") ||
             arguments.Count > 12 || arguments.Any(value => value.Length > 24_000 || value.Contains('\0')) ||
             timeout <= TimeSpan.Zero || timeout > TimeSpan.FromMinutes(5)) throw new ArgumentException("Invalid Sandbox administration request.");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); deadline.CancelAfter(timeout);

@@ -65,8 +65,8 @@ public sealed class AgentLoop : IAgentLoop
             if (workspace is not null && _quarantined.Contains(workspace.Id))
             { yield return Stop("This workspace was quarantined after interrupted execution. Start a new sandbox before retrying."); yield break; }
 
-            // Plan advertises only reads, but the registry is also checked on every response:
-            // a model cannot gain permission by inventing or requesting an unadvertised tool.
+            // Plan is inspection-only until disposable changes are isolated across mode
+            // transitions. The registry is checked again for every model response.
             var offered = Array.AsReadOnly(_tools.Where(tool => turn.Mode == AgentMode.Build ||
                 (turn.Mode == AgentMode.Plan && tool.Effect is ToolEffect.ReadOnly or ToolEffect.Interaction)).ToArray());
             var history = new List<AgentExchange>();

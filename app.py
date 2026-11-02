@@ -39,7 +39,7 @@ import asyncio
 from dotenv import load_dotenv
 import psycopg2
 
-from models.tanka import TankaModel, MODE_DISPLAY_NAMES, VALID_MODES
+from models.tanka import TankaModel, MODE_DISPLAY_NAMES, VALID_MODES, MINILM_INDEX_ID
 from models.gate import MOLECULE_GATE, QueueTimeoutError, budget_after_queue_wait
 from models.residency import ModelBusyError
 from models import websearch, playground_context, playground_compaction, playground_agent
@@ -565,8 +565,10 @@ async def _run_with_timeout(fn, timeout_seconds: int, *args, **kwargs):
 def _warmup_minilm_background():
     """Warm MiniLM encoder on startup so first user request does not block on model load."""
     try:
-        tanka.encode("espresso warmup")
-        logger.info("MiniLM warmup completed")
+        if tanka.encode("espresso warmup") is not None:
+            logger.info("MiniLM embedding warmup completed")
+        else:
+            logger.warning("MiniLM embedding warmup unavailable; lexical fallback remains active")
     except Exception as exc:
         logger.warning("MiniLM warmup failed (%s)", exc)
 
@@ -589,7 +591,7 @@ async def _warmup_text_model():
 
 
 async def _warmup_models_background():
-    _warmup_minilm_background()
+    await run_in_threadpool(_warmup_minilm_background)
     if TEXT_WARMUP_ON_STARTUP:
         await _warmup_text_model()
 
@@ -662,12 +664,14 @@ def _search_facts_with_minilm(message: str, limit: int = 5):
     try:
         cur.execute(
             """
-            SELECT fact, 1 - (embedding <=> %s::vector) AS similarity
-            FROM coffee_facts
-            ORDER BY embedding <=> %s::vector
+            SELECT f.fact, 1 - (e.embedding <=> %s::vector) AS similarity
+            FROM coffee_fact_embeddings e JOIN coffee_facts f ON f.id = e.fact_id
+            WHERE e.model_id = %s AND e.fact_text = f.fact
+            ORDER BY e.embedding <=> %s::vector
             LIMIT %s
             """,
-            (embedding, embedding, limit),
+            ("[" + ",".join(str(v) for v in embedding) + "]", MINILM_INDEX_ID,
+             "[" + ",".join(str(v) for v in embedding) + "]", limit),
         )
         rows = cur.fetchall()
         return [(fact, float(similarity)) for fact, similarity in rows]

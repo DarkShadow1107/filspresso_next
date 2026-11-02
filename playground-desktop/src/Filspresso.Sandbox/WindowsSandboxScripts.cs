@@ -13,7 +13,7 @@ internal static class WindowsSandboxScripts
         try {
             [IO.Directory]::CreateDirectory('C:\filspresso-broker') | Out-Null
             if (-not [IO.File]::Exists('C:\filspresso-broker\Boundary.dll')) {
-                Add-Type -Path 'C:\filspresso-in\boundary.cs' -OutputAssembly 'C:\filspresso-broker\Boundary.dll'
+                Add-Type -Path 'C:\filspresso-shards\s{{nonce}}\boundary.cs' -OutputAssembly 'C:\filspresso-broker\Boundary.dll'
             }
             if (-not ('Filspresso.Guest.Fence' -as [type])) { Add-Type -Path 'C:\filspresso-broker\Boundary.dll' }
             function Open-WorkspaceDirectory([string]$path, [bool]$create) {
@@ -32,11 +32,11 @@ internal static class WindowsSandboxScripts
         exit 0
         """;
 
-    internal static string Ready => """
+    internal static string Ready(string nonce) => $$"""
         if (@(Get-NetAdapter -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' }).Count -ne 0) { throw 'Networking must be disabled' }
         $writable = $false
-        try { [IO.File]::WriteAllText('C:\filspresso-in\readonly-probe.txt', 'must-not-write'); $writable = $true } catch [UnauthorizedAccessException] { } catch [IO.IOException] { }
-        if ($writable) { throw 'Input mapping is writable' }
+        try { [IO.File]::WriteAllText('C:\filspresso-shards\s{{nonce}}\readonly-probe.txt', 'must-not-write'); $writable = $true } catch [UnauthorizedAccessException] { } catch [IO.IOException] { }
+        if ($writable) { throw 'Input share is writable' }
         $pin = Open-WorkspaceDirectory 'C:\filspresso-workspace' $true
         try { '{"version":1,"ready":true}' } finally { $pin.Dispose() }
         """;

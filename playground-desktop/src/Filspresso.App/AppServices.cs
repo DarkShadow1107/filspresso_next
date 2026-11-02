@@ -105,13 +105,14 @@ public sealed class AppServices : IDisposable
     /// </summary>
     /// <remarks>
     /// Inspection reads only the explicitly imported in-memory baseline. VM execution is
-    /// separately started and qualified. Native restriction is explicit opt-in, never an
-    /// automatic downgrade after a VM failure. No unrestricted host/Docker fallback exists.
+    /// separately started and qualified. Native restriction is separately qualified and
+    /// requires explicit opt-in, including confirmation when offered after VM failure. No
+    /// unrestricted host/Docker fallback exists.
     /// </remarks>
     public IAgentServices CreateAgentServices(INativeAgentModelTransport transport, ProjectCheckpoints checkpoints, out string executionStatus)
     {
         executionStatus = WindowsSandboxQualification.SetupStatus;
-        if (executionStatus.Length == 0) executionStatus = "Inspect mode · no VM started. Verify Windows Sandbox, then start a separate Build workspace.";
+        if (executionStatus.Length == 0) executionStatus = "Inspection only · no disposable workspace started. Verify an isolation backend, then start a Build workspace.";
         return new InspectionAgentServices(transport, checkpoints, WebLookup());
     }
 

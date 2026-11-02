@@ -21,7 +21,7 @@ public sealed class WindowsSandboxTests
         internal readonly List<string[]> Calls = new();
         internal readonly List<Guid> Inventory = new();
         internal Guid Id;
-        internal bool FailStop, LoseStart;
+        internal bool FailStop, LoseStart, FailExec;
         internal Func<string, string>? Reply;
         public Task<SandboxCliResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
         {
@@ -36,9 +36,11 @@ public sealed class WindowsSandboxTests
                 case "stop":
                     if (FailStop) return Task.FromResult(new SandboxCliResult(1, ""));
                     Inventory.Remove(Guid.Parse(arguments[2])); return Done(new { });
+                case "share": return Done(new { });
                 case "exec":
+                    if (FailExec) return Task.FromResult(new SandboxCliResult(1, ""));
                     var nonce = Regex.Match(arguments[^1], @"([a-f0-9]{32})\.ps1").Groups[1].Value;
-                    var source = File.ReadAllText(Path.Combine(root, Id.ToString("N"), "input", nonce + ".ps1"));
+                    var source = File.ReadAllText(Path.Combine(root, Id.ToString("N"), "share", "s" + nonce, nonce + ".ps1"));
                     var payload = Reply?.Invoke(source) ?? "{\"version\":1,\"ready\":true}";
                     File.WriteAllText(Path.Combine(root, Id.ToString("N"), "output", nonce + ".json"),
                         "{\"version\":1,\"nonce\":\"" + nonce + "\",\"ok\":true,\"payload\":" + payload + "}");
@@ -50,17 +52,36 @@ public sealed class WindowsSandboxTests
     }
 
     [Fact]
-    public void ConfigurationDisablesHostIntegrationAndMapsOnlySeparateStagingFolders()
+    public async Task AmbiguousExecFailureIsNeverRetriedAndDiscardsTheVm()
+    {
+        var root = Directory.CreateTempSubdirectory("filspresso-wsb-exec-failure-");
+        try
+        {
+            var cli = new Cli(root.FullName);
+            using var sandbox = new WindowsSandbox(cli, root.FullName, new MemoryRecoveryJournal());
+            var session = await sandbox.StartAsync("fixture");
+            var count = cli.Calls.Count(call => call[0] == "exec");
+            cli.FailExec = true;
+            await Assert.ThrowsAsync<IOException>(() => sandbox.RunAsync(session.Id, "example", ""));
+            Assert.Equal(count + 1, cli.Calls.Count(call => call[0] == "exec"));
+            Assert.Empty(cli.Inventory);
+        }
+        finally { root.Delete(true); }
+    }
+
+    [Fact]
+    public void ConfigurationDisablesHostIntegrationAndMapsOnlyTheReplyFolder()
     {
         var root = Path.GetTempPath().TrimEnd('\\');
-        var xml = XElement.Parse(WindowsSandboxConfiguration.Create(Path.Combine(root, "input&one"), Path.Combine(root, "output")));
+        var xml = XElement.Parse(WindowsSandboxConfiguration.Create(Path.Combine(root, "output")));
         foreach (var setting in new[] { "Networking", "vGPU", "ClipboardRedirection", "AudioInput", "VideoInput", "PrinterRedirection" })
             Assert.Equal("Disable", xml.Element(setting)!.Value);
         Assert.Equal("Enable", xml.Element("ProtectedClient")!.Value);
-        var maps = xml.Element("MappedFolders")!.Elements().ToArray(); Assert.Equal(2, maps.Length);
-        Assert.Equal("true", maps[0].Element("ReadOnly")!.Value); Assert.Equal("false", maps[1].Element("ReadOnly")!.Value);
-        Assert.Equal(Path.Combine(root, "input&one"), maps[0].Element("HostFolder")!.Value);
-        Assert.Throws<ArgumentException>(() => WindowsSandboxConfiguration.Create(root, Path.Combine(root, "child")));
+        var folder = Assert.Single(xml.Element("MappedFolders")!.Elements());
+        Assert.Equal(Path.Combine(root, "output"), folder.Element("HostFolder")!.Value);
+        Assert.Equal(WindowsSandboxConfiguration.GuestOutput, folder.Element("SandboxFolder")!.Value);
+        Assert.Equal("false", folder.Element("ReadOnly")!.Value);
+        Assert.Throws<InvalidOperationException>(() => WindowsSandboxConfiguration.Create("relative\\output"));
     }
 
     [Fact]
@@ -74,7 +95,7 @@ public sealed class WindowsSandboxTests
             var session = await sandbox.StartAsync("fixture");
             Assert.Equal(cli.Id, session.Id); Assert.Single(journal.Read());
             Assert.Contains(cli.Calls, call => call[0] == "start" && call.Contains("--id"));
-            Assert.All(cli.Calls, call => Assert.Contains(call[0], new[] { "list", "start", "exec", "stop" }));
+            Assert.All(cli.Calls, call => Assert.Contains(call[0], new[] { "list", "start", "share", "exec", "stop" }));
             await Assert.ThrowsAsync<SandboxPolicyException>(() => sandbox.ReadFileAsync(session.Id, "../host.txt"));
             await sandbox.StopAsync(session.Id); Assert.Empty(journal.Read()); Assert.Empty(cli.Inventory);
             // A new session after discard does not inherit an already-cancelled lifetime.
@@ -92,7 +113,7 @@ public sealed class WindowsSandboxTests
             var cli = new Cli(root.FullName); cli.Inventory.Add(Guid.NewGuid());
             using var sandbox = new WindowsSandbox(cli, root.FullName, new MemoryRecoveryJournal());
             await Assert.ThrowsAsync<SandboxPolicyException>(() => sandbox.StartAsync("fixture"));
-            Assert.DoesNotContain(cli.Calls, call => call[0] is "stop" or "start" or "exec");
+            Assert.DoesNotContain(cli.Calls, call => call[0] is "stop" or "start" or "share" or "exec");
         }
         finally { root.Delete(true); }
     }
@@ -184,17 +205,19 @@ public sealed class WindowsSandboxTests
         var root = Directory.CreateTempSubdirectory("filspresso-snapshot-component-");
         try
         {
-            foreach (var directory in new[] { "input", "output", "broker", "workspace", "workspace/node_modules", "workspace/src" })
+            var nonce = new string('b', 32);
+            foreach (var directory in new[] { "output", "broker", "workspace", "workspace/node_modules", "workspace/src", $"share/s{nonce}" })
                 Directory.CreateDirectory(Path.Combine(root.FullName, directory));
-            File.WriteAllText(Path.Combine(root.FullName, "input", "boundary.cs"), HyperVGuestScripts.BoundarySource);
+            File.WriteAllText(Path.Combine(root.FullName, "share", "s" + nonce, "boundary.cs"), HyperVGuestScripts.BoundarySource);
             File.WriteAllText(Path.Combine(root.FullName, "workspace", "src", "main.cs"), "source 界", new UTF8Encoding(false));
             File.WriteAllText(Path.Combine(root.FullName, "workspace", ".env"), "secret");
             File.WriteAllText(Path.Combine(root.FullName, "workspace", "node_modules", "dependency.js"), "skip");
             File.WriteAllText(Path.Combine(root.FullName, "workspace", "README"), "tracked extensionless");
-            var nonce = new string('b', 32);
             var script = WindowsSandboxScripts.Wrap(nonce, WindowsSandboxScripts.Snapshot(["README"]));
-            foreach (var pair in new[] { ("C:\\filspresso-in", "input"), ("C:\\filspresso-out", "output"), ("C:\\filspresso-broker", "broker"), ("C:\\filspresso-workspace", "workspace") })
-                script = script.Replace(pair.Item1, Path.Combine(root.FullName, pair.Item2).Replace("'", "''"), StringComparison.Ordinal);
+            foreach (var pair in new[] { (WindowsSandboxConfiguration.GuestSharesRoot + @"\s" + nonce, Path.Combine(root.FullName, "share", "s" + nonce)),
+                (@"C:\filspresso-out", Path.Combine(root.FullName, "output")), (@"C:\filspresso-broker", Path.Combine(root.FullName, "broker")),
+                (@"C:\filspresso-workspace", Path.Combine(root.FullName, "workspace")) })
+                script = script.Replace(pair.Item1, pair.Item2.Replace("'", "''"), StringComparison.Ordinal);
             const string bootstrap = """
                 $request = [Console]::In.ReadLine() | ConvertFrom-Json
                 & ([ScriptBlock]::Create($request.source))

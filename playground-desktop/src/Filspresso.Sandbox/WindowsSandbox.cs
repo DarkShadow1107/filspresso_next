@@ -13,8 +13,9 @@ using Filspresso.Core.Tools;
 namespace Filspresso.Sandbox;
 
 /// <summary>Windows-owned disposable VM; no VHDX, password, network or host executor.
-/// Only an app-owned request directory (read-only) and untrusted reply directory (writable)
-/// are mapped. Results are bounded no-follow reads; never executed on the host.</summary>
+/// Each request travels as a freshly attached read-only share because config-mapped input
+/// folders do not distribute file content on this build; replies return through the
+/// writable output mapping and are bounded no-follow reads; never executed on the host.</summary>
 public sealed class WindowsSandbox : IWorkspaceSandbox, ISandboxSnapshot
 {
     public static string DefaultRoot => Path.Combine(DesktopDataPaths.UserDataDirectory, "windows-sandbox");
@@ -24,7 +25,7 @@ public sealed class WindowsSandbox : IWorkspaceSandbox, ISandboxSnapshot
     private readonly SemaphoreSlim _operation = new(1), _cleanup = new(1);
     private CancellationTokenSource _lifetime = new();
     private IDisposable? _lease;
-    private PinnedLocalPath? _inputPin, _outputPin;
+    private PinnedLocalPath? _outputPin, _sharePin;
     private Guid? _id;
     private SandboxState _state;
     private bool _disposed;
@@ -53,10 +54,9 @@ public sealed class WindowsSandbox : IWorkspaceSandbox, ISandboxSnapshot
             _journal.Add(new(id, "filspresso-" + id.ToString("N"), "Filspresso.v3." + id.ToString("N")));
             _id = id; _state = SandboxState.Starting;
             var directory = Path.Combine(_root, id.ToString("N"));
-            _inputPin = new(Path.Combine(directory, "input"), create: true);
             _outputPin = new(Path.Combine(directory, "output"), create: true);
-            WriteNew(_inputPin, "boundary.cs", Encoding.UTF8.GetBytes(HyperVGuestScripts.BoundarySource));
-            var xml = WindowsSandboxConfiguration.Create(_inputPin.DirectoryPath, _outputPin.DirectoryPath);
+            _sharePin = new(Path.Combine(directory, "share"), create: true);
+            var xml = WindowsSandboxConfiguration.Create(_outputPin.DirectoryPath);
             using (var pin = new PinnedLocalPath(_root)) WriteNew(pin, id.ToString("N") + ".uncertain", [1]);
             var result = await _cli.RunAsync(["start", "--id", id.ToString(), "--config", xml], TimeSpan.FromMinutes(3), startToken).ConfigureAwait(false);
             var response = Parse(result);
@@ -192,17 +192,43 @@ public sealed class WindowsSandbox : IWorkspaceSandbox, ISandboxSnapshot
         catch { await StopAsync(id, CancellationToken.None).ConfigureAwait(false); throw; }
         finally { if (_state == SandboxState.Busy) _state = SandboxState.Ready; _operation.Release(); }
     }
-    private async Task<JsonElement> ExchangeAsync(string source, TimeSpan timeout, CancellationToken token)
+    private Task<JsonElement> ExchangeAsync(string source, TimeSpan timeout, CancellationToken token) =>
+        ExchangeAsync(nonce => source, timeout, token);
+    private async Task<JsonElement> ExchangeAsync(Func<string, string> request, TimeSpan timeout, CancellationToken token)
     {
         if (++_requests > 4096) throw new IOException("Sandbox request budget exhausted; discard this VM.");
-        var nonce = Guid.NewGuid().ToString("N"); var input = _inputPin ?? throw new IOException(); var output = _outputPin ?? throw new IOException();
-        // Guard's embedded source would exceed process-command-line limits; Add-Type is
-        // redirected to the immutable source mapping instead. The entire script stays a file.
-        source = source.Replace(HyperVGuestScripts.Guard, "", StringComparison.Ordinal);
-        WriteNew(input, nonce + ".ps1", Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(WindowsSandboxScripts.Wrap(nonce, source))).ToArray());
-        var command = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\filspresso-in\" + nonce + ".ps1";
+        var shares = _sharePin ?? throw new IOException("Windows Sandbox staging is missing.");
+        var output = _outputPin ?? throw new IOException("Windows Sandbox staging is missing.");
+        var nonce = Guid.NewGuid().ToString("N");
+        var script = request(nonce).Replace(HyperVGuestScripts.Guard, "", StringComparison.Ordinal);
+        // Once exec is submitted, an absent output file cannot prove the guest has not
+        // started (or will not start later). Never retry an ambiguous guest operation.
+        return await AttemptAsync(nonce, shares, output, script, timeout, token).ConfigureAwait(false);
+    }
+    private async Task<JsonElement> AttemptAsync(string nonce, PinnedLocalPath shares, PinnedLocalPath output, string script, TimeSpan timeout, CancellationToken token)
+    {
+        // Config-mapped input folders do not distribute file content on this build, so every
+        // attempt ships a fresh pinned shard folder and attaches it as a read-only share under
+        // a fresh guest path; this build snapshots the folder at attach time. The guest broker
+        // compiles the boundary from that immutable share; the embedded Guard stays out.
+        using var shard = new PinnedLocalPath(Path.Combine(shares.DirectoryPath, "s" + nonce), create: true);
+        WriteNew(shard, "boundary.cs", Encoding.UTF8.GetBytes(HyperVGuestScripts.BoundarySource));
+        WriteNew(shard, nonce + ".ps1", Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(WindowsSandboxScripts.Wrap(nonce, script))).ToArray());
+        var guest = WindowsSandboxConfiguration.GuestSharePath(nonce);
+        // The wsb share attach occasionally exits without a message (single-instance COM
+        // activation flake); bounded backoff keeps a wedged attach from discarding the VM.
+        string? rejection = null;
+        for (var step = 1; step <= 5; step++)
+        {
+            if (step > 1) await Task.Delay(TimeSpan.FromMilliseconds(500 * step), token).ConfigureAwait(false);
+            var attached = await _cli.RunAsync(["share", "--id", _id!.Value.ToString(), "--host-path", shard.DirectoryPath, "--sandbox-path", guest], TimeSpan.FromSeconds(20), token).ConfigureAwait(false);
+            if (attached.ExitCode == 0) { rejection = null; break; }
+            rejection = Summary(attached.Output);
+        }
+        if (rejection is not null) throw new IOException("Windows Sandbox input share failed." + rejection);
+        var command = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + guest + @"\" + nonce + ".ps1";
         var result = Parse(await _cli.RunAsync(["exec", "--id", _id!.Value.ToString(), "--run-as", "System", "--command", command], timeout, token).ConfigureAwait(false));
-        if (result.GetProperty("ExitCode").GetInt32() != 0) throw new IOException("Guest operation failed.");
+        if (result.GetProperty("ExitCode").GetInt32() != 0) throw new IOException("Guest operation failed (" + nonce + ").");
         using var reply = output.OpenFile(nonce + ".json");
         if (reply.Length is <= 0 or > 12_000_000) throw new InvalidDataException("Guest reply size exceeds policy.");
         var bytes = new byte[checked((int)reply.Length)]; reply.ReadExactly(bytes);
@@ -235,7 +261,7 @@ public sealed class WindowsSandbox : IWorkspaceSandbox, ISandboxSnapshot
             if (File.Exists(Path.Combine(_root, sessionId.ToString("N") + ".uncertain")))
                 throw new IOException("Sandbox creation acknowledgement was lost. Retained intent requires operator review; absence from one inventory is not proof a service cannot finish creation later.");
             _journal.Remove(sessionId); _id = null; _state = SandboxState.Stopped;
-            _inputPin?.Dispose(); _outputPin?.Dispose(); _inputPin = _outputPin = null;
+            _outputPin?.Dispose(); _sharePin?.Dispose(); _outputPin = _sharePin = null;
             // Retain staging for inspection; never recursively delete guest-writable content.
         }
         finally { _cleanup.Release(); }
@@ -273,10 +299,17 @@ public sealed class WindowsSandbox : IWorkspaceSandbox, ISandboxSnapshot
     }
     private static JsonElement Parse(SandboxCliResult result)
     {
-        if (result.ExitCode != 0 || result.Output.Length > 65_536) throw new IOException("Windows Sandbox CLI failed. Check the optional feature, restart and client update.");
+        if (result.ExitCode != 0 || result.Output.Length > 65_536)
+            throw new IOException("Windows Sandbox CLI reported error " + result.ExitCode + "." + Summary(result.Output));
         using var document = JsonDocument.Parse(result.Output, new JsonDocumentOptions { MaxDepth = 8 });
         UniqueFields(document.RootElement);
         return document.RootElement.Clone();
+    }
+    private static string Summary(string output)
+    {
+        var text = string.Concat(output.Trim().Select(character => character is '\r' or '\n' or '\t' ? ' ' : character));
+        if (text.Length > 400) text = text[..400];
+        return text.Length == 0 ? "" : " " + text;
     }
     private static void UniqueFields(JsonElement value)
     {
@@ -305,7 +338,7 @@ public sealed class WindowsSandbox : IWorkspaceSandbox, ISandboxSnapshot
         _lifetime.Cancel();
         _starting?.Task.GetAwaiter().GetResult();
         if (_id is { } id) { try { StopAsync(id).GetAwaiter().GetResult(); } catch { } }
-        _inputPin?.Dispose(); _outputPin?.Dispose(); _lease?.Dispose();
+        _outputPin?.Dispose(); _sharePin?.Dispose(); _lease?.Dispose();
         _lifetime.Cancel();
     }
 }

@@ -1,12 +1,12 @@
 # Native agents — proposals, gated hosted actions and paired compaction
 
-**Desktop Plan design clarification:** the desired Plan workspace is a disposable
-isolated project copy: commands may change the copy for verification, but must not
-apply changes to the original project. This differs from an immutable snapshot.
-Plan command execution and its non-apply boundary are not implemented yet; Plan
-remains inspection-only. Native restricted isolation uses a shared Windows kernel,
-whereas Windows Sandbox is a separate VM; both require their own current,
-machine-specific qualification and neither may silently replace the other.
+**Current desktop Plan boundary:** Plan remains inspection-only. Approved command execution
+against a disposable copy remains pending until changes are isolated across mode transitions
+and cannot later be exported as Build work. Build offers approved commands, direct writes and
+the reviewed, separately confirmed exporter. Native restricted isolation is
+the Codex-style OS-restricted fallback (shared Windows kernel), whereas Windows Sandbox is a
+separate VM; each needs its own current machine-specific qualification. VM failure offers
+native mode only after an explicit one-time confirmation; it is never a silent downgrade.
 
 **Web tool settings:** the shared web Playground has browser-wide per-tool Allow, Ask,
 and Deny preferences. Read-only workspace/document tools default to Allow; workspace
@@ -20,9 +20,10 @@ default Ask policy, not tools explicitly set to Allow.
 The authenticated manual web workspace command route also refuses commands; it is
 a temporary file workspace. Historical manual-execution descriptions remain below.
 
-**Current desktop composition:** imported-text Inspect/Plan plus an explicitly started,
-live-qualified Windows Sandbox Build workspace. Approved web tools are backend lookups,
-not guest networking. See [`playground-windows-sandbox.md`](playground-windows-sandbox.md).
+**Current desktop composition:** imported-text Plan inspection plus an explicitly started Build
+workspace. Windows Sandbox is the preferred VM; separately qualified native restricted mode
+is offered as an explicit fallback when the VM cannot be used. Approved web tools are backend
+lookups, not guest networking. See [`playground-windows-sandbox.md`](playground-windows-sandbox.md).
 The custom-image Hyper-V qualification discussion below describes the retained legacy library.
 
 **Current policy 3:** guest containment/AppContainer/jobs/durable recovery are implemented;

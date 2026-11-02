@@ -1,13 +1,14 @@
 # Filspresso Playground for Windows
 
-**Current desktop:** Inspect imported text without a VM; create and execute code in an
-explicitly started **Windows Sandbox** copy; review command/file diffs before applying them.
+**Current desktop:** Plan is read-only; Build uses an explicitly started disposable staged
+copy for approved commands, direct writes and reviewed export. **Windows Sandbox** is the
+preferred VM; if unavailable or unqualified, the app offers
+the independently qualified Codex-style native restricted mode only after explicit confirmation.
 No custom VHDX or guest password. Web lookup uses a separately approved authenticated
 backend tool; command networking remains disabled. Automated Build with Windows Sandbox
-requires Windows 11 24H2+, Sandbox setup and genuine live qualification. On other machines,
-a separately verified **native restricted isolation** mode is an explicit, weaker opt-in
-(shared host kernel, not a VM); it is never entered automatically, and there is no host
-shell, WSL or Docker fallback. See
+requires Windows 11 24H2+, Sandbox setup and genuine live qualification. Native restricted
+mode is an independent, weaker shared-kernel backend, not a VM; VM failure never enables it
+silently. There is no unrestricted host-shell, WSL or Docker fallback. See
 [`../docs/playground-windows-sandbox.md`](../docs/playground-windows-sandbox.md).
 Use `scripts/Test-PlaygroundReadiness.ps1` for read-only single-device diagnostics.
 
@@ -154,10 +155,11 @@ Normal preferences are stored in
 `%LOCALAPPDATA%\Filspresso\Playground\preferences.json`. Access/refresh tokens and the
 device identity are not stored in that JSON file.
 
-The installer and app retain their Pro-or-equivalent edition requirement. Older supported
-Windows builds allow inspection; automated Build requires Windows 11 24H2+ with the updated
-Windows Sandbox client and successful live verification. The app does not enable features
-or elevate itself. See `../docs/playground-windows-sandbox.md` for current behavior.
+The installer and app retain their Pro-or-equivalent edition requirement. Windows Sandbox VM
+execution requires Windows 11 24H2+ with the updated client and successful live verification.
+The independent native restricted backend can be verified without Windows Sandbox, but is
+weaker and shares the host kernel. The app does not enable features or elevate itself. See
+`../docs/playground-windows-sandbox.md` for current behavior.
 
 Preferences additionally accept:
 

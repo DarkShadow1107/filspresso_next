@@ -15,7 +15,7 @@ public static class WindowsSandboxLiveQualification
     public static async Task<IReadOnlyList<string>> RunAsync(WindowsSandbox sandbox, Action<string> report, CancellationToken token)
     {
         var checks = new List<string>();
-        report("Starting offline VM and verifying read-only input mapping");
+        report("Starting offline VM and verifying read-only input shares");
         var session = await sandbox.StartAsync("qualification", token).ConfigureAwait(false);
         try
         {
