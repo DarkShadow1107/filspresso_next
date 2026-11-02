@@ -117,6 +117,11 @@ def _clean(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _node_text(node: Any) -> str:
+    """Keep nested emphasis/text rather than returning only the first fragment."""
+    return _clean(" ".join(node.css("::text").getall()))
+
+
 def is_blocked_page(html: str) -> bool:
     """Whether the provider answered with a block rather than with results.
 
@@ -178,21 +183,15 @@ def parse_duckduckgo(html: str) -> list[SearchResult]:
         url = _unwrap_duckduckgo(href)
         if not url:
             continue
-        title = _clean(anchor.css("::text").get())
+        title = _node_text(anchor)
         if not title:
             continue
-        results.append(SearchResult(title=title, url=url, snippet="", provider="duckduckgo"))
-
-    # The snippets are a second anchor per result, in the same order.
-    snippets = [_clean(node.css("::text").get()) for node in page.css("a.result__snippet")]
-    for index, result in enumerate(results):
-        if index < len(snippets):
-            results[index] = SearchResult(
-                title=result.title,
-                url=result.url,
-                snippet=snippets[index],
-                provider=result.provider,
-            )
+        # Match within this result only: missing snippets must not shift the next
+        # result's evidence onto the wrong source.
+        blocks = anchor.xpath('ancestor::*[contains(concat(" ",normalize-space(@class)," ")," result ")][1]')
+        snippets = blocks[0].css(".result__snippet") if blocks else []
+        snippet = _node_text(snippets[0]) if snippets else ""
+        results.append(SearchResult(title=title, url=url, snippet=snippet, provider="duckduckgo"))
     return results
 
 
@@ -227,16 +226,13 @@ def parse_google(html: str) -> list[SearchResult]:
         if not url:
             continue
 
-        title = _clean(heading[0].css("::text").get()) if heading else _clean(anchor.css("::text").get())
+        title = _node_text(heading[0]) if heading else _node_text(anchor)
         if not title or url in seen:
             continue
         seen.add(url)
 
-        snippet = _clean(
-            block.css("div.VwiC3b::text").get()
-            or block.css("span.st::text").get()
-            or block.css("div[data-sncf]::text").get()
-        )
+        snippets = block.css("div.VwiC3b, span.st, div[data-sncf]")
+        snippet = _node_text(snippets[0]) if snippets else ""
         results.append(SearchResult(title=title, url=url, snippet=snippet, provider="google"))
 
     return results

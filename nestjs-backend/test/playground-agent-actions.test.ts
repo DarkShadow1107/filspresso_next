@@ -160,6 +160,40 @@ test("public page fetch is DNS-fenced by the service, ticket-bound and separatel
 	assert.equal(result.executed, true); assert.match(JSON.stringify(result), /Untrusted page/); assert.deepEqual(urls, ["https://example.com/"]);
 }));
 
+test("combined research is a separate one-shot consent and reads at most three fenced pages", async () => enabled(async () => {
+	const urls: string[] = []; let searches = 0;
+	const web = { search: async () => { searches++; return Array.from({ length: 5 }, (_, i) => ({ title: `Source ${i}`, url: `https://example.com/${i}`, snippet: "snippet" })); },
+		fetchPage: async (url: string, limit: number) => { urls.push(url); assert.equal(limit, 12_000); if (url.endsWith("/1")) throw new Error("blocked"); return { url, finalUrl: url, title: "Source", text: "Evidence", truncated: false }; } } as unknown as DesktopWebService;
+	const state = setup(web); const call: AgentCall = { id: "research1", name: "research_web", arguments: '{"query":"engines"}' };
+	const action = await state.prepare(call); assert.equal(action.requiresApproval, true); assert.equal(searches, 0);
+	const result = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call });
+	assert.equal(searches, 1); assert.equal(urls.length, 3); assert.match(JSON.stringify(result), /Evidence/); assert.match(JSON.stringify(result), /unavailable or refused/);
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call }), ConflictException);
+}));
+
+test("declining combined research makes no search or page request", async () => enabled(async () => {
+	let calls = 0;
+	const web = { search: async () => { calls++; return []; }, fetchPage: async () => { calls++; } } as unknown as DesktopWebService;
+	const state = setup(web); const call: AgentCall = { id: "research_denied", name: "research_web", arguments: '{"query":"engines"}' };
+	const action = await state.prepare(call);
+	await state.service.execute(42, action.actionId, { approved: false, sandboxId, call });
+	assert.equal(calls, 0);
+}));
+
+test("server date is a local clock result with no approval and no tool dispatch beyond ownership probes", async () => enabled(async () => {
+	const state = setup(); const call: AgentCall = { id: "date1", name: "server_date", arguments: "{}" };
+	const action = await state.prepare(call);
+	assert.equal(action.requiresApproval, false);
+	const result = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call });
+	assert.equal(result.executed, true);
+	const parsed = JSON.parse(result.result.stdout) as { date: string; timestamp: string; timezone: string; source: string };
+	assert.match(parsed.date, /^\d{4}-\d{2}-\d{2}$/); assert.equal(parsed.timezone, "UTC"); assert.match(parsed.source, /clock/);
+	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call }), ConflictException);
+	// The clock tool never reaches a broker tool endpoint; even retries only re-verify ownership.
+	assert.ok(state.calls.length > 0 && state.calls.every(entry => entry === `GET /sandboxes/${sandboxId}`));
+	assert.equal(state.calls.some(entry => entry.startsWith("PUT") || entry.startsWith("DELETE") || entry === "COMMAND"), false);
+}));
+
 test("workspace listing is a bounded read-only broker action", async () => enabled(async () => {
 	const state = setup();
 	const call: AgentCall = { id: "files1", name: "list_files", arguments: "{}" };

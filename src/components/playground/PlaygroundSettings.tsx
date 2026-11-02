@@ -80,7 +80,8 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 						<div className="pgw-type-preview" data-size={draft.textSize}><span>Preview</span><p>A little space to think. A direct conversation with your model.</p></div>
 					</>}
 					{section === "tools" && <>
-						<p>Choose whether each web agent tool is allowed, asks each time, or is denied. These browser-wide preferences do not override server authorization, model availability or sandbox restrictions. Allowing a tool can perform future actions without another prompt.</p>
+						<p>Choose whether each web agent tool is allowed, asks each time, or is denied. These browser-wide preferences do not override server authorization, model availability or sandbox restrictions. Allowing a tool can perform future actions without another prompt. Web research is allowed by default because it only reads public pages; decline it in Settings if you would rather review each query.</p>
+						<p>Research web sends the query to a search provider and reads up to three resulting public pages. Its permission is separate from search-only and individual page fetches. File, document and command tools keep asking before every action. Server date only reads the server's own clock.</p>
 						<p>Web Playground cannot run code or commands, regardless of these settings. Settings apply to new agent runs, not an action already in progress.</p>
 						{WEB_AGENT_TOOLS.map(name => <label className="pgw-setting" key={name}><span>{name.replaceAll("_", " ")}</span><select aria-label={`${name} permission`} disabled={streaming} value={normalizeToolPermissions(draft.toolPermissions)[name]} onChange={event => setDraft({ ...draft, toolPermissions: { ...normalizeToolPermissions(draft.toolPermissions), [name]: event.target.value as ToolPermission } })}><option value="allow">Allow</option><option value="ask">Ask each time</option><option value="deny">Deny</option></select></label>)}
 					</>}

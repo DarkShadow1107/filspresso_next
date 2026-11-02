@@ -146,6 +146,57 @@ def test_native_runtime_counts_tools_and_uses_only_openai_native_calls():
     asyncio.run(run())
 
 
+def test_lfm_web_search_followup_requests_an_answer_without_retrying_or_parsing_text_as_tools():
+    async def run():
+        requests = []
+        def respond(request):
+            requests.append(json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "Answer"}}], "usage": {"prompt_tokens": 10, "completion_tokens": 2}})
+        runtime = TankaModel.__new__(TankaModel)
+        runtime._resolve_model_base_url = lambda *_, **__: "http://fixture"
+        runtime._llama_headers = lambda: {}
+        tools = [{"type": "function", "function": {"name": "web_search"}}]
+        messages = [{"role": "user", "content": "search"},
+                    {"role": "assistant", "tool_calls": [{"function": {"name": "web_search"}}]},
+                    {"role": "tool", "content": "result"}]
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            runtime._client = client
+            await runtime.native_agent_completion("LFM2.5-230M-Q4_K_M.gguf", messages, tools, 100, .2)
+            await runtime.native_agent_completion("other-model", messages, tools, 100, .2)
+            messages[-2]["tool_calls"][0]["function"]["name"] = "research_web"
+            await runtime.native_agent_completion("LFM2.5-230M-Q4_K_M.gguf", messages, tools, 100, .2)
+            messages[-2]["tool_calls"][0]["function"]["name"] = "fetch_page"
+            await runtime.native_agent_completion("LFM2.5-230M-Q4_K_M.gguf", messages, tools, 100, .2)
+            messages[-2]["tool_calls"][0]["function"]["name"] = "read_file"
+            await runtime.native_agent_completion("LFM2.5-230M-Q4_K_M.gguf", messages, tools, 100, .2)
+        assert [request["tool_choice"] for request in requests] == ["none", "auto", "none", "none", "auto"]
+    asyncio.run(run())
+
+
+def test_agent_context_states_the_server_date_without_mutating_client_history():
+    messages = [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "What is today's date?"}]
+    prepared = TankaModel._with_server_date(messages)
+    assert prepared[0]["content"].startswith("Current server date: 20") and prepared[0]["content"].endswith("Be brief.") and "instead of calling tools" in prepared[0]["content"]
+    assert prepared[1] is messages[1] and messages[0]["content"] == "Be brief." and len(prepared) == 2
+    # Non-agent payloads and histories without a leading system prompt stay byte-identical.
+    assert TankaModel._with_server_date([{"role": "user", "content": "hi"}]) == [{"role": "user", "content": "hi"}]
+    assert TankaModel._with_server_date(prepared) == prepared
+
+
+def test_answer_only_search_followup_rejects_an_unexpected_native_tool_call_with_usage():
+    async def run():
+        runtime = TankaModel.__new__(TankaModel)
+        runtime._resolve_model_base_url = lambda *_, **__: "http://fixture"
+        runtime._llama_headers = lambda: {}
+        messages = [{"role": "assistant", "tool_calls": [{"function": {"name": "web_search"}}]}, {"role": "tool", "content": "result"}]
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, json=FIXTURE["native"]))) as client:
+            runtime._client = client
+            with pytest.raises(agent.AgentError) as error:
+                await runtime.native_agent_completion("LFM2.5-230M-Q4_K_M.gguf", messages, [{"type": "function"}], 100, .2)
+        assert error.value.code == "INVALID_AGENT_RESPONSE" and error.value.usage == FIXTURE["native"]["usage"]
+    asyncio.run(run())
+
+
 def test_disconnect_cancels_pending_native_work():
     async def run():
         stopped = asyncio.Event()

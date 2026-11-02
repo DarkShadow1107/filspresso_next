@@ -3,7 +3,7 @@ import type { AgentApproval, AgentApprovalDecision } from "./playgroundAgentLoop
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 function valid(approval: AgentApproval) {
 	return UUID.test(approval.id) && approval.workspace?.location === "hosted-docker" && UUID.test(approval.workspace.id) &&
-		(approval.effect === "mutation" || approval.effect === "execution" || (approval.effect === "read_only" && ["web_search", "fetch_page", "list_files", "read_file", "list_documents", "read_document"].includes(approval.call?.name))) && approval.call &&
+		(approval.effect === "mutation" || approval.effect === "execution" || (approval.effect === "read_only" && ["web_search", "research_web", "fetch_page", "list_files", "read_file", "list_documents", "read_document"].includes(approval.call?.name))) && approval.call &&
 		/^[A-Za-z0-9_-]{1,64}$/.test(approval.call.id) && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(approval.call.name) &&
 		typeof approval.call.arguments === "string" && new TextEncoder().encode(approval.call.arguments).length <= 16_384;
 }

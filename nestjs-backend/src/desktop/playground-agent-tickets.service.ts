@@ -24,16 +24,16 @@ export function isAgentWorkspacePath(value: string): boolean {
 /** Execution policy is fixed by the SERVER, never by a caller's tool effect/schema. */
 export function executableCall(raw: unknown, mode: "plan" | "build"): ExecutableCall {
 	if (!object(raw) || Object.keys(raw).some(key => !["id", "name", "arguments"].includes(key)) || typeof raw.id !== "string" || !CALL.test(raw.id) ||
-		typeof raw.name !== "string" || !["list_files", "read_file", "write_file", "run_command", "web_search", "fetch_page", "list_documents", "read_document", "save_document", "delete_document"].includes(raw.name) ||
-		(mode !== "plan" && mode !== "build") || (mode === "plan" && !["list_files", "read_file", "web_search", "fetch_page", "list_documents", "read_document"].includes(raw.name))) throw new Error("Invalid executable tool.");
+		typeof raw.name !== "string" || !["list_files", "read_file", "write_file", "run_command", "server_date", "web_search", "research_web", "fetch_page", "list_documents", "read_document", "save_document", "delete_document"].includes(raw.name) ||
+		(mode !== "plan" && mode !== "build") || (mode === "plan" && !["list_files", "read_file", "server_date", "web_search", "research_web", "fetch_page", "list_documents", "read_document"].includes(raw.name))) throw new Error("Invalid executable tool.");
 	const parsed = parseAgentArguments(raw.arguments);
-	const fields = raw.name === "list_files" || raw.name === "list_documents" ? [] : raw.name === "read_file" ? ["path"] :
-		raw.name === "write_file" ? ["path", "text"] : raw.name === "web_search" ? ["query"] : raw.name === "fetch_page" ? ["url"] :
+	const fields = raw.name === "list_files" || raw.name === "list_documents" || raw.name === "server_date" ? [] : raw.name === "read_file" ? ["path"] :
+		raw.name === "write_file" ? ["path", "text"] : raw.name === "web_search" || raw.name === "research_web" ? ["query"] : raw.name === "fetch_page" ? ["url"] :
 		raw.name === "read_document" ? ["id"] : raw.name === "delete_document" ? ["id", "name"] : raw.name === "save_document" ? ["name", "content"] : ["command"];
 	if (Object.keys(parsed).length !== fields.length || fields.some(key => typeof parsed[key] !== "string")) throw new Error("Invalid executable arguments.");
 	const args = parsed as Record<string, string>;
 	if ((raw.name === "read_file" || raw.name === "write_file") && !isAgentWorkspacePath(args.path)) throw new Error("Invalid workspace path.");
-	if (raw.name === "web_search" && (!args.query.trim() || Array.from(args.query).length > 512)) throw new Error("Invalid search query.");
+	if ((raw.name === "web_search" || raw.name === "research_web") && (!args.query.trim() || Array.from(args.query).length > 512)) throw new Error("Invalid search query.");
 	if (raw.name === "fetch_page" && (args.url.length > 2048 || !/^https?:\/\//i.test(args.url))) throw new Error("Invalid public page URL.");
 	if ((raw.name === "read_document" || raw.name === "delete_document") && !UUID.test(args.id)) throw new Error("Invalid account document ID.");
 	if (raw.name === "delete_document" && (!args.name.trim() || Array.from(args.name).length > 120)) throw new Error("Document deletion requires the exact saved name.");
@@ -41,7 +41,7 @@ export function executableCall(raw: unknown, mode: "plan" | "build"): Executable
 	if (raw.name === "write_file" && Array.from(args.text).length > 12_000) throw new Error("File proposal too large.");
 	if (raw.name === "run_command" && (!args.command.trim() || Array.from(args.command).length > 4000)) throw new Error("Invalid command.");
 	return { call: { id: raw.id, name: raw.name, arguments: raw.arguments as string }, args,
-		effect: ["read_file", "list_files", "web_search", "fetch_page", "list_documents", "read_document"].includes(raw.name) ? "read_only" :
+		effect: ["read_file", "list_files", "server_date", "web_search", "research_web", "fetch_page", "list_documents", "read_document"].includes(raw.name) ? "read_only" :
 			["write_file", "save_document", "delete_document"].includes(raw.name) ? "mutation" : "execution" };
 }
 

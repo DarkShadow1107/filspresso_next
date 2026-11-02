@@ -39,6 +39,14 @@ def test_duckduckgo_challenge_page_is_not_mistaken_for_results():
     assert websearch.parse_duckduckgo(html) == []
 
 
+def test_nested_snippet_text_stays_with_its_own_result():
+    html = '''<div class="result"><a class="result__a" href="https://one.example">First</a></div>
+    <div class="result"><a class="result__a" href="https://two.example">Second</a>
+    <a class="result__snippet">Today is <b>2 November</b> 2026.</a></div>'''
+    results = websearch.parse_duckduckgo(html)
+    assert [r.snippet for r in results] == ["", "Today is 2 November 2026."]
+
+
 def test_google_results_are_parsed():
     html = (FIXTURES / "google_results.html").read_text(encoding="utf-8")
     results = websearch.parse_google(html)

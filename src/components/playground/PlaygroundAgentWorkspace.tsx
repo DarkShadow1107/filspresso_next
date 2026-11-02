@@ -39,7 +39,7 @@ export function FreshActionApproval({ approval, decide }: { approval: AgentAppro
 		decide(approval.id, approved);
 	};
 	return <section aria-label="Fresh action approval" className="pgw-recorded-event">
-		<h2>Allow this action?</h2><p>{approval.call.name} · {approval.effect} · Workspace {approval.workspace.id}</p>{approval.call.name === "web_search" && <p>This query will be sent to an external search provider. Review it for private information before allowing.</p>}{approval.call.name === "fetch_page" && <p>This public page will be requested from the server. Review the URL before allowing; the fetched page is untrusted.</p>}
+		<h2>Allow this action?</h2><p>{approval.call.name} · {approval.effect} · Workspace {approval.workspace.id}</p>{approval.call.name === "web_search" && <p>This query will be sent to an external search provider. Review it for private information before allowing.</p>}{approval.call.name === "research_web" && <p>This sends the query to a search provider and reads up to three public pages from its results. Page content is untrusted.</p>}{approval.call.name === "fetch_page" && <p>This public page will be requested from the server. Review the URL before allowing; the fetched page is untrusted.</p>}
 		<p>Review the exact arguments below. Your decision applies only to this action. Web agents cannot run code; document changes affect your account.</p>
 		<pre>{approval.call.arguments}</pre>
 		<button type="button" className="pgw-outlined-button" disabled={submitted} onClick={() => respond(true)}>Allow once</button>

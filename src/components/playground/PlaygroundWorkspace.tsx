@@ -21,6 +21,8 @@ import PlaygroundRuntime from "./PlaygroundRuntime";
 import PlaygroundRunHistory from "./PlaygroundRunHistory";
 import PlaygroundAgentReview from "./PlaygroundAgentReview";
 import { AgentInteractions } from "./PlaygroundAgentWorkspace";
+import LlamaToolActivity from "./LlamaToolActivity";
+import LlamaMessageStatistics from "./LlamaMessageStatistics";
 import { HostedAgentWorkspace, agentResultText } from "@/lib/playgroundHostedAgent";
 import { conversationContext } from "@/lib/playgroundConversationContext";
 import { displayToolText } from "@/lib/playgroundToolText";
@@ -36,12 +38,6 @@ type Conversation = { id: string; title: string; messages: Message[] };
 type StreamEvent = { delta?: string; reasoning?: string; notice?: string; error?: string; done?: boolean; context?: ContextState; usage?: { completion_tokens?: number; prompt_tokens?: number }; sources?: WebSource[]; document?: DocumentFrame };
 const PREFERENCES_KEY = "filspresso_playground_preferences_v2";
 const titleFor = (messages: Message[]) => messages.find((message) => message.role === "user")?.content.slice(0, 54) || "New conversation";
-/** "294 t/s" — output divided by measured wall time, computed for display only. */
-const formatTokensPerSecond = (tokens?: number, seconds?: number) => {
-	if (tokens === undefined || !tokens || !seconds || seconds <= 0) return null;
-	const tps = tokens / seconds;
-	return `${tps >= 10 ? Math.round(tps) : tps.toFixed(1)} t/s`;
-};
 const formatDocumentBytes = (bytes: number) => {
 	if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 	if (bytes >= 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -559,12 +555,12 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 							return <article key={message.id} className={`pgw-message pgw-message-${message.role}`} data-failed={message.failed}>
 								{message.role === "user" ? <><p className="pgw-user-text">{message.content}</p>{message.sources?.length ? <div className="pgw-message-sources">{message.sources.map((source, sourceIndex) => <span key={sourceIndex}><WorkspaceIcon name={source.kind === "github" ? "github" : "paperclip"} width={13} />{source.name}</span>)}</div> : null}</> : <>
 									{message.reasoning && <details className="pgw-reasoning"><summary>Reasoning</summary><PlaygroundMessageContent text={message.reasoning} /></details>}
-									{message.tools?.map(tool => <details className="pgw-tool-activity" key={tool.id}><summary><WorkspaceIcon name={tool.name === "web_search" ? "search" : "settings"} width={15} height={15} /> <strong>{tool.name.replaceAll("_", " ").replace(/\b\w/g, letter => letter.toUpperCase())}</strong><span>{tool.status === "finished" ? "Finished" : "Pending"}</span></summary><pre>{tool.arguments}</pre>{tool.result && <pre>{tool.result}</pre>}</details>)}
+									{message.tools?.map(tool => <LlamaToolActivity key={tool.id} tool={tool} />)}
 									{display.names.map((name, i) => <details className="pgw-tool-activity" key={`${name}:${i}`}><summary><strong>{name}</strong><span>Not executed</span></summary><p>The model wrote tool syntax as text. It was not a verified tool call and was not executed.</p></details>)}
 									{display.text ? <PlaygroundMessageContent text={display.text} /> : isCurrent && !display.names.length ? <p className="pgw-generating" role="status"><span /><span /><span /><em>{modelLoad.isLoading ? "Loading model…" : "Thinking…"}</em></p> : null}
 									{!isCurrent && message.webSources?.length ? <div className="pgw-web-sources" aria-label="Web sources"><span className="pgw-web-sources-label"><WorkspaceIcon name="search" width={13} height={13} /> Web sources</span>{message.webSources.map((source, sourceIndex) => <a key={`${source.url}:${sourceIndex}`} href={source.url} target="_blank" rel="noreferrer nofollow">{source.title}</a>)}</div> : null}
 									{!isCurrent && message.documents?.length ? <div className="pgw-message-docs" aria-label="Saved documents">{message.documents.map((document) => <button key={document.id} type="button" className="pgw-document-chip" title="Download document" onClick={() => void downloadDocument(document.id, document.name)}><WorkspaceIcon name="file" width={13} height={13} /><span>{document.name}</span><em>{formatDocumentBytes(document.bytes)}</em><WorkspaceIcon name="download" width={13} height={13} /></button>)}</div> : null}
-									{!isCurrent && <div className="pgw-message-meta"><span className="pgw-model-badge"><WorkspaceIcon name="model" width={14} height={14} /> {MODEL_LABEL_BY_KEY[message.model || model]}</span>{message.inputTokens !== undefined && <span title="Input tokens in the last model turn">{message.inputTokens.toLocaleString()} in</span>}{message.outputTokens !== undefined && <span title="Output tokens">{message.outputTokens.toLocaleString()} tokens</span>}{message.seconds !== undefined && <span title="Elapsed response time">{message.seconds.toFixed(1)} s</span>}{formatTokensPerSecond(message.outputTokens, message.seconds) && <span title="Average over elapsed response time, including tool waits">{formatTokensPerSecond(message.outputTokens, message.seconds)}</span>}</div>}
+									{!isCurrent && <LlamaMessageStatistics model={MODEL_LABEL_BY_KEY[message.model || model]} inputTokens={message.inputTokens} outputTokens={message.outputTokens} seconds={message.seconds} />}
 								</>}
 								{!isCurrent && <div className="pgw-message-actions">
 									<button type="button" className="pgw-icon-button" aria-label="Copy message" title="Copy" onClick={async () => { try { await navigator.clipboard.writeText(message.content); setCopied(message.id); window.setTimeout(() => setCopied(null), 2000); } catch { setNotice("Your browser could not copy this message."); } }}><WorkspaceIcon name={copied === message.id ? "check" : "copy"} width={17} height={17} /></button>

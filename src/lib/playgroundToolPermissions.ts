@@ -1,12 +1,12 @@
 /** Local convenience policy, never a replacement for server authorization or sandbox gates. */
-export const WEB_AGENT_TOOLS = ["list_files", "read_file", "write_file", "list_documents", "read_document", "save_document", "delete_document", "web_search", "fetch_page"] as const;
+export const WEB_AGENT_TOOLS = ["list_files", "read_file", "write_file", "list_documents", "read_document", "save_document", "delete_document", "server_date", "web_search", "research_web", "fetch_page"] as const;
 export type WebAgentTool = typeof WEB_AGENT_TOOLS[number];
 export type ToolPermission = "allow" | "ask" | "deny";
 export type ToolPermissions = Record<WebAgentTool, ToolPermission>;
 
 export const DEFAULT_TOOL_PERMISSIONS: Readonly<ToolPermissions> = Object.freeze({
 	list_files: "allow", read_file: "allow", list_documents: "allow", read_document: "allow",
-	write_file: "ask", save_document: "ask", delete_document: "ask", web_search: "ask", fetch_page: "ask",
+	write_file: "ask", save_document: "ask", delete_document: "ask", server_date: "allow", web_search: "allow", research_web: "allow", fetch_page: "allow",
 });
 
 /** Unknown tools are always denied, and malformed stored preferences revert to defaults. */

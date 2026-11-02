@@ -8,6 +8,20 @@ import { DesktopWebService } from "./desktop-web.service";
 import { sanitizeSearchResults } from "./playground-chat-tools";
 import { PlaygroundDocumentsService, InvalidDocumentInputError } from "./playground-documents.service";
 
+/** Small relevance window, never instructions or a substitute for the full source. */
+export function researchExcerpt(text: string, query: string, limit = 2200): string {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	if (normalized.length <= limit) return normalized;
+	const terms = [...new Set(query.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])].filter(term => !["tell", "search", "the", "for", "about", "web", "options"].includes(term)).slice(0, 12);
+	let best = 0, bestScore = -1;
+	for (let start = 0; start < normalized.length; start += 400) {
+		const slice = normalized.slice(start, start + limit).toLowerCase();
+		const score = terms.reduce((sum, term) => sum + (slice.includes(term) ? 1 : 0), 0);
+		if (score > bestScore) { best = start; bestScore = score; }
+	}
+	return (best ? "… " : "") + normalized.slice(best, best + limit) + (best + limit < normalized.length ? " …" : "");
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 type ActionRow = { action_id: string; account_id: string | number; model_run_id: string; execution_run_id: string; session_uuid: string | null;
@@ -72,7 +86,7 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 		const row = inserted.rows[0] ?? (await this.db.getPool().query<ActionRow>(`SELECT * FROM playground_agent_actions WHERE account_id=$1 AND model_run_id=$2 AND tool_call_id=$3`, [account, claims.run, proposal.call.id])).rows[0];
 		if (!row || row.status !== "pending" || row.sandbox_id !== raw.sandboxId || row.arguments_sha256 !== claims.digest || row.tool_name !== proposal.call.name || new Date(row.expires_at).getTime() <= Date.now()) throw new ConflictException({ error: "AGENT_ACTION_ALREADY_USED" });
 		return { version: 1, actionId: row.action_id, runId: row.execution_run_id, sandboxId: row.sandbox_id, toolCallId: row.tool_call_id,
-			requiresApproval: row.effect !== "read_only" || row.tool_name === "web_search" || row.tool_name === "fetch_page", expiresAt: Math.floor(new Date(row.expires_at).getTime() / 1000) };
+			requiresApproval: row.effect !== "read_only" || ["web_search", "research_web", "fetch_page"].includes(row.tool_name), expiresAt: Math.floor(new Date(row.expires_at).getTime() / 1000) };
 	}
 	async execute(account: number, id: string, raw: unknown, signal?: AbortSignal) {
 		this.enabled();
@@ -99,19 +113,33 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 			this.record(row, "tool.declined", { approved: false, authority: "authenticated_client_decision", executed: false }, "complete");
 			return { version: 1, actionId: id, status: "declined", executed: false };
 		}
-		this.record(row, "tool.approval", { approved: true, authority: row.effect === "read_only" && row.tool_name !== "web_search" ? "plan_build_read_policy" : "authenticated_client_decision" });
+		this.record(row, "tool.approval", { approved: true, authority: row.effect === "read_only" && !["web_search", "research_web", "fetch_page"].includes(row.tool_name) ? "plan_build_read_policy" : "authenticated_client_decision" });
 		let dispatched = false;
 		try {
 			signal?.throwIfAborted();
 			dispatched = true; const started = performance.now();
 			this.record(row, "tool.started", { authority: "server_dispatch" });
 			let result: { stdout: string; stderr: string; exitCode: number; timedOut: boolean; durationMs?: number; truncated?: boolean };
-			if (proposal.call.name === "web_search" || proposal.call.name === "fetch_page") {
+			if (proposal.call.name === "server_date") {
+				// Purely local, deterministic evidence: this tool runs on the server's
+				// clock, never consults the network, the workspace or the sandbox.
+				const stamps = new Date().toISOString().split("T");
+				result = { stdout: JSON.stringify({ date: stamps[0], timestamp: stamps[1], timezone: "UTC", source: "filspresso server clock" }), stderr: "", exitCode: 0, timedOut: false };
+			}
+			else if (["web_search", "research_web", "fetch_page"].includes(proposal.call.name)) {
 				try {
 					if (!this.web) throw new Error("Public web tools are unavailable.");
 					if (proposal.call.name === "web_search") {
 						const results = sanitizeSearchResults(await this.web.search(proposal.args.query, 5));
 						result = { stdout: JSON.stringify({ results }), stderr: "", exitCode: 0, timedOut: false };
+					} else if (proposal.call.name === "research_web") {
+						const results = sanitizeSearchResults(await this.web.search(proposal.args.query, 5));
+						const pages = await Promise.all(results.slice(0, 3).map(async item => {
+							signal?.throwIfAborted();
+							try { const page = await this.web!.fetchPage(item.url, 12_000, signal); return { url: page.finalUrl, title: page.title || item.title, text: researchExcerpt(page.text, proposal.args.query) }; }
+							catch { signal?.throwIfAborted(); return { url: item.url, title: item.title, error: "Page unavailable or refused." }; }
+						}));
+						result = { stdout: JSON.stringify({ results, pages }), stderr: "", exitCode: 0, timedOut: false };
 					} else {
 						const page = await this.web.fetchPage(proposal.args.url, 16_000, signal);
 						result = { stdout: JSON.stringify(page), stderr: "", exitCode: 0, timedOut: false };

@@ -606,6 +606,22 @@ class TankaModel:
 
         return self._strip_think_block(content)
 
+    @staticmethod
+    def _with_server_date(messages: list[dict]) -> list[dict]:
+        """Supply the server clock so date questions never depend on tool chaining.
+
+        This is stated as a bounded fact and is the gateway's own responsibility;
+        the history the client sent is never mutated.
+        """
+        from datetime import datetime, timezone
+        first = messages[0] if messages else None
+        if not isinstance(first, dict) or first.get("role") != "system" or not isinstance(first.get("content"), str) or not first["content"]:
+            return messages
+        note = f"Current server date: {datetime.now(timezone.utc):%Y-%m-%d} (UTC). Trust this server date for date and time questions instead of calling tools."
+        if first["content"].startswith(note):
+            return messages
+        return [{**first, "content": f"{note} {first['content']}"}, *messages[1:]]
+
     # ------------------------------------------------------------------
     # Streaming text generation (model playground)
     # ------------------------------------------------------------------
@@ -616,7 +632,7 @@ class TankaModel:
         model = router_model_id(model_name)
         base_url = self._resolve_model_base_url(model_name)
         template_payload = {
-            "model": model, "messages": messages, "add_generation_prompt": True,
+            "model": model, "messages": messages if tools is None else self._with_server_date(messages), "add_generation_prompt": True,
             "reasoning": "on" if thinking_enabled else "off",
             **({"tools": tools, "tool_choice": "auto" if tools else "none", "parallel_tool_calls": False} if tools is not None else {}),
         }
@@ -645,12 +661,29 @@ class TankaModel:
 
     async def native_agent_completion(self, model_name: str, messages: list[dict], tools: list[dict], max_tokens: int, temperature: float) -> dict:
         """Native OpenAI-shaped tool calls only; no text/XML/code-block interpretation."""
-        from models.playground_agent import MAX_BYTES
-        payload = {"model": router_model_id(model_name), "messages": messages, "tools": tools,
-                   "tool_choice": "auto" if tools else "none", "parallel_tool_calls": False,
+        from models.playground_agent import AgentError, MAX_BYTES, read_usage
+        # This LFM/llama.cpp parser treats Markdown links beginning with '[' as a
+        # tool-call prefix in auto mode, then rejects the entire answer. After any
+        # web result (search, combined research or a fetched page), explicitly
+        # request the answer without further tool calls. This is a single
+        # generation, not a paid/unsafe retry. It deliberately limits this
+        # particular result follow-up to an answer; the user can request further
+        # tools in a subsequent turn.
+        last_assistant = next((message for message in reversed(messages) if message.get("role") != "tool"), {})
+        search_followup = (model_name == "LFM2.5-230M-Q4_K_M.gguf" and messages and
+                           messages[-1].get("role") == "tool" and last_assistant.get("role") == "assistant" and any(
+                               call.get("function", {}).get("name") in ("web_search", "research_web", "fetch_page")
+                               for call in last_assistant.get("tool_calls", []) if isinstance(call, dict)))
+        payload = {"model": router_model_id(model_name), "messages": self._with_server_date(messages), "tools": tools,
+                   "tool_choice": "auto" if tools and not search_followup else "none", "parallel_tool_calls": False,
                    "max_tokens": max_tokens, "temperature": temperature, "stream": False, "reasoning": "off"}
         base_url = self._resolve_model_base_url(model_name, vision=False)
-        return await self._agent_json_post(self._llama_chat_url(base_url), payload, 110, MAX_BYTES)
+        response = await self._agent_json_post(self._llama_chat_url(base_url), payload, 110, MAX_BYTES)
+        if search_followup:
+            choices = response.get("choices")
+            if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict) or not isinstance(choices[0].get("message"), dict) or choices[0]["message"].get("tool_calls"):
+                raise AgentError("The answer-only search follow-up returned an invalid tool call.", 502, "INVALID_AGENT_RESPONSE", read_usage(response.get("usage")))
+        return response
 
     async def _agent_json_post(self, url: str, payload: dict, read_timeout: float, max_bytes: int) -> dict:
         from models.playground_agent import AgentError, strict_json

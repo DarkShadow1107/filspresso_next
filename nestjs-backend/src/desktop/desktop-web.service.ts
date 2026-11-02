@@ -168,6 +168,7 @@ export class DesktopWebService {
 				current = new URL(response.location, current).toString();
 				continue;
 			}
+			if (response.status < 200 || response.status >= 300) throw new ServiceUnavailableException({ error: "PUBLIC_PAGE_UNAVAILABLE" });
 
 			const html = response.body.toString("utf8");
 			const text = DesktopWebService.htmlToText(html);
@@ -199,6 +200,7 @@ export class DesktopWebService {
 			.replace(/&quot;/gi, '"')
 			.replace(/&#39;/gi, "'")
 			.replace(/[ \t]+/g, " ")
+			.replace(/[ \t]*\n[ \t]*/g, "\n")
 			.replace(/\n{3,}/g, "\n\n")
 			.trim();
 	}
