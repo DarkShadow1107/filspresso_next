@@ -18,7 +18,7 @@ import type { PlaygroundRunEventsService } from "../src/desktop/playground-run-e
 import type { BillingService } from "../src/billing/billing.service";
 import type { AddonsService } from "../src/billing/addons.service";
 import type { AgentCall, AgentRequest, AgentReply } from "../src/desktop/playground-agent-contract";
-import type { DesktopWebService } from "../src/desktop/desktop-web.service";
+import { DesktopWebService } from "../src/desktop/desktop-web.service";
 
 const fixture = JSON.parse(readFileSync(join(__dirname, "../../tests/fixtures/playground-agent.json"), "utf8"));
 const sandboxId = "00000000-0000-4000-8000-000000000042";
@@ -169,6 +169,35 @@ test("combined research is a separate one-shot consent and reads at most three f
 	const result = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call });
 	assert.equal(searches, 1); assert.equal(urls.length, 3); assert.match(JSON.stringify(result), /Evidence/); assert.match(JSON.stringify(result), /unavailable or refused/);
 	await assert.rejects(state.service.execute(42, action.actionId, { approved: true, sandboxId, call }), ConflictException);
+}));
+
+test("research uses semantic excerpts after fenced fetching and falls back on ranker failure", async () => enabled(async () => {
+	let ranked = 0;
+	const web = { search: async () => [{ title: "Source", url: "https://example.com/a", snippet: "text" }, { title: "Other", url: "https://example.com/b", snippet: "text" }],
+		fetchPage: async (url: string) => ({ finalUrl: url, title: "Source", text: url.endsWith("/a") ? "semantic evidence" : "lexical evidence" }),
+		rankResearchPassages: async (_query: string, text: string) => { ranked++; if (text.startsWith("lexical")) throw new Error("unavailable"); return text; } } as unknown as DesktopWebService;
+	const state = setup(web); const call: AgentCall = { id: "research_semantic", name: "research_web", arguments: '{"query":"evidence"}' };
+	const action = await state.prepare(call);
+	const result = await state.service.execute(42, action.actionId, { approved: true, sandboxId, call });
+	const pages = JSON.parse(result.result.stdout).pages;
+	assert.equal(ranked, 2); assert.equal(pages[0].ranking, "minilm-cosine"); assert.equal(pages[0].text, "semantic evidence");
+	assert.equal(pages[1].ranking, "lexical"); assert.equal(pages[1].text, "lexical evidence");
+}));
+
+test("semantic ranker sends bounded text and uses only returned indices", async t => enabled(async () => {
+	const source = "A".repeat(900) + "B".repeat(900) + "C".repeat(100);
+	t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+		const body = JSON.parse(String(init.body));
+		assert.equal(body.passages.length, 3); assert.equal(body.query, "question");
+		assert.equal(new Headers(init.headers).get("x-ai-service-key"), "internal-fixture");
+		return Response.json({ indices: [2, 1, 0], method: "minilm-cosine" });
+	});
+	assert.equal(await new DesktopWebService().rankResearchPassages("question", source), "B".repeat(900) + " … " + "C".repeat(100));
+}));
+
+test("semantic ranker rejects duplicate indices", async t => enabled(async () => {
+	t.mock.method(globalThis, "fetch", async () => Response.json({ indices: [0, 0], method: "minilm-cosine" }));
+	await assert.rejects(new DesktopWebService().rankResearchPassages("question", "A".repeat(1000)), /Invalid ranking/);
 }));
 
 test("declining combined research makes no search or page request", async () => enabled(async () => {

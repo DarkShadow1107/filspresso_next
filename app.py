@@ -149,7 +149,8 @@ AI_SERVICE_KEY_HEADER = "x-ai-service-key"
 # a deny-list of what might: a new inference route added later must opt in by being listed,
 # not opt out by being forgotten.
 AI_PROTECTED_PATHS = frozenset({"/api/chat", "/api/chat/stream", "/api/warmup",
-                              "/api/playground/context/file", "/api/playground/context/github", "/api/playground/agent/turn"})
+                              "/api/playground/context/file", "/api/playground/context/github", "/api/playground/agent/turn",
+                              "/api/internal/research/rank"})
 
 if not AI_SERVICE_KEY:
     # Printed rather than logged through the logger, because this is read in container logs
@@ -2110,6 +2111,33 @@ async def model_status(request: Request):
 # done there. What happens here is a search against two fixed providers, which cannot be
 # steered inward by anything the model says.
 # ---------------------------------------------------------------------------
+@app.post("/api/internal/research/rank")
+async def research_rank(request: Request):
+    """Rank supplied public-page passages; never fetch a URL or retain input."""
+    if not AI_SERVICE_KEY:
+        return json_response({"error": "internal authentication unavailable"}, 503)
+    try:
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw.extend(chunk)
+            if len(raw) > 65536:
+                return json_response({"error": "input too large"}, 413)
+        data = json.loads(raw)
+        if not isinstance(data, dict) or set(data) != {"query", "passages"}:
+            raise ValueError("invalid request")
+        query, passages = data["query"], data["passages"]
+        if not isinstance(query, str) or not query.strip() or len(query) > 512 or not isinstance(passages, list) or not 1 <= len(passages) <= 14:
+            raise ValueError("invalid bounds")
+        if any(not isinstance(text, str) or not text.strip() or len(text) > 900 for text in passages):
+            raise ValueError("invalid passage")
+        ranks = await tanka.rank_research(query, passages)
+        return json_response({"indices": ranks, "method": "minilm-cosine"})
+    except (ValueError, TypeError, KeyError, UnicodeError, json.JSONDecodeError):
+        return json_response({"error": "invalid research passages"}, 400)
+    except Exception:
+        return json_response({"error": "semantic ranking unavailable"}, 503)
+
+
 @app.get("/api/web/search")
 async def web_search(request: Request):
     query = (request.query_params.get("q") or "").strip()

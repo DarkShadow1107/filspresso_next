@@ -136,7 +136,17 @@ export class PlaygroundAgentActionsService implements OnModuleInit, OnModuleDest
 						const results = sanitizeSearchResults(await this.web.search(proposal.args.query, 5));
 						const pages = await Promise.all(results.slice(0, 3).map(async item => {
 							signal?.throwIfAborted();
-							try { const page = await this.web!.fetchPage(item.url, 12_000, signal); return { url: page.finalUrl, title: page.title || item.title, text: researchExcerpt(page.text, proposal.args.query) }; }
+							try {
+								const page = await this.web!.fetchPage(item.url, 12_000, signal);
+								let text = researchExcerpt(page.text, proposal.args.query), ranking = "lexical";
+								try {
+									if (typeof this.web!.rankResearchPassages === "function") {
+										const ranked = await this.web!.rankResearchPassages(proposal.args.query, page.text, signal);
+										if (ranked) { text = ranked; ranking = "minilm-cosine"; }
+									}
+								} catch { signal?.throwIfAborted(); /* lexical excerpt is the bounded fallback */ }
+								return { url: page.finalUrl, title: page.title || item.title, text, ranking };
+							}
 							catch { signal?.throwIfAborted(); return { url: item.url, title: item.title, error: "Page unavailable or refused." }; }
 						}));
 						result = { stdout: JSON.stringify({ results, pages }), stderr: "", exitCode: 0, timedOut: false };

@@ -1,4 +1,5 @@
 import math
+import asyncio
 
 import httpx
 import pytest
@@ -12,6 +13,7 @@ def runtime():
     model._llama_api_key = ""
     model._nlp_status = "not_attempted"
     model._nlp_error = ""
+    model._research_slots = asyncio.Semaphore(2)
     return model
 
 
@@ -47,6 +49,75 @@ def test_encode_fails_closed_on_unavailable_service(monkeypatch):
     model = runtime()
     assert model.encode("espresso") is None
     assert model.encode("") is None
+
+
+def test_research_ranks_batch_and_rejects_bad_vectors():
+    async def run():
+        model = runtime()
+        vectors = [[1.0, 0.0] + [0.0] * 382, [0.0, 1.0] + [0.0] * 382, [1.0, 0.0] + [0.0] * 382]
+        async def handler(request):
+            import json
+            assert json.loads(request.content)["input"] == ["coffee", "irrelevant", "coffee evidence"]
+            return httpx.Response(200, json={"data": [{"index": i, "embedding": v} for i, v in enumerate(vectors)]})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            model._client = client
+            assert await model.rank_research("coffee", ["irrelevant", "coffee evidence"]) == [1, 0]
+            vectors[1] = [0.0] * 384
+            with pytest.raises(ValueError):
+                await model.rank_research("coffee", ["irrelevant", "coffee evidence"])
+    asyncio.run(run())
+
+
+def test_internal_research_endpoint_requires_service_authentication(monkeypatch):
+    import app
+    monkeypatch.setattr(app, "AI_SERVICE_KEY", "test-internal-key")
+    class Ranker:
+        async def rank_research(self, query, passages):
+            return list(reversed(range(len(passages))))
+    monkeypatch.setattr(app, "tanka", Ranker())
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app.app), base_url="http://test") as client:
+            payload = {"query": "coffee", "passages": ["first", "second"]}
+            assert (await client.post("/api/internal/research/rank", json=payload)).status_code == 401
+            good = await client.post("/api/internal/research/rank", json=payload, headers={"x-ai-service-key": "test-internal-key"})
+            assert good.json() == {"indices": [1, 0], "method": "minilm-cosine"}
+            bad = await client.post("/api/internal/research/rank", json={**payload, "url": "http://localhost"}, headers={"x-ai-service-key": "test-internal-key"})
+            assert bad.status_code == 400
+    asyncio.run(run())
+
+
+def test_research_slots_release_on_cancellation_and_timeout():
+    async def run():
+        model = runtime()
+        started = asyncio.Event()
+        async def blocked(*args):
+            started.set()
+            await asyncio.Event().wait()
+        model._rank_research_batch = blocked
+        first = asyncio.create_task(model.rank_research("q", ["p"]))
+        await started.wait()
+        second = asyncio.create_task(model.rank_research("q", ["p"]))
+        await asyncio.sleep(0)
+        with pytest.raises(TimeoutError):
+            await model.rank_research("q", ["p"])
+        first.cancel()
+        second.cancel()
+        await asyncio.gather(first, second, return_exceptions=True)
+        await asyncio.wait_for(model._research_slots.acquire(), 0.1)
+        await asyncio.wait_for(model._research_slots.acquire(), 0.1)
+        model._research_slots.release()
+        model._research_slots.release()
+    asyncio.run(run())
+
+
+def test_internal_research_endpoint_fails_closed_without_configured_key(monkeypatch):
+    import app
+    monkeypatch.setattr(app, "AI_SERVICE_KEY", "")
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app.app), base_url="http://test") as client:
+            result = await client.post("/api/internal/research/rank", json={"query": "coffee", "passages": ["evidence"]})
+            assert result.status_code == 503
+    asyncio.run(run())
 
 
 def test_coffee_search_uses_only_versioned_matching_fact_text(monkeypatch):

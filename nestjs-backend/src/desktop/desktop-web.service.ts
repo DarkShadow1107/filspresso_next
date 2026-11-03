@@ -138,6 +138,32 @@ export class DesktopWebService {
 		}));
 	}
 
+	/** Select verbatim passages from an already-fetched page. No URLs are sent to
+	 * the embedding service, and this does not alter the public fetch fence. */
+	async rankResearchPassages(query: string, text: string, signal?: AbortSignal): Promise<string> {
+		const key = String(process.env.AI_SERVICE_KEY || "").trim();
+		if (!key) throw new Error("Semantic ranking requires internal authentication.");
+		const normalized = text.replace(/\s+/g, " ").trim();
+		const passages: string[] = [];
+		for (let start = 0; start < normalized.length && passages.length < 14; start += 900)
+			passages.push(normalized.slice(start, start + 900));
+		if (!passages.length) return "";
+		const url = `${this.aiHost()}/api/internal/research/rank`;
+		assertAllowedEgress(url, "web search");
+		const response = await fetchBounded(url, { method: "POST", timeoutMs: 7000, maxBytes: 8192, signal,
+			headers: { "Content-Type": "application/json", Accept: "application/json", "x-ai-service-key": key },
+			body: JSON.stringify({ query, passages }) });
+		if (!response.ok) throw new Error("Semantic ranking unavailable.");
+		const body: unknown = await response.json();
+		if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Invalid ranking.");
+		const receipt = body as { indices?: unknown; method?: unknown };
+		if (receipt.method !== "minilm-cosine" || !Array.isArray(receipt.indices) || receipt.indices.length !== passages.length ||
+			new Set(receipt.indices).size !== passages.length || receipt.indices.some(i => !Number.isInteger(i) || i < 0 || i >= passages.length))
+			throw new Error("Invalid ranking.");
+		const selected = (receipt.indices as number[]).slice(0, 2).sort((a, b) => a - b);
+		return selected.map(i => passages[i]).join(" … ");
+	}
+
 	/** Where the AI service is. The same name the Next route uses. */
 	private aiHost(): string {
 		const configured = String(process.env.PYTHON_AI_HOST || "").trim();
@@ -243,6 +269,7 @@ export async function assertPublicWebUrl(target: string, resolve: typeof dnsLook
 	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
 		throw new BadRequestException({ error: "only http and https urls can be fetched" });
 	}
+
 	if (parsed.username || parsed.password || (parsed.port && parsed.port !== (parsed.protocol === "https:" ? "443" : "80"))) {
 		throw new BadRequestException({ error: "credentials and non-standard ports are not allowed" });
 	}

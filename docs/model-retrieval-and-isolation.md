@@ -1,5 +1,19 @@
 # Model selection, retrieval, hardware and desktop isolation
 
+## Playground research passage ranking
+
+After a user approves `research_web`, the backend searches and fetches up to
+three pages through the existing public-address validation and DNS-pinned fetch.
+It sends bounded passages from each fetched page and the query to the internal,
+service-key-protected AI rank endpoint. MiniLM embeds the batch; cosine scores
+produce indices, and the backend validates the permutation and reconstructs
+excerpts from the original page text. The encoder does not fetch pages or
+persist these passages. Failure, saturation, or an invalid receipt falls back
+to the existing lexical excerpt; cancellation still propagates. A per-process
+two-slot semaphore limits concurrent research embedding batches. Fixed windows
+and a 14-passage cap may miss relevant evidence. Citations and fetched text
+remain untrusted, and ranking is not fact-checking or improved model reasoning.
+
 This document describes the current implementation and its limits. Tables marked
 **qualitative** are architectural comparisons, not benchmarks. Local measurements
 below are identified separately; model accuracy, latency and security are not inferred

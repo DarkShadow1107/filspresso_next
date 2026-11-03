@@ -259,6 +259,8 @@ class TankaModel:
         # lazily, so constructing it here is safe; aclose() releases it at
         # shutdown.
         self._client = httpx.AsyncClient()
+        # Research batches are best-effort; do not let many pages monopolize MiniLM.
+        self._research_slots = asyncio.Semaphore(2)
 
         # Residency coordinator for the shared chat router. Owns which model is
         # loaded, drives asynchronous swaps, and admits generation requests with a
@@ -312,6 +314,41 @@ class TankaModel:
             "loaded": self._nlp_status == "ready",
             "error": self._nlp_error,
         }
+
+    async def rank_research(self, query: str, passages: list[str]) -> list[int]:
+        """Rank ephemeral, already-fetched excerpts; never persist vectors or fetch URLs."""
+        await asyncio.wait_for(self._research_slots.acquire(), timeout=0.5)
+        try:
+            return await self._rank_research_batch(query, passages)
+        finally:
+            self._research_slots.release()
+
+    async def _rank_research_batch(self, query: str, passages: list[str]) -> list[int]:
+        base_url = self._model_base_urls.get(TEXT_MODEL_MINILM, "").rstrip("/")
+        if not base_url:
+            raise ValueError("embedding endpoint unavailable")
+        response = await self._client.post(base_url + "/v1/embeddings",
+            json={"model": TEXT_MODEL_MINILM, "input": [query, *passages]},
+            headers=self._llama_headers(), timeout=httpx.Timeout(6.0))
+        response.raise_for_status()
+        if len(response.content) > 1_000_000:
+            raise ValueError("embedding response too large")
+        entries = response.json().get("data")
+        if not isinstance(entries, list) or len(entries) != len(passages) + 1:
+            raise ValueError("invalid embedding batch")
+        vectors = []
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict) or entry.get("index") != index:
+                raise ValueError("invalid embedding order")
+            vector = entry.get("embedding")
+            if not isinstance(vector, list) or len(vector) != 384 or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in vector):
+                raise ValueError("invalid embedding vector")
+            norm = math.sqrt(sum(v * v for v in vector))
+            if not math.isfinite(norm) or norm <= 0:
+                raise ValueError("invalid embedding norm")
+            vectors.append([v / norm for v in vector])
+        scores = [sum(a * b for a, b in zip(vectors[0], vector)) for vector in vectors[1:]]
+        return sorted(range(len(scores)), key=lambda i: (-scores[i], i))
 
     # ------------------------------------------------------------------
     # Helpers
