@@ -4,7 +4,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { assessDesktopCompatibility, browserDesktopCompatibility } from "../../src/lib/desktopCompatibility";
 import { DesktopCompatibilityDetails } from "../../src/components/playground/DesktopCompatibilityDialog";
-import DesktopAppDownload from "../../src/components/playground/DesktopAppDownload";
+import DesktopAppDownload, { fetchInstallerInfo } from "../../src/components/playground/DesktopAppDownload";
 
 test("Windows hints never claim to verify edition, build, features or execution availability", () => {
 	const result = assessDesktopCompatibility({ platform: "Windows", architecture: "x86", bitness: "64", userAgent: "Windows NT 10.0; Win64; x64" });
@@ -57,8 +57,18 @@ test("popup explains Home fallback, shared-kernel limitations and authoritative 
 	assert.ok(!html.includes("href=\"/api/desktop/download"));
 });
 
-test("download starts disabled before authenticated package metadata and never downloads on render", () => {
+test("download can retry metadata before it has loaded and never downloads on render", () => {
 	const html = renderToStaticMarkup(<DesktopAppDownload />);
-	assert.match(html, /disabled=""/); assert.match(html, /Download Desktop App/);
+	assert.doesNotMatch(html, /disabled=""/); assert.match(html, /Download Desktop App/);
 	assert.ok(!html.includes("<dialog")); assert.ok(!html.includes("href="));
+});
+
+test("installer metadata reports authentication, unavailable service and malformed responses without granting access", async t => {
+	let status = 401; let payload: unknown = {};
+	t.mock.method(globalThis, "fetch", async () => Response.json(payload, { status }));
+	assert.match((await fetchInstallerInfo()).error ?? "", /Sign in/);
+	status = 503; assert.match((await fetchInstallerInfo()).error ?? "", /HTTP 503/);
+	status = 200; assert.match((await fetchInstallerInfo()).error ?? "", /invalid/);
+	payload = { available: true, canDownload: true, productVersion: "0.3.10" };
+	assert.equal((await fetchInstallerInfo()).info?.productVersion, "0.3.10");
 });

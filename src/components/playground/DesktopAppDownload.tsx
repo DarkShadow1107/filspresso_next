@@ -42,7 +42,7 @@ type InstallerInfo = {
 };
 
 function readInstallerInfo(body: Partial<InstallerInfo> | null): InstallerInfo | null {
-	if (!body || typeof body !== "object") return null;
+	if (!body || typeof body !== "object" || typeof body.available !== "boolean" || typeof body.canDownload !== "boolean") return null;
 	return {
 		available: Boolean(body.available),
 		fileName: body.fileName ?? "Filspresso.Playground.msi",
@@ -57,6 +57,20 @@ function readInstallerInfo(body: Partial<InstallerInfo> | null): InstallerInfo |
 	};
 }
 
+/** Read account-scoped metadata without turning a failed check into permission. */
+export async function fetchInstallerInfo(): Promise<{ info: InstallerInfo | null; error: string | null }> {
+	try {
+		const res = await fetch("/api/desktop/installer", { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(10_000) });
+		if (res.status === 401) return { info: null, error: "Sign in again to check the desktop download." };
+		if (res.status === 403) return { info: null, error: "This account cannot check the desktop download." };
+		if (!res.ok) return { info: null, error: `Could not check the desktop package (HTTP ${res.status}). Please retry.` };
+		const info = readInstallerInfo(await res.json());
+		return info ? { info, error: null } : { info: null, error: "The desktop package response was invalid. Please retry." };
+	} catch {
+		return { info: null, error: "Could not reach the desktop package service. Please retry." };
+	}
+}
+
 function describeAckFailure(status: number, body: { error?: unknown; message?: unknown } | null): string {
 	if (status === 401) return "Your session has expired. Sign in again, then try the download again.";
 	if (status === 403) return "The desktop app comes with the Spectre Playground subscription.";
@@ -68,6 +82,8 @@ function describeAckFailure(status: number, body: { error?: unknown; message?: u
 
 export default function DesktopAppDownload() {
 	const [info, setInfo] = useState<InstallerInfo | null>(null);
+	const [infoError, setInfoError] = useState<string | null>(null);
+	const [loadingInfo, setLoadingInfo] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [checking, setChecking] = useState(false);
 	const [probing, setProbing] = useState(false);
@@ -77,31 +93,29 @@ export default function DesktopAppDownload() {
 	const revision = useRef(0);
 	useEffect(() => () => { revision.current++; }, []);
 
-	const loadInstaller = (current: number) => {
-		fetch("/api/desktop/installer", { credentials: "include", cache: "no-store" })
-			.then((res) => (res.ok ? res.json() : null))
-			.then((body: Partial<InstallerInfo> | null) => {
-				if (current !== revision.current) return;
-				const next = readInstallerInfo(body);
-				// Silent only on absence: when the answer names an installer, show it.
-				if (next) setInfo(next);
-			})
-			.catch(() => {
-				// Silent: the button says the app is unavailable, which is the truth.
-			});
+	const loadInstaller = async (current: number): Promise<InstallerInfo | null> => {
+		const result = await fetchInstallerInfo();
+		if (current !== revision.current) return null;
+		setInfo(result.info);
+		setInfoError(result.error);
+		return result.info;
 	};
 
-	// Note: the fetch result is recorded only if the component is still mounted
-	// (revision guard), and a failed reload leaves the previous answer in place.
+	// Ignore stale responses after unmount or a newer user-initiated check.
 	useEffect(() => {
 		const current = revision.current;
-		loadInstaller(current);
+		void loadInstaller(current);
 	}, []);
 
 	const inspect = async () => {
-		if (!info?.canDownload || !info.available || checking || busy || ackWorking) return;
+		if (checking || busy || ackWorking || loadingInfo) return;
 		setAckError(null);
 		const current = ++revision.current;
+		setLoadingInfo(true);
+		const latest = await loadInstaller(current);
+		if (current !== revision.current) return;
+		setLoadingInfo(false);
+		if (!latest?.canDownload || !latest.available) return;
 		setCompatibility(null); setChecking(true);
 		setProbing(true);
 		const result = await browserDesktopCompatibility(navigator);
@@ -141,7 +155,7 @@ export default function DesktopAppDownload() {
 				// The server may have refused because the offered version changed; re-ask so
 				// the facts shown in the still-open dialog are not stale. The browser probe
 				// stays valid -- it does not depend on the installer version.
-				loadInstaller(revision.current);
+				void loadInstaller(revision.current);
 				return;
 			}
 		} catch {
@@ -158,7 +172,7 @@ export default function DesktopAppDownload() {
 		window.setTimeout(() => setBusy(false), 4000);
 	};
 
-	const locked = info !== null && !info.canDownload;
+	const locked = info !== null && info.available && !info.canDownload;
 	const installerForDialog: InstallerPublicationInfo | null = info && info.available
 		? { productVersion: info.productVersion, sha256: info.sha256, bytes: info.bytes, unsigned: info.unsigned }
 		: null;
@@ -169,7 +183,7 @@ export default function DesktopAppDownload() {
 				type="button"
 				className="playground-ghost-button playground-download__button"
 				onClick={() => { void inspect(); }}
-				disabled={info === null || !info.available || !info.canDownload || busy || checking}
+				disabled={loadingInfo || busy || checking || ackWorking}
 				title={
 					locked
 						? "The desktop app comes with the Spectre Playground subscription."
@@ -177,8 +191,9 @@ export default function DesktopAppDownload() {
 				}
 			>
 				<BrandWindowsIcon size={15} />
-				{busy ? "Starting…" : "Download Desktop App"}
+				{loadingInfo ? "Checking package…" : busy ? "Starting…" : "Download Desktop App"}
 			</button>
+			{infoError && <span className="playground-download__note" role="status">{infoError} Click the button to retry.</span>}
 			{locked ? (
 				<span className="playground-download__note">
 					<TriangleAlertIcon size={13} /> Needs the Spectre subscription
