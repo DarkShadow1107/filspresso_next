@@ -1,7 +1,8 @@
 # Filspresso Playground for Windows
 
-**Current desktop:** Plan is read-only; Build uses an explicitly started disposable staged
-copy for approved commands, direct writes and reviewed export. **Windows Sandbox** is the
+**Current desktop:** Plan uses a separately started, non-exportable disposable copy for
+approved commands. Build uses a distinct staged copy for approved commands, direct writes and
+reviewed export. Switching modes discards the previous workspace. **Windows Sandbox** is the
 preferred VM; if unavailable or unqualified, the app offers
 the independently qualified Codex-style native restricted mode only after explicit confirmation.
 No custom VHDX or guest password. Web lookup uses a separately approved authenticated

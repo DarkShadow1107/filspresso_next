@@ -201,7 +201,7 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         AttachButton.IsEnabled = GithubButton.IsEnabled = ContextButton.IsEnabled = !sending;
         PromptBox.IsReadOnly = sending;
         CompactButton.Visibility = AgentMode ? Visibility.Collapsed : Visibility.Visible;
-        ModeGuidance.Text = !AgentMode ? "Chat · answers and attachments, no tools" : ChatModePicker.SelectedIndex == 1 ? "Plan · read and explore, no changes or commands" : "Build · staged changes, approval for each action";
+        ModeGuidance.Text = !AgentMode ? "Chat · answers and attachments, no tools" : ChatModePicker.SelectedIndex == 1 ? "Plan · approved commands in a disposable copy; no export" : "Build · staged changes, approval for each action";
         RenderSourceSuggestions(selected?.ModelKey, sending);
     }
 

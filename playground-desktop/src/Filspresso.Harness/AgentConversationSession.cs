@@ -165,6 +165,7 @@ public sealed class AgentConversationSession : IDisposable
         public IReadOnlyCollection<ToolDefinition> Tools => owner._services.Tools;
         public bool SupportsStructuredTools(string model) => owner._services.SupportsStructuredTools(model);
         public AgentWorkspace? Workspace => owner._services.Workspace;
+        public AgentMode? BoundExecutionMode => owner._services.BoundExecutionMode;
         public Task<AgentModelReply> SendAsync(AgentModelRequest request, CancellationToken cancellationToken = default) => owner._services.SendAsync(request, cancellationToken);
         public Task<QuestionDecision> AskAsync(QuestionChallenge question, CancellationToken cancellationToken = default) => owner._questions.RequestAsync(question, cancellationToken);
         public Task<AgentApprovalDecision> ApproveAsync(AgentApproval approval, CancellationToken cancellationToken = default) =>

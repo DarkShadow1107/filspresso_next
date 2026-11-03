@@ -20,6 +20,20 @@ namespace Filspresso.Harness;
 /// </remarks>
 public sealed class ProjectCheckpoints
 {
+    private readonly bool _allowExport;
+    public ProjectCheckpoints() : this(true) { }
+    private ProjectCheckpoints(bool allowExport) { _allowExport = allowExport; }
+
+    /// <summary>Create a detached, permanently non-exportable Plan journal from the
+    /// current reviewed state. Later Plan snapshots cannot mutate this instance.</summary>
+    public ProjectCheckpoints CreateDisposablePlanCopy()
+    {
+        var copy = new ProjectCheckpoints(false);
+        copy.SetBaseline(Current.Select(file => new ProjectFileSnapshot(file.Key, file.Value)).ToArray());
+        return copy;
+    }
+
+    public bool CanExport => _allowExport;
     public const int MaxFiles = 256;
     public const int MaxFileBytes = 256 * 1024;
     public const int MaxTotalBytes = 8 * 1024 * 1024;
@@ -245,6 +259,7 @@ public sealed class ProjectCheckpoints
     /// <summary>Validates the destination and returns writable entries and conflicts. No disk writes.</summary>
     public CheckpointExportPlan Prepare(string destinationRoot)
     {
+        if (!_allowExport) throw new InvalidOperationException("Disposable Plan workspaces cannot be exported.");
         destinationRoot = PinnedLocalPath.Normalize(destinationRoot);
         // The picker supplies an existing directory. Never create a destination on Prepare.
         using var root = new PinnedLocalPath(destinationRoot);
@@ -300,6 +315,7 @@ public sealed class ProjectCheckpoints
     /// </summary>
     public CheckpointExportManifest Apply(CheckpointExportPlan plan)
     {
+        if (!_allowExport) throw new InvalidOperationException("Disposable Plan workspaces cannot be exported.");
         ArgumentNullException.ThrowIfNull(plan);
         lock (_gate)
         {

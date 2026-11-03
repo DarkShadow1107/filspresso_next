@@ -34,6 +34,22 @@ public sealed class WindowsSandboxWorkflowTests
         public Task<ToolResult> InvokeAsync(string name, string arguments, CancellationToken cancellationToken)
         { Calls++; return Task.FromResult(new ToolResult(0, "untrusted public result", "", TimeSpan.Zero, false)); }
     }
+    private sealed class PlanTransport : INativeAgentModelTransport
+    {
+        private int _sends;
+        public bool SupportsConversation => true;
+        public bool SupportsModel(string model) => model == "fixture";
+        public Task<ApiResult<NativeAgentCapabilities>> GetCapabilitiesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentModelReply> SendAsync(AgentModelRequest request, CancellationToken cancellationToken = default)
+        {
+            Assert.Contains(request.Tools, tool => tool.Name == "run_command");
+            Assert.DoesNotContain(request.Tools, tool => tool.Name == "write_file");
+            AgentModelReply result = ++_sends == 1
+                ? new AgentModelReply.Completed("", new TokenUsage(10, 2), [new("plan-command", "run_command", "{\"command\":\"test\"}")], AgentFinishReason.ToolCalls)
+                : new AgentModelReply.Completed("done", new TokenUsage(10, 2), []);
+            return Task.FromResult(result);
+        }
+    }
     private sealed class SnapshotVm : IWorkspaceSandbox, ISandboxSnapshot
     {
         private readonly Guid _id = Guid.NewGuid(); internal bool Stopped;
@@ -91,6 +107,30 @@ public sealed class WindowsSandboxWorkflowTests
         Assert.Contains("+after command", Assert.Single(project.Changes).Diff);
         await Assert.ThrowsAsync<SandboxPolicyException>(() => services.InvokeAsync(services.Workspace!, call));
         Assert.False(vm.Stopped);
+    }
+
+    [Fact]
+    public async Task PlanCommandUsesDetachedNonExportableJournalAndCannotBecomeBuild()
+    {
+        var project = new ProjectCheckpoints(); project.SetBaseline([new("src/main.cs", "before")]);
+        var plan = project.CreateDisposablePlanCopy(); var vm = new SnapshotVm();
+        using var services = new SandboxAgentServices(new PlanTransport(), vm, CodeLocation.NativeRestricted, plan, true, "fixture", executionMode: AgentMode.Plan);
+        Assert.True((await services.EnsureWorkspaceAsync()).Ok);
+        using var conversation = new AgentConversationSession(services);
+        var work = conversation.SendAsync(new("test the plan", "fixture") { Mode = AgentMode.Plan });
+        var pending = conversation.Snapshot.Approval;
+        Assert.NotNull(pending); Assert.Equal("run_command", pending.Call.Name);
+        Assert.True(conversation.Decide(pending.Id, true)); await work;
+        Assert.Equal("after command", plan.Current["src/main.cs"]);
+        Assert.Equal("before", project.Current["src/main.cs"]); Assert.Empty(project.Changes);
+        Assert.Throws<InvalidOperationException>(() => plan.Prepare(System.IO.Path.GetTempPath().TrimEnd('\\')));
+        var buildPlan = project.Prepare(System.IO.Path.GetTempPath().TrimEnd('\\'));
+        Assert.Throws<InvalidOperationException>(() => plan.Apply(buildPlan));
+        Assert.Throws<ArgumentException>(() => new SandboxAgentServices(new Transport(), new SnapshotVm(), CodeLocation.NativeRestricted, plan, true, "fixture", executionMode: AgentMode.Build));
+        var mismatch = new List<AgentEvent>();
+        await foreach (var item in new AgentLoop(services).RunAsync(new("do build", "fixture") { Mode = AgentMode.Build })) mismatch.Add(item);
+        Assert.Single(mismatch.OfType<AgentEvent.Stopped>());
+        Assert.True(await services.DiscardWorkspaceAsync()); Assert.True(vm.Stopped);
     }
 
     [Fact]

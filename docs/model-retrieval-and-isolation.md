@@ -154,13 +154,16 @@ read some public/system resources. This is a **Codex-like restricted-process des
 not the same implementation, not Codex MXC, not a VM, and not protection against a
 compromised kernel or privileged host process. Both backends require fresh exact-action
 approval, bounded output, lifecycle/recovery checks and reviewed export. If cleanup is
-uncertain, execution remains blocked. Plan is currently read-only; isolated Plan
-execution and non-apply across mode transitions remain pending.
+uncertain, execution remains blocked. Plan can run separately approved commands only in
+a distinct disposable workspace. Its detached checkpoint journal rejects export even if
+called directly, and mode transitions discard the old workspace before another starts.
 
 The native fixed checks passed on the examined device, including the packaged qualifier;
 that does not prove every installed version or OS update safe, nor does it qualify the
-VM. MSI install/upgrade/uninstall and the complete UI fallback interaction still need
-end-to-end verification. See [Windows Sandbox details](playground-windows-sandbox.md).
+VM. A live native Plan command changed its copy while leaving a fixture original file and
+Build journal untouched; Plan export was refused and cleanup was confirmed. This is a scoped
+local test, not a guarantee against all escapes. MSI install/upgrade/uninstall and the complete
+UI fallback interaction still need end-to-end verification. See [Windows Sandbox details](playground-windows-sandbox.md).
 
 ## References and reproducibility
 

@@ -19,6 +19,22 @@ def test_ai_container_includes_native_agent_and_question_modules():
         assert f"COPY models/{module} ./models/{module}" in dockerfile
 
 
+def test_only_desktop_plan_accepts_command_execution():
+    request = deepcopy(FIXTURE["request"])
+    request["mode"] = "plan"
+    request["tools"] = [{"name": "run_command", "description": "Disposable workspace command", "effect": "execution",
+                         "parameters": {"type": "object", "properties": {"command": {"type": "string", "minLength": 1, "maxLength": 1000}},
+                                        "required": ["command"], "additionalProperties": False}}]
+    with pytest.raises(agent.AgentError):
+        agent.validate_request(request)
+    request["execution_scope"] = "desktop"
+    agent.validate_request(request)
+    request["tools"][0]["name"] = "write_file"
+    request["tools"][0]["effect"] = "mutation"
+    with pytest.raises(agent.AgentError):
+        agent.validate_request(request)
+
+
 class Runtime:
     def __init__(self, count=100, completion=None):
         self.count = count

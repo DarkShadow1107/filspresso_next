@@ -9,8 +9,10 @@ VHDX and stored guest account cannot enable the new default backend.
 
 ## What users can do
 
-- **Plan:** inspect bounded imported text and ask questions. Plan is currently read-only;
-  command execution in a disposable copy remains pending a safe mode-transition boundary.
+- **Plan:** seed a detached, permanently non-exportable checkpoint journal into a separate
+  qualified disposable workspace. The user must approve each command. Commands can change
+  that copy, but Plan changes cannot be exported or transferred into the Build journal.
+  Switching modes discards the previous workspace; unconfirmed cleanup blocks a new one.
 - **Build:** use the same staged-copy boundary, with approved `write_file` and `run_command`.
   Every mutation/command needs separate, exact one-shot consent. Reviewed changes can be
   exported only through the separately confirmed, conflict-checked Build exporter. The
@@ -22,7 +24,7 @@ VHDX and stored guest account cannot enable the new default backend.
 - **Discard:** stop the owned VM by explicit ID, confirm it no longer appears in CLI inventory,
   invalidate the workspace/approvals, and return to an imported-text inspection conversation.
 
-Starting Build resets the inspection conversation, not the imported project. No paid model
+Starting Plan or Build resets the inspection conversation, not the imported project. No paid model
 request, Windows feature change, VM boot or tool execution happens simply by installing the
 MSI. The inspector is not a claim that a running VM exists.
 
@@ -51,7 +53,7 @@ bypasses either mode's checks. Unknown/unsupported CLI behavior fails closed.
    30 days. Updates require re-verification; previous receipts are archived, not silently
    treated as evidence for a new build. Model, billing and installed-MSI qualification are
    separate. The app remains non-elevated for ordinary use.
-5. **Start a fresh Build workspace**, check native model availability, and send your
+5. **Start a fresh Plan or Build workspace**, check native model availability, and send your
    task. If Windows Sandbox is unavailable or fails qualification/startup, the app offers a
    one-time native restricted fallback. Accepting first runs its independent fixed safety
    qualification if no current receipt exists; it does not need a Windows Sandbox receipt.
@@ -65,7 +67,7 @@ Equivalent explicit console commands, using the verifier shipped beside the appl
 
 ## Native restricted isolation (explicit, weaker opt-in)
 
-Machines without the Sandbox CLI, virtualization or a Pro-class edition can still use Build
+Machines without the Sandbox CLI, virtualization or a Pro-class edition can still use Plan or Build
 with **native restricted isolation**. The user can choose it directly or accept the
 one-time fallback offered after VM setup/qualification/startup failure. The dialog names the
 shared kernel and confirms the weaker boundary. It is a **staged-copy execution mode**; VM

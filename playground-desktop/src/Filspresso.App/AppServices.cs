@@ -127,13 +127,13 @@ public sealed class AppServices : IDisposable
             var native = NativeSandboxQualification.Check();
             if (!native.Qualified) return (null, native.Status);
             return (new SandboxAgentServices(transport, new NativeSandbox(new PowerShellRunner()), CodeLocation.NativeRestricted,
-                checkpoints, true, native.Status, web: WebLookup()), native.Status);
+                checkpoints, true, native.Status, web: WebLookup(), executionMode: checkpoints.CanExport ? AgentMode.Build : AgentMode.Plan), native.Status);
         }
         if (isolation != ExecutionIsolation.WindowsSandbox) throw new ArgumentOutOfRangeException(nameof(isolation));
         var (qualified, status) = await WindowsSandboxQualification.CheckAsync(token).ConfigureAwait(false);
         if (!qualified) return (null, status);
         return (new SandboxAgentServices(transport, new WindowsSandbox(new WindowsSandboxCli()), CodeLocation.WindowsSandbox,
-            checkpoints, true, status, web: WebLookup()), status);
+            checkpoints, true, status, web: WebLookup(), executionMode: checkpoints.CanExport ? AgentMode.Build : AgentMode.Plan), status);
     }
     private IAgentWebLookup WebLookup() => new AgentWebLookup(new WebTool(_api, Auth), new WebFetchTool(_api, Auth));
 

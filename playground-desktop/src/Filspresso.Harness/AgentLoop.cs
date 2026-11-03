@@ -58,6 +58,8 @@ public sealed class AgentLoop : IAgentLoop
             { yield return Stop("Invalid agent turn or generation settings."); yield break; }
 
             var workspace = turn.Mode == AgentMode.Chat ? null : _services.Workspace;
+            if (_services.BoundExecutionMode is { } bound && turn.Mode != AgentMode.Chat && bound != turn.Mode)
+            { yield return Stop("Workspace mode changed. Discard the current workspace and start a new one."); yield break; }
             var interactionOnly = _tools.Count > 0 && _tools.All(tool => tool.Effect == ToolEffect.Interaction);
             if (turn.Mode != AgentMode.Chat && (!_services.SupportsStructuredTools(turn.ModelKey) || (!interactionOnly && workspace is null) ||
                 (workspace is not null && (workspace.Id == Guid.Empty || !Enum.IsDefined(workspace.Location)))))
@@ -65,10 +67,11 @@ public sealed class AgentLoop : IAgentLoop
             if (workspace is not null && _quarantined.Contains(workspace.Id))
             { yield return Stop("This workspace was quarantined after interrupted execution. Start a new sandbox before retrying."); yield break; }
 
-            // Plan is inspection-only until disposable changes are isolated across mode
-            // transitions. The registry is checked again for every model response.
+            // Only an explicitly Plan-bound disposable workspace may advertise execution.
+            var planExecution = _services.BoundExecutionMode == AgentMode.Plan;
             var offered = Array.AsReadOnly(_tools.Where(tool => turn.Mode == AgentMode.Build ||
-                (turn.Mode == AgentMode.Plan && tool.Effect is ToolEffect.ReadOnly or ToolEffect.Interaction)).ToArray());
+                (turn.Mode == AgentMode.Plan && (tool.Effect is ToolEffect.ReadOnly or ToolEffect.Interaction ||
+                    (planExecution && tool.Name == "run_command" && tool.Effect == ToolEffect.Execution)))).ToArray());
             var history = new List<AgentExchange>();
             var historyCharacters = (long)turn.UserMessage.Length + (turn.SystemPrompt?.Length ?? 0) +
                 offered.Sum(tool => (long)tool.Name.Length + tool.Description.Length + tool.Parameters.ToJsonSchema().GetRawText().Length) +
@@ -182,8 +185,9 @@ public sealed class AgentLoop : IAgentLoop
                     using var callDeadline = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
                     callDeadline.CancelAfter(_limits.ToolTimeout);
                     ToolInvocation? invocation = null;
-                    if (turn.Mode == AgentMode.Plan && tool.Effect != ToolEffect.ReadOnly)
-                        invocation = Refusal(call, "Plan mode is read-only. No mutation or command was executed.");
+                    if (turn.Mode == AgentMode.Plan && tool.Effect != ToolEffect.ReadOnly &&
+                        !(planExecution && tool.Name == "run_command" && tool.Effect == ToolEffect.Execution))
+                        invocation = Refusal(call, "Plan permits approved commands only inside a disposable Plan workspace.");
                     else if (tool.Effect != ToolEffect.ReadOnly || tool.RequiresApproval)
                     {
                         var approval = new AgentApproval(Guid.NewGuid(), workspace!, call, tool.Effect);

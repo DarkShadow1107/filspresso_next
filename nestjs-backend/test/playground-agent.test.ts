@@ -80,6 +80,17 @@ test("shared fixture preserves complete tool-role pairs and refuses duplicate or
 	follow.history[0].tool_results[0].tool_call_id = "wrong"; assert.throws(() => validateAgentRequest(follow));
 });
 
+test("only desktop Plan may advertise a command, never Plan writes or web commands", () => {
+	const request = structuredClone(fixture.request);
+	request.mode = "plan";
+	request.tools = [{ name: "run_command", description: "Run inside disposable desktop workspace", effect: "execution",
+		parameters: { type: "object", properties: { command: { type: "string", minLength: 1, maxLength: 1000 } }, required: ["command"], additionalProperties: false } }];
+	assert.doesNotThrow(() => validateAgentRequest(request, "desktop"));
+	assert.throws(() => validateAgentRequest(request, "playground"));
+	assert.throws(() => validateAgentRequest({ ...request, execution_scope: "desktop" }, "playground"));
+	assert.throws(() => validateAgentRequest({ ...request, tools: [{ ...request.tools[0], name: "write_file", effect: "mutation" }] }, "desktop"));
+});
+
 test("unknown schema constructs, privileged history and Plan mutations fail before a money gate", async () => {
 	await enabled(async () => {
 		for (const change of [

@@ -78,7 +78,7 @@ function call(value: unknown, tools: Map<string, AgentTool>, seen: Set<string>):
 	return { id: value.id, name: value.name, arguments: value.arguments as string };
 }
 
-export function validateAgentRequest(raw: unknown): AgentRequest {
+export function validateAgentRequest(raw: unknown, scope: "desktop" | "playground" = "playground"): AgentRequest {
 	requireValue(object(raw) && Buffer.byteLength(JSON.stringify(raw), "utf8") <= AGENT_MAX_BYTES);
 	keys(raw, ["version", "model", "mode", "message", "system_prompt", "temperature", "max_tokens", "input_context_tokens", "tools", "history", "session_uuid", "compaction_mode", "conversation"]);
 	requireValue(raw.version === 1 && text(raw.model, 64) && raw.model.length > 0 && (raw.mode === "plan" || raw.mode === "build"));
@@ -93,7 +93,7 @@ export function validateAgentRequest(raw: unknown): AgentRequest {
 		requireValue(object(tool)); keys(tool, ["name", "description", "effect", "parameters"]);
 		requireValue(typeof tool.name === "string" && IDENTIFIER.test(tool.name) && !tools.has(tool.name) && text(tool.description, 2048) && tool.description.length > 0);
 		if (tool.name === "question") requireValue(tool.effect === "interaction" && isQuestionSchema(tool.parameters));
-		else { requireValue(["read_only", "mutation", "execution"].includes(String(tool.effect)) && (raw.mode !== "plan" || tool.effect === "read_only")); schema(tool.parameters); }
+		else { requireValue(["read_only", "mutation", "execution"].includes(String(tool.effect)) && (raw.mode !== "plan" || tool.effect === "read_only" || (scope === "desktop" && tool.name === "run_command" && tool.effect === "execution"))); schema(tool.parameters); }
 		tools.set(tool.name, tool as AgentTool);
 	}
 	const seen = new Set<string>(); let characters = raw.message.length + String(raw.system_prompt ?? "").length + JSON.stringify(raw.tools).length;

@@ -112,7 +112,7 @@ export class DesktopGatewayService {
 	/** One terminal native turn. It proposes actions but has no executor, approval, or host shell. */
 	async agentTurn(accountId: number, tier: string, raw: unknown, scope: "desktop" | "playground", signal?: AbortSignal): Promise<AgentTurnResult> {
 		let request: AgentRequest;
-		try { request = validateAgentRequest(raw); }
+		try { request = validateAgentRequest(raw, scope); }
 		catch { return { kind: "refused", status: 400, error: "INVALID_AGENT_CONTRACT", message: "Invalid or oversized native agent request." }; }
 		if (!this.agentModels().includes(request.model)) return { kind: "refused", status: 503, error: "AGENT_DISABLED", message: "This model has no operator-qualified native tool transport. Plain chat remains available." };
 		const requestId = `dsk-${crypto.randomBytes(12).toString("hex")}`;
@@ -130,7 +130,7 @@ export class DesktopGatewayService {
 			response = await fetchBounded(`${this.aiHost()}/api/playground/agent/turn`, {
 				method: "POST", headers: { ...this.upstreamHeaders(), Accept: "application/json" }, signal,
 				timeoutMs: AGENT_TIMEOUT_MS, maxBytes: AGENT_MAX_BYTES, redirect: "error",
-				body: JSON.stringify({ ...request, text_model: playgroundModelFile(request.model), request_id: requestId }),
+				body: JSON.stringify({ ...request, execution_scope: scope, text_model: playgroundModelFile(request.model), request_id: requestId }),
 			});
 			body = await response.json();
 		} catch { return refusal(503, "AGENT_UNAVAILABLE", "Native agent transport failed or was cancelled. No automatic retry was attempted."); }

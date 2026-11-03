@@ -149,6 +149,8 @@ public interface IAgentServices
     // tool-call transport/model combination, never from a model's own claim of support.
     bool SupportsStructuredTools(string modelKey) => false;
     AgentWorkspace? Workspace => null;
+    /// <summary>Immutable workspace mode, when the executor supports Plan commands.</summary>
+    AgentMode? BoundExecutionMode => null;
 
     /// <summary>Authenticate, check affordability and meter EVERY model turn, including follow-ups.</summary>
     Task<AgentModelReply> SendAsync(AgentModelRequest request, CancellationToken cancellationToken = default);

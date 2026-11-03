@@ -99,6 +99,9 @@ public class SandboxAgentServices : IAgentServices, IAgentConsentBinding, IDispo
 
     /// <summary>True only when composition verified current evidence for this backend.</summary>
     public bool ExecutionQualified { get; }
+    /// <summary>The workspace's immutable mode; Plan journals cannot be exported.</summary>
+    public AgentMode ExecutionMode { get; }
+    public AgentMode? BoundExecutionMode => ExecutionMode;
 
     /// <summary>Local, non-authoritative status text for the screen.</summary>
     public string ExecutionStatus { get; }
@@ -106,12 +109,16 @@ public class SandboxAgentServices : IAgentServices, IAgentConsentBinding, IDispo
 
     public SandboxAgentServices(INativeAgentModelTransport transport, IWorkspaceSandbox sandbox,
         CodeLocation location, ProjectCheckpoints checkpoints, bool executionQualified, string executionStatus,
-        AgentConsentQueue? consent = null, IAgentWebLookup? web = null)
+        AgentConsentQueue? consent = null, IAgentWebLookup? web = null, AgentMode executionMode = AgentMode.Build)
     {
         ArgumentNullException.ThrowIfNull(transport);
         ArgumentNullException.ThrowIfNull(sandbox);
         if (location is not (CodeLocation.WindowsSandbox or CodeLocation.HyperV or CodeLocation.NativeRestricted)) throw new ArgumentOutOfRangeException(nameof(location));
         ArgumentNullException.ThrowIfNull(checkpoints);
+        if (executionMode is not (AgentMode.Plan or AgentMode.Build) || (executionMode == AgentMode.Plan && checkpoints.CanExport) ||
+            (executionMode == AgentMode.Build && !checkpoints.CanExport))
+            throw new ArgumentException("Workspace mode and checkpoint export authority do not match.", nameof(executionMode));
+        ExecutionMode = executionMode;
         if (string.IsNullOrWhiteSpace(executionStatus))
             throw new ArgumentException("The qualification status text must describe why execution is or is not enabled.", nameof(executionStatus));
         _transport = transport;
@@ -120,6 +127,7 @@ public class SandboxAgentServices : IAgentServices, IAgentConsentBinding, IDispo
         _web = web;
         var localTools = location == CodeLocation.NativeRestricted ? _tools.Select(tool => tool.Name == "run_command"
             ? tool with { Description = "Run PowerShell only under native AppContainer, private desktop and job limits, NOT a VM. Shares the host Windows kernel. Uses a staged project copy, scrubbed environment, no command networking or inherited user PATH. Limited tool compatibility; no unrestricted retry. Requires fresh exact-action approval." } : tool).ToArray() : _tools.ToArray();
+        if (executionMode == AgentMode.Plan) localTools = localTools.Where(tool => tool.Effect != ToolEffect.Mutation).ToArray();
         _registry = Array.AsReadOnly(web is null ? localTools : localTools.Concat(AgentWebTools.Definitions).ToArray());
         _checkpoints = checkpoints;
         ExecutionQualified = executionQualified;

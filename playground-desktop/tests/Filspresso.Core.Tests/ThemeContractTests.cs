@@ -132,7 +132,8 @@ public sealed class ThemeContractTests
         Assert.Contains("Content=\"Deny\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("ReviewedAction", xaml, StringComparison.Ordinal);
         var code = File.ReadAllText(Path.Combine(AppDirectory(), "AgentWorkspacePage.xaml.cs"));
-        Assert.Contains("(!_build || _execution?.Workspace is not null)", code, StringComparison.Ordinal);
+        Assert.Contains("_execution?.Workspace is not null && _execution.ExecutionMode ==", code, StringComparison.Ordinal);
+        Assert.Contains("CreateDisposablePlanCopy()", code, StringComparison.Ordinal);
         Assert.Contains("WindowsPlatformProbe.TryReadSystemReport()", code, StringComparison.Ordinal);
         Assert.Contains("_approvalId = null; _conversation?.Decide(id, true)", code, StringComparison.Ordinal);
         Assert.DoesNotContain("x:Name=\"PromptBox\"", xaml, StringComparison.Ordinal);

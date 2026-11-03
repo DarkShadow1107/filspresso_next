@@ -1,9 +1,10 @@
 # Native agents — proposals, gated hosted actions and paired compaction
 
-**Current desktop Plan boundary:** Plan remains inspection-only. Approved command execution
-against a disposable copy remains pending until changes are isolated across mode transitions
-and cannot later be exported as Build work. Build offers approved commands, direct writes and
-the reviewed, separately confirmed exporter. Native restricted isolation is
+**Current desktop Plan boundary:** Plan executes approved commands inside a separate disposable
+workspace and a detached checkpoint journal that cannot export. Its changes cannot be promoted
+to the Build journal. Mode transitions discard the previous workspace and fail closed if cleanup
+cannot be confirmed. Build offers approved commands, direct writes and the reviewed, separately
+confirmed exporter. Native restricted isolation is
 the Codex-style OS-restricted fallback (shared Windows kernel), whereas Windows Sandbox is a
 separate VM; each needs its own current machine-specific qualification. VM failure offers
 native mode only after an explicit one-time confirmation; it is never a silent downgrade.
@@ -20,8 +21,8 @@ default Ask policy, not tools explicitly set to Allow.
 The authenticated manual web workspace command route also refuses commands; it is
 a temporary file workspace. Historical manual-execution descriptions remain below.
 
-**Current desktop composition:** imported-text Plan inspection plus an explicitly started Build
-workspace. Windows Sandbox is the preferred VM; separately qualified native restricted mode
+**Current desktop composition:** separately started Plan and Build workspaces with independent
+checkpoint authority. Windows Sandbox is the preferred VM; separately qualified native restricted mode
 is offered as an explicit fallback when the VM cannot be used. Approved web tools are backend
 lookups, not guest networking. See [`playground-windows-sandbox.md`](playground-windows-sandbox.md).
 The custom-image Hyper-V qualification discussion below describes the retained legacy library.

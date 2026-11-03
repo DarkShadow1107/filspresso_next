@@ -110,12 +110,13 @@ def validate_call(call, tools, seen):
 
 
 def validate_request(data):
-    closed(data, ("version", "model", "text_model", "request_id", "mode", "message", "system_prompt", "temperature", "max_tokens", "input_context_tokens", "tools", "history", "session_uuid", "compaction_mode", "conversation"))
+    closed(data, ("version", "model", "text_model", "request_id", "mode", "message", "system_prompt", "temperature", "max_tokens", "input_context_tokens", "tools", "history", "session_uuid", "compaction_mode", "conversation", "execution_scope"))
     try:
         require(len(json.dumps(data, ensure_ascii=False).encode("utf-8")) <= MAX_BYTES)
     except (UnicodeError, RecursionError) as error:
         raise AgentError() from error
     require(type(data.get("version")) is int and data["version"] == 1 and data.get("mode") in ("plan", "build"))
+    require(data.get("execution_scope", "playground") in ("desktop", "playground"))
     require(text(data.get("message"), 8000) and data["message"].strip() and text(data.get("system_prompt", ""), 2000))
     require(type(data.get("temperature")) in (int, float) and math.isfinite(data["temperature"]) and 0 <= data["temperature"] <= 2)
     require(integer(data.get("max_tokens"), 1, 16384) and type(data.get("input_context_tokens")) is int and data["input_context_tokens"] in (16384, 32768, 65536, 131072))
@@ -131,7 +132,8 @@ def validate_request(data):
             require(tool.get("effect") == "interaction" and json.dumps(tool.get("parameters"), sort_keys=True) == json.dumps(QUESTION_SCHEMA, sort_keys=True))
         else:
             require(tool.get("effect") in ("read_only", "mutation", "execution"))
-            require(data["mode"] != "plan" or tool["effect"] == "read_only")
+            require(data["mode"] != "plan" or tool["effect"] == "read_only" or
+                    (data.get("execution_scope") == "desktop" and tool["name"] == "run_command" and tool["effect"] == "execution"))
             validate_schema(tool.get("parameters"))
         tools[tool["name"]] = tool
     seen = set()
