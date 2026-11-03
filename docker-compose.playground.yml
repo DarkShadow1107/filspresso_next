@@ -31,7 +31,7 @@ services:
         environment:
             PLAYGROUND_SANDBOX_URL: http://playground-sandbox:8095
             PLAYGROUND_SANDBOX_KEY: ${PLAYGROUND_SANDBOX_KEY:?Set a random 32+ character sandbox service key}
-            # Native models and agent dispatch stay closed unless explicitly qualified/enabled.
+            # Native models and agent dispatch stay closed unless explicitly enabled.
             PLAYGROUND_AGENT_MODEL_FILES: ${PLAYGROUND_AGENT_MODEL_FILES:-}
             PLAYGROUND_AGENT_EXECUTION_ENABLED: ${PLAYGROUND_AGENT_EXECUTION_ENABLED:-false}
             PLAYGROUND_AGENT_ACTION_KEY: ${PLAYGROUND_AGENT_ACTION_KEY:-}

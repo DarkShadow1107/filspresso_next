@@ -264,6 +264,21 @@ def test_enabled_endpoint_releases_admission_on_success_and_protocol_failure(cli
     assert tanka_stub.residency.in_flight == {}
 
 
+@pytest.mark.parametrize("model", ["LFM2.5-VL-450M-Q4_K_M.gguf", "LFM2.5-VL-3B-Q4_K_M.gguf", "LFM2.5-Audio-1.5B-Q4_0.gguf"])
+def test_explicitly_enabled_media_models_reach_bounded_agent_transport(client, monkeypatch, tanka_stub, model):
+    import app as module
+    monkeypatch.setattr(module, "AI_SERVICE_KEY", "fixture-key")
+    monkeypatch.setenv("PLAYGROUND_AGENT_MODEL_FILES", model)
+    async def count(*_, **__): return 100
+    async def complete(*_, **__): return FIXTURE["native"]
+    monkeypatch.setattr(tanka_stub, "count_input_tokens", count, raising=False)
+    monkeypatch.setattr(tanka_stub, "native_agent_completion", complete, raising=False)
+    request = {**FIXTURE["request"], "text_model": model}
+    response = client.post("/api/playground/agent/turn", json=request, headers={"x-ai-service-key": "fixture-key"})
+    assert response.status_code == 200
+    assert tanka_stub.residency.in_flight == {}
+
+
 def paired_request():
     request = deepcopy(FIXTURE["request"])
     request["history"] = [{"text": "Observed earlier tool result.",

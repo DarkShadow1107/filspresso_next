@@ -141,14 +141,15 @@ Desktop review has 14 coordinator tests in `NativeProposalReviewTests.cs`; the d
 release publish also verifies `AgentReviewPage.xbf`. These are mocked tests and compile
 checks, not live interactive UI, model/runtime or sandbox qualification.
 
-## Default-disabled qualification gate
+## Default-disabled model enablement
 
-`PLAYGROUND_AGENT_MODEL_FILES` is empty by default. Only catalogue **text** GGUF filenames
-explicitly listed in this variable are eligible. The same allowlist must be configured in
-Nest and Python, with matching nonempty `AI_SERVICE_KEY` values. There is no media-model or
-client-provided capability override. No deployment flags/models were enabled by this work.
+`PLAYGROUND_AGENT_MODEL_FILES` is empty by default. Catalogue text, vision and audio GGUF
+filenames explicitly listed in this variable are eligible for the agent transport. The
+same allowlist must be configured in Nest and Python, with matching nonempty
+`AI_SERVICE_KEY` values. A client cannot enable a model on its own. Agent requests remain
+text/tool protocol requests; this change does not add image or audio input to that protocol.
 
-Operators must first qualify the actual llama.cpp build, model chat template/native-call
+Enabling a model is not a qualification. Operators should qualify the actual llama.cpp build, model chat template/native-call
 support, tools-inclusive template/tokenizer behavior, finish reasons, usage, cancellation
 and limits. Mock tests do not constitute model qualification. Capability discovery is a
 configured transport capability, not account entitlement or permission to execute code.

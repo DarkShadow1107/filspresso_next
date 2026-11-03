@@ -114,8 +114,20 @@ public sealed class PowerShellDesktopUpdateLauncher : IDesktopUpdateLauncher
         } catch {
           Write-UpdateLog 'installer-failed' $_.Exception.Message
         } finally {
+          # The hand-off file is an ordinary temporary file, not secure-erased storage.
+          # Windows Installer may briefly retain a handle after msiexec exits.
+          $removed = $false
+          for ($attempt = 0; $attempt -lt 5; $attempt++) {
+            try {
+              if (Test-Path -LiteralPath $Msi) { Remove-Item -LiteralPath $Msi -Force -ErrorAction Stop }
+              $removed = -not (Test-Path -LiteralPath $Msi)
+              if ($removed) { break }
+            } catch { }
+            Start-Sleep -Milliseconds 500
+          }
+          if ($removed) { Write-UpdateLog 'installer-cleaned' 'Temporary download removed.' }
+          else { Write-UpdateLog 'installer-cleanup-failed' 'Temporary download could not be removed.' }
           try { Start-Process -FilePath $Application } catch { Write-UpdateLog 'relaunch-failed' $_.Exception.Message }
-          try { Remove-Item -LiteralPath $Msi -Force -ErrorAction SilentlyContinue } catch { }
           try { Remove-Item -LiteralPath $HelperPath -Force -ErrorAction SilentlyContinue } catch { }
         }
         """;

@@ -16,6 +16,7 @@ import { validateAgentRequest, validateAgentReply } from "../src/desktop/playgro
 import { fetchBounded } from "../src/common/utils/httpClient";
 import { QUESTION_SCHEMA, parseQuestionForm } from "../src/desktop/playground-question-contract";
 import { PlaygroundAgentTicketsService } from "../src/desktop/playground-agent-tickets.service";
+import { playgroundModelKeys, playgroundModelFile } from "../src/desktop/text-models";
 
 const fixture = JSON.parse(readFileSync(join(__dirname, "../../tests/fixtures/playground-agent.json"), "utf8"));
 const compacted = JSON.parse(readFileSync(join(__dirname, "../../tests/fixtures/playground-agent-compaction.json"), "utf8"));
@@ -79,6 +80,15 @@ test("shared fixture preserves complete tool-role pairs and refuses duplicate or
 	assert.equal(validateAgentRequest(follow).system_prompt, fixture.request.system_prompt);
 	follow.history[0].tool_results[0].tool_call_id = "wrong"; assert.throws(() => validateAgentRequest(follow));
 });
+
+test("operator can enable every catalog model without enabling unknown models", async () => enabled(async () => {
+	const keys = playgroundModelKeys();
+	process.env.PLAYGROUND_AGENT_MODEL_FILES = keys.map(key => playgroundModelFile(key)).join(",");
+	assert.deepEqual(service().gateway.agentModels(), keys);
+	const tickets = new PlaygroundAgentTicketsService();
+	for (const key of keys) assert.equal(tickets.modelEnabled(key), true);
+	assert.equal(tickets.modelEnabled("unknown"), false);
+}));
 
 test("only desktop Plan may advertise a command, never Plan writes or web commands", () => {
 	const request = structuredClone(fixture.request);

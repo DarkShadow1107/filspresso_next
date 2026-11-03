@@ -220,20 +220,22 @@ const EDITION_PATTERN = /^[A-Za-z][A-Za-z0-9 ]{0,63}$/;
 export function normalizeDeviceReport(body: unknown): DesktopDeviceReport {
 	const source = (body ?? {}) as Record<string, unknown>;
 	const deviceId = String(source.deviceId ?? "").trim();
-	if (!/^[0-9a-f-]{8,64}$/i.test(deviceId)) {
+	// Native clients persist a random base64url identifier. Keep accepting legacy
+	// hexadecimal identifiers without requiring a new identity during an upgrade.
+	if (!/^(?:[A-Za-z0-9_-]{16,64}|[0-9a-f-]{8,64})$/i.test(deviceId)) {
 		throw new BadRequestException({ error: "DEVICE_REQUIRED", message: "A plausible device identifier is required." });
 	}
 	const deviceName = String(source.deviceName ?? "").trim();
 	const edition = String(source.osEdition ?? "").trim();
 	const build = Number(source.osBuild ?? 0);
-	const ubr = Number(source.osUbr ?? 0);
+	const ubr = source.osUbr === undefined || source.osUbr === null || source.osUbr === "" ? null : Number(source.osUbr);
 	const appVersion = String(source.appVersion ?? "").trim();
 	return {
 		deviceId,
 		deviceName: deviceName && deviceName.length <= 120 ? deviceName : null,
 		osEdition: EDITION_PATTERN.test(edition) ? edition : null,
 		osBuild: Number.isInteger(build) && build >= 10_000 && build <= 999_999 ? build : null,
-		osUbr: Number.isInteger(ubr) && ubr >= 0 && ubr <= 1_000_000 ? ubr : null,
+		osUbr: ubr !== null && Number.isInteger(ubr) && ubr >= 0 && ubr <= 1_000_000 ? ubr : null,
 		appVersion: /^[0-9]+(\.[0-9]+){1,3}$/.test(appVersion) ? appVersion : null,
 	};
 }

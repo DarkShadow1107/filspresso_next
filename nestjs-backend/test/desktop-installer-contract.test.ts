@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { normalizeDeviceReport } from "../src/desktop/desktop-installer-registry.service";
 
 const { describe, it } = test;
 
@@ -20,6 +21,16 @@ const registry = readFileSync(REGISTRY, "utf8");
 const schema = readFileSync(SCHEMA, "utf8");
 const policy = readFileSync(POLICY, "utf8");
 const moduleSource = readFileSync(MODULE, "utf8");
+
+test("device reports accept persistent native base64url IDs and reject malformed IDs", () => {
+  const deviceId = "zAz0_-0123456789ABCDEfghijklmnop";
+  const report = normalizeDeviceReport({ deviceId, osEdition: "Pro", osBuild: 26200, osUbr: 9711, appVersion: "0.3.10" });
+  assert.equal(report.deviceId, deviceId);
+  assert.equal(report.osEdition, "Pro");
+  assert.equal(report.osBuild, 26200);
+  assert.equal(normalizeDeviceReport({ deviceId, osUbr: null }).osUbr, null);
+  assert.throws(() => normalizeDeviceReport({ deviceId: "../other" }));
+});
 
 /**
  * The installer delivery path, as source contract.

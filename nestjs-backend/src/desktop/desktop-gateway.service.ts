@@ -6,7 +6,7 @@ import * as crypto from "crypto";
 import { BillingService } from "../billing/billing.service";
 import { AddonsService } from "../billing/addons.service";
 import { canUseSpectre } from "../billing/tier-allowance";
-import { playgroundModelFile, playgroundTextModelKeys } from "./text-models";
+import { playgroundModelFile, playgroundModelKeys } from "./text-models";
 import { fetchBounded } from "../common/utils/httpClient";
 import { AGENT_MAX_BYTES, AGENT_TIMEOUT_MS, agentUsage, validateAgentReply, validateAgentRequest, type AgentReply, type AgentRequest } from "./playground-agent-contract";
 import { desktopModelAccess } from "./desktop-policy";
@@ -102,11 +102,11 @@ export class DesktopGatewayService {
 		catch { this.logger.warn("Run event recording failed."); }
 	}
 
-	/** Explicit operator-qualified transport allowlist. Empty by default; never inferred from text. */
+	/** Explicit operator-enabled transport allowlist. Empty by default; enabling is not qualification. */
 	agentModels(): string[] {
 		if (!process.env.AI_SERVICE_KEY?.trim()) return [];
 		const files = new Set((process.env.PLAYGROUND_AGENT_MODEL_FILES || "").split(",").map(file => file.trim()).filter(Boolean));
-		return playgroundTextModelKeys().filter(key => files.has(playgroundModelFile(key)!));
+		return playgroundModelKeys().filter(key => files.has(playgroundModelFile(key)!));
 	}
 
 	/** One terminal native turn. It proposes actions but has no executor, approval, or host shell. */
@@ -114,7 +114,7 @@ export class DesktopGatewayService {
 		let request: AgentRequest;
 		try { request = validateAgentRequest(raw, scope); }
 		catch { return { kind: "refused", status: 400, error: "INVALID_AGENT_CONTRACT", message: "Invalid or oversized native agent request." }; }
-		if (!this.agentModels().includes(request.model)) return { kind: "refused", status: 503, error: "AGENT_DISABLED", message: "This model has no operator-qualified native tool transport. Plain chat remains available." };
+		if (!this.agentModels().includes(request.model)) return { kind: "refused", status: 503, error: "AGENT_DISABLED", message: "Agent tools are not enabled for this model. Plain chat remains available." };
 		const requestId = `dsk-${crypto.randomBytes(12).toString("hex")}`;
 		const options = { sessionUuid: request.session_uuid ?? null, modelKey: request.model, scope };
 		const refusal = (status: number, error: string, message: string): AgentTurnResult => {

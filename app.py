@@ -1795,8 +1795,8 @@ async def playground_agent_turn(request: Request):
         playground_agent.require(isinstance(data, dict))
         model = data.get("text_model")
         playground_agent.require(isinstance(model, str))
-        if model not in playground_agent.enabled_model_files(TEXT_MODEL_TAGS):
-            return json_response({"error": "AGENT_DISABLED", "message": "This model has no operator-qualified native tool transport."}, 503)
+        if model not in playground_agent.enabled_model_files({**TEXT_MODEL_TAGS, **VISION_MODEL_TAGS, **AUDIO_MODEL_TAGS}):
+            return json_response({"error": "AGENT_DISABLED", "message": "Agent tools are not enabled for this model."}, 503)
         playground_agent.validate_request(data)  # Cheap validation before residency/GPU work.
 
         async def admitted():

@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import * as crypto from "crypto";
 import { parseAgentArguments, type AgentCall, type AgentReply, type AgentRequest } from "./playground-agent-contract";
-import { playgroundModelFile, playgroundTextModelKeys } from "./text-models";
+import { playgroundModelFile, playgroundModelKeys } from "./text-models";
 
 export type ActionTicket = { tool_call_id: string; token: string; expires_at: number };
 export type ActionClaims = { version: 1; account: number; run: string; model: string; mode: "plan" | "build";
@@ -53,7 +53,7 @@ export class PlaygroundAgentTicketsService {
 	private key(): string { return (process.env.PLAYGROUND_AGENT_ACTION_KEY || "").trim(); }
 	modelEnabled(model: string): boolean {
 		const files = (process.env.PLAYGROUND_AGENT_MODEL_FILES || "").split(",").map(value => value.trim());
-		return !!process.env.AI_SERVICE_KEY?.trim() && playgroundTextModelKeys().includes(model) && files.includes(playgroundModelFile(model)!);
+		return !!process.env.AI_SERVICE_KEY?.trim() && playgroundModelKeys().includes(model) && files.includes(playgroundModelFile(model)!);
 	}
 	issue(account: number, request: AgentRequest, reply: AgentReply, run: string, scope: "desktop" | "playground"): ActionTicket[] {
 		if (!this.configured() || !this.modelEnabled(request.model) || !RUN.test(run) || !Number.isSafeInteger(account) || account <= 0) return [];

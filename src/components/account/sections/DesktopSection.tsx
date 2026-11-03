@@ -23,6 +23,13 @@ type DesktopInstallationsResponse = {
 	}>;
 };
 
+function reportedWindows(edition: string | null, build: number | null, ubr: number | null): string {
+	if (!edition && !build) return "Not reported";
+	const family = build === null ? "Windows" : build >= 22000 ? "Windows 11" : "Windows 10";
+	const editionLabel = edition ? edition.replace(/([a-z])([A-Z])/g, "$1 $2") : "edition not reported";
+	return `${family} ${editionLabel}${build === null ? "" : ` (build ${build}${ubr === null ? "" : `.${ubr}`})`}`;
+}
+
 /**
  * The account's record of the desktop app, in one section.
  *
@@ -106,7 +113,7 @@ export function DesktopSection() {
 				<BrandWindowsIcon size={18} /> Desktop app
 			</h3>
 
-			<h4 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>Playground installed on</h4>
+			<h4 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>Last reported installation per device</h4>
 			{installations.length === 0 ? (
 				<p className="billing-muted">
 					No installed copy of the Playground has reported in. The app sends this itself the
@@ -127,9 +134,7 @@ export function DesktopSection() {
 							<tr key={row.deviceId}>
 								<td>{row.deviceName ?? "Unnamed device"}</td>
 								<td>
-									{row.osEdition
-										? `${row.osEdition} build ${row.osBuild ?? "?"}.${row.osUbr ?? "?"}`
-										: "Not reported"}
+									{reportedWindows(row.osEdition, row.osBuild, row.osUbr)}
 								</td>
 								<td>{row.appVersion ?? "Not reported"}</td>
 								<td>{new Date(row.reportedAt).toLocaleString()}</td>
@@ -139,11 +144,12 @@ export function DesktopSection() {
 				</table>
 			)}
 			<p className="billing-muted billing-footnote">
-				Reported by the desktop app from the machine it runs on; the row refreshes when the app
-				is running and its version or your Windows build changes.
+				The signed-in app reports its running version and Windows details per device. A download
+				alone does not prove installation; this is the last report, not a live inventory.
 			</p>
 
-			<h4 style={{ margin: "1.25rem 0 0.5rem", fontSize: "0.95rem" }}>Acknowledged downloads</h4>
+			<details style={{ marginTop: "1.25rem" }}>
+			<summary>Download history (not installed versions)</summary>
 			{acks.length === 0 ? (
 				<p className="billing-muted">
 					You have not acknowledged a desktop download yet. Downloading the installer records
@@ -178,6 +184,7 @@ export function DesktopSection() {
 				&ldquo;OS stated&rdquo; column is what you chose in the download dialog and was never verified.
 				Neither is an entitlement input.
 			</p>
+			</details>
 		</div>
 	);
 }

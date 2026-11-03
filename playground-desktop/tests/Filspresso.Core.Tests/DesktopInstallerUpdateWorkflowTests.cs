@@ -10,6 +10,15 @@ namespace Filspresso.Core.Tests;
 
 public sealed class DesktopInstallerUpdateWorkflowTests
 {
+    [Fact]
+    public void HelperAttemptsCleanupBeforeRelaunchAndRecordsFailure()
+    {
+        var field = typeof(PowerShellDesktopUpdateLauncher).GetField("Helper", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var script = Assert.IsType<string>(field?.GetRawConstantValue());
+        Assert.Contains("installer-cleanup-failed", script, StringComparison.Ordinal);
+        Assert.Contains("installer-cleaned", script, StringComparison.Ordinal);
+        Assert.True(script.IndexOf("Remove-Item -LiteralPath $Msi", StringComparison.Ordinal) < script.IndexOf("Start-Process -FilePath $Application", StringComparison.Ordinal));
+    }
     private sealed class FakeApi(byte[] bytes) : DesktopApiClient(new Uri("https://example.test/"))
     {
         public int Acks;
