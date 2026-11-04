@@ -362,6 +362,14 @@ async def test_warmup_route_reports_warming_immediately(tanka_stub, client):
     assert body["status"] != "unknown", "an unrecognised status costs 30 x 2s of client polling"
 
 
+def test_repeated_warmup_requeues_model_after_stale_marker(tanka_stub, client):
+    tanka_stub.warmup_state[LFM_TEXT_MODEL] = {"status": "warming", "model": LFM_TEXT_MODEL, "vision": False}
+    response = client.post("/api/warmup", json={"model": LFM_TEXT_MODEL, "vision": False})
+    assert response.status_code == 200
+    assert LFM_TEXT_MODEL in tanka_stub.residency.load_requests
+    assert response.json()["status"] == "ready"
+
+
 async def test_stream_missing_message_returns_400_not_422(client, tanka_stub):
     """
     A 422 here is collapsed by Next into 502 'The AI runtime rejected the

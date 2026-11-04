@@ -2006,9 +2006,12 @@ async def warmup(request: Request):
     # create_task alone would leave the state "unknown", which useModelPrewarm
     # does not recognise, costing 30 x 2s of pointless polling.
     claimed_state, claimed = await tanka.claim_warmup(selected, vision=vision)
-    if claimed_state.get("status") == "ready" or not claimed:
-        # Already resident, or a load is already in flight for this slot.
-        return json_response(claimed_state)
+    if not claimed:
+        # The historical warmup marker can outlive router eviction. Reconcile
+        # every explicit load request with the residency coordinator, which
+        # deduplicates active/pending loads and waits for in-flight generations.
+        state = await tanka.residency.request_load(selected)
+        return json_response({**claimed_state, "status": "ready" if state.get("status") == "loaded" else "warming"})
 
     # Schedule the load on the loop. The task holds a strong reference so it is
     # not garbage-collected mid-flight, and it releases its llama.cpp connection

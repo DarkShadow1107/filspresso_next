@@ -139,6 +139,20 @@ test("rendering exposes explicit controls but no startup request, automatic exec
 	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /Tool settings can allow, ask for, or deny/);
 });
 
+test("a completed conversation can switch models without reusing approvals", async () => {
+	const state = setup(); const second = "lfm2_5_2_6b_q4_0";
+	state.io.models = async () => [context.model, second]; state.replies.push(response(), response());
+	await state.workspace.check(); await state.workspace.startSandbox();
+	await state.workspace.run(context, "build", "First question");
+	assert.equal(state.workspace.getSnapshot().phase, "complete");
+	assert.equal(state.workspace.continueFromTranscript([{ message: "First question", text: "Finished.", history: [] }]), true);
+	await state.workspace.run({ ...context, model: second }, "build", "Follow-up");
+	assert.equal(state.workspace.getSnapshot().phase, "complete");
+	assert.equal(state.workspace.getSnapshot().workspace?.id, sandboxId);
+	assert.equal(state.posts.filter(post => post.path.endsWith("/execute")).length, 0);
+	await state.workspace.stop();
+});
+
 test("all nine configured models pass capability validation without granting execution", async t => {
 	t.mock.method(globalThis, "fetch", async () => Response.json({ version: 1, protocol: "native-v1", executesTools: false, conversationProtocol: "completed-turns-v1", interactionProtocols: ["question-v1"], models: PLAYGROUND_MODEL_KEYS }));
 	assert.deepEqual(await nativeConversationModels(), PLAYGROUND_MODEL_KEYS);
