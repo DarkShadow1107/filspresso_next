@@ -124,7 +124,7 @@ test("unsupported capabilities and failed refreshes discard cached availability"
 	let models = [model];
 	const review = new NativeProposalReview({ models: async () => models, turn: async () => good() });
 	await review.refresh(); assert.deepEqual(review.getSnapshot().models, [model]);
-	models = ["lfm2_5_vl_450m_q4_k_m"]; await review.refresh();
+	models = ["unknown_model"]; await review.refresh();
 	assert.equal(review.getSnapshot().phase, "failed"); assert.deepEqual(review.getSnapshot().models, []);
 });
 
@@ -139,8 +139,9 @@ test("invalid, unsettled, out-of-mode and unsafe-path proposals never become rev
 });
 
 test("invalid contexts, models and prompts fail without changing generation preferences", () => {
-	for (const invalid of [{ ...context, inputContextTokens: 2000 }, { ...context, model: "lfm2_5_audio_1_5b_q4_0" }, { ...context, sessionUuid: "../other" }])
+	for (const invalid of [{ ...context, inputContextTokens: 2000 }, { ...context, model: "unknown_model" }, { ...context, sessionUuid: "../other" }])
 		assert.throws(() => buildProposalReview(invalid, "plan", "Inspect."));
+	assert.equal(buildProposalReview({ ...context, model: "lfm2_5_audio_1_5b_q4_0" }, "plan", "Inspect.").model, "lfm2_5_audio_1_5b_q4_0");
 	assert.throws(() => buildProposalReview(context, "plan", "x".repeat(8001)));
 	assert.throws(() => buildProposalReview(context, "plan", "\uD800"));
 	assert.equal(context.inputContextTokens, 16_384);

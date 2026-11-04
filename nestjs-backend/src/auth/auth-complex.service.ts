@@ -10,7 +10,7 @@ import * as passwords from "../common/utils/passwords";
 import * as encryption from "../common/utils/encryption";
 import * as mailer from "../common/utils/resendMailer";
 import * as authTokens from "../common/utils/auth-tokens";
-import { setSessionCookie } from "../common/utils/session-cookie";
+import { readSessionToken, setSessionCookie } from "../common/utils/session-cookie";
 
 const QRCode: any = require("qrcode");
 
@@ -896,8 +896,7 @@ export class AuthComplexService {
   }
 
   async refresh(req: Request, res: Response) {
-    const authHeader = String(req.headers.authorization || "");
-    const activeToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    const activeToken = readSessionToken(req);
     if (!activeToken) throw new UnauthorizedException({ error: "Authentication required" });
 
     const decoded = authTokens.verifyToken(activeToken);
@@ -916,6 +915,7 @@ export class AuthComplexService {
       const updateSession = await client.query(`UPDATE user_sessions SET session_token_hash = $1, expires_at = $2, ip_address = $3, user_agent = $4 WHERE account_id = $5 AND session_token_hash = $6 AND expires_at > NOW()`, [authTokens.hashSessionToken(nextToken), nextSessionExpiry, this.getClientIp(req), String(req.get("user-agent") || "").slice(0, 512), user.id, activeTokenHash]);
 
       if (!updateSession.rowCount) throw new ConflictException({ error: "Session refresh conflict; retry login" });
+      await this.sessions.invalidate(activeToken);
       await this.logAuthSecurityEvent(client, "token_refreshed", { accountId: user.id, ipAddress: this.getClientIp(req), userAgent: String(req.get("user-agent") || "").slice(0, 512) });
 
       return { status: "success", token: nextToken, expiresIn: authTokens.JWT_ACCESS_TTL_SECONDS };

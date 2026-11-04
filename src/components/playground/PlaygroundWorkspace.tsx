@@ -114,12 +114,13 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		const next = previous.catch(() => undefined).then(async () => {
 			if (revision !== accountRevision.current) return;
 			const legacyCheckpoint = legacyContexts.current.get(id);
+			let failureStatus: number | null = null;
 			const uuid = await saveServerSession({ uuid: sessionIds.current.get(id), title: titleFor(snapshot), model,
 				inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode,
-				activeContext: legacyCheckpoint ?? null, transcript: snapshot });
+				activeContext: legacyCheckpoint ?? null, transcript: snapshot }, status => { failureStatus = status; });
 			if (revision !== accountRevision.current) return;
 			if (uuid) sessionIds.current.set(id, uuid);
-			else setNotice("This conversation could not be saved. It is still visible here; export it before leaving or retry after checking your connection. Saved transcripts are limited to 200 messages and 700 KB.");
+			else setNotice(failureStatus === 401 ? "Your session has expired. This conversation is not saved. Export it before leaving, then sign in again." : "This conversation could not be saved. It is still visible here; export it before leaving or retry after checking your connection. Saved transcripts are limited to 200 messages and 700 KB.");
 		});
 		saveQueues.current.set(id, next);
 		void next.finally(() => { if (saveQueues.current.get(id) === next) saveQueues.current.delete(id); });
@@ -432,10 +433,17 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			if (request.length > 8000) throw new Error("These sources exceed the agent message limit; nothing was silently removed.");
 			if (!agent.setToolPermissions(preferences.toolPermissions)) throw new Error("Tool settings cannot change while an agent run is active.");
 			if (!agent.getSnapshot().workspace) {
-				setNotice("Preparing an isolated workspace…");
+				setNotice("Checking agent availability…");
 				await agent.check();
 				preparation.signal.throwIfAborted();
 				if (!agent.getSnapshot().executionEnabled || !agent.getSnapshot().models.includes(model)) throw new Error(agent.getSnapshot().error || "Tools are unavailable for this model or deployment.");
+			}
+			setNotice("Waiting for the selected model to load…");
+			const loaded = await waitUntilLoaded(undefined, preparation.signal);
+			preparation.signal.throwIfAborted();
+			if (!loaded.ok) throw new Error(loaded.error || "The model is still loading. Please try again after it is ready.");
+			if (!agent.getSnapshot().workspace) {
+				setNotice("Preparing an isolated workspace…");
 				await agent.startSandbox();
 				preparation.signal.throwIfAborted();
 			}
@@ -462,7 +470,10 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			const unsubscribe = agent.subscribe(update);
 			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }, runMode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
 			finally { unsubscribe(); }
-		} catch (failure) { setNotice(preparation.signal.aborted ? "Agent preparation stopped." : `${failure instanceof Error ? failure.message : "The agent request could not start."} You can send this message without tools instead.`); }
+		} catch (failure) {
+			const message = failure instanceof Error ? failure.message : "The agent request could not start.";
+			setNotice(preparation.signal.aborted ? "Agent preparation stopped." : /session has expired/i.test(message) ? message : `${message} You can send this message without tools instead.`);
+		}
 		finally { if (agentPreparationRef.current === preparation) agentPreparationRef.current = null; agentStartingRef.current = false; setStreaming(false); }
 	};
 	const submit = () => editingFrom !== null ? void send() : void sendAgent("build");
@@ -577,7 +588,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 						{balanceGate && <AiBalanceExhausted gate={balanceGate} />}
 						{notice && <p className="pgw-notice" role="status">{notice}</p>}
 						<AgentInteractions workspace={agent} />
-						{mode !== "chat" && agentState.error && <p className="pgw-notice" role="status">{agentState.error}</p>}
+						{mode !== "chat" && agentState.error && !notice.includes(agentState.error) && <p className="pgw-notice" role="status">{agentState.error}</p>}
 						<div className="pgw-context-status" aria-live="polite">
 							{contextState?.compacted && <details><summary>Context compacted · {contextState.tokensBefore.toLocaleString()} → {contextState.tokensAfter.toLocaleString()} tokens</summary><p>Original messages are unchanged. Summary inference is metered.</p><pre>{contextState.summary}</pre></details>}
 						</div>

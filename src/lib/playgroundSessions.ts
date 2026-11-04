@@ -161,7 +161,7 @@ async function save(method: "POST" | "PATCH", url: string, body: unknown) {
  * Create one conversation's server session, updating it on every later call. Returns the
  * conversation's server uuid, or null when nothing was persisted; the caller only keeps it.
  */
-export async function saveServerSession(request: ServerSessionSave): Promise<string | null> {
+export async function saveServerSession(request: ServerSessionSave, onFailure?: (status: number | null) => void): Promise<string | null> {
 	try {
 		const body = {
 			title: request.title,
@@ -185,13 +185,13 @@ export async function saveServerSession(request: ServerSessionSave): Promise<str
 			// A row the server no longer knows (deleted in another tab, swept by the user)
 			// is recreated rather than abandoned: the save stays meaningful.
 			if (updated.ok) return request.uuid;
-			if (updated.status !== 404) return null;
+			if (updated.status !== 404) { onFailure?.(updated.status); return null; }
 		}
 		const created = await save("POST", "/api/playground/sessions", body);
-		if (!created.ok) return null;
+		if (!created.ok) { onFailure?.(created.status); return null; }
 		const row = await created.json().catch(() => null) as SessionRow | null;
 		return isRecord(row) && typeof row.session_uuid === "string" && SESSION_UUID_PATTERN.test(row.session_uuid) ? row.session_uuid : null;
-	} catch { return null; }
+	} catch { onFailure?.(null); return null; }
 }
 
 /** The account's most recently active sessions, newest first; empty (not an error) when unavailable. */

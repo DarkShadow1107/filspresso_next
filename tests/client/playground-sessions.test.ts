@@ -2,6 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { contextStateFromCheckpoint, deleteServerSession, getServerSession, listServerSessions, preferencesForServerSession, savedSessionFromRow, saveServerSession, transcriptFromRow } from "../../src/lib/playgroundSessions";
 
+test("an expired session is reported without retrying or discarding the transcript", async t => {
+	let calls = 0; let failure: number | null = null;
+	t.mock.method(globalThis, "fetch", async () => { calls++; return new Response(null, { status: 401 }); });
+	const transcript = [{ id: "one", role: "user" as const, content: "unsaved text" }];
+	assert.equal(await saveServerSession({ title: "Draft", model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16384, compactionMode: "balanced", transcript }, status => { failure = status; }), null);
+	assert.equal(calls, 1); assert.equal(failure, 401); assert.equal(transcript[0].content, "unsaved text");
+});
+
 const uuid = "00000000-0000-4000-8000-000000000001";
 const metadata = { session_uuid: uuid, title: "Papers", model_key: "lfm2_5_350m_q8_0", input_context_tokens: 65_536, compaction_mode: "aggressive", source_references: [{ name: "notes.md", kind: "document" }] };
 const checkpoint = { mode: "aggressive", tokensBefore: 40_000, tokensAfter: 12_000, summary: "Keep constraints.", history: [{ role: "user", content: "Retained memory" }, { role: "assistant", content: "Recent answer" }] };

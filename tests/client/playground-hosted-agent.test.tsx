@@ -6,7 +6,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { HostedAgentWorkspace, HostedAgentServices, type HostedAgentIo, type HostedAgentSnapshot } from "../../src/lib/playgroundHostedAgent";
 import { AgentConsentQueue } from "../../src/lib/playgroundAgentConsent";
-import { parseNativeAgentReply, type NativeAgentReply, type NativeCall } from "../../src/lib/playgroundAgent";
+import { AgentTransportError, nativeConversationModels, parseNativeAgentReply, type NativeAgentReply, type NativeCall } from "../../src/lib/playgroundAgent";
+import { PLAYGROUND_MODEL_KEYS } from "../../src/lib/modelAccess";
 import { buildProposalReview } from "../../src/lib/playgroundAgentReview";
 import PlaygroundAgentWorkspace from "../../src/components/playground/PlaygroundAgentWorkspace";
 import { normalizeToolPermissions, permissionForTool } from "../../src/lib/playgroundToolPermissions";
@@ -136,6 +137,23 @@ test("rendering exposes explicit controls but no startup request, automatic exec
 	const html = renderToStaticMarkup(<PlaygroundAgentWorkspace context={context} />);
 	assert.equal(calls, 0); assert.match(html, /Check availability to see whether/); assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);
 	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /Tool settings can allow, ask for, or deny/);
+});
+
+test("all nine configured models pass capability validation without granting execution", async t => {
+	t.mock.method(globalThis, "fetch", async () => Response.json({ version: 1, protocol: "native-v1", executesTools: false, conversationProtocol: "completed-turns-v1", interactionProtocols: ["question-v1"], models: PLAYGROUND_MODEL_KEYS }));
+	assert.deepEqual(await nativeConversationModels(), PLAYGROUND_MODEL_KEYS);
+	const state = setup(); state.io.models = async () => [...PLAYGROUND_MODEL_KEYS];
+	await state.workspace.check();
+	assert.equal(state.workspace.getSnapshot().executionEnabled, true);
+	assert.equal(state.workspace.getSnapshot().workspace, null);
+	await state.workspace.stop();
+});
+
+test("unauthorized capability check asks for sign-in without discarding conversation", async () => {
+	const state = setup(); state.io.models = async () => { throw new AgentTransportError(401, ""); };
+	await state.workspace.check();
+	assert.match(state.workspace.getSnapshot().error, /Export any unsaved conversation.*sign in again/);
+	assert.equal(state.workspace.getSnapshot().workspace, null);
 });
 
 test("tool settings default safely and cannot enable web command execution", () => {

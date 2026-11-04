@@ -119,9 +119,11 @@ export function useModelLoadStatus(modelKey: ModelKey | null | undefined, scope:
 			});
 			if (!response.ok) {
 				const detail = await response.json().catch(() => ({})) as { message?: string; details?: { message?: string } };
-				return { ok: false, error: detail.details?.message || detail.message || `Model load refused (${response.status}).` };
+				const error = response.status === 401 ? "Your session has expired. Export any unsaved conversation, then sign in again." : detail.details?.message || detail.message || `Model load refused (${response.status}).`;
+				loadingRef.current = false; setState({ status: "unavailable", progress: 0, error });
+				return { ok: false, error };
 			}
-		} catch { return { ok: false, error: "Could not request model loading." }; }
+		} catch { const error = "Could not request model loading."; loadingRef.current = false; setState({ status: "unavailable", progress: 0, error }); return { ok: false, error }; }
 		void poll();
 		return { ok: true };
 	}, [file, modelKey, scope, poll]);

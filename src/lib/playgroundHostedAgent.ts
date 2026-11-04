@@ -1,9 +1,9 @@
-import { nativeAgentModels, nativeConversationModels, nativeAgentTurn, readAgentJson, type NativeAgentRequest, type NativeCall, type NativeConversationTurn } from "./playgroundAgent";
+import { AgentTransportError, nativeAgentModels, nativeConversationModels, nativeAgentTurn, readAgentJson, type NativeAgentRequest, type NativeCall, type NativeConversationTurn } from "./playgroundAgent";
 import { AgentPolicyRefusal, NativeAgentLoop, type AgentApproval, type AgentInvocation, type AgentLoopEvent, type AgentLoopServices, type AgentWorkspace } from "./playgroundAgentLoop";
 import { AgentConsentQueue } from "./playgroundAgentConsent";
 import { AgentQuestionQueue, type QuestionChallenge, type QuestionDecision } from "./playgroundQuestions";
 import { buildProposalReview, type ReviewContext, type ReviewMode } from "./playgroundAgentReview";
-import { isPlaygroundModelKey, isVisionModelKey, isAudioModelKey } from "./modelAccess";
+import { isPlaygroundModelKey, PLAYGROUND_MODEL_KEYS } from "./modelAccess";
 import { validateProject, type ProjectFile } from "./playgroundProject";
 import { normalizeToolPermissions, permissionForTool, type ToolPermissions } from "./playgroundToolPermissions";
 
@@ -223,9 +223,9 @@ export class HostedAgentWorkspace {
 		try {
 			const [models, capabilities] = await Promise.all([this.io.models(controller.signal), this.io.json("/api/playground/agent/actions/capabilities", "GET", undefined, controller.signal, 8000)]);
 			if (!this.current(controller, revision)) return;
-			if (models.length > 6 || new Set(models).size !== models.length || models.some(model => !isPlaygroundModelKey(model) || isVisionModelKey(model) || isAudioModelKey(model)) || capabilities.version !== 1 || capabilities.protocol !== "actions-v1" || capabilities.location !== "hosted-docker" || typeof capabilities.enabled !== "boolean") throw new Error("Invalid agent availability response.");
+			if (models.length > PLAYGROUND_MODEL_KEYS.length || new Set(models).size !== models.length || models.some(model => !isPlaygroundModelKey(model)) || capabilities.version !== 1 || capabilities.protocol !== "actions-v1" || capabilities.location !== "hosted-docker" || typeof capabilities.enabled !== "boolean") throw new Error("Invalid agent availability response.");
 			this.publish({ ...this.state, models: [...models], executionEnabled: capabilities.enabled, phase: "ready", error: capabilities.enabled ? "" : "Agent execution is not enabled/qualified on this deployment. Proposal review and ordinary chat remain available." });
-		} catch { if (this.current(controller, revision)) this.publish({ ...this.state, phase: "failed", models: [], executionEnabled: false, error: "Agent availability could not be verified." }); }
+		} catch (error) { if (this.current(controller, revision)) this.publish({ ...this.state, phase: "failed", models: [], executionEnabled: false, error: error instanceof AgentTransportError && error.status === 401 ? "Your session has expired. Export any unsaved conversation, then sign in again." : "Agent availability could not be verified. Check the connection and try again." }); }
 		finally { if (this.current(controller, revision)) this.active = null; }
 	}
 	async startSandbox() {
