@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { PLAYGROUND_MODEL_KEYS, VISION_MODEL_450M, AUDIO_MODEL_1_5B, CONTEXT_LEVELS, MODEL_LABEL_BY_KEY, formatContextTokens, isPlaygroundModelKey, isVisionModelKey, isAudioModelKey, tierCanUseThinkingModel, type UserSubscriptionTier } from "@/lib/modelAccess";
+import { PLAYGROUND_MODEL_KEYS, TEXT_MODEL_8B, VISION_MODEL_450M, AUDIO_MODEL_1_5B, CONTEXT_LEVELS, MODEL_LABEL_BY_KEY, formatContextTokens, isPlaygroundModelKey, isVisionModelKey, isAudioModelKey, tierCanUseThinkingModel, type UserSubscriptionTier } from "@/lib/modelAccess";
 import { buildPageHref } from "@/lib/pages";
 import { getOrCreateFingerprint } from "@/lib/fingerprint";
 import { useModelPrewarm } from "@/hooks/useModelPrewarm";
@@ -19,7 +19,6 @@ import { COMPACTION_OPTIONS, compactionMode, type ContextState } from "@/lib/pla
 import { THINKING_OPTIONS, thinkingLevel } from "@/lib/playgroundThinking";
 import { deleteServerSession, getServerSession, listServerSessions, preferencesForServerSession, saveServerSession, type SavedSession, type SavedMessage, type SavedToolActivity } from "@/lib/playgroundSessions";
 import PlaygroundRuntime from "./PlaygroundRuntime";
-import PlaygroundRunHistory from "./PlaygroundRunHistory";
 import PlaygroundAgentReview from "./PlaygroundAgentReview";
 import { AgentInteractions } from "./PlaygroundAgentWorkspace";
 import LlamaToolActivity from "./LlamaToolActivity";
@@ -48,7 +47,7 @@ const messageWithSources = (message: Message) => message.content + (message.sour
 
 export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscriptionTier; access: SpectreAccessState }) {
 	const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
-	const [view, setView] = useState<"chat" | "settings" | "prices" | "activity" | "review">("chat");
+	const [view, setView] = useState<"chat" | "settings" | "prices" | "review">("chat");
 	const [helpOpen, setHelpOpen] = useState(false);
 	const [railExpanded, setRailExpanded] = useState(false);
 	// The web composer uses the complete non-executing agent tool set by default.
@@ -141,7 +140,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				const saved = JSON.parse(localStorage.getItem(PREFERENCES_KEY) || localStorage.getItem("filspresso_playground_preferences_v1") || "null") as (Partial<PlaygroundPreferences> & { maxTokens?: number }) | null;
 				if (!saved) return;
 				setPreferences({
-					model: typeof saved.model === "string" && isPlaygroundModelKey(saved.model) ? saved.model : DEFAULT_PREFERENCES.model,
+					model: typeof saved.model === "string" && saved.model !== TEXT_MODEL_8B && isPlaygroundModelKey(saved.model) ? saved.model : DEFAULT_PREFERENCES.model,
 					inputContextTokens: (CONTEXT_LEVELS as readonly number[]).includes(Number(saved.inputContextTokens ?? saved.maxTokens)) ? Number(saved.inputContextTokens ?? saved.maxTokens) : DEFAULT_PREFERENCES.inputContextTokens,
 					compactionMode: compactionMode(saved.compactionMode),
 					thinking: thinkingAllowed && saved.thinking !== false,
@@ -203,7 +202,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 
 	const savePreferences = (next: PlaygroundPreferences) => {
 		if (streaming || agentBusy) return false;
-		const safe = { ...next, thinking: thinkingAllowed && next.thinking, toolPermissions: normalizeToolPermissions(next.toolPermissions) };
+		const safe = { ...next, model: next.model === TEXT_MODEL_8B ? DEFAULT_PREFERENCES.model : next.model, thinking: thinkingAllowed && next.thinking, toolPermissions: normalizeToolPermissions(next.toolPermissions) };
 		setPreferences(safe);
 		try { localStorage.setItem(PREFERENCES_KEY, JSON.stringify(safe)); return true; } catch { return false; }
 	};
@@ -556,7 +555,6 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				<button type="button" className="pgw-icon-button" aria-label="Expand navigation labels" aria-expanded={railExpanded} title="Navigation labels" onClick={() => setRailExpanded(!railExpanded)}><WorkspaceIcon name="sidebar" /><span className="pgw-nav-label">Collapse labels</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="New conversation" title="New conversation" disabled={streaming} onClick={newConversation}><WorkspaceIcon name="new" /><span className="pgw-nav-label">New conversation</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="Search conversations" title="Conversations" aria-expanded={sidebarOpen} aria-controls="pgw-conversations" onClick={() => { setSidebarOpen(!sidebarOpen); window.requestAnimationFrame(() => searchRef.current?.focus()); }}><WorkspaceIcon name="search" /><span className="pgw-nav-label">Conversations</span></button>
-				<button type="button" className="pgw-icon-button" aria-label="Recorded activity" title="Activity" aria-pressed={view === "activity"} onClick={() => setView(view === "activity" ? "chat" : "activity")}><WorkspaceIcon name="file" /><span className="pgw-nav-label">Activity</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="API Prices" title="API Prices" aria-pressed={view === "prices"} onClick={() => setView(view === "prices" ? "chat" : "prices")}><WorkspaceIcon name="prices" /><span className="pgw-nav-label">API Prices</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="Settings" title="Settings" aria-pressed={view === "settings"} onClick={() => setView(view === "settings" ? "chat" : "settings")}><WorkspaceIcon name="settings" /><span className="pgw-nav-label">Settings</span></button>
 				<button type="button" className="pgw-icon-button" aria-label="Web Playground instructions" title="Instructions" aria-haspopup="dialog" onClick={() => setHelpOpen(true)}><WorkspaceIcon name="help" /><span className="pgw-nav-label">Instructions</span></button>
@@ -593,7 +591,6 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				{view !== "chat" && <div className="pgw-view-toolbar"><button type="button" className="pgw-text-button" onClick={() => setView("chat")}>← Back to chat</button></div>}
 				{view === "chat" && workspaceOpen && <div className="pgw-workspace-toggle"><span>Advanced · temporary files</span><button type="button" className="pgw-text-button" aria-expanded={workspaceOpen} aria-controls="pgw-manual-workspace" onClick={() => setWorkspaceOpen(false)}>Close workspace</button></div>}
 				<PlaygroundRuntime open={workspaceOpen && view === "chat"} />
-				{view === "activity" && <div className="pgw-page-scroll"><PlaygroundRunHistory sessionUuid={sessionIds.current.get(conversationId)} /></div>}
 				{view === "review" && <div className="pgw-page-scroll"><PlaygroundAgentReview key={`${conversationId}:${model}:${preferences.inputContextTokens}:${sessionIds.current.get(conversationId) || ""}`} context={{ model, inputContextTokens: preferences.inputContextTokens, sessionUuid: sessionIds.current.get(conversationId) }} /></div>}
 				{view === "settings" && <div className="pgw-page-scroll"><PlaygroundSettings preferences={preferences} thinkingAllowed={thinkingAllowed} streaming={streaming} onSave={savePreferences} onExport={exportConversation} onImport={importConversation} hasMessages={messages.length > 0} /></div>}
 				{view === "prices" && <div className="pgw-page-scroll"><section className="pgw-prices"><h1><WorkspaceIcon name="prices" width={28} height={28} /> API Prices</h1><p>Every model. 128K context. Image/video attachments use Vision; audio uses Audio.</p><span className="pgw-pricing-unit">RON per 1M tokens · input / output</span><PlaygroundModelLineup tier={tier} access={access} disclosure={false} /></section></div>}
@@ -649,7 +646,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 									{thinkingAllowed && !isVisionModelKey(model) && !isAudioModelKey(model) && <WorkspacePicker label="Thinking budget" icon="brain" disabled={streaming || agentBusy} value={preferences.thinking ? thinkingLevel(preferences.thinkingLevel) : "off"} options={THINKING_OPTIONS} onChange={value => savePreferences({ ...preferences, thinking: value !== "off", thinkingLevel: thinkingLevel(value) })} />}
 									<button type="button" ref={contextButtonRef} className="pgw-icon-button pgw-context-ring-wrap" aria-label="Context usage" aria-haspopup="menu" aria-expanded={contextOpen} title="Context usage" onClick={() => setContextOpen(open => !open)}><svg className="pgw-context-ring" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" className="pgw-context-ring-track" /><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" strokeLinecap="round" strokeDasharray={2 * Math.PI * 11} strokeDashoffset={2 * Math.PI * 11 * (1 - (contextPercent ?? 0) / 100)} transform="rotate(-90 16 16)" className="pgw-context-ring-value" data-level={contextPercent !== null && contextPercent >= 95 ? "high" : contextPercent !== null && contextPercent >= 80 ? "elevated" : "ok"} /></svg></button>
 									{contextOpen && <WorkspacePopover anchor={contextButtonRef} onClose={closeContext} label="Context usage" className="pgw-context-popup" width={280}><div className="pgw-context-popup-heading"><strong>Context</strong><span>{measuredInputTokens === undefined ? "Not measured" : `${measuredInputTokens.toLocaleString()} / ${measuredInputLimit.toLocaleString()}`}</span></div>{contextPercent === null || measuredInputTokens === undefined ? <p>No context measurement available yet.</p> : <><div className="pgw-context-progress" aria-hidden="true"><span style={{ width: `${contextPercent}%` }} data-level={contextPercent >= 95 ? "high" : contextPercent >= 80 ? "elevated" : "ok"} /></div><div className="pgw-context-popup-heading"><span>{contextPercent}% of input limit</span><span>{Math.max(0, measuredInputLimit - measuredInputTokens).toLocaleString()} remaining</span></div><p>Last measured input, not live KV cache usage. The next request may differ.</p></>}{mode === "chat" && messages.length >= 2 && <button type="button" role="menuitem" className="pgw-outlined-button" disabled={streaming} onClick={() => { setCompactNext(!compactNext); closeContext(); }}>{compactNext ? "Cancel queued compaction" : "Compact on next send"}</button>}</WorkspacePopover>}
-									<WorkspacePicker label="Model" disabled={streaming || agentBusy} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
+									<WorkspacePicker label="Model" disabled={streaming || agentBusy} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] + (key === TEXT_MODEL_8B ? " · Coming soon" : ""), disabled: key === TEXT_MODEL_8B }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
 									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => { abortRef.current?.abort(); agentPreparationRef.current?.abort(); if (!abortRef.current) void agent.stop(); }}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={agentBusy || (!input.trim() && !attachments.contexts.length) || !attachments.ready || (mode !== "chat" && agentState.requiresReset)}><WorkspaceIcon name="send" /></button>}
 								</div>
 							</div>

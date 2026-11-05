@@ -32,7 +32,7 @@ function setup() {
 			if (method === "DELETE") return { stopped: true };
 			const body = raw as { call: NativeCall; approved: boolean };
 			if (path === "/api/playground/agent/actions") {
-				const challenge = { actionId: crypto.randomUUID(), runId: "exec-" + (++sequence).toString(16).padStart(24, "0"), sandboxId, toolCallId: body.call.id, requiresApproval: !["read_file", "list_files", "list_documents", "read_document"].includes(body.call.name), expiresAt: Math.floor(Date.now() / 1000) + 300 };
+				const challenge = { actionId: crypto.randomUUID(), runId: "exec-" + (++sequence).toString(16).padStart(24, "0"), sandboxId, toolCallId: body.call.id, requiresApproval: !["read_file", "list_files", "list_documents", "read_document", "server_date"].includes(body.call.name), expiresAt: Math.floor(Date.now() / 1000) + 300 };
 				challenges.set(body.call.id, challenge); return { version: 1, ...challenge };
 			}
 			const challenge = challenges.get(body.call.id)!; assert.ok(challenge);
@@ -137,6 +137,20 @@ test("rendering exposes explicit controls but no startup request, automatic exec
 	const html = renderToStaticMarkup(<PlaygroundAgentWorkspace context={context} />);
 	assert.equal(calls, 0); assert.match(html, /Check availability to see whether/); assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);
 	assert.doesNotMatch(html, /<script|onclick=/i); assert.match(html, /Tool settings can allow, ask for, or deny/);
+});
+
+test("server date accepts the server's read-only challenge and respects ask-first permission", async () => {
+	for (const permission of ["allow", "ask", "deny"] as const) {
+		const state = setup(); state.workspace.setToolPermissions({ server_date: permission });
+		state.replies.push(response([{ id: "date_1", name: "server_date", arguments: "{}" }]), response());
+		await state.workspace.check(); await state.workspace.startSandbox();
+		const running = state.workspace.run(context, "plan", "What is today?");
+		if (permission === "ask") { const snapshot = await waitFor(state.workspace, value => value.pendingApproval !== null || value.phase === "failed" || value.phase === "complete"); assert.ok(snapshot.pendingApproval, JSON.stringify(snapshot)); state.workspace.decide(snapshot.pendingApproval.id, true); }
+		await running;
+		assert.equal(state.workspace.getSnapshot().phase, "complete");
+		assert.equal(state.posts.filter(post => post.path.endsWith("/execute")).length, permission === "deny" ? 0 : 1);
+		await state.workspace.stop();
+	}
 });
 
 test("a completed conversation can switch models without reusing approvals", async () => {

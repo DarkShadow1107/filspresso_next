@@ -6,6 +6,7 @@ import {
 	MODEL_DESCRIPTION_BY_KEY,
 	MODEL_LABEL_BY_KEY,
 	MODEL_MODALITY_BY_KEY,
+	TEXT_MODEL_8B,
 	formatContextTokens,
 	normalizeModelTier,
 	type ModelKey,
@@ -150,13 +151,13 @@ export default function PlaygroundModelLineup({
 							access === "tier" && Boolean(ALLOWANCE_EXCLUDED[resolved]?.has(key));
 
 						return (
-							<li key={key} className="pgm-lineup-row" data-included={included}>
+							<li key={key} className="pgm-lineup-row" data-included={included && key !== TEXT_MODEL_8B} style={key === TEXT_MODEL_8B ? { opacity: 0.55 } : undefined}>
 								<span className="pgm-lineup-head">
 									<span className="pgm-lineup-icon">
 										<BrandLiquidIcon size={16} />
 									</span>
 									<span className="pgm-lineup-main">
-										<span className="pgm-lineup-name">{MODEL_LABEL_BY_KEY[key]}</span>
+										<span className="pgm-lineup-name">{MODEL_LABEL_BY_KEY[key]}{key === TEXT_MODEL_8B ? " · Coming soon" : ""}</span>
 										<span className="pgm-lineup-desc">{MODEL_DESCRIPTION_BY_KEY[key]}</span>
 									</span>
 								</span>
@@ -170,7 +171,7 @@ export default function PlaygroundModelLineup({
 									<span className="pgm-lineup-context">
 										{formatContextTokens(MODEL_CONTEXT_TOKENS[key])} ctx
 									</span>
-									{prices[key] && (
+									{key !== TEXT_MODEL_8B && prices[key] && (
 										<span
 											className="pgm-lineup-price"
 											title={

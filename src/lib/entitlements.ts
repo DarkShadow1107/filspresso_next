@@ -232,7 +232,7 @@ export function modelAccessLinesForTier(tier: UserSubscriptionTier | string): st
 	// across every model, so a "120 prompts/month" suffix on each line would advertise a
 	// budget nothing enforces.
 	return MODEL_DISPLAY_ORDER.filter((key) => tierAllowsModel(value, key)).map((key) =>
-		`${MODALITY_EMOJI[MODEL_MODALITY_BY_KEY[key]]} ${MODEL_LABEL_BY_KEY[key]}`,
+		`${MODALITY_EMOJI[MODEL_MODALITY_BY_KEY[key]]} ${MODEL_LABEL_BY_KEY[key]}${key === TEXT_MODEL_8B ? " · Coming soon" : ""}`,
 	);
 }
 

@@ -5,7 +5,7 @@ import WorkspaceIcon from "./WorkspaceIcon";
 import WorkspacePopover from "./WorkspacePopover";
 
 export default function WorkspacePicker({ label, value, options, onChange, disabled, icon = "model" }: {
-	label: string; value: string; options: readonly { key: string; label: string }[];
+	label: string; value: string; options: readonly { key: string; label: string; disabled?: boolean }[];
 	onChange: (value: string) => void; disabled?: boolean; icon?: "model" | "settings" | "brain" | "edit" | null;
 }) {
 	const [open, setOpen] = useState(false);
@@ -17,7 +17,7 @@ export default function WorkspacePicker({ label, value, options, onChange, disab
 		</button>
 		{open && !disabled && <WorkspacePopover anchor={trigger} onClose={close} label={label} width={250}>
 			<p className="pgw-popover-caption">{label}</p>
-			{options.map(option => <button key={option.key} type="button" role="menuitemradio" aria-checked={option.key === value} onClick={() => { onChange(option.key); close(); trigger.current?.focus(); }}>
+			{options.map(option => <button key={option.key} type="button" role="menuitemradio" disabled={option.disabled} aria-checked={option.key === value} onClick={() => { onChange(option.key); close(); trigger.current?.focus(); }}>
 				<span>{option.label}</span>{option.key === value && <WorkspaceIcon name="check" width={15} />}
 			</button>)}
 		</WorkspacePopover>}

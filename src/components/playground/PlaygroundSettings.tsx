@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { PLAYGROUND_MODEL_KEYS, CONTEXT_LEVELS, MODEL_LABEL_BY_KEY, TEXT_MODEL_230M, formatContextTokens, type ModelKey } from "@/lib/modelAccess";
+import { PLAYGROUND_MODEL_KEYS, CONTEXT_LEVELS, MODEL_LABEL_BY_KEY, TEXT_MODEL_230M, TEXT_MODEL_8B, formatContextTokens, type ModelKey } from "@/lib/modelAccess";
 import WorkspaceIcon from "./WorkspaceIcon";
 import { COMPACTION_OPTIONS, type CompactionMode } from "@/lib/playgroundContext";
 import PlaygroundDocumentsManager from "./PlaygroundDocuments";
@@ -62,7 +62,7 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 						<label className="pgw-setting">
 							<span>Default model</span>
 							<select value={draft.model} disabled={streaming} onChange={(event) => setDraft({ ...draft, model: event.target.value as ModelKey })}>
-								{PLAYGROUND_MODEL_KEYS.map((key) => <option key={key} value={key}>{MODEL_LABEL_BY_KEY[key]}</option>)}
+								{PLAYGROUND_MODEL_KEYS.map((key) => <option key={key} value={key} disabled={key === TEXT_MODEL_8B}>{MODEL_LABEL_BY_KEY[key]}{key === TEXT_MODEL_8B ? " · Coming soon" : ""}</option>)}
 							</select>
 							<small>Available input limits are configuration options; a model’s validated context may be shorter. You can also switch models in the composer.</small>
 						</label>

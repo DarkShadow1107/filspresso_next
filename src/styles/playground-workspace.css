@@ -29,6 +29,7 @@
 .pgw-floating-panel button { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 9px 11px; border: 0; border-radius: 11px; font: inherit; text-align: left; background: transparent; color: inherit; cursor: pointer; }
 .pgw-floating-panel button:hover, .pgw-floating-panel button:focus-visible, .pgw-floating-panel [aria-checked=true] { background: #332a25; color: #f5d1b2; outline-offset: -2px; }
 .pgw-popover-caption { margin: 4px 10px 7px; color: var(--pgw-muted); font-size: 10px; }
+.pgw-floating-panel button:disabled { opacity: .5; cursor: not-allowed; }
 .pgw .pgw-picker-trigger { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; min-width: 0; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; color: #cfbfb3; font-size: 11px; }
 .pgw-picker-trigger:hover, .pgw-picker-trigger[aria-expanded=true] { background: #342b26; }
 .pgw-picker-trigger > span:not(.pgw-shared-icon) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 174px; }

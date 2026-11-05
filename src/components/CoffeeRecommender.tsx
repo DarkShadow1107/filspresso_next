@@ -878,7 +878,7 @@ export default React.memo(function CoffeeRecommender() {
 	const allowedVisionModels = useMemo(() => allowedVisionModelsForTier(userSubscription), [userSubscription]);
 	// Derived, not synchronised: if the tier no longer entitles the stored choice,
 	// fall back to the first allowed model during render instead of writing state.
-	const selectedModel = allowedTextModels.includes(selectedModelIntent)
+	const selectedModel = selectedModelIntent !== TEXT_MODEL_8B && allowedTextModels.includes(selectedModelIntent)
 		? selectedModelIntent
 		: (allowedTextModels[0] ?? TEXT_MODEL_230M);
 	const selectedVisionModel =
@@ -2835,9 +2835,9 @@ export default React.memo(function CoffeeRecommender() {
 										</div>
 										<div className="model-access-list">
 											{allowedTextModels.map((modelKey) => (
-												<span key={modelKey} className="model-access-chip lfm">
+													<span key={modelKey} className="model-access-chip lfm" style={modelKey === TEXT_MODEL_8B ? { opacity: 0.55 } : undefined}>
 													<BrandLiquidIcon size={13} />
-													{MODEL_LABEL_BY_KEY[modelKey]}
+															{MODEL_LABEL_BY_KEY[modelKey]}{modelKey === TEXT_MODEL_8B ? " · Coming soon" : ""}
 												</span>
 											))}
 											{hasVisionAccess ? (
@@ -2865,7 +2865,7 @@ export default React.memo(function CoffeeRecommender() {
 													? "Molecule Helper supports text chemistry plus LFM 2.5 VL vision analysis."
 													: "Molecule Helper text chemistry is available. Vision uploads require PLUS or higher."
 												: has8BAccess
-													? "ULTIMATE unlocks every LFM 2.5 model, including the 8B and Audio models."
+															? "ULTIMATE includes the available LFM 2.5 and Audio models; 8B A1B is coming soon."
 													: hasThinkingAccess
 														? "PRO can choose the 1.2B Thinking model and enable Thinking mode."
 														: hasVisionAccess
@@ -2903,8 +2903,8 @@ export default React.memo(function CoffeeRecommender() {
 										}}
 									>
 										{allowedTextModels.map((modelKey) => (
-											<option key={modelKey} value={modelKey}>
-												{MODEL_LABEL_BY_KEY[modelKey]}
+											<option key={modelKey} value={modelKey} disabled={modelKey === TEXT_MODEL_8B}>
+												{MODEL_LABEL_BY_KEY[modelKey]}{modelKey === TEXT_MODEL_8B ? " · Coming soon" : ""}
 											</option>
 										))}
 									</select>

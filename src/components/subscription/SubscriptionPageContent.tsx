@@ -31,7 +31,7 @@ import {
 	PenIcon,
 } from "@/icons";
 
-import { ALL_TEXT_MODEL_KEYS, normalizeModelTier } from "@/lib/modelAccess";
+import { ALL_TEXT_MODEL_KEYS, TEXT_MODEL_8B, normalizeModelTier } from "@/lib/modelAccess";
 import { featureLinesForTier, modelAccessLinesForTier, SPECTRE_SUBSCRIPTION, tierCanUsePlayground } from "@/lib/entitlements";
 
 type CurrentSubscription = {
@@ -248,7 +248,7 @@ export default function SubscriptionPageContent() {
 	// account's plan already includes the Playground.
 	const spectreBenefits = [
 		{ text: "Full access to the Spectre Playground", note: false },
-		{ text: "Every model unlocked, including the LFM 2.5 8B", note: false },
+		{ text: "Access to available Playground models; LFM 2.5 8B A1B coming soon", note: false },
 		{ text: "The Windows desktop app, with a local sandbox for the code it writes", note: false },
 		{
 			text: "Model usage is billed separately at the API prices listed here, and is not included in this subscription",
@@ -1102,10 +1102,10 @@ if (benefit.toLowerCase().includes("lfm") || benefit.toLowerCase().includes("qwe
 								</thead>
 									<tbody>
 										{spectrePrices.map((row) => (
-											<tr key={row.modelKey}>
-												<td>{row.label}</td>
-												<td>{row.inputPer1M.toFixed(2)}</td>
-												<td>{row.outputPer1M.toFixed(2)}</td>
+											<tr key={row.modelKey} style={row.modelKey === TEXT_MODEL_8B ? { opacity: 0.55 } : undefined}>
+												<td>{row.label}{row.modelKey === TEXT_MODEL_8B ? " · Coming soon" : ""}</td>
+												<td>{row.modelKey === TEXT_MODEL_8B ? "—" : row.inputPer1M.toFixed(2)}</td>
+												<td>{row.modelKey === TEXT_MODEL_8B ? "—" : row.outputPer1M.toFixed(2)}</td>
 											</tr>
 										))}
 									</tbody>
