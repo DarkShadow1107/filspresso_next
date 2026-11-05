@@ -10,6 +10,7 @@ export type NativeAgentRequest = {
 	temperature: number; max_tokens: number; input_context_tokens: 16384 | 32768 | 65536 | 131072; tools: NativeTool[];
 	history: NativeHistoryGroup[]; conversation?: NativeConversationTurn[]; session_uuid?: string;
 	compaction_mode?: "permissive" | "balanced" | "aggressive";
+	thinking_level?: "off" | "default" | "low" | "medium" | "high";
 };
 export type NativeActionTicket = { tool_call_id: string; token: string; expires_at: number };
 export type NativeAgentCompaction = { mode: "permissive" | "balanced" | "aggressive"; inputLimit: number; tokensBefore: number; tokensAfter: number;

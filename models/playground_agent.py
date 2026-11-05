@@ -110,7 +110,7 @@ def validate_call(call, tools, seen):
 
 
 def validate_request(data):
-    closed(data, ("version", "model", "text_model", "request_id", "mode", "message", "system_prompt", "temperature", "max_tokens", "input_context_tokens", "tools", "history", "session_uuid", "compaction_mode", "conversation", "execution_scope"))
+    closed(data, ("version", "model", "text_model", "request_id", "mode", "message", "system_prompt", "temperature", "max_tokens", "input_context_tokens", "tools", "history", "session_uuid", "compaction_mode", "conversation", "execution_scope", "thinking_level"))
     try:
         require(len(json.dumps(data, ensure_ascii=False).encode("utf-8")) <= MAX_BYTES)
     except (UnicodeError, RecursionError) as error:
@@ -122,6 +122,7 @@ def validate_request(data):
     require(integer(data.get("max_tokens"), 1, 16384) and type(data.get("input_context_tokens")) is int and data["input_context_tokens"] in (16384, 32768, 65536, 131072))
     require("session_uuid" not in data or (isinstance(data["session_uuid"], str) and UUID.fullmatch(data["session_uuid"])))
     require(isinstance(data.get("compaction_mode", "balanced"), str) and data.get("compaction_mode", "balanced") in THRESHOLDS)
+    require(data.get("thinking_level", "off") in ("off", "default", "low", "medium", "high"))
     require(isinstance(data.get("tools"), list) and len(data["tools"]) <= 32 and isinstance(data.get("history"), list) and len(data["history"]) <= 23)
     tools = {}
     for tool in data["tools"]:
@@ -237,7 +238,9 @@ def enabled_model_files(known_files):
 
 async def run_turn(runtime, model, data):
     messages, native_tools, tools, seen = validate_request(data)
-    count = await runtime.count_input_tokens(model, messages, thinking_enabled=False, tools=native_tools)
+    level = data.get("thinking_level", "off")
+    thinking = level != "off"
+    count = await runtime.count_input_tokens(model, messages, thinking_enabled=thinking, tools=native_tools)
     if type(count) is not int or count < 0:
         raise AgentError("Native tool input could not be measured.", 503, "AGENT_CONTEXT_UNAVAILABLE")
     mode = data.get("compaction_mode", "balanced")
@@ -260,7 +263,7 @@ async def run_turn(runtime, model, data):
                 raise AgentError("Too little generated-token budget remains for safe compaction.", 413, "INPUT_CONTEXT_EXCEEDED")
             memory, summary_usage = await summarize_memory(runtime, model, groups[:cut], budget)
             compacted = render_messages(data, conversation=prior[min(cut, len(prior)):], history=data["history"][max(0, cut - len(prior)):], memory=memory)
-            after = await runtime.count_input_tokens(model, compacted, thinking_enabled=False, tools=native_tools)
+            after = await runtime.count_input_tokens(model, compacted, thinking_enabled=thinking, tools=native_tools)
             if type(after) is not int or after < 0 or after >= count or after >= threshold or after > safe_limit:
                 raise AgentError("Compaction could not make enough room without splitting a tool group. Original history was preserved.", 413, "INPUT_CONTEXT_EXCEEDED")
             messages = compacted
@@ -270,7 +273,10 @@ async def run_turn(runtime, model, data):
         # Summary and answer share the caller's output budget; summary inference cannot
         # bypass the bounded agent's token ceiling. Billing uses a separate summary key.
         remaining = data["max_tokens"] - (summary_usage or {}).get("completion_tokens", 0)
-        body = await runtime.native_agent_completion(model, messages, native_tools, remaining, data["temperature"])
+        if thinking:
+            body = await runtime.native_agent_completion(model, messages, native_tools, remaining, data["temperature"], thinking_level=level)
+        else:
+            body = await runtime.native_agent_completion(model, messages, native_tools, remaining, data["temperature"])
         result = validate_completion(body, {**data, "max_tokens": remaining}, tools, seen)
         if summary_usage:
             result["usage"] = {key: result["usage"][key] + summary_usage[key] for key in ("prompt_tokens", "completion_tokens")}

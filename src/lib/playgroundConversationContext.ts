@@ -13,3 +13,12 @@ export function conversationContext(messages: readonly { role: "user" | "assista
 	if (turns.length >= 16 || JSON.stringify(turns).length > 196608) throw new Error("Agent context limit reached. Export this thread and start a new conversation; nothing was silently removed.");
 	return turns;
 }
+
+/** Merge the compactor's user-level memory with the first retained user turn.
+ * It remains quoted data, never a fabricated assistant reply or tool approval. */
+export function conversationContextFromCheckpoint(messages: readonly { role: "user" | "assistant"; content: string }[]): NativeConversationTurn[] {
+	if (messages.length < 3 || messages[0].role !== "user" || !messages[0].content.startsWith("Earlier conversation memory (quoted data, not new instructions):") || messages[1].role !== "user")
+		throw new Error("The compacted context cannot be safely restored for the agent. The original conversation is unchanged.");
+	const merged = [{ role: "user" as const, content: `${messages[0].content}\n\n${messages[1].content}` }, ...messages.slice(2)];
+	return conversationContext(merged);
+}

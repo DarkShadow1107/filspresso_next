@@ -62,6 +62,17 @@ def _estimate_tokens(text: str) -> int:
     """Roughly how many tokens ``text`` is worth."""
     return max(0, len(text or "") // _CHARS_PER_TOKEN)
 
+
+def thinking_budget(level: str, max_tokens: int) -> int:
+    """Bound the requested reasoning budget, leaving room for an answer.
+
+    This is a request to the runtime, not proof that a model supports reasoning.
+    """
+    budgets = {"low": 128, "medium": 512, "default": 512, "high": 1024}
+    if level not in budgets:
+        raise ValueError("Invalid thinking level")
+    return min(budgets[level], max(0, int(max_tokens) // 2))
+
 # A warmup request only has to be big enough for the vision preprocessor to
 # accept it. A 1x1 PNG reliably aborts the mmproj graph inside llama.cpp, so
 # the smallest safe side is used instead.
@@ -717,7 +728,7 @@ class TankaModel:
             raise RuntimeError("The runtime did not return token counts.")
         return len(tokens)
 
-    async def native_agent_completion(self, model_name: str, messages: list[dict], tools: list[dict], max_tokens: int, temperature: float) -> dict:
+    async def native_agent_completion(self, model_name: str, messages: list[dict], tools: list[dict], max_tokens: int, temperature: float, thinking_level: str = "off") -> dict:
         """Native OpenAI-shaped tool calls only; no text/XML/code-block interpretation."""
         from models.playground_agent import AgentError, MAX_BYTES, read_usage
         # This LFM/llama.cpp parser treats Markdown links beginning with '[' as a
@@ -734,7 +745,9 @@ class TankaModel:
                                for call in last_assistant.get("tool_calls", []) if isinstance(call, dict)))
         payload = {"model": router_model_id(model_name), "messages": self._with_server_date(messages), "tools": tools,
                    "tool_choice": "auto" if tools and not search_followup else "none", "parallel_tool_calls": False,
-                   "max_tokens": max_tokens, "temperature": temperature, "stream": False, "reasoning": "off"}
+                   "max_tokens": max_tokens, "temperature": temperature, "stream": False, "reasoning": "on" if thinking_level != "off" else "off"}
+        if thinking_level != "off":
+            payload["thinking_budget_tokens"] = thinking_budget(thinking_level, max_tokens)
         base_url = self._resolve_model_base_url(model_name, vision=False)
         response = await self._agent_json_post(self._llama_chat_url(base_url), payload, 110, MAX_BYTES)
         if search_followup:
@@ -771,6 +784,7 @@ class TankaModel:
         top_p: float = 0.95,
         thinking_enabled: bool = False,
         messages_override: list[dict] | None = None,
+        thinking_level: str = "default",
     ):
         """
         Yield ``(channel, text)`` pairs from llama.cpp's SSE endpoint.
@@ -812,6 +826,8 @@ class TankaModel:
             # switch (chat_template_kwargs.enable_thinking does not work here).
             "reasoning": "on" if thinking_enabled else "off",
         }
+        if thinking_enabled:
+            payload["thinking_budget_tokens"] = thinking_budget(thinking_level, max_new_tokens)
 
         # A streaming response must not be killed by a whole-request read
         # timeout, so use a (connect, read) pair: generous connect, and a read

@@ -26,6 +26,15 @@ export class PlaygroundController {
 		if (result.kind === "refused") res.status(result.status).json({ error: result.error, message: result.message });
 	}
 
+	@Post("compact")
+	@Throttle({ default: { limit: 12, ttl: 60_000 } })
+	async compact(@Req() req: Caller, @Res() res: Response, @Body() body: Record<string, unknown>) {
+		const accountId = Number(req.user?.id);
+		const tier = await this.billing.resolveTierFor(accountId);
+		const result = await this.gateway.compactNow(accountId, tier, body ?? {});
+		res.status(result.status).json(result.payload);
+	}
+
 	@Post("models/load")
 	@Throttle({ default: { limit: 12, ttl: 60_000 } })
 	async load(@Req() req: Caller, @Body() body: { model?: unknown }) {

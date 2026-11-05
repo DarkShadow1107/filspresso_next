@@ -150,7 +150,7 @@ AI_SERVICE_KEY_HEADER = "x-ai-service-key"
 # not opt out by being forgotten.
 AI_PROTECTED_PATHS = frozenset({"/api/chat", "/api/chat/stream", "/api/warmup",
                               "/api/playground/context/file", "/api/playground/context/github", "/api/playground/agent/turn",
-                              "/api/internal/research/rank"})
+                              "/api/internal/research/rank", "/api/internal/playground/compact"})
 
 if not AI_SERVICE_KEY:
     # Printed rather than logged through the logger, because this is read in container logs
@@ -1797,6 +1797,8 @@ async def playground_agent_turn(request: Request):
         playground_agent.require(isinstance(model, str))
         if model not in playground_agent.enabled_model_files({**TEXT_MODEL_TAGS, **VISION_MODEL_TAGS, **AUDIO_MODEL_TAGS}):
             return json_response({"error": "AGENT_DISABLED", "message": "Agent tools are not enabled for this model."}, 503)
+        if data.get("thinking_level", "off") != "off" and model not in TEXT_MODEL_TAGS:
+            return json_response({"error": "THINKING_UNAVAILABLE", "message": "Thinking budgets are available for text models only."}, 400)
         playground_agent.validate_request(data)  # Cheap validation before residency/GPU work.
 
         async def admitted():
@@ -1822,6 +1824,51 @@ async def playground_agent_turn(request: Request):
     except Exception as error:
         logger.warning("Native agent transport failed: %s", type(error).__name__)
         return json_response({"error": "AGENT_UNAVAILABLE", "message": "Native agent transport is unavailable."}, 503)
+
+
+@app.post("/api/internal/playground/compact")
+async def compact_playground_conversation(request: Request):
+    """Compact a supplied transcript only. No tool execution or answer generation."""
+    if not AI_SERVICE_KEY:
+        return json_response({"error": "COMPACTION_UNAVAILABLE"}, 503)
+    acquired = False
+    model = ""
+    try:
+        raw = bytearray()
+        async with asyncio.timeout(15):
+            async for chunk in request.stream():
+                raw.extend(chunk)
+                if len(raw) > 1_048_576:
+                    return json_response({"error": "INPUT_CONTEXT_EXCEEDED"}, 413)
+        data = playground_agent.strict_json(bytes(raw))
+        if not isinstance(data, dict) or set(data) != {"text_model", "history", "input_context_tokens", "compaction_mode"}:
+            raise playground_context.ContextError("Invalid compaction request.")
+        model, history = data["text_model"], data["history"]
+        if model not in TEXT_MODEL_TAGS or data["input_context_tokens"] not in playground_context.INPUT_LEVELS or data["compaction_mode"] not in playground_compaction.THRESHOLDS:
+            raise playground_context.ContextError("Invalid model or compaction settings.")
+        if not isinstance(history, list) or not 4 <= len(history) <= 100 or len(history) % 2:
+            raise playground_context.ContextError("Compact requires at least two completed exchanges.")
+        if any(not isinstance(item, dict) or set(item) != {"role", "content"} or item.get("role") != ("user" if index % 2 == 0 else "assistant") or not isinstance(item.get("content"), str) or not item["content"].strip() for index, item in enumerate(history)):
+            raise playground_context.ContextError("Conversation must contain complete user and assistant pairs.")
+        if sum(len(item["content"]) for item in history) > 780_000:
+            raise playground_context.ContextError("Conversation exceeds the compaction input limit.", 413)
+        await tanka.residency.acquire(_model_gate_key(model, vision=False))
+        acquired = True
+        _, event = await playground_compaction.prepare_context(tanka, model, history, data["input_context_tokens"], 2048,
+                                                                data["compaction_mode"], True, False, include_last=True)
+        return json_response({"context": event}, headers={"Cache-Control": "no-store"})
+    except playground_context.ContextError as error:
+        return json_response({"error": "COMPACTION_UNAVAILABLE", "message": str(error), "compaction_usage": getattr(error, "compaction_usage", None)}, error.status)
+    except (playground_agent.AgentError, ValueError, TypeError, KeyError):
+        return json_response({"error": "INVALID_COMPACTION_REQUEST"}, 400)
+    except ModelBusyError:
+        return json_response({"error": "MODEL_BUSY"}, 429)
+    except Exception:
+        logger.warning("Manual compaction failed before completion.")
+        return json_response({"error": "COMPACTION_UNAVAILABLE", "message": "Compaction could not be completed. Your original conversation is unchanged."}, 503)
+    finally:
+        if acquired:
+            await tanka.residency.release(_model_gate_key(model, vision=False))
 
 
 @app.post("/api/chat/stream")
@@ -1870,6 +1917,11 @@ async def chat_stream(request: Request):
         max_tokens = 512
 
     enable_thinking = _parse_optional_bool(data.get("enable_thinking")) or False
+    thinking_level = data.get("thinking_level", "default")
+    if thinking_level not in ("off", "default", "low", "medium", "high"):
+        return json_response({"error": "INVALID_THINKING_LEVEL"}, 400)
+    if text_model not in TEXT_MODEL_TAGS:
+        enable_thinking = False
     system_prompt = data.get("system_prompt") or ""
     request_id = str(data.get("request_id") or "none")
 
@@ -1955,6 +2007,7 @@ async def chat_stream(request: Request):
                     max_new_tokens=max_tokens,
                     temperature=temperature,
                     thinking_enabled=enable_thinking,
+                    thinking_level=thinking_level if thinking_level != "off" else "default",
                     messages_override=prepared_messages,
                 ),
                 enable_thinking=enable_thinking,

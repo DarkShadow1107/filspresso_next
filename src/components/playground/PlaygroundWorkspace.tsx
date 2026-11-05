@@ -16,6 +16,7 @@ import DesktopAppDownload from "./DesktopAppDownload";
 import WorkspaceIcon from "./WorkspaceIcon";
 import { AttachmentMenu, GithubProjectDialog, SourceList, usePlaygroundSources, type SourceContext } from "./PlaygroundSources";
 import { COMPACTION_OPTIONS, compactionMode, type ContextState } from "@/lib/playgroundContext";
+import { THINKING_OPTIONS, thinkingLevel } from "@/lib/playgroundThinking";
 import { deleteServerSession, getServerSession, listServerSessions, preferencesForServerSession, saveServerSession, type SavedSession, type SavedMessage, type SavedToolActivity } from "@/lib/playgroundSessions";
 import PlaygroundRuntime from "./PlaygroundRuntime";
 import PlaygroundRunHistory from "./PlaygroundRunHistory";
@@ -24,7 +25,7 @@ import { AgentInteractions } from "./PlaygroundAgentWorkspace";
 import LlamaToolActivity from "./LlamaToolActivity";
 import LlamaMessageStatistics from "./LlamaMessageStatistics";
 import { HostedAgentWorkspace, agentResultText } from "@/lib/playgroundHostedAgent";
-import { conversationContext } from "@/lib/playgroundConversationContext";
+import { conversationContext, conversationContextFromCheckpoint } from "@/lib/playgroundConversationContext";
 import { displayToolText } from "@/lib/playgroundToolText";
 import { readAccountSession } from "@/lib/accountSession";
 import WorkspacePicker from "./WorkspacePicker";
@@ -70,6 +71,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const [notice, setNotice] = useState("");
 	const [contextState, setContextState] = useState<ContextState | null>(null);
 	const [compactNext, setCompactNext] = useState(false);
+	const compactNowRef = useRef(false);
 	const [contextOpen, setContextOpen] = useState(false);
 	const contextButtonRef = useRef<HTMLButtonElement>(null);
 	const closeContext = useCallback(() => setContextOpen(false), []);
@@ -142,7 +144,8 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 					model: typeof saved.model === "string" && isPlaygroundModelKey(saved.model) ? saved.model : DEFAULT_PREFERENCES.model,
 					inputContextTokens: (CONTEXT_LEVELS as readonly number[]).includes(Number(saved.inputContextTokens ?? saved.maxTokens)) ? Number(saved.inputContextTokens ?? saved.maxTokens) : DEFAULT_PREFERENCES.inputContextTokens,
 					compactionMode: compactionMode(saved.compactionMode),
-					thinking: thinkingAllowed && saved.thinking === true,
+					thinking: thinkingAllowed && saved.thinking !== false,
+					thinkingLevel: thinkingLevel(saved.thinkingLevel),
 					textSize: saved.textSize === "small" || saved.textSize === "large" ? saved.textSize : "standard",
 					enterToSend: saved.enterToSend !== false,
 					toolPermissions: normalizeToolPermissions(saved.toolPermissions),
@@ -360,7 +363,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			const response = await fetch("/api/playground/chat", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", "x-kafelot-fingerprint": getOrCreateFingerprint(), "x-kafelot-scope": "general" },
-				body: JSON.stringify({ message: prompt, model, input_context_tokens: preferences.inputContextTokens, compaction_mode: preferences.compactionMode, compact_now: compactNext, contexts: sources, history, thinking: thinkingAllowed && preferences.thinking, system_prompt: `The user's device reports the current date and time as ${new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(new Date())} (${Intl.DateTimeFormat().resolvedOptions().timeZone}). This is based on the device clock, not web research.`, session_uuid: sessionIds.current.get(conversationId) }),
+				body: JSON.stringify({ message: prompt, model, input_context_tokens: preferences.inputContextTokens, compaction_mode: preferences.compactionMode, compact_now: compactNext, contexts: sources, history, thinking: thinkingAllowed && preferences.thinking && !isVisionModelKey(model) && !isAudioModelKey(model), thinking_level: thinkingLevel(preferences.thinkingLevel), system_prompt: `The user's device reports the current date and time as ${new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(new Date())} (${Intl.DateTimeFormat().resolvedOptions().timeZone}). This is based on the device clock, not web research.`, session_uuid: sessionIds.current.get(conversationId) }),
 				signal: controller.signal,
 			});
 			if (!response.ok) {
@@ -416,7 +419,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		} finally {
 			if (abortRef.current === controller) { abortRef.current = null; setStreaming(false); }
 		}
-	}, [input, editingFrom, messages, model, preferences.inputContextTokens, preferences.compactionMode, preferences.thinking, thinkingAllowed, waitUntilLoaded, attachments, conversationId, compactNext]);
+	}, [input, editingFrom, messages, model, preferences.inputContextTokens, preferences.compactionMode, preferences.thinking, preferences.thinkingLevel, thinkingAllowed, waitUntilLoaded, attachments, conversationId, compactNext]);
 
 	const sendAgent = async (runMode: "plan" | "build" = mode === "build" ? "build" : "plan") => {
 		if (streaming || agentBusy || agentStartingRef.current) return;
@@ -448,7 +451,12 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				preparation.signal.throwIfAborted();
 			}
 			if (!agent.getSnapshot().workspace) throw new Error(agent.getSnapshot().error || "The isolated workspace could not be started. Please retry.");
-			const history = conversationContext(messages.map(message => ({ ...message, content: messageWithSources(message) })));
+			const visible = messages.filter(message => !message.failed).map(message => ({ ...message, content: messageWithSources(message) }));
+			const checkpoint = checkpoints.current.get(conversationId);
+			const validCheckpoint = checkpoint && checkpoint.ids.length > 0 && checkpoint.ids.every((id, index) => visible[index]?.id === id);
+			const history = validCheckpoint
+				? conversationContextFromCheckpoint([...checkpoint.history, ...visible.slice(checkpoint.ids.length).map(message => ({ role: message.role, content: message.content }))])
+				: conversationContext(visible);
 			if (!agent.continueFromTranscript(history)) throw new Error("This workspace needs cleanup before another request. Discard it and start fresh; previous approval is never reused.");
 			const id = crypto.randomUUID(); const firstEvent = agent.getSnapshot().events.length; const agentStarted = performance.now();
 			setMessages(previous => [...previous, { id: crypto.randomUUID(), role: "user", content: prompt, sources }, { id, role: "assistant", content: "", model }]);
@@ -468,7 +476,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				setMessages(previous => previous.map(message => message.id === id ? { ...message, content: [content, failure].filter(Boolean).join("\n\n"), tools, inputTokens, outputTokens, seconds: (performance.now() - agentStarted) / 1000, failed: snapshot.phase === "failed" } : message));
 			};
 			const unsubscribe = agent.subscribe(update);
-			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, sessionUuid: sessionIds.current.get(conversationId) }, runMode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
+			try { await agent.run({ model, inputContextTokens: preferences.inputContextTokens, compactionMode: preferences.compactionMode, thinkingLevel: thinkingAllowed && preferences.thinking && !isVisionModelKey(model) && !isAudioModelKey(model) ? thinkingLevel(preferences.thinkingLevel) : "off", sessionUuid: sessionIds.current.get(conversationId) }, runMode, request); update(); setMessages(previous => previous.map(message => message.id === id && !message.content ? { ...message, content: "Agent stopped. No further action was approved or retried." } : message)); }
 			finally { unsubscribe(); }
 		} catch (failure) {
 			const message = failure instanceof Error ? failure.message : "The agent request could not start.";
@@ -477,6 +485,37 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		finally { if (agentPreparationRef.current === preparation) agentPreparationRef.current = null; agentStartingRef.current = false; setStreaming(false); }
 	};
 	const submit = () => editingFrom !== null ? void send() : void sendAgent("build");
+
+	const compactNow = async () => {
+		if (compactNowRef.current || streaming || agentBusy || isVisionModelKey(model) || isAudioModelKey(model)) return;
+		const original = messages.filter(message => !message.failed);
+		if (original.length < 4 || original.length > 100) { setNotice("Compact now needs between two and fifty completed exchanges."); return; }
+		const history = original.map(message => ({ role: message.role, content: messageWithSources(message) }));
+		if (history.length % 2 || history.some((message, index) => message.role !== (index % 2 ? "assistant" : "user") || !message.content.trim())) {
+			setNotice("Compact now needs complete user and assistant exchanges. Your conversation is unchanged."); return;
+		}
+		compactNowRef.current = true; const controller = new AbortController(); const revision = accountRevision.current;
+		abortRef.current = controller; setStreaming(true); setNotice("Loading the selected model for compaction. Summary tokens are metered.");
+		try {
+			const loaded = await waitUntilLoaded(undefined, controller.signal);
+			if (!loaded.ok) throw new Error(loaded.error || "The model is still loading. Please try again when ready.");
+			setNotice("Compacting the conversation now. Original messages remain visible.");
+			const response = await fetch("/api/playground/compact", { method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
+				body: JSON.stringify({ model, history, input_context_tokens: preferences.inputContextTokens, compaction_mode: preferences.compactionMode, session_uuid: sessionIds.current.get(conversationId) }) });
+			const data: unknown = await response.json().catch(() => null);
+			if (!response.ok) throw new Error(response.status === 401 ? "Your session has expired. Export this conversation before signing in again." : (data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : "Compaction failed or was unconfirmed. No automatic retry was attempted."));
+			if (revision !== accountRevision.current || controller.signal.aborted) return;
+			const state = data && typeof data === "object" && "context" in data ? data.context as ContextState : null;
+			if (!state || typeof state.compacted !== "boolean") throw new Error("The compaction response was invalid. Your conversation is unchanged.");
+			if (!state.compacted) { setNotice(state.notice || "There is no older conversation available to compact."); return; }
+			if (!Array.isArray(state.history)) throw new Error("The compaction response omitted its context. Your conversation is unchanged.");
+			conversationContextFromCheckpoint(state.history); // Fail rather than silently dropping any retained turn.
+			checkpoints.current.set(conversationId, { ids: original.map(message => message.id), history: state.history, state });
+			setContextState(state); setCompactNext(false);
+			setNotice("Conversation compacted. Original messages remain visible; the compacted context applies to this open conversation.");
+		} catch (error) { setNotice(controller.signal.aborted ? "Compaction was stopped or unconfirmed. It may still incur summary charges; the original conversation is unchanged." : error instanceof Error ? error.message : "Compaction failed. Your conversation is unchanged."); }
+		finally { compactNowRef.current = false; if (abortRef.current === controller) { abortRef.current = null; setStreaming(false); } }
+	};
 
 	const [savingDocument, setSavingDocument] = useState<string | null>(null);
 	// A user gesture saves a reply the model did not fence. Same backend, same account scoped
@@ -604,9 +643,10 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 									<button type="button" ref={githubRef} className="pgw-icon-button" aria-label="Add GitHub project" title="Add GitHub project" disabled={streaming} onClick={() => setGithubOpen(true)}><WorkspaceIcon name="github" /></button>
 									<WorkspacePicker label="Input context" icon={null} disabled={streaming} value={String(preferences.inputContextTokens)} options={CONTEXT_LEVELS.map(level => ({ key: String(level), label: formatContextTokens(level) }))} onChange={value => savePreferences({ ...preferences, inputContextTokens: Number(value) })} />
 									<WorkspacePicker label="Compaction mode" icon="settings" disabled={streaming} value={preferences.compactionMode} options={COMPACTION_OPTIONS} onChange={value => savePreferences({ ...preferences, compactionMode: compactionMode(value) })} />
+									<button type="button" className="pgw-text-button" title="Summarize older turns now; model tokens are metered. Original messages stay visible." disabled={streaming || agentBusy || messages.filter(message => !message.failed).length < 4 || isVisionModelKey(model) || isAudioModelKey(model)} onClick={() => void compactNow()}>Compact now</button>
 								</div>
 								<div className="pgw-composer-right">
-									{thinkingAllowed && <button type="button" className="pgw-icon-button pgw-thinking-toggle" aria-label="Thinking mode" title="Thinking · controlled by the agent model" aria-pressed={preferences.thinking} disabled><WorkspaceIcon name="brain" width={18} height={18} /></button>}
+									{thinkingAllowed && !isVisionModelKey(model) && !isAudioModelKey(model) && <WorkspacePicker label="Thinking budget" icon="brain" disabled={streaming || agentBusy} value={preferences.thinking ? thinkingLevel(preferences.thinkingLevel) : "off"} options={THINKING_OPTIONS} onChange={value => savePreferences({ ...preferences, thinking: value !== "off", thinkingLevel: thinkingLevel(value) })} />}
 									<button type="button" ref={contextButtonRef} className="pgw-icon-button pgw-context-ring-wrap" aria-label="Context usage" aria-haspopup="menu" aria-expanded={contextOpen} title="Context usage" onClick={() => setContextOpen(open => !open)}><svg className="pgw-context-ring" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" className="pgw-context-ring-track" /><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" strokeLinecap="round" strokeDasharray={2 * Math.PI * 11} strokeDashoffset={2 * Math.PI * 11 * (1 - (contextPercent ?? 0) / 100)} transform="rotate(-90 16 16)" className="pgw-context-ring-value" data-level={contextPercent !== null && contextPercent >= 95 ? "high" : contextPercent !== null && contextPercent >= 80 ? "elevated" : "ok"} /></svg></button>
 									{contextOpen && <WorkspacePopover anchor={contextButtonRef} onClose={closeContext} label="Context usage" className="pgw-context-popup" width={280}><div className="pgw-context-popup-heading"><strong>Context</strong><span>{measuredInputTokens === undefined ? "Not measured" : `${measuredInputTokens.toLocaleString()} / ${measuredInputLimit.toLocaleString()}`}</span></div>{contextPercent === null || measuredInputTokens === undefined ? <p>No context measurement available yet.</p> : <><div className="pgw-context-progress" aria-hidden="true"><span style={{ width: `${contextPercent}%` }} data-level={contextPercent >= 95 ? "high" : contextPercent >= 80 ? "elevated" : "ok"} /></div><div className="pgw-context-popup-heading"><span>{contextPercent}% of input limit</span><span>{Math.max(0, measuredInputLimit - measuredInputTokens).toLocaleString()} remaining</span></div><p>Last measured input, not live KV cache usage. The next request may differ.</p></>}{mode === "chat" && messages.length >= 2 && <button type="button" role="menuitem" className="pgw-outlined-button" disabled={streaming} onClick={() => { setCompactNext(!compactNext); closeContext(); }}>{compactNext ? "Cancel queued compaction" : "Compact on next send"}</button>}</WorkspacePopover>}
 									<WorkspacePicker label="Model" disabled={streaming || agentBusy} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />

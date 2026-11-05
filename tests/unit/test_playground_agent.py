@@ -162,6 +162,25 @@ def test_native_runtime_counts_tools_and_uses_only_openai_native_calls():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("level,expected", [("low", 128), ("default", 512), ("medium", 512), ("high", 1024)])
+def test_reasoning_level_is_sent_as_bounded_runtime_budget(level, expected):
+    async def run():
+        requests = []
+        def respond(request):
+            requests.append(json.loads(request.content))
+            return httpx.Response(200, json=FIXTURE["native"])
+        runtime = TankaModel.__new__(TankaModel)
+        runtime._resolve_model_base_url = lambda *_, **__: "http://fixture"
+        runtime._llama_headers = lambda: {}
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            runtime._client = client
+            await runtime.native_agent_completion(MODEL, [{"role": "user", "content": "hello"}], [], 4096, .2, thinking_level=level)
+            await runtime.native_agent_completion(MODEL, [{"role": "user", "content": "hello"}], [], 100, .2, thinking_level=level)
+        assert requests[0]["reasoning"] == "on" and requests[0]["thinking_budget_tokens"] == expected
+        assert requests[1]["thinking_budget_tokens"] == 50
+    asyncio.run(run())
+
+
 def test_lfm_web_search_followup_requests_an_answer_without_retrying_or_parsing_text_as_tools():
     async def run():
         requests = []
@@ -240,6 +259,24 @@ def test_endpoint_requires_service_key_and_defaults_disabled(client, monkeypatch
     monkeypatch.delenv("PLAYGROUND_AGENT_MODEL_FILES", raising=False)
     assert client.post("/api/playground/agent/turn", json=request, headers={"x-ai-service-key": "fixture-key"}).status_code == 503
     assert tanka_stub.residency.calls == []
+
+
+def test_manual_compaction_is_authenticated_and_never_generates_an_answer(client, monkeypatch, tanka_stub):
+    import app as module
+    monkeypatch.setattr(module, "AI_SERVICE_KEY", "fixture-key")
+    called = []
+    async def compact(runtime, model, messages, input_limit, output_tokens, mode, force, thinking, include_last=False):
+        called.append((model, force, include_last, messages))
+        return messages, {"mode": mode, "inputLimit": input_limit, "tokensBefore": 100, "tokensAfter": 40, "compacted": True,
+                          "summary": "memory", "history": messages, "usage": {"prompt_tokens": 20, "completion_tokens": 4}}
+    monkeypatch.setattr(module.playground_compaction, "prepare_context", compact)
+    body = {"text_model": MODEL, "input_context_tokens": 16384, "compaction_mode": "balanced", "history": [
+        {"role": "user", "content": "first"}, {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "second"}, {"role": "assistant", "content": "answer two"}]}
+    assert client.post("/api/internal/playground/compact", json=body).status_code == 401
+    response = client.post("/api/internal/playground/compact", json=body, headers={"x-ai-service-key": "fixture-key"})
+    assert response.status_code == 200 and called[0][1:3] == (True, True)
+    assert tanka_stub.residency.in_flight == {}
 
 
 def test_enabled_endpoint_releases_admission_on_success_and_protocol_failure(client, monkeypatch, tanka_stub):

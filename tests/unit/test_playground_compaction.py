@@ -76,3 +76,18 @@ def test_recent_tail_does_not_split_tool_results_from_their_user_turn():
 def test_unknown_mode_is_rejected_before_tokenization():
     with pytest.raises(ContextError):
         asyncio.run(prepare_context(None, "model", [], 16384, 2048, "off"))
+
+
+def test_manual_compaction_keeps_last_assistant_and_original_transcript():
+    messages = [{"role": "user", "content": "old question"}, {"role": "assistant", "content": "old answer"},
+                {"role": "user", "content": "latest question"}, {"role": "assistant", "content": "latest answer"}]
+    original = deepcopy(messages)
+    class ManualRuntime(Runtime):
+        async def count_input_tokens(self, model, measured, thinking_enabled=False):
+            if measured[-1]["content"] == "[Next user turn]" and len(measured) == 5:
+                return 12000
+            return await super().count_input_tokens(model, measured, thinking_enabled)
+    _, event = asyncio.run(prepare_context(ManualRuntime(messages, 12000), "model", messages, 16384, 2048, "balanced", True, include_last=True))
+    assert event["compacted"] and event["history"][-1] == messages[-1]
+    assert event["history"][0]["role"] == "user" and "quoted data" in event["history"][0]["content"]
+    assert messages == original

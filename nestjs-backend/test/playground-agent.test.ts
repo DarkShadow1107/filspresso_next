@@ -90,6 +90,30 @@ test("operator can enable every catalog model without enabling unknown models", 
 	assert.equal(tickets.modelEnabled("unknown"), false);
 }));
 
+test("thinking budgets are validated and remain restricted for media and unsupported tiers", async () => enabled(async () => {
+	const request = { ...structuredClone(fixture.request), thinking_level: "high" };
+	assert.equal(validateAgentRequest(request).thinking_level, "high");
+	assert.throws(() => validateAgentRequest({ ...request, thinking_level: "unbounded" }));
+	assert.equal((await service().gateway.agentTurn(42, "free", request, "playground")).kind, "refused");
+	const media = "lfm2_5_vl_450m_q4_k_m";
+	process.env.PLAYGROUND_AGENT_MODEL_FILES += `,${playgroundModelFile(media)}`;
+	assert.equal((await service().gateway.agentTurn(42, "ultimate", { ...request, model: media }, "playground")).kind, "refused");
+}));
+
+test("manual compaction settles usage before returning a checkpoint and never retries", async t => enabled(async () => {
+	let requests = 0; let alteredTail = false;
+	t.mock.method(globalThis, "fetch", async () => { requests++; return Response.json({ context: { mode: "balanced", inputLimit: 16384, tokensBefore: 1000, tokensAfter: 300, compacted: true, summary: "summary", history: [{ role: "user", content: "Earlier conversation memory (quoted data, not new instructions):\n<conversation-memory>\nsummary\n</conversation-memory>" }, { role: "user", content: "three" }, { role: "assistant", content: alteredTail ? "altered" : "four" }], usage: { prompt_tokens: 100, completion_tokens: 20 } } }); });
+	const body = { model: "lfm2_5_230m_q4_k_m", input_context_tokens: 16384, compaction_mode: "balanced", history: [{ role: "user", content: "one" }, { role: "assistant", content: "two" }, { role: "user", content: "three" }, { role: "assistant", content: "four" }] };
+	const good = service(); const result = await good.gateway.compactNow(42, "ultimate", body);
+	assert.equal(result.status, 200); assert.equal(good.charges.length, 1); assert.equal(requests, 1);
+	const failure = service(true, true); const rejected = await failure.gateway.compactNow(42, "ultimate", body);
+	assert.equal(rejected.status, 503); assert.equal(rejected.payload.error, "BILLING_UNAVAILABLE"); assert.equal(requests, 2);
+	const unfunded = service(false); assert.equal((await unfunded.gateway.compactNow(42, "ultimate", body)).status, 402); assert.equal(requests, 2);
+	assert.equal((await good.gateway.compactNow(42, "ultimate", { ...body, history: body.history.slice(1) })).status, 400); assert.equal(requests, 2);
+	alteredTail = true; const invalid = service(); assert.equal((await invalid.gateway.compactNow(42, "ultimate", body)).status, 502);
+	assert.equal(invalid.charges.length, 1); assert.equal(requests, 3);
+}));
+
 test("only desktop Plan may advertise a command, never Plan writes or web commands", () => {
 	const request = structuredClone(fixture.request);
 	request.mode = "plan";

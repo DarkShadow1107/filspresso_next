@@ -253,7 +253,7 @@ export class HostedAgentWorkspace {
 	}
 	async run(context: ReviewContext, mode: ReviewMode, prompt: string) {
 		if (!this.state.executionEnabled || !this.state.models.includes(context.model) || !this.state.workspace || this.state.quarantined || this.state.requiresReset) return;
-		const key = JSON.stringify([context.model, context.inputContextTokens, context.sessionUuid, context.compactionMode, mode]);
+		const key = JSON.stringify([context.model, context.inputContextTokens, context.sessionUuid, context.compactionMode, context.thinkingLevel, mode]);
 		if (this.conversationKey && this.conversationKey !== key) { this.publish({ ...this.state, error: "Start a fresh sandbox before changing this conversation's model, context or mode. Previous permissions are never transferred." }); return; }
 		if (this.conversation.length >= 16) { this.publish({ ...this.state, error: "Conversation turn limit reached. Export/review your work and start a fresh sandbox." }); return; }
 		const workspace = this.state.workspace; const models = this.state.models;
@@ -285,7 +285,7 @@ export class HostedAgentWorkspace {
 	}
 	queueFollowUp(context: ReviewContext, mode: ReviewMode, prompt: string): boolean {
 		if (!this.active || !["running", "awaiting_approval", "awaiting_question"].includes(this.state.phase) || this.queued ||
-			JSON.stringify([context.model, context.inputContextTokens, context.sessionUuid, context.compactionMode, mode]) !== this.conversationKey) return false;
+			JSON.stringify([context.model, context.inputContextTokens, context.sessionUuid, context.compactionMode, context.thinkingLevel, mode]) !== this.conversationKey) return false;
 		try { buildProposalReview(context, mode, prompt); } catch { return false; }
 		this.queued = { context: { ...context }, mode, prompt }; this.publish({ ...this.state, queuedPrompt: prompt }); return true;
 	}

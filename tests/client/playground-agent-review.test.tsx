@@ -145,6 +145,8 @@ test("invalid contexts, models and prompts fail without changing generation pref
 	assert.throws(() => buildProposalReview(context, "plan", "x".repeat(8001)));
 	assert.throws(() => buildProposalReview(context, "plan", "\uD800"));
 	assert.equal(context.inputContextTokens, 16_384);
+	assert.equal(buildProposalReview({ ...context, thinkingLevel: "high" }, "plan", "Inspect.").thinking_level, "high");
+	assert.throws(() => buildProposalReview({ ...context, thinkingLevel: "unbounded" as never }, "plan", "Inspect."));
 });
 
 test("review path policy rejects traversal and Windows aliases even on the web", () => {

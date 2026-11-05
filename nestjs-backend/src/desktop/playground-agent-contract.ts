@@ -13,6 +13,7 @@ export type AgentRequest = {
 	version: 1; model: string; mode: "plan" | "build"; message: string; system_prompt: string;
 	temperature: number; max_tokens: number; input_context_tokens: number; session_uuid?: string;
 	compaction_mode?: "permissive" | "balanced" | "aggressive";
+	thinking_level?: "off" | "default" | "low" | "medium" | "high";
 	tools: AgentTool[]; history: AgentHistoryGroup[]; conversation?: AgentConversationTurn[];
 };
 export type AgentCompaction = { mode: "permissive" | "balanced" | "aggressive"; inputLimit: number; tokensBefore: number; tokensAfter: number;
@@ -80,13 +81,14 @@ function call(value: unknown, tools: Map<string, AgentTool>, seen: Set<string>):
 
 export function validateAgentRequest(raw: unknown, scope: "desktop" | "playground" = "playground"): AgentRequest {
 	requireValue(object(raw) && Buffer.byteLength(JSON.stringify(raw), "utf8") <= AGENT_MAX_BYTES);
-	keys(raw, ["version", "model", "mode", "message", "system_prompt", "temperature", "max_tokens", "input_context_tokens", "tools", "history", "session_uuid", "compaction_mode", "conversation"]);
+	keys(raw, ["version", "model", "mode", "message", "system_prompt", "temperature", "max_tokens", "input_context_tokens", "tools", "history", "session_uuid", "compaction_mode", "conversation", "thinking_level"]);
 	requireValue(raw.version === 1 && text(raw.model, 64) && raw.model.length > 0 && (raw.mode === "plan" || raw.mode === "build"));
 	requireValue(text(raw.message, 8000) && raw.message.trim().length > 0 && text(raw.system_prompt ?? "", 2000));
 	requireValue(typeof raw.temperature === "number" && Number.isFinite(raw.temperature) && raw.temperature >= 0 && raw.temperature <= 2 && integer(raw.max_tokens, 1, 16_384));
 	requireValue([16_384, 32_768, 65_536, 131_072].includes(Number(raw.input_context_tokens)) && typeof raw.input_context_tokens === "number");
 	requireValue(raw.session_uuid === undefined || (typeof raw.session_uuid === "string" && UUID.test(raw.session_uuid)));
 	requireValue(raw.compaction_mode === undefined || (typeof raw.compaction_mode === "string" && ["permissive", "balanced", "aggressive"].includes(raw.compaction_mode)));
+	requireValue(raw.thinking_level === undefined || (typeof raw.thinking_level === "string" && ["off", "default", "low", "medium", "high"].includes(raw.thinking_level)));
 	requireValue(Array.isArray(raw.tools) && raw.tools.length <= 32 && Array.isArray(raw.history) && raw.history.length <= 23);
 	const tools = new Map<string, AgentTool>();
 	for (const tool of raw.tools) {

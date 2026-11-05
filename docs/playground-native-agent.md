@@ -143,6 +143,26 @@ checks, not live interactive UI, model/runtime or sandbox qualification.
 
 ## Default-disabled model enablement
 
+### Thinking budgets and immediate compaction
+
+The web composer offers Default (Medium), Low, Medium, High and Off thinking
+budgets for text models on accounts eligible for thinking. The requests use
+128, 512, 512 and 1024 reasoning tokens respectively, capped at half of the
+remaining output budget. These are llama.cpp requests, not a guarantee that a
+particular model or template will produce reasoning; vision and audio models
+do not receive thinking budgets. Reasoning tokens are metered with generation.
+
+The separate **Compact now** operation immediately summarizes earlier turns
+after at least two complete exchanges. It uses the selected text model, is
+subject to account and affordability checks, and settles reported summary
+usage before a checkpoint is returned. No automatic replay occurs after a lost
+response; a cancelled or unconfirmed operation can still incur charges. The
+original messages remain visible. The manually compacted context is currently
+kept in the open browser conversation only, and is not restored after reload;
+the original saved transcript remains separate. It may refuse a compacted
+result rather than silently drop a retained turn. Summaries are untrusted
+user-level context, not instructions or restored action approvals.
+
 `PLAYGROUND_AGENT_MODEL_FILES` is empty by default. Catalogue text, vision and audio GGUF
 filenames explicitly listed in this variable are eligible for the agent transport. The
 same allowlist must be configured in Nest and Python, with matching nonempty
