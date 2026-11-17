@@ -550,12 +550,14 @@ services:
             retries: 5
 
     # -------------------------------------------------------------------------
-    # 8. llama.cpp runtimes  (one container per GGUF model)
+    # 8. llama.cpp runtimes (dedicated embedding service plus the chat router)
     # NOTE: all model containers listen on internal port 8080; this is safe
     # because each container has its own network namespace.
+    # The default image is pinned to a build that supports LFM3 (b11960+); using
+    # the floating server-cuda tag can leave an older local image in place.
     # -------------------------------------------------------------------------
     llama_minilm:
-        image: ${AI_MODELS_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+        image: ${AI_MODELS_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b12464}
         container_name: filspresso_llama_minilm
         restart: unless-stopped
         gpus: all
@@ -593,13 +595,12 @@ services:
     # Single llama.cpp server in router mode.
     #
     # One model is resident at a time (--models-max 1); requesting a different one
-    # LRU-evicts the current model. This is the right shape for a single 4 GB GPU:
-    # holding all nine models at once exhausted VRAM (3741/4096 MiB) and made a
-    # 2.6B first token take over 240s, versus 0.2s with the whole GPU to itself.
+    # LRU-evicts the current model. This keeps the model weights and KV cache within
+    # the memory budget of the single 4 GB GPU.
     #
     # --models-preset (not --models-dir) is deliberate: models/ also holds
     # mmproj-*.gguf and vocoder-*.gguf, and auto-discovery would register a
-    # projector as a loadable model. The preset file names exactly the nine chat
+    # projector as a loadable model. The preset file names exactly the five chat
     # GGUFs and their mmproj pairings.
     #
     # -np 4 gives the server four slots. That is *capacity*: the gateway's
@@ -608,7 +609,7 @@ services:
     # every other model, and serialises requests for *different* models so a swap
     # never evicts a model mid-generation.
     llama_lfm:
-        image: ${AI_MODELS_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+        image: ${AI_MODELS_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b12464}
         container_name: filspresso_llama_lfm
         restart: unless-stopped
         gpus: all
