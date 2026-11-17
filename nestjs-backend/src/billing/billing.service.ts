@@ -2,8 +2,8 @@ import { Injectable, Logger } from "@nestjs/common";
 
 import { DatabaseService } from "../database/database.service";
 import {
+	billedRates,
 	costRon,
-	effectiveRates,
 	resolveTokenPrice,
 	roundMoney,
 	type ResolvedTokenPrice,
@@ -186,9 +186,11 @@ export class BillingService {
 			modelKey,
 		});
 		const price = resolveTokenPrice(modelKey, context.priceMode);
-		const rates = effectiveRates(price);
 		const inputTokens = clampTokens(params.usage?.inputTokens);
 		const outputTokens = clampTokens(params.usage?.outputTokens);
+		// The audit row stores the rate actually charged, including the long-context
+		// multiplier. `costRon` applies the same rule, so the two can never disagree.
+		const rates = billedRates(price, inputTokens);
 		// `metered` is the honest signal: a fallback answer or an upstream that omitted
 		// usage must not look like a priced request.
 		const metered = price.known && inputTokens + outputTokens > 0;

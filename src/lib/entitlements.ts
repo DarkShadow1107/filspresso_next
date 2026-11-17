@@ -1,21 +1,8 @@
 import {
-	MODEL_DESCRIPTION_BY_KEY,
-	MODEL_LABEL_BY_KEY,
-	MODEL_MODALITY_BY_KEY,
 	MODEL_TIERS,
-	allowedVisionModelsForTier,
+	VISION_MODEL_2B,
 	tierAllowsModel,
 	tierCanUseThinkingModel,
-	AUDIO_MODEL_1_5B,
-	TEXT_MODEL_230M,
-	TEXT_MODEL_350M,
-	TEXT_MODEL_1_2B_INSTRUCT,
-	TEXT_MODEL_1_2B_THINKING,
-	TEXT_MODEL_2_6B,
-	TEXT_MODEL_8B,
-	VISION_MODEL_450M,
-	VISION_MODEL_3B,
-	type ModelKey,
 	type UserSubscriptionTier,
 } from "./modelAccess";
 
@@ -131,7 +118,7 @@ export function coffeeHelperImageLimitForTier(
 export function tierHasVisionAccess(
 	tier: UserSubscriptionTier | string | null | undefined,
 ): boolean {
-	return MODEL_TIERS[VISION_MODEL_450M].includes(normalize(tier) as UserSubscriptionTier);
+	return MODEL_TIERS[VISION_MODEL_2B].includes(normalize(tier) as UserSubscriptionTier);
 }
 
 /**
@@ -139,7 +126,7 @@ export function tierHasVisionAccess(
  *
  * Deliberately an explicit list rather than derived from vision entitlement.
  * `modelAccess.ts` had a `tierCanAutoConvertVisionImage` that returned true for
- * anything with a VL model -- which includes Plus, since VL 450M starts there --
+ * anything with a VL model -- which includes Plus, since VL starts there --
  * while both live call sites and the plans page said PRO. Deriving it was the bug;
  * this list is the single source of truth now.
  */
@@ -191,50 +178,15 @@ export function isDirectVisionUpload(mime: string, extension: string): boolean {
 /**
  * Re-exported so call sites have one import for entitlement questions.
  *
- * `tierAllowsModel` and `tierCanUseThinkingModel` are canonical in `modelAccess`
- * and are deliberately not re-wrapped, only surfaced here.
+ * `tierAllowsModel`, `tierCanUseThinkingModel` and the derived marketing lines are
+ * canonical in `modelAccess` and are deliberately not re-wrapped, only surfaced here.
  */
-export { tierAllowsModel, tierCanUseThinkingModel };
-
-// ---------------------------------------------------------------------------
-// Marketing copy, derived rather than hand-written.
-//
-// The plans page used to carry its own list of model lines, and it drifted: it
-// still advertised Gemma 3 (deleted) and promised vision on Basic, which the
-// entitlement matrix does not grant. Every line below is computed from the
-// predicate above it, so the page cannot claim something the API will refuse.
-// ---------------------------------------------------------------------------
-
-/** Emoji prefixes the plans page keys its icons off. */
-const MODALITY_EMOJI: Record<string, string> = {
-	text: "\u{1F9E0}",
-	vision: "\u{1F4F7}",
-	audio: "\u{1F3BC}",
-};
-
-/** Model keys in the order a plan should advertise them (cheapest first). */
-const MODEL_DISPLAY_ORDER: ModelKey[] = [
-	TEXT_MODEL_230M,
-	TEXT_MODEL_350M,
-	TEXT_MODEL_1_2B_INSTRUCT,
-	TEXT_MODEL_1_2B_THINKING,
-	TEXT_MODEL_2_6B,
-	TEXT_MODEL_8B,
-	VISION_MODEL_450M,
-	VISION_MODEL_3B,
-	AUDIO_MODEL_1_5B,
-];
-
-/** Models a plan includes, as ready-to-render benefit lines. */
-export function modelAccessLinesForTier(tier: UserSubscriptionTier | string): string[] {
-	const value = normalize(tier) as UserSubscriptionTier;
-	// No per-model prompt count: the plan's included usage is a RON allowance that works
-	// across every model, so a "120 prompts/month" suffix on each line would advertise a
-	// budget nothing enforces.
-	return MODEL_DISPLAY_ORDER.filter((key) => tierAllowsModel(value, key)).map((key) =>
-		`${MODALITY_EMOJI[MODEL_MODALITY_BY_KEY[key]]} ${MODEL_LABEL_BY_KEY[key]}${key === TEXT_MODEL_8B ? " · Coming soon" : ""}`,
-	);
-}
+export {
+	modelAccessLinesForTier,
+	modelAccessSummaryForTier,
+	tierAllowsModel,
+	tierCanUseThinkingModel,
+} from "./modelAccess";
 
 /** Feature (non-model) lines a plan includes, in display order. */
 export function featureLinesForTier(tier: UserSubscriptionTier | string): string[] {
@@ -242,7 +194,7 @@ export function featureLinesForTier(tier: UserSubscriptionTier | string): string
 	const lines: string[] = [];
 
 	if (tierCanUsePlayground(value)) {
-		// The text-modality icon, so this reads the same as the MiniLM line rather than
+		// The text-modality icon, so this reads the same as the model line rather than
 		// carrying its own glyph. It used to be a clapper board, which was the only
 		// benefit line with an icon unrelated to what the feature actually is.
 		//
@@ -250,10 +202,10 @@ export function featureLinesForTier(tier: UserSubscriptionTier | string): string
 		// be included on a plan that includes it, and on a Max card it contradicted the
 		// card's own price: if it were a separate purchase, the 279.99 RON would not have
 		// covered it. The plan includes the Playground, full stop.
-		lines.push(`${MODALITY_EMOJI.text} Spectre Playground included`);
+		lines.push("\u{1F9E0} Spectre Playground included");
 	}
 	if (tierCanUseMoleculeHelper(value)) {
-		lines.push("\u{1F9EC} Molecule Helper (LFM 2.5 VL)");
+		lines.push("\u{1F9EC} Molecule Helper (LFM 3 VL)");
 	}
 	if (tierCanEditPrompt(value)) {
 		lines.push("\u{270F}\u{FE0F} Edit prompt feature");

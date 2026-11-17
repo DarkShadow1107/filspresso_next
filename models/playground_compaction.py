@@ -9,7 +9,22 @@ from spectre.app.services.compaction_core import recent_turn_cut
 from models.playground_context import ContextError
 
 THRESHOLDS = {"permissive": 0.80, "balanced": 0.65, "aggressive": 0.45}
-MODEL_WINDOW = 131_072
+
+# Per-model context windows, in tokens, matching models/router-presets.ini.
+# LFM 2.5 230M stays at 128K; every LFM 3 model is served with 256K.
+MODEL_WINDOWS = {
+    "LFM2.5-230M-Q4_K_M.gguf": 131_072,
+    "LFM3-1.7B-Q4_K_M.gguf": 262_144,
+    "LFM3-VL-2B-Q4_K_M.gguf": 262_144,
+    "LFM3-Audio-2B-Q4_K_M.gguf": 262_144,
+    "LFM3-Omni-2B-Q4_K_M.gguf": 262_144,
+}
+DEFAULT_MODEL_WINDOW = 262_144
+
+
+def model_window(model: str) -> int:
+    """The configured context window for one model, defaulting to the LFM 3 size."""
+    return MODEL_WINDOWS.get(str(model or "").strip(), DEFAULT_MODEL_WINDOW)
 
 
 async def summarize_memory(runtime, model, head, budget):
@@ -19,7 +34,7 @@ async def summarize_memory(runtime, model, head, budget):
         {"role": "user", "content": json.dumps(head, ensure_ascii=False)},
     ]
     count = await runtime.count_input_tokens(model, summary_messages, thinking_enabled=False)
-    if type(count) is not int or count < 0 or count + budget + 256 >= MODEL_WINDOW:
+    if type(count) is not int or count < 0 or count + budget + 256 >= model_window(model):
         raise ContextError("Older history cannot be measured or summarized safely. Export it and start a smaller conversation.", 413)
     memory, usage = "", {"prompt_tokens": 0, "completion_tokens": 0}
     try:
@@ -53,7 +68,7 @@ async def prepare_context(runtime, model: str, messages: list[dict], input_limit
     marker = {"role": "user", "content": "[Next user turn]"}
     measurement = [*messages, marker] if include_last and messages and messages[-1].get("role") == "assistant" else messages
     before = await runtime.count_input_tokens(model, measurement, thinking_enabled=thinking)
-    safe_limit = min(input_limit, MODEL_WINDOW - max(1, min(output_tokens, 2048)) - 256)
+    safe_limit = min(input_limit, model_window(model) - max(1, min(output_tokens, 2048)) - 256)
     threshold = min(int(input_limit * THRESHOLDS[mode]), safe_limit)
     event = {"mode": mode, "inputLimit": input_limit, "tokensBefore": before,
              "tokensAfter": before, "compacted": False, "usage": None}

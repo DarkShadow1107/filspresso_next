@@ -5,16 +5,16 @@
  * model at that model's own rate, so a plan's value depends on which models the customer
  * actually uses -- which is the point of quoting it in RON rather than in tokens.
  *
- * ## Why the rate depends on the plan
+ * ## How usage consumes the allowance
  *
- * The allowance is consumed at the *effective* rate: the subscriber's discounted rate for
- * anyone on a paid plan, and list price for free/anonymous. Worked example from the
- * pricing discussion, with a 30 RON/1M list input rate and a 20 RON/1M subscriber rate:
- * a 15 RON Basic allowance buys 15/20 = 750k input tokens at the discounted rate, and far
- * less in practice because output costs 5x input -- at 150 list / 100 discounted, the
- * same 15 RON is roughly 200k input plus 110k output. The RON figure on the plans page is
- * therefore an upper bound on input-only usage, and quoting it next to a token count
- * without that caveat would overstate what a customer gets.
+ * Usage consumes the model's resolved rate. LFM 3 has no subscriber discount, so paid
+ * Kafelot accounts pay the same API rates as free accounts; the Free-only LFM 2.5 230M
+ * retains its historical discount. For example, on 1.7B requests at or below 128K input,
+ * the rates are 15 RON per 1M input tokens and 60 RON per 1M output tokens. A 15 RON Basic
+ * allowance therefore covers at most 1M input tokens when split across short-context
+ * requests, or 250k output tokens. Mixed usage consumes the same pot at both rates, and
+ * requests above 128K input are billed at double rate. The RON figure on the plans page is
+ * therefore an upper bound on short-context, input-only usage.
  *
  * Free differs by whether there is an account at all: 3 RON anonymous, 5 RON signed up.
  * That is why `allowanceRon` takes `hasAccount` rather than keying off the tier alone.

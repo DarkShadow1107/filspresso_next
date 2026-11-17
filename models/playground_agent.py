@@ -6,7 +6,7 @@ import json
 import math
 import os
 import re
-from models.playground_compaction import THRESHOLDS, MODEL_WINDOW, summarize_memory
+from models.playground_compaction import THRESHOLDS, model_window, summarize_memory
 from models.playground_context import ContextError
 from models.playground_questions import QUESTION_SCHEMA, validate_question
 from spectre.app.services.compaction_core import recent_group_cut
@@ -119,7 +119,7 @@ def validate_request(data):
     require(data.get("execution_scope", "playground") in ("desktop", "playground"))
     require(text(data.get("message"), 8000) and data["message"].strip() and text(data.get("system_prompt", ""), 2000))
     require(type(data.get("temperature")) in (int, float) and math.isfinite(data["temperature"]) and 0 <= data["temperature"] <= 2)
-    require(integer(data.get("max_tokens"), 1, 16384) and type(data.get("input_context_tokens")) is int and data["input_context_tokens"] in (16384, 32768, 65536, 131072))
+    require(integer(data.get("max_tokens"), 1, 16384) and type(data.get("input_context_tokens")) is int and data["input_context_tokens"] in (16384, 32768, 65536, 131072, 262144))
     require("session_uuid" not in data or (isinstance(data["session_uuid"], str) and UUID.fullmatch(data["session_uuid"])))
     require(isinstance(data.get("compaction_mode", "balanced"), str) and data.get("compaction_mode", "balanced") in THRESHOLDS)
     require(data.get("thinking_level", "off") in ("off", "default", "low", "medium", "high"))
@@ -244,7 +244,7 @@ async def run_turn(runtime, model, data):
     if type(count) is not int or count < 0:
         raise AgentError("Native tool input could not be measured.", 503, "AGENT_CONTEXT_UNAVAILABLE")
     mode = data.get("compaction_mode", "balanced")
-    safe_limit = min(data["input_context_tokens"], MODEL_WINDOW - data["max_tokens"] - 256)
+    safe_limit = min(data["input_context_tokens"], model_window(model) - data["max_tokens"] - 256)
     threshold = min(int(data["input_context_tokens"] * THRESHOLDS[mode]), safe_limit)
     event = {"mode": mode, "inputLimit": data["input_context_tokens"], "tokensBefore": count, "tokensAfter": count,
              "compacted": False, "consumedGroups": 0, "usage": None}

@@ -128,22 +128,23 @@ def main():
           f"spent {alw2.get('spentRon')}, remaining {alw2.get('remainingRon')}")
 
     print("\n=== the allowance spills over to the wallet rather than overdrawing ===")
-    # 1M in + 1M out on the 2.6B is 7 + 35 = 42 RON at list, well past the 4.70 left.
-    # A cheaper request would be covered entirely, which is correct but proves nothing
-    # about the split.
+    # 1M in + 1M out on the 1.7B is (15 + 60) * 2 = 150 RON: the request is above the
+    # 128K threshold, so the whole request is billed at the doubled long-context rate.
+    # That is well past the 4.70 left; a cheaper request would be covered entirely,
+    # which is correct but proves nothing about the split.
     status, usage2, _ = req("/api/billing/usage", "POST", {
-        "modelKey": "lfm2_5_2_6b_q4_0", "inputTokens": 1_000_000,
+        "modelKey": "lfm3_1_7b_q4_k_m", "inputTokens": 1_000_000,
         "outputTokens": 1_000_000, "requestId": f"alw-{secrets.token_hex(5)}"}, cookie)
     check("usage recorded", status in (200, 201), f"HTTP {status}")
-    check("cost is 42 RON", abs(usage2.get("costRon", 0) - 42.0) < 1e-6, f"{usage2.get('costRon')}")
+    check("cost is 150 RON", abs(usage2.get("costRon", 0) - 150.0) < 1e-6, f"{usage2.get('costRon')}")
     from_allowance = usage2.get("allowanceAppliedRon", 0)
     from_wallet = usage2.get("walletChargedRon", 0)
     check("allowance covers only what is left of it",
           abs(from_allowance - 4.70) < 1e-6, f"allowance {from_allowance} (had 4.70 left)")
-    # The wallet holds 0 and its floor is 0, so there is nothing to draw and the 37.30 the
+    # The wallet holds 0 and its floor is 0, so there is nothing to draw and the 145.30 the
     # allowance could not cover is reported as uncovered rather than turned into debt.
     #
-    # This used to assert the opposite -- that the balance went to -37.30 -- because that
+    # This used to assert the opposite -- that the balance went to -145.30 -- because that
     # is what the service did: canGenerate stopped the *next* request, but nothing bounded
     # *this* one, so a single generation larger than the wallet could push the balance
     # arbitrarily negative and it stayed there.
@@ -151,9 +152,9 @@ def main():
           f"wallet {from_wallet}")
     uncovered = usage2.get("uncoveredRon", 0)
     check("what the wallet could not cover is reported, not absorbed",
-          abs(uncovered - 37.30) < 1e-6, f"uncovered {uncovered}")
+          abs(uncovered - 145.30) < 1e-6, f"uncovered {uncovered}")
     check("the parts still add up to the cost",
-          abs((from_allowance + from_wallet + uncovered) - 42.0) < 1e-6,
+          abs((from_allowance + from_wallet + uncovered) - 150.0) < 1e-6,
           f"{from_allowance} + {from_wallet} + {uncovered} = {from_allowance + from_wallet + uncovered}")
     check("the balance stops at the floor", usage2.get("balanceRon", 0) == 0,
           f"balance {usage2.get('balanceRon')}")

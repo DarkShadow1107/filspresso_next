@@ -167,11 +167,10 @@ def main():
     # The lineup a customer sees, in the order the component renders it.
     lineup = [
         "lfm2_5_230m_q4_k_m",
-        "lfm2_5_350m_q8_0",
-        "lfm2_5_1_2b_instruct_q4_k_m",
-        "lfm2_5_1_2b_thinking_q4_k_m",
-        "lfm2_5_2_6b_q4_0",
-        "lfm2_5_8b_a1b_q4_k_m",
+        "lfm3_1_7b_q4_k_m",
+        "lfm3_vl_2b_q4_k_m",
+        "lfm3_audio_2b_q4_k_m",
+        "lfm3_omni_2b_q4_k_m",
     ]
     r = requests.get(f"{WEB}/api/billing/pricing?audience=api", timeout=60,
                      headers={"cookie": cookie, "origin": WEB})

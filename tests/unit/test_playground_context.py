@@ -76,7 +76,7 @@ def test_image_processing_normalizes_pixels_and_preserves_actual_usage():
     class Reader:
         async def analyze(self, kind, data):
             assert kind == "image" and data.startswith(b"\x89PNG")
-            return "A white image", {"modelKey": "lfm2_5_vl_450m_q4_k_m", "inputTokens": 10, "outputTokens": 4}
+            return "A white image", {"modelKey": "lfm3_vl_2b_q4_k_m", "inputTokens": 10, "outputTokens": 4}
     result = asyncio.run(prepare_file(output.getvalue(), "image.jpg", Reader()))
     assert result["text"] == "A white image"
     assert result["usage"][0]["inputTokens"] == 10
@@ -89,7 +89,7 @@ def test_empty_upload_is_refused_before_analysis():
 
 def test_later_media_failure_preserves_usage_already_incurred(monkeypatch):
     from models import playground_context
-    usage = {"modelKey": "lfm2_5_vl_450m_q4_k_m", "inputTokens": 10, "outputTokens": 4}
+    usage = {"modelKey": "lfm3_vl_2b_q4_k_m", "inputTokens": 10, "outputTokens": 4}
     monkeypatch.setattr(playground_context, "extract_media", lambda *_: {"warnings": [], "duration": 2, "frames": [(0, b"frame"), (1, b"frame")], "audio": None})
 
     class Reader:

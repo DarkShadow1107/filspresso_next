@@ -1,7 +1,7 @@
 import React from "react";
 import { BrandLiquidIcon, CameraIcon, CpuIcon, SparklesIcon } from "@/icons";
 
-type ModelUsageKey = "lfm2" | "lfm2Thinking" | "lfm2Vision" | "lfm2Audio" | "other";
+type ModelUsageKey = "lfm2" | "lfm2Thinking" | "lfm2Vision" | "lfm2Audio" | "lfm2Omni" | "other";
 
 type KafelotUsageProps = {
 	stats: {
@@ -19,6 +19,7 @@ const MODEL_ORDER: Array<{ key: ModelUsageKey; toneClass: string }> = [
 	{ key: "lfm2Thinking", toneClass: "lfm" },
 	{ key: "lfm2Vision", toneClass: "vision" },
 	{ key: "lfm2Audio", toneClass: "vision" },
+	{ key: "lfm2Omni", toneClass: "lfm" },
 	{ key: "other", toneClass: "other" },
 ];
 
@@ -27,6 +28,7 @@ function modelIcon(modelKey: ModelUsageKey) {
 	if (modelKey === "lfm2Thinking") return <BrandLiquidIcon size={14} />;
 	if (modelKey === "lfm2Vision") return <CameraIcon size={14} />;
 	if (modelKey === "lfm2Audio") return <SparklesIcon size={14} />;
+	if (modelKey === "lfm2Omni") return <BrandLiquidIcon size={14} />;
 	return <SparklesIcon size={14} />;
 }
 

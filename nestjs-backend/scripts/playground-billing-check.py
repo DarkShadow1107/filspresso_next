@@ -189,14 +189,14 @@ def main():
 
     print("\n=== a refused stream costs nothing ===")
     # Exhaust the allowance, then confirm a 402 arrives and the number does not move.
-    # 10M input tokens on the 8B is 200 RON at list, ~150 discounted, which is past the
-    # 100 RON a MAX account is granted -- so the allowance really is gone afterwards.
+    # 10M input tokens on the 1.7B is 300 RON at the doubled long-context rate, which is
+    # past the 100 RON a MAX account is granted -- so the allowance really is gone after.
     # The origin header is required, not decorative: the backend's CSRF guard refuses a
     # cookie-authenticated state change that arrives without one.
     big = requests.post(f"{API}/api/billing/usage",
                         headers={"cookie": cookie, "origin": ORIGIN, "content-type": "application/json"},
                         timeout=60,
-                        json={"modelKey": "lfm2_5_8b_a1b_q4_k_m", "inputTokens": 10_000_000,
+                        json={"modelKey": "lfm3_1_7b_q4_k_m", "inputTokens": 10_000_000,
                               "outputTokens": 0, "requestId": f"pg-{secrets.token_hex(5)}"})
     check("the drain was accepted", big.status_code in (200, 201),
           f"HTTP {big.status_code} {big.text[:90]}")

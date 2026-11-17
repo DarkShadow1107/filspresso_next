@@ -22,8 +22,8 @@ const FRONTEND = readFileSync(
  * *allowed*. A model shown but refused is the bug this catches.
  */
 describe("the backend knows exactly the models that are metered", () => {
-	it("meters nine models", () => {
-		assert.equal(Object.keys(MODEL_TIER_ACCESS).length, 9);
+	it("meters five models", () => {
+		assert.equal(Object.keys(MODEL_TIER_ACCESS).length, 5);
 	});
 
 	it("rejects an unknown model key rather than allowing it unmetered", () => {
@@ -40,8 +40,8 @@ describe("the backend knows exactly the models that are metered", () => {
 	});
 
 	it("never lets a tier reach into Object.prototype either", () => {
-		assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", "constructor"), false);
-		assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", "toString"), false);
+		assert.equal(tierAllowsModel("lfm3_omni_2b_q4_k_m", "constructor"), false);
+		assert.equal(tierAllowsModel("lfm3_omni_2b_q4_k_m", "toString"), false);
 	});
 
 	it("refuses an unknown tier rather than defaulting it in", () => {
@@ -49,34 +49,37 @@ describe("the backend knows exactly the models that are metered", () => {
 		// returns true for any unrecognised string, handing a new or misspelled plan every
 		// model in the lineup.
 		for (const tier of ["enterprise", "admin", "platinum", "vip"]) {
-			assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", tier), false, tier);
+			assert.equal(tierAllowsModel("lfm3_omni_2b_q4_k_m", tier), false, tier);
 			assert.equal(tierAllowsModel("lfm2_5_230m_q4_k_m", tier), false, tier);
 		}
 	});
 
 	it("is case- and whitespace-insensitive about the tier", () => {
-		assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", "  ULTIMATE "), true);
+		assert.equal(tierAllowsModel("lfm3_omni_2b_q4_k_m", "  ULTIMATE "), true);
 		assert.equal(tierAllowsModel("lfm2_5_230m_q4_k_m", "Free"), true);
 	});
 });
 
 describe("the entitlement matrix is sane", () => {
-	it("keeps the 8B A1B ULTIMATE-only", () => {
+	it("keeps LFM 3 Omni ULTIMATE-only", () => {
 		// The most expensive model, so the one where a mistake costs the most.
 		for (const tier of ["free", "basic", "plus", "pro", "max"]) {
-			assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", tier), false, tier);
+			assert.equal(tierAllowsModel("lfm3_omni_2b_q4_k_m", tier), false, tier);
 		}
-		assert.equal(tierAllowsModel("lfm2_5_8b_a1b_q4_k_m", "ultimate"), true);
+		assert.equal(tierAllowsModel("lfm3_omni_2b_q4_k_m", "ultimate"), true);
 	});
 
 	it("never narrows access as the plan rises", () => {
 		// A plans page advertising a downgrade is the failure this catches. Every tier's
-		// access set must be a superset of the tier below it.
+		// access set must be a superset of the tier below it. The Free-only 230M is the
+		// deliberate exception: it is the entry model and a paid plan replaces it with
+		// LFM 3 1.7B, so it is the one key allowed below basic and not above.
 		const order = ["free", "basic", "plus", "pro", "max", "ultimate"];
 		for (let i = 1; i < order.length; i++) {
 			const lower = order[i - 1];
 			const higher = order[i];
 			for (const modelKey of Object.keys(MODEL_TIER_ACCESS)) {
+				if (modelKey === "lfm2_5_230m_q4_k_m") continue;
 				if (tierAllowsModel(modelKey, lower)) {
 					assert.equal(
 						tierAllowsModel(modelKey, higher),
@@ -86,6 +89,8 @@ describe("the entitlement matrix is sane", () => {
 				}
 			}
 		}
+		assert.equal(tierAllowsModel("lfm2_5_230m_q4_k_m", "free"), true);
+		assert.equal(tierAllowsModel("lfm2_5_230m_q4_k_m", "basic"), false);
 	});
 
 	it("gives every model at least one tier", () => {
@@ -125,9 +130,9 @@ describe("parity with the plans page", () => {
 		// The frontend keys the matrix by its own constants (`[TEXT_MODEL_230M]: {...}`),
 		// so resolve those to their string values rather than grepping for raw keys.
 		const constants = new Map(
-			[...FRONTEND.matchAll(/export const (\w+) = "(lfm2_5_\w+)"/g)].map((m) => [m[1], m[2]]),
+			[...FRONTEND.matchAll(/export const (\w+) = "((?:lfm2_5|lfm3)_\w+)"/g)].map((m) => [m[1], m[2]]),
 		);
-		assert.ok(constants.size >= 9, `only found ${constants.size} model key constants`);
+		assert.ok(constants.size >= 5, `only found ${constants.size} model key constants`);
 		// Scope to the matrix literal. Scanning the whole file also matches the
 		// hand-maintained tables further up, which is how "parsed 54 matrix rows" happened.
 		const start = FRONTEND.indexOf("export const MODEL_TIER_ACCESS");
@@ -138,7 +143,7 @@ describe("parity with the plans page", () => {
 		const keys = [...literal.matchAll(/^\t\[(\w+)\]:/gm)]
 			.map((m) => constants.get(m[1]))
 			.filter((v): v is string => Boolean(v));
-		assert.equal(keys.length, 9, `parsed ${keys.length} matrix rows`);
+		assert.equal(keys.length, 5, `parsed ${keys.length} matrix rows`);
 		assert.deepEqual(keys.sort(), Object.keys(MODEL_TIER_ACCESS).sort());
 	});
 });

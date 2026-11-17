@@ -11,7 +11,7 @@ test("an expired session is reported without retrying or discarding the transcri
 });
 
 const uuid = "00000000-0000-4000-8000-000000000001";
-const metadata = { session_uuid: uuid, title: "Papers", model_key: "lfm2_5_350m_q8_0", input_context_tokens: 65_536, compaction_mode: "aggressive", source_references: [{ name: "notes.md", kind: "document" }] };
+const metadata = { session_uuid: uuid, title: "Papers", model_key: "lfm3_1_7b_q4_k_m", input_context_tokens: 65_536, compaction_mode: "aggressive", source_references: [{ name: "notes.md", kind: "document" }] };
 const checkpoint = { mode: "aggressive", tokensBefore: 40_000, tokensAfter: 12_000, summary: "Keep constraints.", history: [{ role: "user", content: "Retained memory" }, { role: "assistant", content: "Recent answer" }] };
 const current = { model: "lfm2_5_230m_q4_k_m" as const, inputContextTokens: 16_384, compactionMode: "balanced" as const, thinking: false, textSize: "large", enterToSend: false, showStats: false };
 

@@ -8,7 +8,7 @@ import type { AddonsService } from "../src/billing/addons.service";
 import type { Response } from "express";
 
 const small = "lfm2_5_230m_q4_k_m";
-const big = "lfm2_5_8b_a1b_q4_k_m";
+const big = "lfm3_omni_2b_q4_k_m";
 
 /**
  * The per-model affordability rules, and the two properties that matter most.
@@ -18,17 +18,16 @@ const big = "lfm2_5_8b_a1b_q4_k_m";
  * spend here. A client that checked "does the account have allowance" alone would let
  * them start a generation that the charge then refuses.
  *
- * The second is that Max may run the 8B but not out of its allowance, so the 8B is
- * wallet-only on Max and allowance-covered on Ultimate.
+ * The second is that the old 8B carve-out is gone: under LFM 3 a Max allowance covers
+ * every model the plan can select, so there is no model that is wallet-only on Max.
  */
 for (const scenario of [
 	{ name: "no access is locked whatever the balance", tier: "free", source: null, wallet: true, model: small, generates: false, allowance: false },
 	{ name: "an add-on holder cannot spend Kafelot credit", tier: "pro", source: "addon", wallet: false, model: small, generates: false, allowance: false },
 	{ name: "a funded add-on holder can", tier: "pro", source: "addon", wallet: true, model: small, generates: true, allowance: false },
 	{ name: "Max covers a small model from its allowance", tier: "max", source: "tier", wallet: false, model: small, generates: true, allowance: true },
-	{ name: "Max cannot pay for the 8B from its allowance", tier: "max", source: "tier", wallet: false, model: big, generates: false, allowance: false },
-	{ name: "Max can pay for the 8B from a funded wallet", tier: "max", source: "tier", wallet: true, model: big, generates: true, allowance: false },
-	{ name: "Ultimate covers the 8B from its allowance", tier: "ultimate", source: "tier", wallet: false, model: big, generates: true, allowance: true },
+	{ name: "Max covers its largest model from the allowance too", tier: "max", source: "tier", wallet: false, model: big, generates: true, allowance: true },
+	{ name: "Ultimate covers the Omni from its allowance", tier: "ultimate", source: "tier", wallet: false, model: big, generates: true, allowance: true },
 ] as const) {
 	test(scenario.name, () => {
 		const access = desktopModelAccess({

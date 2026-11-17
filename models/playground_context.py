@@ -19,11 +19,11 @@ from starlette.concurrency import run_in_threadpool
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_TEXT = 240_000
-INPUT_LEVELS = (16_384, 32_768, 65_536, 131_072)
-VISION_FILE = "LFM2.5-VL-450M-Q4_K_M.gguf"
-AUDIO_FILE = "LFM2.5-Audio-1.5B-Q4_0.gguf"
-VISION_KEY = "lfm2_5_vl_450m_q4_k_m"
-AUDIO_KEY = "lfm2_5_audio_1_5b_q4_0"
+INPUT_LEVELS = (16_384, 32_768, 65_536, 131_072, 262_144)
+VISION_FILE = "LFM3-VL-2B-Q4_K_M.gguf"
+AUDIO_FILE = "LFM3-Audio-2B-Q4_K_M.gguf"
+VISION_KEY = "lfm3_vl_2b_q4_k_m"
+AUDIO_KEY = "lfm3_audio_2b_q4_k_m"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".opus"}
 VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".mkv", ".avi"}

@@ -62,6 +62,36 @@ def test_shared_contract_and_native_calls_never_parse_answer_text():
     assert result["tool_calls"] == [] and "whoami" in result["text"]
 
 
+def test_absolute_sandbox_root_reads_are_normalized_before_action_signing():
+    body = deepcopy(FIXTURE["native"])
+    body["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = '{"path":"/workspace/Polo 9N 1.2 litre petrol engine"}'
+    result = asyncio.run(agent.run_turn(Runtime(completion=body), MODEL, FIXTURE["request"]))
+    assert json.loads(result["tool_calls"][0]["arguments"]) == {"path": "Polo 9N 1.2 litre petrol engine"}
+
+
+@pytest.mark.parametrize("path", ["/etc/passwd", "../outside", "/workspace/../outside", "/workspace-other/file"])
+def test_normalization_never_makes_an_escaping_path_safe(path):
+    body = deepcopy(FIXTURE["native"])
+    body["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = json.dumps({"path": path})
+    result = asyncio.run(agent.run_turn(Runtime(completion=body), MODEL, FIXTURE["request"]))
+    actual = json.loads(result["tool_calls"][0]["arguments"])["path"]
+    assert actual.startswith("/") or ".." in actual.split("/")
+
+
+def test_sandbox_root_normalization_does_not_rewrite_mutations():
+    request = deepcopy(FIXTURE["request"])
+    request["mode"] = "build"
+    request["tools"] = [{"name": "write_file", "description": "Write", "effect": "mutation", "parameters": {
+        "type": "object", "properties": {"path": {"type": "string", "minLength": 1, "maxLength": 240},
+                                         "text": {"type": "string", "minLength": 0, "maxLength": 1000}},
+        "required": ["path", "text"], "additionalProperties": False}}]
+    body = deepcopy(FIXTURE["native"])
+    function = body["choices"][0]["message"]["tool_calls"][0]["function"]
+    function.update(name="write_file", arguments='{"path":"/workspace/test.txt","text":"hello"}')
+    result = asyncio.run(agent.run_turn(Runtime(completion=body), MODEL, request))
+    assert result["tool_calls"][0]["arguments"] == function["arguments"]
+
+
 @pytest.mark.parametrize("arguments", ['{"path":"a","path":"b"}', '{"path":true}', '{"path":{"nested":1}}', '{"path":null}', '{"path":"a","extra":1}', '{"path":"\\uD800"}'])
 def test_invalid_native_arguments_preserve_usage_but_release_no_proposals(arguments):
     body = deepcopy(FIXTURE["native"])
@@ -301,7 +331,7 @@ def test_enabled_endpoint_releases_admission_on_success_and_protocol_failure(cli
     assert tanka_stub.residency.in_flight == {}
 
 
-@pytest.mark.parametrize("model", ["LFM2.5-VL-450M-Q4_K_M.gguf", "LFM2.5-VL-3B-Q4_K_M.gguf", "LFM2.5-Audio-1.5B-Q4_0.gguf"])
+@pytest.mark.parametrize("model", ["LFM3-VL-2B-Q4_K_M.gguf", "LFM3-Audio-2B-Q4_K_M.gguf", "LFM3-Omni-2B-Q4_K_M.gguf"])
 def test_explicitly_enabled_media_models_reach_bounded_agent_transport(client, monkeypatch, tanka_stub, model):
     import app as module
     monkeypatch.setattr(module, "AI_SERVICE_KEY", "fixture-key")

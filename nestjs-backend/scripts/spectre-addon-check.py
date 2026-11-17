@@ -7,7 +7,7 @@ Covers the parts that are new and the parts that must *not* have changed:
 2. Usage in the Playground is list-priced for everyone and comes wholly from the wallet.
    An add-on holder has no allowance to draw on, so a charge that touched the allowance
    would be a billing bug that no other check would catch.
-3. Max keeps its allowance in the Playground, but not for the 8B.
+3. Max keeps its allowance in the Playground, and it covers every model it can select.
 4. Kafelot is untouched: a paid tier still gets its discount there.
 5. Cancelling keeps access until the period ends, and never clobbers a paid-for wallet.
 6. Renewals advance the expiry and record exactly one payment.
@@ -225,7 +225,7 @@ def main():
     check("the Playground charges list price", abs(float(pg.get("costRon", 0)) - 0.30) < 1e-6,
           f"{pg.get('costRon')} RON")
 
-    print("\n=== Max: allowance in the Playground, but not for the 8B ===")
+    print("\n=== Max: allowance in the Playground, covering every model ===")
     max_cookie, max_account, max_card, _ = session(tier="max")
     r = requests.post(f"{API}/api/billing/usage", timeout=60,
                       headers={"cookie": max_cookie, "origin": ORIGIN, "content-type": "application/json"},
@@ -237,26 +237,25 @@ def main():
     check("priced at list, not the Max discount", abs(float(m_small.get("costRon", 0)) - 0.30) < 1e-6,
           f"{m_small.get('costRon')} RON")
 
-    requests.post(f"{API}/api/billing/fund", timeout=60,
-                  headers={"cookie": max_cookie, "origin": ORIGIN, "content-type": "application/json"},
-                  json={"amountRon": 30})
     r = requests.post(f"{API}/api/billing/usage", timeout=60,
                       headers={"cookie": max_cookie, "origin": ORIGIN, "content-type": "application/json"},
-                      json={"modelKey": "lfm2_5_8b_a1b_q4_k_m", "inputTokens": tokens, "outputTokens": 0,
+                      json={"modelKey": "lfm3_omni_2b_q4_k_m", "inputTokens": tokens, "outputTokens": 0,
                             "scope": "playground", "requestId": f"spec-{secrets.token_hex(5)}"})
     m_big = r.json() if r.status_code in (200, 201) else {}
-    check("the 8B on Max takes nothing from the allowance", float(m_big.get("allowanceAppliedRon", -1)) == 0,
+    # The old per-model carve-out is gone: every model a Max plan can select draws on its
+    # allowance, so there is no wallet-only exception left to check.
+    check("the largest model also draws on the allowance", float(m_big.get("allowanceAppliedRon", 0)) > 0,
           f"allowance {m_big.get('allowanceAppliedRon')}")
-    check("and says so", m_big.get("reason") == "model_excluded_from_allowance", str(m_big.get("reason")))
+    check("and reports included usage", m_big.get("reason") == "included", str(m_big.get("reason")))
 
-    print("\n=== Ultimate: the 8B is covered by its allowance ===")
+    print("\n=== Ultimate: Omni is covered by its allowance ===")
     ult_cookie, ult_account, ult_card, _ = session(tier="ultimate")
     r = requests.post(f"{API}/api/billing/usage", timeout=60,
                       headers={"cookie": ult_cookie, "origin": ORIGIN, "content-type": "application/json"},
-                      json={"modelKey": "lfm2_5_8b_a1b_q4_k_m", "inputTokens": tokens, "outputTokens": 0,
+                      json={"modelKey": "lfm3_omni_2b_q4_k_m", "inputTokens": tokens, "outputTokens": 0,
                             "scope": "playground", "requestId": f"spec-{secrets.token_hex(5)}"})
     ult = r.json() if r.status_code in (200, 201) else {}
-    check("Ultimate draws the 8B from its allowance", float(ult.get("allowanceAppliedRon", 0)) > 0,
+    check("Ultimate draws Omni from its allowance", float(ult.get("allowanceAppliedRon", 0)) > 0,
           f"allowance {ult.get('allowanceAppliedRon')}")
 
     print("\n=== cancelling keeps access until the period ends ===")

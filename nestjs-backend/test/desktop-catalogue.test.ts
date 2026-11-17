@@ -52,7 +52,7 @@ function readConstArray(source: string, constName: string): string[] {
 
 /** The GGUF filename the frontend maps a given model key to. */
 function frontendFileForKey(source: string, modelKey: string): string | null {
-  const constMatch = new RegExp(`const ((?:TEXT|VISION|AUDIO)_MODEL_[A-Z0-9_]+) = "${modelKey}"`).exec(source);
+  const constMatch = new RegExp(`const ((?:TEXT|VISION|AUDIO|OMNI)_MODEL_[A-Z0-9_]+) = "${modelKey}"`).exec(source);
   if (!constMatch) return null;
   // The map uses computed keys -- `[TEXT_MODEL_230M]: "LFM2.5-...gguf"` -- so the name is
   // bracketed and a bare `NAME:` pattern silently never matches.
@@ -107,19 +107,20 @@ describe("the Playground's text-model list", () => {
     }
   });
 
-  it("the full catalogue also serves explicitly mapped Vision and Audio models", () => {
+  it("the full catalogue also serves explicitly mapped Vision, Audio and Omni models", () => {
     // The bug this guards against: filtering the pricing table by key prefix swept in the
-    // vision and audio models, because they share the `lfm2_5_` prefix.
+    // media models, because they share a family prefix. The catalogue uses an explicit list.
     const controller = readFileSync(DESKTOP_CONTROLLER, "utf8");
     assert.match(controller, /playgroundModelKeys\(\)/);
-    assert.equal(playgroundModelKeys().length, 9);
-    assert.equal(playgroundModelFile("lfm2_5_vl_450m_q4_k_m"), "LFM2.5-VL-450M-Q4_K_M.gguf");
-    assert.equal(playgroundModelFile("lfm2_5_audio_1_5b_q4_0"), "LFM2.5-Audio-1.5B-Q4_0.gguf");
+    assert.equal(playgroundModelKeys().length, 5);
+    assert.equal(playgroundModelFile("lfm3_vl_2b_q4_k_m"), "LFM3-VL-2B-Q4_K_M.gguf");
+    assert.equal(playgroundModelFile("lfm3_audio_2b_q4_k_m"), "LFM3-Audio-2B-Q4_K_M.gguf");
+    assert.equal(playgroundModelFile("lfm3_omni_2b_q4_k_m"), "LFM3-Omni-2B-Q4_K_M.gguf");
     assert.equal(playgroundModelFile("constructor"), null);
     for (const key of playgroundModelKeys()) assert.equal(playgroundModelFile(key), frontendFileForKey(frontend, key));
     assert.doesNotMatch(
       controller,
-      /startsWith\("lfm2_5_"\)/,
+      /startsWith\("(?:lfm2_5|lfm3)_"\)/,
       "the catalogue must use the explicit text-model list, not a key-name prefix",
     );
   });

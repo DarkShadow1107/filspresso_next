@@ -124,14 +124,14 @@ test("source references are named pointers, never bodies", () => {
 test("session writes validate the money-adjacent fields and clamp the rest", () => {
 	const write = normalizeSessionWrite({
 		title: "  Papers and notes  ",
-		model: "lfm2_5_8b_a1b_q4_k_m",
+		model: "lfm3_omni_2b_q4_k_m",
 		inputContextTokens: 131_072,
 		compactionMode: "permissive",
 		activeContext: { history: [{ role: "user", content: "hi" }], tokensAfter: 42 },
 		sourceReferences: [{ name: "notes.md", kind: "document" }],
 	});
 	assert.equal(write.title, "Papers and notes");
-	assert.equal(write.modelKey, "lfm2_5_8b_a1b_q4_k_m");
+	assert.equal(write.modelKey, "lfm3_omni_2b_q4_k_m");
 	assert.equal(write.inputContextTokens, 131_072);
 	assert.equal(write.compactionMode, "permissive");
 	assert.deepEqual((write.activeContext as Record<string, unknown>).history, [{ role: "user", content: "hi" }]);
@@ -144,7 +144,7 @@ test("session writes validate the money-adjacent fields and clamp the rest", () 
 
 test("a write that names an unavailable model or level throws, and the controller turns it into a 400", () => {
 	assert.throws(() => normalizeSessionWrite({ model: "gptnine-omni" }), /not available in the Playground/);
-	assert.throws(() => normalizeSessionWrite({ inputContextTokens: 10_000 }), /16K, 32K, 64K or 128K/);
+	assert.throws(() => normalizeSessionWrite({ inputContextTokens: 10_000 }), /16K, 32K, 64K, 128K or 256K/);
 	// A numeric string at a real level passes, exactly the same coercion the live request
 	// validates with -- the two surfaces cannot disagree.
 	assert.equal(

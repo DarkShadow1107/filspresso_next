@@ -319,7 +319,7 @@ export class DesktopController {
 				includesUsage: SPECTRE_ADDON_SUMMARY.includesUsage,
 			},
 			models,
-			attachmentModels: ["lfm2_5_vl_450m_q4_k_m", "lfm2_5_audio_1_5b_q4_0"].map((modelKey) => {
+			attachmentModels: ["lfm3_vl_2b_q4_k_m", "lfm3_audio_2b_q4_k_m", "lfm3_omni_2b_q4_k_m"].map((modelKey) => {
 				const price = resolveTokenPrice(modelKey, "playground");
 				return { modelKey, label: price.label, ...effectiveRates(price) };
 			}),

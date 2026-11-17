@@ -41,7 +41,7 @@ export function proposalReviewTools(mode: ReviewMode): NativeTool[] {
 export function buildProposalReview(context: ReviewContext, mode: ReviewMode, prompt: string): NativeAgentRequest {
 	if (!isPlaygroundModelKey(context.model) || (mode !== "plan" && mode !== "build") || !prompt.trim() || prompt.length > 8000 ||
 		/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(prompt) ||
-		![16_384, 32_768, 65_536, 131_072].includes(context.inputContextTokens) ||
+		![16_384, 32_768, 65_536, 131_072, 262_144].includes(context.inputContextTokens) ||
 		(context.sessionUuid !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(context.sessionUuid)) ||
 		(context.thinkingLevel !== undefined && !["off", "default", "low", "medium", "high"].includes(context.thinkingLevel)))
 		throw new Error("Choose a valid model/context and a prompt of at most 8000 characters.");

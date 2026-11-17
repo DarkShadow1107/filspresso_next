@@ -16,7 +16,7 @@ test("all three compaction modes are accepted; balanced is the shared default", 
 	for (const mode of ["off", "proactive", "constructor", 0]) assert.throws(() => readInputContext({ compaction_mode: mode }));
 });
 
-for (const scenario of [{ tier: "pro", source: "addon", model: "lfm2_5_230m_q4_k_m" }, { tier: "max", source: "tier", model: "lfm2_5_8b_a1b_q4_k_m" }]) {
+for (const scenario of [{ tier: "pro", source: "addon", model: "lfm2_5_230m_q4_k_m" }, { tier: "max", source: "addon", model: "lfm3_omni_2b_q4_k_m" }]) {
 	test(`web model loading refuses ${scenario.tier}/${scenario.model} without wallet funds`, async () => {
 		const billing = { resolveTierFor: async () => scenario.tier, getBalance: async () => ({ canGenerate: false }), getAllowance: async () => ({ remainingRon: 100 }) } as unknown as BillingService;
 		const addons = { resolveSpectreAccess: async () => ({ hasAccess: true, source: scenario.source }) } as unknown as AddonsService;

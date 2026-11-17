@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { PLAYGROUND_MODEL_KEYS, CONTEXT_LEVELS, MODEL_LABEL_BY_KEY, TEXT_MODEL_230M, TEXT_MODEL_8B, formatContextTokens, type ModelKey } from "@/lib/modelAccess";
+import { PLAYGROUND_MODEL_KEYS, DEFAULT_INPUT_CONTEXT_TOKENS, MODEL_LABEL_BY_KEY, TEXT_MODEL_1_7B, contextLevelsForModel, formatContextTokens, type ModelKey } from "@/lib/modelAccess";
 import WorkspaceIcon from "./WorkspaceIcon";
 import { COMPACTION_OPTIONS, type CompactionMode } from "@/lib/playgroundContext";
 import PlaygroundDocumentsManager from "./PlaygroundDocuments";
@@ -20,8 +20,8 @@ export type PlaygroundPreferences = {
 };
 
 export const DEFAULT_PREFERENCES: PlaygroundPreferences = {
-	model: TEXT_MODEL_230M,
-	inputContextTokens: CONTEXT_LEVELS[0],
+	model: TEXT_MODEL_1_7B,
+	inputContextTokens: DEFAULT_INPUT_CONTEXT_TOKENS,
 	compactionMode: "balanced",
 	thinking: true,
 	thinkingLevel: "default",
@@ -61,14 +61,19 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 					{section === "general" && <>
 						<label className="pgw-setting">
 							<span>Default model</span>
-							<select value={draft.model} disabled={streaming} onChange={(event) => setDraft({ ...draft, model: event.target.value as ModelKey })}>
-								{PLAYGROUND_MODEL_KEYS.map((key) => <option key={key} value={key} disabled={key === TEXT_MODEL_8B}>{MODEL_LABEL_BY_KEY[key]}{key === TEXT_MODEL_8B ? " · Coming soon" : ""}</option>)}
+							<select value={draft.model} disabled={streaming} onChange={(event) => {
+								const model = event.target.value as ModelKey;
+								const levels = contextLevelsForModel(model);
+								const inputContextTokens = levels.includes(draft.inputContextTokens) ? draft.inputContextTokens : levels[0];
+								setDraft({ ...draft, model, inputContextTokens });
+							}}>
+								{PLAYGROUND_MODEL_KEYS.map((key) => <option key={key} value={key}>{MODEL_LABEL_BY_KEY[key]}</option>)}
 							</select>
-							<small>Available input limits are configuration options; a model’s validated context may be shorter. You can also switch models in the composer.</small>
+							<small>Each model has its own validated context window; the input limit below follows the selected model. You can also switch models in the composer.</small>
 						</label>
 						<label className="pgw-setting">
 							<span>Maximum input tokens</span>
-							<select aria-label="Maximum input tokens" value={draft.inputContextTokens} disabled={streaming} onChange={(event) => setDraft({ ...draft, inputContextTokens: Number(event.target.value) })}>{CONTEXT_LEVELS.map((level) => <option key={level} value={level}>{formatContextTokens(level)}</option>)}</select>
+							<select aria-label="Maximum input tokens" value={draft.inputContextTokens} disabled={streaming} onChange={(event) => setDraft({ ...draft, inputContextTokens: Number(event.target.value) })}>{contextLevelsForModel(draft.model).map((level) => <option key={level} value={level}>{formatContextTokens(level)}</option>)}</select>
 							<small>Limits the prompt, conversation history, files and project sources. Output length is managed separately.</small>
 						</label>
 						<label className="pgw-setting"><span>Automatic context compaction</span>

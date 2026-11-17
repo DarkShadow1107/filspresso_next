@@ -136,16 +136,14 @@ DEFAULT_LOAD_ESTIMATE_LARGE = 45.0
 # they exist so the progress bar moves at a believable rate instead of sitting
 # at 95% for minutes: the estimate is what the elapsed time is divided by.
 #
-# The 8B A1B is the outlier. It is a 4.9 GB file whose expert tensors are kept
-# in system RAM (--cpu-moe), so it is read from disk rather than from the GPU
-# and takes minutes, not seconds.
+# The LFM 3 multimodals carry a separate mmproj and take longer to initialise
+# their vision/audio graphs than the plain 1.7B text model.
 DEFAULT_LOAD_ESTIMATES: Dict[str, float] = {
     "LFM2.5-230M-Q4_K_M.gguf": 15.0,
-    "LFM2.5-350M-Q8_0.gguf": 15.0,
-    "LFM2.5-1.2B-Instruct-Q4_K_M.gguf": 25.0,
-    "LFM2.5-1.2B-Thinking-Q4_K_M.gguf": 25.0,
-    "LFM2.5-2.6B-Q4_0.gguf": 90.0,
-    "LFM2.5-8B-A1B-Q4_K_M.gguf": 300.0,
+    "LFM3-1.7B-Q4_K_M.gguf": 35.0,
+    "LFM3-VL-2B-Q4_K_M.gguf": 45.0,
+    "LFM3-Audio-2B-Q4_K_M.gguf": 45.0,
+    "LFM3-Omni-2B-Q4_K_M.gguf": 60.0,
 }
 
 # How long a load may take before it is called a failure.

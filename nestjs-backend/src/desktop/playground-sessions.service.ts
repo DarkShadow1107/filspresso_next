@@ -27,7 +27,7 @@ const MAX_SOURCE_NAME = 240;
 const MAX_SOURCE_URL = 2048;
 
 /** Same levels and closed compaction set as input-context.ts, so the clients cannot disagree through different tables. */
-const CONTEXT_LEVELS = [16_384, 32_768, 65_536, 131_072];
+const CONTEXT_LEVELS = [16_384, 32_768, 65_536, 131_072, 262_144];
 const COMPACTION_MODES = new Set(["permissive", "balanced", "aggressive"]);
 const ACTIVE_ROLES = ["user", "assistant"];
 
@@ -145,7 +145,7 @@ export function normalizeSessionWrite(body: SessionWrite): SessionUpdate {
 	}
 	if (body.inputContextTokens !== undefined) {
 		const n = Number(body.inputContextTokens);
-		if (!CONTEXT_LEVELS.includes(n)) throw new InvalidSessionInputError("Choose a 16K, 32K, 64K or 128K input context.");
+		if (!CONTEXT_LEVELS.includes(n)) throw new InvalidSessionInputError("Choose a 16K, 32K, 64K, 128K or 256K input context.");
 		update.inputContextTokens = n;
 	}
 	if (body.compactionMode !== undefined) {

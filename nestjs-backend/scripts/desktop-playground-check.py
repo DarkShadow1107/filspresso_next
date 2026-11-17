@@ -22,7 +22,7 @@ import urllib.request
 
 API = "http://localhost:4000"
 SMALL = "lfm2_5_230m_q4_k_m"
-BIG = "lfm2_5_8b_a1b_q4_k_m"
+BIG = "lfm3_omni_2b_q4_k_m"
 DEADLINE = time.monotonic() + 180
 checks = []
 sys.stdout.reconfigure(line_buffering=True)
@@ -186,9 +186,8 @@ def main():
         check("tier wins over old add-on", state["access"]["source"] == "tier")
         check("Max small model uses allowance",
               by_key[SMALL]["usesAllowance"] and by_key[SMALL]["canGenerate"])
-        check("Max 8B needs funded wallet",
-              not by_key[BIG]["usesAllowance"] and not by_key[BIG]["canGenerate"])
-        refused(BIG, 402)
+        check("Max allowance covers its largest model too",
+              by_key[BIG]["usesAllowance"] and by_key[BIG]["canGenerate"])
 
         psql(f"UPDATE accounts SET subscription='Ultimate' WHERE id={account};")
         state = entitlement()

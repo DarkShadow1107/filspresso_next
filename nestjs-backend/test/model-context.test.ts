@@ -46,7 +46,7 @@ function contextSizesFromPresets(): Map<string, number> {
 /** The same table, read out of the frontend's TypeScript. */
 function contextSizesFromFrontend(): Map<string, number> {
 	const constants = new Map(
-		[...FRONTEND.matchAll(/export const (\w+) = "(lfm2_5_\w+)"/g)].map((m) => [m[1], m[2]]),
+		[...FRONTEND.matchAll(/export const (\w+) = "((?:lfm2_5|lfm3)_\w+)"/g)].map((m) => [m[1], m[2]]),
 	);
 	const start = FRONTEND.indexOf("export const MODEL_CONTEXT_TOKENS");
 	assert.notEqual(start, -1, "MODEL_CONTEXT_TOKENS not found in modelAccess.ts");
@@ -64,8 +64,8 @@ function contextSizesFromFrontend(): Map<string, number> {
 }
 
 describe("the context windows the Playground offers are the ones the server serves", () => {
-	it("reads nine context sizes from the router presets", () => {
-		assert.equal(contextSizesFromPresets().size, 9);
+	it("reads five context sizes from the router presets", () => {
+		assert.equal(contextSizesFromPresets().size, 5);
 	});
 
 	it("the frontend table matches the router presets exactly", () => {
@@ -75,12 +75,12 @@ describe("the context windows the Playground offers are the ones the server serv
 		// The frontend keys the table by model *key* and the file list by GGUF file
 		// name, so the comparison is per model: key -> file -> preset size.
 		const constants = new Map(
-			[...FRONTEND.matchAll(/export const (\w+) = "(lfm2_5_\w+)"/g)].map((m) => [m[1], m[2]]),
+			[...FRONTEND.matchAll(/export const (\w+) = "((?:lfm2_5|lfm3)_\w+)"/g)].map((m) => [m[1], m[2]]),
 		);
 		const files = new Map(
-			[...FRONTEND.matchAll(/\[(\w+)\]:\s*"(LFM2\.5-[\w.-]+\.gguf)"/g)].map((m) => [m[1], m[2]]),
+			[...FRONTEND.matchAll(/\[(\w+)\]:\s*"((?:LFM2\.5|LFM3)-[\w.-]+\.gguf)"/g)].map((m) => [m[1], m[2]]),
 		);
-		assert.equal(files.size, 9, `parsed ${files.size} model file entries`);
+		assert.equal(files.size, 5, `parsed ${files.size} model file entries`);
 
 		for (const [constant, file] of files) {
 			const key = constants.get(constant);
@@ -95,13 +95,15 @@ describe("the context windows the Playground offers are the ones the server serv
 		}
 	});
 
-	it("every model is served with the same window", () => {
-		// The LFM 2.5 models are all trained for 128K and all served with it. A
-		// model that quietly had a smaller window would be advertised as 128K and
-		// then truncate a long conversation, so the sameness is the point.
-		const sizes = new Set(contextSizesFromPresets().values());
-		assert.equal(sizes.size, 1, `the presets use ${sizes.size} different context sizes`);
-		assert.equal([...sizes][0], 131072, "the models are served with 128K");
+	it("serves the LFM 3 family at 256K and keeps the Free 230M at 128K", () => {
+		// LFM 3 is trained and served with a 256K window; the 230M is retained at its
+		// native 128K. A model that quietly had a smaller window would be advertised
+		// as 256K and then truncate a long conversation, so the sizes are pinned.
+		const sizes = contextSizesFromPresets();
+		assert.equal(sizes.get("LFM2.5-230M-Q4_K_M.gguf"), 131072, "the Free model is served with 128K");
+		for (const file of ["LFM3-1.7B-Q4_K_M.gguf", "LFM3-VL-2B-Q4_K_M.gguf", "LFM3-Audio-2B-Q4_K_M.gguf", "LFM3-Omni-2B-Q4_K_M.gguf"]) {
+			assert.equal(sizes.get(file), 262144, `${file} is served with 256K`);
+		}
 	});
 
 	it("no model claims a context it cannot have", () => {
@@ -113,10 +115,10 @@ describe("the context windows the Playground offers are the ones the server serv
 });
 
 describe("the context ladder", () => {
-	it("is 16K, 32K, 64K and 128K", () => {
+	it("is 16K, 32K, 64K, 128K and 256K", () => {
 		// The levels the site is sold in, and the stops of the Playground's
 		// reply-length control.
-		assert.match(FRONTEND, /export const CONTEXT_LEVELS = \[16384, 32768, 65536, 131072\]/);
+		assert.match(FRONTEND, /export const CONTEXT_LEVELS = \[16384, 32768, 65536, 131072, 262144\]/);
 	});
 
 	it("writes a context size as a level", () => {

@@ -10,8 +10,8 @@ type PreparedContext = {
 	name: string; kind: string; text: string; size: number; sourceUrl?: string; warnings: string[];
 	usage?: Array<{ modelKey: string; inputTokens: number; outputTokens: number }>;
 };
-const VISION = "lfm2_5_vl_450m_q4_k_m";
-const AUDIO_KEY = "lfm2_5_audio_1_5b_q4_0";
+const VISION = "lfm3_vl_2b_q4_k_m";
+const AUDIO_KEY = "lfm3_audio_2b_q4_k_m";
 
 export function modelsForAttachment(name: string): string[] {
 	const suffix = path.extname(name).toLowerCase();

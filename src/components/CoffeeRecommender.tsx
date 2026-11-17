@@ -52,13 +52,15 @@ import {
 } from "@/icons";
 import {
 	MODEL_LABEL_BY_KEY,
+	allowedAudioModelsForTier,
 	allowedTextModelsForTier,
 	allowedVisionModelsForTier,
+	tierAllowsModel,
 	tierCanUseThinkingModel,
+	OMNI_MODEL_2B,
 	TEXT_MODEL_230M,
-	TEXT_MODEL_1_2B_THINKING,
-	TEXT_MODEL_8B,
-	VISION_MODEL_450M,
+	TEXT_MODEL_1_7B,
+	VISION_MODEL_2B,
 	type TextModelKey,
 	type VisionModelKey,
 } from "@/lib/modelAccess";
@@ -164,26 +166,27 @@ type StylizedModelInfo = {
 	accent: "lfm" | "minilm" | "clip";
 };
 
-type ModelUsageKey = "lfm2" | "lfm2Thinking" | "lfm2Vision" | "lfm2Audio" | "other";
+type ModelUsageKey = "lfm2" | "lfm2Thinking" | "lfm2Vision" | "lfm2Audio" | "lfm2Omni" | "other";
 
 const MODEL_USAGE_LABEL_BY_KEY: Record<ModelUsageKey, string> = {
-	lfm2: "LFM 2.5",
-	lfm2Thinking: "LFM 2.5 Thinking",
-	lfm2Vision: "LFM 2.5 VL",
-	lfm2Audio: "LFM 2.5 Audio",
+	lfm2: "LFM 3",
+	lfm2Thinking: "LFM 3 Thinking",
+	lfm2Vision: "LFM 3 VL",
+	lfm2Audio: "LFM 3 Audio",
+	lfm2Omni: "LFM 3 Omni",
 	other: "Other / Fallback",
 };
 
 /**
- * Buckets an assistant message's `modelUsed` into one of the five keys
+ * Buckets an assistant message's `modelUsed` into one of the six keys
  * `KafelotUsage` renders.
  *
  * `modelUsed` is the display label the gateway echoes back, i.e. a value from
- * `MODEL_LABEL_BY_KEY` ("LFM 2.5 230M", "LFM 2.5 1.2B Thinking", "LFM 2.5 VL
- * 450M", "LFM 2.5 Audio 1.5B"). Order matters: the specific modalities are tested
- * before the generic text bucket.
+ * `MODEL_LABEL_BY_KEY` ("LFM 3 1.7B", "LFM 3 1.7B Thinking", "LFM 3 VL 2B",
+ * "LFM 3 Audio 2B", "LFM 3 Omni 2B"). Order matters: the specific modalities are
+ * tested before the generic text bucket.
  *
- * The pre-LFM names are still recognised on purpose -- conversations saved before
+ * The LFM 2.5 names are still recognised on purpose -- conversations saved before
  * the model swap carry the old `modelUsed` strings, and without this they would
  * all collapse into "Other".
  */
@@ -193,6 +196,7 @@ function detectModelUsageKey(rawModel?: string): ModelUsageKey {
 		.toLowerCase();
 
 	if (!normalized) return "other";
+	if (normalized.includes("omni")) return "lfm2Omni";
 	if (normalized.includes("audio")) return "lfm2Audio";
 	if (normalized.includes("thinking") || normalized.includes("qwen 3 thinking")) return "lfm2Thinking";
 	if (normalized.includes("vl") || normalized.includes("vision")) return "lfm2Vision";
@@ -214,9 +218,9 @@ function getStylizedModelInfo(rawModel?: string): StylizedModelInfo {
 	const source = String(rawModel || "").trim();
 	const normalized = source.toLowerCase();
 
-	// --- Current lineup: LFM 2.5 labels, i.e. MODEL_LABEL_BY_KEY values ---
+	// --- Current lineup: LFM 3 labels, i.e. MODEL_LABEL_BY_KEY values ---
 	// Handled first and derived from the model's own label so the size survives
-	// ("LFM 2.5 8B A1B" stays "LFM 2.5 8B A1B"). Only the availability marker is
+	// ("LFM 3 1.7B" stays "LFM 3 1.7B"). Only the availability marker is
 	// appended.
 	const suffix = normalized.includes("unavailable")
 		? " (Unavailable)"
@@ -228,7 +232,7 @@ function getStylizedModelInfo(rawModel?: string): StylizedModelInfo {
 			.replace(/\s*\(?\s*(unavailable|locked|unauthorized)\s*\)?\s*$/i, "")
 			.trim();
 		const accent = normalized.includes(" vl") || normalized.includes("vision") ? "clip" : "lfm";
-		return { label: `${base || "LFM 2.5"}${suffix}`, accent };
+		return { label: `${base || "LFM 3"}${suffix}`, accent };
 	}
 	if (normalized.includes("minilm")) {
 		return {
@@ -238,7 +242,7 @@ function getStylizedModelInfo(rawModel?: string): StylizedModelInfo {
 	}
 	// Vision before the legacy text names, since "Qwen 3 Vision" contains "qwen 3".
 	if (normalized.includes("vision") || normalized.includes("clip")) {
-		return { label: `LFM 2.5 VL${suffix}`, accent: "clip" };
+		return { label: `LFM 3 VL${suffix}`, accent: "clip" };
 	}
 
 	// --- Legacy names, retained so conversations saved before the LFM swap still
@@ -690,7 +694,7 @@ export default React.memo(function CoffeeRecommender() {
 	// synchronous setState during commit.
 	const [selectedModelIntent, setSelectedModelIntent] = useState<TextModelKey>(TEXT_MODEL_230M);
 	const [selectedVisionModelIntent, setSelectedVisionModelIntent] =
-		useState<VisionModelKey>(VISION_MODEL_450M);
+		useState<VisionModelKey>(VISION_MODEL_2B);
 	const [chemistryMode, setChemistryMode] = useState(false);
 	const [thinkingEnabledByHelper, setThinkingEnabledByHelper] = useState<Record<HelperMode, boolean>>({
 		coffee_helper: false,
@@ -794,6 +798,7 @@ export default React.memo(function CoffeeRecommender() {
 			lfm2Thinking: 0,
 			lfm2Vision: 0,
 			lfm2Audio: 0,
+			lfm2Omni: 0,
 			other: 0,
 		};
 
@@ -819,7 +824,7 @@ export default React.memo(function CoffeeRecommender() {
 						: 0;
 				return acc;
 			},
-			{ lfm2: 0, lfm2Thinking: 0, lfm2Vision: 0, lfm2Audio: 0, other: 0 } as Record<ModelUsageKey, number>,
+			{ lfm2: 0, lfm2Thinking: 0, lfm2Vision: 0, lfm2Audio: 0, lfm2Omni: 0, other: 0 } as Record<ModelUsageKey, number>,
 		);
 
 		const buildPromptScopeStats = (scope: PromptScope): PromptScopeStats => {
@@ -876,15 +881,17 @@ export default React.memo(function CoffeeRecommender() {
 
 	const allowedTextModels = useMemo(() => allowedTextModelsForTier(userSubscription), [userSubscription]);
 	const allowedVisionModels = useMemo(() => allowedVisionModelsForTier(userSubscription), [userSubscription]);
+	const allowedAudioModels = useMemo(() => allowedAudioModelsForTier(userSubscription), [userSubscription]);
+	const hasOmniAccess = useMemo(() => tierAllowsModel(userSubscription, OMNI_MODEL_2B), [userSubscription]);
 	// Derived, not synchronised: if the tier no longer entitles the stored choice,
 	// fall back to the first allowed model during render instead of writing state.
-	const selectedModel = selectedModelIntent !== TEXT_MODEL_8B && allowedTextModels.includes(selectedModelIntent)
+	const selectedModel = allowedTextModels.includes(selectedModelIntent)
 		? selectedModelIntent
 		: (allowedTextModels[0] ?? TEXT_MODEL_230M);
 	const selectedVisionModel =
 		allowedVisionModels.includes(selectedVisionModelIntent)
 			? selectedVisionModelIntent
-			: (allowedVisionModels[0] ?? VISION_MODEL_450M);
+			: (allowedVisionModels[0] ?? VISION_MODEL_2B);
 
 	// Which model the next message will actually be metered against. An image
 	// request is served by the vision model, so that is the allowance that matters --
@@ -907,15 +914,11 @@ export default React.memo(function CoffeeRecommender() {
 	// object on every render.
 	const { waitUntilLoaded } = modelLoad;
 	const hasVisionAccess = allowedVisionModels.length > 0;
-	// Entitlement to the 1.2B Thinking model. This previously hardcoded
-	// `max || ultimate`, which contradicted the canonical table and denied Pro a
-	// model Pro is entitled to.
+	// Entitlement to the reasoning model. LFM 3 1.7B is the only model that emits
+	// visible reasoning; the LFM 2.5 thinking GGUFs are retired.
 	const hasThinkingAccess = useMemo(() => tierCanUseThinkingModel(userSubscription), [userSubscription]);
-	const has8BAccess = useMemo(() => allowedTextModels.includes(TEXT_MODEL_8B), [allowedTextModels]);
-	// Thinking is its own model in the LFM 2.5 lineup (1.2B Thinking), not a mode
-	// of the chat model. So the toggle is eligible for any entitled model except
-	// the thinking model itself, which already thinks.
-	const thinkingEligibleModel = hasThinkingAccess && selectedModel !== TEXT_MODEL_1_2B_THINKING;
+	// Thinking is a capability of LFM 3 1.7B, not a separate GGUF.
+	const thinkingEligibleModel = hasThinkingAccess && selectedModel === TEXT_MODEL_1_7B;
 	const hasVisionAutoConvert = useMemo(() => tierCanAutoConvertVisionImage(userSubscription), [userSubscription]);
 	const maxImagesPerPrompt = useMemo(
 		() => (chemistryMode ? 1 : coffeeHelperImageLimitForTier(userSubscription)),
@@ -2835,9 +2838,9 @@ export default React.memo(function CoffeeRecommender() {
 										</div>
 										<div className="model-access-list">
 											{allowedTextModels.map((modelKey) => (
-													<span key={modelKey} className="model-access-chip lfm" style={modelKey === TEXT_MODEL_8B ? { opacity: 0.55 } : undefined}>
+													<span key={modelKey} className="model-access-chip lfm">
 													<BrandLiquidIcon size={13} />
-															{MODEL_LABEL_BY_KEY[modelKey]}{modelKey === TEXT_MODEL_8B ? " · Coming soon" : ""}
+															{MODEL_LABEL_BY_KEY[modelKey]}
 												</span>
 											))}
 											{hasVisionAccess ? (
@@ -2851,6 +2854,16 @@ export default React.memo(function CoffeeRecommender() {
 													<LockIcon size={12} /> Vision locked on Free tier
 												</span>
 											)}
+											{allowedAudioModels.map((audioKey) => (
+												<span key={audioKey} className="model-access-chip lfm">
+													<BrandLiquidIcon size={13} /> {MODEL_LABEL_BY_KEY[audioKey]}
+												</span>
+											))}
+											{hasOmniAccess ? (
+												<span className="model-access-chip lfm">
+													<BrandLiquidIcon size={13} /> {MODEL_LABEL_BY_KEY[OMNI_MODEL_2B]}
+												</span>
+											) : null}
 											<ModelLoadingBar modelKey={selectedModel} state={modelLoad} compact />
 										</div>
 										<p
@@ -2862,15 +2875,17 @@ export default React.memo(function CoffeeRecommender() {
 										>
 											{chemistryMode
 												? hasVisionAccess
-													? "Molecule Helper supports text chemistry plus LFM 2.5 VL vision analysis."
+													? "Molecule Helper supports text chemistry plus LFM 3 VL vision analysis."
 													: "Molecule Helper text chemistry is available. Vision uploads require PLUS or higher."
-												: has8BAccess
-															? "ULTIMATE includes the available LFM 2.5 and Audio models; 8B A1B is coming soon."
-													: hasThinkingAccess
-														? "PRO can choose the 1.2B Thinking model and enable Thinking mode."
+												: hasOmniAccess
+													? "ULTIMATE includes every LFM 3 model: 1.7B, VL, Audio and Omni."
+													: allowedAudioModels.length > 0
+														? "MAX includes LFM 3 1.7B, VL and Audio."
 														: hasVisionAccess
-															? "PLUS can choose the 1.2B Instruct model and LFM 2.5 VL vision."
-															: "FREE and BASIC use the fastest LFM 2.5 model."}
+															? "This plan includes LFM 3 1.7B and LFM 3 VL vision."
+															: hasThinkingAccess
+																? "This plan includes LFM 3 1.7B with optional reasoning."
+																: "FREE uses the fastest LFM 2.5 230M model."}
 										</p>
 										{!isLoggedIn && (
 											<p
@@ -2903,8 +2918,8 @@ export default React.memo(function CoffeeRecommender() {
 										}}
 									>
 										{allowedTextModels.map((modelKey) => (
-											<option key={modelKey} value={modelKey} disabled={modelKey === TEXT_MODEL_8B}>
-												{MODEL_LABEL_BY_KEY[modelKey]}{modelKey === TEXT_MODEL_8B ? " · Coming soon" : ""}
+											<option key={modelKey} value={modelKey}>
+												{MODEL_LABEL_BY_KEY[modelKey]}
 											</option>
 										))}
 									</select>
@@ -2928,7 +2943,7 @@ export default React.memo(function CoffeeRecommender() {
 											opacity: hasVisionAccess ? 1 : 0.6,
 										}}
 									>
-										{(hasVisionAccess ? allowedVisionModels : [VISION_MODEL_450M]).map((visionKey) => (
+										{(hasVisionAccess ? allowedVisionModels : [VISION_MODEL_2B]).map((visionKey) => (
 											<option key={visionKey} value={visionKey}>
 												{MODEL_LABEL_BY_KEY[visionKey as VisionModelKey]}
 											</option>
@@ -2949,8 +2964,8 @@ export default React.memo(function CoffeeRecommender() {
 											hasThinkingAccess
 												? thinkingEligibleModel
 													? "Enable or disable Thinking for this helper."
-													: "The 1.2B Thinking model already thinks."
-												: "Thinking mode requires a PRO, MAX, or ULTIMATE subscription."
+													: "Thinking is unavailable for this model."
+												: "Thinking mode requires a paid plan with LFM 3 1.7B."
 										}
 									>
 										<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
@@ -2969,8 +2984,8 @@ export default React.memo(function CoffeeRecommender() {
 									{hasThinkingAccess
 										? thinkingEligibleModel
 											? "Thinking is saved separately for Coffee Helper and Molecule Helper. You can still use /think or /no_think per message."
-											: "The 1.2B Thinking model always thinks, so the toggle is not needed."
-										: "Thinking mode requires a PRO, MAX, or ULTIMATE subscription."}
+											: "Thinking is a capability of LFM 3 1.7B; select it to enable the toggle."
+										: "Thinking mode requires a paid plan with LFM 3 1.7B."}
 								</p>
 
 								{chemistryMode && (

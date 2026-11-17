@@ -141,7 +141,7 @@ test("invalid, unsettled, out-of-mode and unsafe-path proposals never become rev
 test("invalid contexts, models and prompts fail without changing generation preferences", () => {
 	for (const invalid of [{ ...context, inputContextTokens: 2000 }, { ...context, model: "unknown_model" }, { ...context, sessionUuid: "../other" }])
 		assert.throws(() => buildProposalReview(invalid, "plan", "Inspect."));
-	assert.equal(buildProposalReview({ ...context, model: "lfm2_5_audio_1_5b_q4_0" }, "plan", "Inspect.").model, "lfm2_5_audio_1_5b_q4_0");
+	assert.equal(buildProposalReview({ ...context, model: "lfm3_audio_2b_q4_k_m" }, "plan", "Inspect.").model, "lfm3_audio_2b_q4_k_m");
 	assert.throws(() => buildProposalReview(context, "plan", "x".repeat(8001)));
 	assert.throws(() => buildProposalReview(context, "plan", "\uD800"));
 	assert.equal(context.inputContextTokens, 16_384);

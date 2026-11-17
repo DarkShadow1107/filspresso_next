@@ -13,7 +13,7 @@ import { USAGE_SCOPES, normalizeUsageScope } from "./kafelot.service";
  * unspent. One budget, one meter.
  *
  * Entitlement survives the change, and has to: it is the only thing stopping a free
- * account from reaching the 8B A1B. So this is a membership matrix, not a quota.
+ * account from reaching the LFM 3 family. So this is a membership matrix, not a quota.
  *
  * It lives in the backend and is fetched, not copied into `src/lib/modelAccess.ts` --
  * see `billing/model-pricing.ts` for why a duplicated money table is worse than a
@@ -21,15 +21,11 @@ import { USAGE_SCOPES, normalizeUsageScope } from "./kafelot.service";
  */
 // prettier-ignore
 export const MODEL_TIER_ACCESS: Record<string, Record<string, boolean>> = {
-	lfm2_5_230m_q4_k_m:           { free: true,  basic: true, plus: true,  pro: true,  max: true, ultimate: true },
-	lfm2_5_350m_q8_0:             {              basic: true, plus: true,  pro: true,  max: true, ultimate: true },
-	lfm2_5_1_2b_instruct_q4_k_m:  {                            plus: true,  pro: true,  max: true, ultimate: true },
-	lfm2_5_1_2b_thinking_q4_k_m:  {                                      pro: true,  max: true, ultimate: true },
-	lfm2_5_2_6b_q4_0:             {                                                  max: true, ultimate: true },
-	lfm2_5_8b_a1b_q4_k_m:         {                                                                ultimate: true },
-	lfm2_5_vl_450m_q4_k_m:        {                            plus: true,  pro: true,  max: true, ultimate: true },
-	lfm2_5_vl_3b_q4_k_m:          {                                                  max: true, ultimate: true },
-	lfm2_5_audio_1_5b_q4_0:       {                                                                ultimate: true },
+	lfm2_5_230m_q4_k_m:   { free: true },
+	lfm3_1_7b_q4_k_m:     {             basic: true, plus: true, pro: true, max: true, ultimate: true },
+	lfm3_vl_2b_q4_k_m:    {                          plus: true, pro: true, max: true, ultimate: true },
+	lfm3_audio_2b_q4_k_m: {                                                  max: true, ultimate: true },
+	lfm3_omni_2b_q4_k_m:  {                                                                ultimate: true },
 };
 
 /** True when the model is one we meter. Unknown keys are rejected, not ignored. */

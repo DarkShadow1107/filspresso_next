@@ -95,7 +95,7 @@ test("thinking budgets are validated and remain restricted for media and unsuppo
 	assert.equal(validateAgentRequest(request).thinking_level, "high");
 	assert.throws(() => validateAgentRequest({ ...request, thinking_level: "unbounded" }));
 	assert.equal((await service().gateway.agentTurn(42, "free", request, "playground")).kind, "refused");
-	const media = "lfm2_5_vl_450m_q4_k_m";
+	const media = "lfm3_vl_2b_q4_k_m";
 	process.env.PLAYGROUND_AGENT_MODEL_FILES += `,${playgroundModelFile(media)}`;
 	assert.equal((await service().gateway.agentTurn(42, "ultimate", { ...request, model: media }, "playground")).kind, "refused");
 }));

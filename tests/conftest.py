@@ -40,6 +40,10 @@ if str(REPO_ROOT) not in sys.path:
 
 import app as app_module  # noqa: E402  (import order is deliberate)
 
+# Contract clients are unauthenticated by design. Individual security tests
+# override this value with monkeypatch and exercise both valid and invalid keys.
+app_module.AI_SERVICE_KEY = ""
+
 
 class FakeResidency:
     """Stand-in for models/residency.py.ModelResidencyCoordinator.
@@ -157,10 +161,10 @@ class FakeTanka:
         # containers do not contend, while the same container does.
         self.text_services = {
             "MiniLM-L6-v2.gguf": "llama-minilm:8080",
-            "LFM2.5-230M-Q4_K_M.gguf": "llama-lfm-230m:8080",
-            "LFM2.5-2.6B-Q4_0.gguf": "llama-lfm-2-6b:8080",
+            "LFM2.5-230M-Q4_K_M.gguf": "llama-lfm:8080",
+            "LFM3-1.7B-Q4_K_M.gguf": "llama-lfm:8080",
         }
-        self.vision_services = {"LFM2.5-VL-450M-Q4_K_M.gguf": "llama-lfm-vl-450m:8080"}
+        self.vision_services = {"LFM3-VL-2B-Q4_K_M.gguf": "llama-lfm:8080"}
         # Token counts for the most recent generation. app.py reads this to build the
         # `usage` block it returns, so without it every chat test raised
         # AttributeError and the endpoint 500'd. Set per-test to assert on metering.
@@ -199,8 +203,8 @@ class FakeTanka:
     async def describe_image(self, image_bytes, *args, **kwargs):
         self.calls.append(("describe_image", (image_bytes,), kwargs))
         if not self.vision_available:
-            return "", "LFM 2 Vision unavailable high-demand"
-        return "A cup of coffee.", "LFM 2 Vision access"
+            return "", "LFM 3 Vision unavailable high-demand"
+        return "A cup of coffee.", "LFM 3 Vision access"
 
     def predict_molecule(self, image_bytes, *args, **kwargs):
         self.calls.append(("predict_molecule", (image_bytes,), kwargs))
@@ -281,7 +285,7 @@ class FakeTanka:
             "backend": "llama.cpp server",
             "base_url": "http://llama-lfm-230m:8080",
             "default_text_model": "LFM2.5-230M-Q4_K_M.gguf",
-            "default_vision_model": "LFM2.5-VL-450M-Q4_K_M.gguf",
+            "default_vision_model": "LFM3-VL-2B-Q4_K_M.gguf",
             "text_model_endpoints": {},
             "vision_model_endpoints": {},
             "loaded": self.text_available,
@@ -295,12 +299,12 @@ class FakeTanka:
     def coffee_text_model_used(self):
         if not self.text_available:
             return "MiniLM coffee fallback"
-        return "LFM 2.5 access"
+        return "LFM 3 access"
 
     def chemistry_text_model_used(self):
         if not self.text_available:
-            return "LFM 2.5 access (fallback)"
-        return "LFM 2.5 access"
+            return "LFM 3 access (fallback)"
+        return "LFM 3 access"
 
     def qwen_generation_mode(self):
         return "non-thinking"

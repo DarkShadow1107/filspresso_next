@@ -43,7 +43,7 @@ from conftest import (
 )
 
 LFM_TEXT_MODEL = "LFM2.5-230M-Q4_K_M.gguf"
-LFM_VISION_MODEL = "LFM2.5-VL-450M-Q4_K_M.gguf"
+LFM_VISION_MODEL = "LFM3-VL-2B-Q4_K_M.gguf"
 
 
 def _body(response):
@@ -412,7 +412,7 @@ def test_warmup_rejects_unknown_model_with_400(client, tanka_stub):
 
 
 def test_warmup_accepts_the_selectable_audio_model(client, tanka_stub):
-    response = client.post("/api/warmup", json={"model": "LFM2.5-Audio-1.5B-Q4_0.gguf", "vision": False})
+    response = client.post("/api/warmup", json={"model": "LFM3-Audio-2B-Q4_K_M.gguf", "vision": False})
     assert response.status_code == 200
     assert _body(response)["status"] in {"warming", "ready", "unavailable"}
 
@@ -612,19 +612,19 @@ def test_golden_baseline_exists_and_covers_every_probe():
 
 async def test_gate_keys_by_model_not_service_url(tanka_stub):
     """
-    All nine chat models share ONE llama.cpp router, so the URL no longer
+    All five chat models share ONE llama.cpp router, so the URL no longer
     distinguishes anything. The admission key must be the model itself, or
     every model would collapse into a single slot.
     """
     from app import _model_gate_key
 
     assert _model_gate_key("LFM2.5-230M-Q4_K_M.gguf") == "LFM2.5-230M-Q4_K_M.gguf"
-    assert _model_gate_key("LFM2.5-8B-A1B-Q4_K_M.gguf") == "LFM2.5-8B-A1B-Q4_K_M.gguf"
+    assert _model_gate_key("LFM3-1.7B-Q4_K_M.gguf") == "LFM3-1.7B-Q4_K_M.gguf"
     # Vision models are separate admission domains too.
-    assert _model_gate_key("LFM2.5-VL-450M-Q4_K_M.gguf", vision=True) == "LFM2.5-VL-450M-Q4_K_M.gguf"
+    assert _model_gate_key("LFM3-VL-2B-Q4_K_M.gguf", vision=True) == "LFM3-VL-2B-Q4_K_M.gguf"
     # Different models must not share a key, even though they share a URL.
     assert _model_gate_key("LFM2.5-230M-Q4_K_M.gguf") != _model_gate_key(
-        "LFM2.5-VL-450M-Q4_K_M.gguf", vision=True
+        "LFM3-VL-2B-Q4_K_M.gguf", vision=True
     )
 
 
@@ -930,15 +930,15 @@ async def test_deferred_warmup_releases_its_claim(tanka_stub):
 
     model = TankaModel()
     try:
-        state, claimed = await model.claim_warmup("LFM2.5-8B-A1B-Q4_K_M.gguf")
+        state, claimed = await model.claim_warmup("LFM3-1.7B-Q4_K_M.gguf")
         assert claimed is True
         assert state["status"] == "warming"
 
-        deferred = model.mark_warmup_deferred("LFM2.5-8B-A1B-Q4_K_M.gguf")
+        deferred = model.mark_warmup_deferred("LFM3-1.7B-Q4_K_M.gguf")
         assert deferred["status"] == "deferred", "the stuck-claim bug this guards"
 
         # A later attempt must be able to claim it again.
-        state2, claimed2 = await model.claim_warmup("LFM2.5-8B-A1B-Q4_K_M.gguf")
+        state2, claimed2 = await model.claim_warmup("LFM3-1.7B-Q4_K_M.gguf")
         assert claimed2 is True, "deferred warmup left the model unclaimable"
         assert state2["status"] == "warming"
     finally:
@@ -958,7 +958,7 @@ async def test_warmup_route_requests_a_load_for_the_model(tanka_stub):
     """
     async with await _asgi_client() as ac:
         posted = await ac.post(
-            "/api/warmup", json={"model": "LFM2.5-8B-A1B-Q4_K_M.gguf", "vision": False}
+            "/api/warmup", json={"model": "LFM3-1.7B-Q4_K_M.gguf", "vision": False}
         )
     assert posted.status_code == 200
     assert posted.json()["status"] in {"warming", "ready", "deferred"}
@@ -966,21 +966,21 @@ async def test_warmup_route_requests_a_load_for_the_model(tanka_stub):
     # The load is scheduled as a background task so the HTTP response is not held
     # open, so give that task a moment to run before asserting.
     for _ in range(50):
-        if "LFM2.5-8B-A1B-Q4_K_M.gguf" in tanka_stub.residency.load_requests:
+        if "LFM3-1.7B-Q4_K_M.gguf" in tanka_stub.residency.load_requests:
             break
         await asyncio.sleep(0.01)
 
     loads = tanka_stub.residency.load_requests
-    assert "LFM2.5-8B-A1B-Q4_K_M.gguf" in loads, (
+    assert "LFM3-1.7B-Q4_K_M.gguf" in loads, (
         "the warmup route must ask the coordinator to load the model"
     )
 
 
 async def test_empty_stream_carries_an_actionable_notice():
     """
-    LFM 2.5 spends max_tokens on `reasoning_content` before writing any content,
-    and reasoning shares the same budget. A small budget therefore yields an
-    answer with nothing in it. Without a `notice` the Playground can only render
+    A reasoning model spends max_tokens on `reasoning_content` before writing any
+    content, and reasoning shares the same budget. A small budget therefore yields
+    an answer with nothing in it. Without a `notice` the Playground can only render
     a bare "(empty response)" and the user has no idea what went wrong.
     """
     from app import sse_event_stream

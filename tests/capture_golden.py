@@ -27,8 +27,8 @@ import httpx
 
 GOLDEN_DIR = pathlib.Path(__file__).resolve().parent / "golden"
 
-LFM_TEXT_MODEL = "LFM2.5-2.6B-Q4_0.gguf"
-LFM_VISION_MODEL = "LFM2-VL-450M-Q4_0.gguf"
+LFM_TEXT_MODEL = "LFM3-1.7B-Q4_K_M.gguf"
+LFM_VISION_MODEL = "LFM3-VL-2B-Q4_K_M.gguf"
 
 # (name, method, path, json_body)
 PROBES: list[tuple[str, str, str, dict | None]] = [
@@ -37,7 +37,7 @@ PROBES: list[tuple[str, str, str, dict | None]] = [
     ("chat_chemistry", "POST", "/api/chat", {"message": "why", "mode": "chemistry", "text_model": LFM_TEXT_MODEL}),
     ("chat_missing_message", "POST", "/api/chat", {"mode": "natural_language"}),
     ("chat_invalid_mode", "POST", "/api/chat", {"message": "hi", "mode": "bogus"}),
-    # max_tokens must be comfortably above LFM 2.5's reasoning budget, otherwise
+    # max_tokens must be comfortably above the model's reasoning budget, otherwise
     # thinking consumes the whole allowance and no content delta is ever emitted.
     ("stream_ok", "POST", "/api/chat/stream", {"message": "hi", "text_model": LFM_TEXT_MODEL, "max_tokens": 400}),
     ("stream_missing_message", "POST", "/api/chat/stream", {"text_model": LFM_TEXT_MODEL}),

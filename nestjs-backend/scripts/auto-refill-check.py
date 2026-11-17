@@ -100,12 +100,17 @@ def get(path, cookie):
     return r.json()
 
 
-def spend(cookie, amount_ron_of_8b, request_id):
-    """Record usage on the 8B, which costs 20 RON per 1M input tokens before discount."""
-    tokens = int(amount_ron_of_8b / 20 * 1_000_000)
+def spend(cookie, amount_ron, request_id):
+    """Record usage on the 1.7B, priced at the doubled long-context rate.
+
+    Any request above 128K input is billed at 2x, so the token count is computed from
+    the doubled 30 RON per 1M rate. Small spends are lifted just above the threshold;
+    otherwise they would fall back to the undoubled 15 RON rate.
+    """
+    tokens = max(131_073, int(amount_ron / 30 * 1_000_000))
     return requests.post(f"{API}/api/billing/usage", timeout=60,
                          headers={"cookie": cookie, "origin": ORIGIN, "content-type": "application/json"},
-                         json={"modelKey": "lfm2_5_8b_a1b_q4_k_m", "inputTokens": tokens,
+                         json={"modelKey": "lfm3_1_7b_q4_k_m", "inputTokens": tokens,
                                "outputTokens": 0, "requestId": request_id})
 
 

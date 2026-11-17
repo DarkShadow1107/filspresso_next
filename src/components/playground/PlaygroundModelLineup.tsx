@@ -6,7 +6,7 @@ import {
 	MODEL_DESCRIPTION_BY_KEY,
 	MODEL_LABEL_BY_KEY,
 	MODEL_MODALITY_BY_KEY,
-	TEXT_MODEL_8B,
+	PLAYGROUND_MODEL_KEYS,
 	formatContextTokens,
 	normalizeModelTier,
 	type ModelKey,
@@ -54,27 +54,13 @@ type Price = { inputPer1M: number; outputPer1M: number };
 export type SpectreAccessState = "addon" | "tier" | "none";
 
 /** Cheapest first, so the list reads as a ladder. */
-const LINEUP: ModelKey[] = [
-	"lfm2_5_230m_q4_k_m",
-	"lfm2_5_350m_q8_0",
-	"lfm2_5_1_2b_instruct_q4_k_m",
-	"lfm2_5_1_2b_thinking_q4_k_m",
-	"lfm2_5_2_6b_q4_0",
-	"lfm2_5_8b_a1b_q4_k_m",
-	"lfm2_5_vl_450m_q4_k_m",
-	"lfm2_5_vl_3b_q4_k_m",
-	"lfm2_5_audio_1_5b_q4_0",
-];
-
-/** Models a Max plan may run but not out of its allowance. See billing-context.ts. */
-const ALLOWANCE_EXCLUDED: Partial<Record<UserSubscriptionTier, ReadonlySet<string>>> = {
-	max: new Set(["lfm2_5_8b_a1b_q4_k_m"]),
-};
+const LINEUP: ModelKey[] = [...PLAYGROUND_MODEL_KEYS];
 
 const MODALITY_LABEL: Record<string, string> = {
 	text: "Text",
 	vision: "Vision",
 	audio: "Audio",
+	omni: "Omni",
 };
 
 export default function PlaygroundModelLineup({
@@ -127,7 +113,7 @@ export default function PlaygroundModelLineup({
 	const hasAccess = access !== "none";
 
 	return (
-		<section className={`pgm-lineup${compact ? " pgm-lineup-compact" : ""}${!disclosure ? " pgm-lineup-static" : ""}`} aria-label="Model lineup">
+		<section className={`pgm-lineup${compact ? " pgm-lineup-compact" : ""}${!disclosure ? " pgm-lineup-static" : ""}`} aria-label="Model lineup" data-tier={resolved}>
 			{disclosure ? <button
 				type="button"
 				className="pgm-lineup-toggle"
@@ -147,17 +133,15 @@ export default function PlaygroundModelLineup({
 						// may run any of them. Kafelot keeps its own tier ladder -- the two surfaces
 						// are entitled differently on purpose.
 						const included = hasAccess;
-						const excludedFromAllowance =
-							access === "tier" && Boolean(ALLOWANCE_EXCLUDED[resolved]?.has(key));
 
 						return (
-							<li key={key} className="pgm-lineup-row" data-included={included && key !== TEXT_MODEL_8B} style={key === TEXT_MODEL_8B ? { opacity: 0.55 } : undefined}>
+							<li key={key} className="pgm-lineup-row" data-included={included}>
 								<span className="pgm-lineup-head">
 									<span className="pgm-lineup-icon">
 										<BrandLiquidIcon size={16} />
 									</span>
 									<span className="pgm-lineup-main">
-										<span className="pgm-lineup-name">{MODEL_LABEL_BY_KEY[key]}{key === TEXT_MODEL_8B ? " · Coming soon" : ""}</span>
+										<span className="pgm-lineup-name">{MODEL_LABEL_BY_KEY[key]}</span>
 										<span className="pgm-lineup-desc">{MODEL_DESCRIPTION_BY_KEY[key]}</span>
 									</span>
 								</span>
@@ -171,20 +155,13 @@ export default function PlaygroundModelLineup({
 									<span className="pgm-lineup-context">
 										{formatContextTokens(MODEL_CONTEXT_TOKENS[key])} ctx
 									</span>
-									{key !== TEXT_MODEL_8B && prices[key] && (
+									{prices[key] && (
 										<span
 											className="pgm-lineup-price"
 											title={
 												`API list price: ${prices[key].inputPer1M.toFixed(2)} RON per 1M input tokens, ` +
-												`${prices[key].outputPer1M.toFixed(2)} RON per 1M output tokens. This is what a message costs ` +
-												`in the Playground, for every plan.` +
-												// The one billing fact that is genuinely plan-specific, kept in the
-												// tooltip rather than on the row: the line-up carries no plan copy at
-												// all, so this is the only place a Max customer can find out that the
-												// 8B will not come out of their allowance.
-												(excludedFromAllowance
-													? " Your plan's allowance does not cover this model -- usage is billed to your wallet."
-													: "")
+												`${prices[key].outputPer1M.toFixed(2)} RON per 1M output tokens, for the first 128K tokens. ` +
+												`Above 128K the rate doubles. This is what a message costs in the Playground, for every plan.`
 											}
 										>
 											API price

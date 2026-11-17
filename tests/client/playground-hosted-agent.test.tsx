@@ -154,7 +154,7 @@ test("server date accepts the server's read-only challenge and respects ask-firs
 });
 
 test("a completed conversation can switch models without reusing approvals", async () => {
-	const state = setup(); const second = "lfm2_5_2_6b_q4_0";
+	const state = setup(); const second = "lfm3_1_7b_q4_k_m";
 	state.io.models = async () => [context.model, second]; state.replies.push(response(), response());
 	await state.workspace.check(); await state.workspace.startSandbox();
 	await state.workspace.run(context, "build", "First question");

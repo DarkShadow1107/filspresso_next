@@ -115,7 +115,7 @@ def drain_allowance(cookie):
         last = requests.post(f"{API}/api/billing/usage", timeout=60,
                              headers={"cookie": cookie, "origin": ORIGIN,
                                       "content-type": "application/json"},
-                             json={"modelKey": "lfm2_5_8b_a1b_q4_k_m",
+                             json={"modelKey": "lfm3_1_7b_q4_k_m",
                                    "inputTokens": 100_000_000, "outputTokens": 0,
                                    "requestId": f"gate-{secrets.token_hex(5)}"})
         alw = allowance(cookie)
@@ -178,7 +178,7 @@ def main():
     requests.post(f"{API}/api/billing/usage", timeout=60,
                   headers={"x-kafelot-fingerprint": fp, "origin": ORIGIN,
                            "content-type": "application/json"},
-                  json={"modelKey": "lfm2_5_8b_a1b_q4_k_m", "inputTokens": 100_000_000,
+                  json={"modelKey": "lfm3_1_7b_q4_k_m", "inputTokens": 100_000_000,
                         "outputTokens": 0, "requestId": f"gate-anon-{secrets.token_hex(5)}"})
     r = preflight(fingerprint=fp)
     check("refused once the anonymous allowance is gone", r.status_code == 402, f"HTTP {r.status_code}")

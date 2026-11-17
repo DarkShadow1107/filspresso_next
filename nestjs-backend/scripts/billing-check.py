@@ -69,27 +69,24 @@ def main():
         return 1
 
     check("currency is RON", body.get("currency") == "RON", str(body.get("currency")))
-    check("output is 5x input", body.get("outputMultiplier") == 5, str(body.get("outputMultiplier")))
+    check("no misleading global output multiplier is published", body.get("outputMultiplier") is None,
+          str(body.get("outputMultiplier")))
     check("anonymous is not a subscriber", body.get("subscriber") is False)
     by_key = {m["modelKey"]: m for m in body.get("models", [])}
-    check("all nine models priced", len(by_key) == 9, f"{len(by_key)} models")
+    check("all five models priced", len(by_key) == 5, f"{len(by_key)} models")
 
     expected = {
         "lfm2_5_230m_q4_k_m": (0.30, 1.50),
-        "lfm2_5_350m_q8_0": (0.50, 2.50),
-        "lfm2_5_1_2b_instruct_q4_k_m": (2.00, 10.00),
-        "lfm2_5_1_2b_thinking_q4_k_m": (3.00, 15.00),
-        "lfm2_5_2_6b_q4_0": (7.00, 35.00),
-        "lfm2_5_8b_a1b_q4_k_m": (20.00, 100.00),
-        "lfm2_5_vl_450m_q4_k_m": (1.00, 5.00),
-        "lfm2_5_vl_3b_q4_k_m": (10.00, 50.00),
-        "lfm2_5_audio_1_5b_q4_0": (5.00, 25.00),
+        "lfm3_1_7b_q4_k_m": (15.00, 60.00),
+        "lfm3_vl_2b_q4_k_m": (20.00, 80.00),
+        "lfm3_audio_2b_q4_k_m": (20.00, 80.00),
+        "lfm3_omni_2b_q4_k_m": (25.00, 100.00),
     }
     wrong = [f"{k}: got {by_key[k]['inputPer1M']}/{by_key[k]['outputPer1M']}"
              for k, (i, o) in expected.items()
              if k not in by_key or abs(by_key[k]["inputPer1M"] - i) > 1e-9
              or abs(by_key[k]["outputPer1M"] - o) > 1e-9]
-    check("anonymous sees the list price", not wrong, "; ".join(wrong) or "all nine correct")
+    check("anonymous sees the list price", not wrong, "; ".join(wrong) or "all five correct")
     check("anonymous is shown no discount field",
           all("subscriberDiscountPercent" not in m for m in body.get("models", [])))
 

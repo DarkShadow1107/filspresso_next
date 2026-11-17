@@ -381,18 +381,15 @@ except (TypeError, ValueError):
     AI_QUEUE_WAIT_SECONDS = 20.0
 
 from models.tanka import (  # noqa: E402  (kept next to the other model imports)
-    AUDIO_MODEL_1_5B,
+    AUDIO_MODEL_2B,
     AUDIO_MODEL_TAGS,
-    TEXT_MODEL_1_2B_INSTRUCT,
-    TEXT_MODEL_1_2B_THINKING,
+    OMNI_MODEL_2B,
+    OMNI_MODEL_TAGS,
+    TEXT_MODEL_1_7B,
     TEXT_MODEL_230M,
-    TEXT_MODEL_2_6B,
-    TEXT_MODEL_350M,
-    TEXT_MODEL_8B,
     TEXT_MODEL_MINILM,
     TEXT_MODEL_TAGS,
-    VISION_MODEL_3B,
-    VISION_MODEL_450M,
+    VISION_MODEL_2B,
     VISION_MODEL_TAGS,
 )
 
@@ -404,22 +401,20 @@ def _slug_model_name(name: str) -> str:
 def _text_model_tag(model_name: str, thinking: bool = False) -> str:
     """Display tag for a text model, built from the shared tag table.
 
-    Thinking is its own GGUF rather than a flag on a bigger model, so the base tag
-    comes from the model identity.
+    LFM 3 1.7B is the reasoning-capable model; thinking is a request flag rather
+    than a separate GGUF.
     """
     selected = (model_name or "").strip()
     tag = TEXT_MODEL_TAGS.get(selected, "Kafelot text access")
-    if selected == TEXT_MODEL_1_2B_THINKING:
+    if thinking and selected == TEXT_MODEL_1_7B:
         return f"{tag} (thinking)"
-    if thinking and selected == TEXT_MODEL_2_6B:
-        return "LFM 2.5 2.6B access (thinking)"
     return tag
 
 
 def _model_gate_key(model_name: str, vision: bool = False) -> str:
     """Admission key for a model.
 
-    Now the model filename, not the service URL: all nine chat models share one
+    Now the model filename, not the service URL: every chat model shares one
     llama.cpp router, so the URL no longer distinguishes anything.
     """
     return tanka.service_key(model_name, vision=vision)
@@ -920,7 +915,7 @@ async def chat(request: Request):
             request_id = form.get("request_id", "none")
             enable_thinking = _parse_optional_bool(form.get("enable_thinking"))
             text_model = (form.get("text_model") or TEXT_MODEL_MINILM).strip()
-            vision_model = (form.get("vision_model") or VISION_MODEL_450M).strip()
+            vision_model = (form.get("vision_model") or VISION_MODEL_2B).strip()
             # Only the entries carrying a filename are uploads; plain fields are strings.
             image_file = next((value for _key, value in form.multi_items() if hasattr(value, "filename")), None)
         else:
@@ -933,7 +928,7 @@ async def chat(request: Request):
             request_id = data.get("request_id", "none")
             enable_thinking = _parse_optional_bool(data.get("enable_thinking"))
             text_model = str(data.get("text_model") or TEXT_MODEL_MINILM).strip()
-            vision_model = str(data.get("vision_model") or VISION_MODEL_450M).strip()
+            vision_model = str(data.get("vision_model") or VISION_MODEL_2B).strip()
 
         if not TankaModel.is_valid_mode(mode):
             return json_response({"error": f"Invalid mode. Valid modes: {VALID_MODES}"}, 400)
@@ -1682,10 +1677,10 @@ async def sse_event_stream(chunks, enable_thinking: bool, model_name: str):
     "RuntimeError: generator ignored GeneratorExit" on every disconnect.
 
     A stream that produced no content at all carries a `notice` on the `done`
-    frame. LFM 2.5 spends `max_tokens` on `reasoning_content` before writing any
-    content, and reasoning shares the same budget, so a small budget yields an
-    answer with nothing in it. Without the notice the browser renders an empty
-    assistant bubble and the user has no idea why.
+    frame. A reasoning model spends `max_tokens` on `reasoning_content` before
+    writing any content, and reasoning shares the same budget, so a small budget
+    yields an answer with nothing in it. Without the notice the browser renders an
+    empty assistant bubble and the user has no idea why.
     """
     content_chunks = 0
     reasoning_chunks = 0
@@ -1697,8 +1692,8 @@ async def sse_event_stream(chunks, enable_thinking: bool, model_name: str):
             if channel == "usage":
                 usage = text
                 continue
-            # LFM 2.5 emits thinking into `reasoning_content` regardless of the
-            # reasoning switch, so hide it unless thinking was requested.
+            # Reasoning models emit thinking into `reasoning_content` regardless of
+            # the reasoning switch, so hide it unless thinking was requested.
             if channel == "reasoning":
                 reasoning_chunks += 1
                 if not enable_thinking:
@@ -1795,7 +1790,7 @@ async def playground_agent_turn(request: Request):
         playground_agent.require(isinstance(data, dict))
         model = data.get("text_model")
         playground_agent.require(isinstance(model, str))
-        if model not in playground_agent.enabled_model_files({**TEXT_MODEL_TAGS, **VISION_MODEL_TAGS, **AUDIO_MODEL_TAGS}):
+        if model not in playground_agent.enabled_model_files({**TEXT_MODEL_TAGS, **VISION_MODEL_TAGS, **AUDIO_MODEL_TAGS, **OMNI_MODEL_TAGS}):
             return json_response({"error": "AGENT_DISABLED", "message": "Agent tools are not enabled for this model."}, 503)
         if data.get("thinking_level", "off") != "off" and model not in TEXT_MODEL_TAGS:
             return json_response({"error": "THINKING_UNAVAILABLE", "message": "Thinking budgets are available for text models only."}, 400)
@@ -1885,7 +1880,7 @@ async def chat_stream(request: Request):
       {
         "message": "...",
         "system_prompt": "optional",
-        "text_model": "LFM2.5-2.6B-Q4_0.gguf",
+        "text_model": "LFM3-1.7B-Q4_K_M.gguf",
         "temperature": 0.7,
         "max_tokens": 512,
         "enable_thinking": false
@@ -2033,7 +2028,7 @@ async def warmup(request: Request):
     does not pay the cold-load latency.
 
     JSON body:
-      { "model": "LFM2.5-2.6B-Q4_0.gguf", "vision": false }
+      { "model": "LFM3-1.7B-Q4_K_M.gguf", "vision": false }
 
     The load runs on a background thread and this returns as soon as it is
     scheduled, so callers poll GET /api/warmup?model=... for the result.
@@ -2042,8 +2037,8 @@ async def warmup(request: Request):
     requested_model = str((data or {}).get("model") or "").strip()
     vision = _parse_optional_bool((data or {}).get("vision")) or False
 
-    allowed = VISION_MODEL_TAGS if vision else {**TEXT_MODEL_TAGS, **AUDIO_MODEL_TAGS}
-    selected = requested_model or (VISION_MODEL_450M if vision else TEXT_MODEL_230M)
+    allowed = VISION_MODEL_TAGS if vision else {**TEXT_MODEL_TAGS, **AUDIO_MODEL_TAGS, **OMNI_MODEL_TAGS}
+    selected = requested_model or (VISION_MODEL_2B if vision else TEXT_MODEL_230M)
 
     known = {name.lower() for name in allowed}
     if selected.lower() not in known:
@@ -2265,13 +2260,13 @@ async def health(request: Request):
             "error": qwen_meta.get("error", ""),
             "runtime_note": (
                 "Chemistry text requests use subscription-selected GGUF models "
-                "(MiniLM-L6-v2, LFM2.5-2.6B, LFM2.5-2.6B Thinking, Gemma3-1B)."
+                "(MiniLM-L6-v2, LFM 3 1.7B, LFM 3 1.7B Thinking)."
             ),
         },
         "image_model": {
-            "backend": "subscription-selected vision GGUF model (LFM2-VL)",
+            "backend": "subscription-selected vision GGUF model (LFM 3 VL)",
             "loaded": qwen_meta.get("status") == "ready",
-            "default_model": qwen_meta.get("default_vision_model", VISION_MODEL_450M),
+            "default_model": qwen_meta.get("default_vision_model", VISION_MODEL_2B),
         },
         "database": "postgresql",
         # Backpressure visibility: which llama.cpp slot is busy, how many requests

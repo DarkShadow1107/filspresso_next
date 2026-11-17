@@ -81,11 +81,12 @@ def main():
           f"{a.get('remainingRon')} then {b.get('remainingRon')}")
 
     print("\n=== the allowance is exhausted, never overdrawn ===")
-    # 1M in + 1M out on the 2.6B is 42 RON, far past 3.
+    # 1M in + 1M out on the 1.7B is (15 + 60) * 2 = 150 RON: above the 128K threshold,
+    # so the whole request is billed at the doubled long-context rate. Far past 3.
     status, big = req("/api/billing/usage", "POST", {
-        "modelKey": "lfm2_5_2_6b_q4_0", "inputTokens": 1_000_000,
+        "modelKey": "lfm3_1_7b_q4_k_m", "inputTokens": 1_000_000,
         "outputTokens": 1_000_000, "requestId": f"anon-{secrets.token_hex(5)}"}, fingerprint=fp)
-    check("cost is still recorded at 42 RON", abs(big.get("costRon", 0) - 42.0) < 1e-6,
+    check("cost is still recorded at 150 RON", abs(big.get("costRon", 0) - 150.0) < 1e-6,
           f"{big.get('costRon')} RON")
     check("the allowance covers only what is left",
           abs(big.get("allowanceAppliedRon", 0) - big.get("remainingRon", 0)) < 1e-6 or

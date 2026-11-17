@@ -29,7 +29,6 @@ import {
 	allowedVisionModelsForTier,
 	tierAllowsModel,
 	tierCanUseThinkingModel,
-	monthlyLimitForModelTier,
 	type ModelKey,
 	type UserSubscriptionTier,
 } from "../src/lib/modelAccess";
@@ -215,12 +214,13 @@ test("direct uploads are a strict subset of allowed uploads", () => {
 	assert.equal(needsVisionAutoConvert("image/jpeg", "jpg"), false);
 });
 
-test("thinking is PRO+ per the canonical model table", () => {
+test("thinking follows the LFM 3 1.7B entitlement", () => {
 	for (const tier of TIERS) {
-		assert.equal(tierCanUseThinkingModel(tier), tierAllowsModel(tier, "lfm2_5_1_2b_thinking_q4_k_m"), tier);
+		assert.equal(tierCanUseThinkingModel(tier), tierAllowsModel(tier, "lfm3_1_7b_q4_k_m"), tier);
 	}
-	// The hand-rolled check this replaced hardcoded max||ultimate and denied Pro.
+	// LFM 3 1.7B is the reasoning-capable model and every paid plan has it.
 	assert.equal(tierCanUseThinkingModel("pro"), true);
+	assert.equal(tierCanUseThinkingModel("free"), false);
 });
 
 test("chat memory allowances are defined for every tier", () => {
@@ -243,7 +243,7 @@ test("tier predicates tolerate the raw strings a server route receives", () => {
 
 test("MODEL_TIERS and the feature predicates agree on vision", () => {
 	for (const tier of TIERS) {
-		const derived = MODEL_TIERS["lfm2_5_vl_450m_q4_k_m"].includes(tier);
+		const derived = MODEL_TIERS["lfm3_vl_2b_q4_k_m"].includes(tier);
 		assert.equal(tierHasVisionAccess(tier), derived, tier);
 	}
 });

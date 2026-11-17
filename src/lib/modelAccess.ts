@@ -1,5 +1,5 @@
 /**
- * Canonical Kafelot model access table.
+ * Canonical model access table.
  *
  * The tier -> model mapping must agree across the Kafelot UI (which decides
  * what to render) and every server route that acts on a model key (which
@@ -10,93 +10,68 @@
  * check happens against the live session in the backend, and /api/python-chat
  * re-resolves the requested model through these same tables before proxying.
  *
- * Lineup note: the previous Gemma 3 1B and LFM 2 Vision 450M entries are gone.
- * MiniLM-L6-v2 is still loaded, but as the internal retrieval embedder for
- * coffee_facts -- it is no longer offered as a chat model.
+ * Lineup note: the LFM 2.5 350M, 1.2B, 2.6B, 8B A1B, VL and Audio entries are
+ * retired. LFM 2.5 230M remains for the Free plan only; every paid plan uses the
+ * LFM 3 family. All LFM 3 models are served with a 256K context window.
  */
 
 export const TEXT_MODEL_230M = "lfm2_5_230m_q4_k_m";
-export const TEXT_MODEL_350M = "lfm2_5_350m_q8_0";
-export const TEXT_MODEL_1_2B_INSTRUCT = "lfm2_5_1_2b_instruct_q4_k_m";
-export const TEXT_MODEL_1_2B_THINKING = "lfm2_5_1_2b_thinking_q4_k_m";
-export const TEXT_MODEL_2_6B = "lfm2_5_2_6b_q4_0";
-export const TEXT_MODEL_8B = "lfm2_5_8b_a1b_q4_k_m";
-export const VISION_MODEL_450M = "lfm2_5_vl_450m_q4_k_m";
-export const VISION_MODEL_3B = "lfm2_5_vl_3b_q4_k_m";
-export const AUDIO_MODEL_1_5B = "lfm2_5_audio_1_5b_q4_0";
+export const TEXT_MODEL_1_7B = "lfm3_1_7b_q4_k_m";
+export const VISION_MODEL_2B = "lfm3_vl_2b_q4_k_m";
+export const AUDIO_MODEL_2B = "lfm3_audio_2b_q4_k_m";
+export const OMNI_MODEL_2B = "lfm3_omni_2b_q4_k_m";
 
-export type TextModelKey =
-	| typeof TEXT_MODEL_230M
-	| typeof TEXT_MODEL_350M
-	| typeof TEXT_MODEL_1_2B_INSTRUCT
-	| typeof TEXT_MODEL_1_2B_THINKING
-	| typeof TEXT_MODEL_2_6B
-	| typeof TEXT_MODEL_8B;
-export type VisionModelKey = typeof VISION_MODEL_450M | typeof VISION_MODEL_3B;
-export type AudioModelKey = typeof AUDIO_MODEL_1_5B;
-export type ModelKey = TextModelKey | VisionModelKey | AudioModelKey;
+export type TextModelKey = typeof TEXT_MODEL_230M | typeof TEXT_MODEL_1_7B;
+export type VisionModelKey = typeof VISION_MODEL_2B;
+export type AudioModelKey = typeof AUDIO_MODEL_2B;
+export type OmniModelKey = typeof OMNI_MODEL_2B;
+export type ModelKey = TextModelKey | VisionModelKey | AudioModelKey | OmniModelKey;
 
-export type ModelModality = "text" | "vision" | "audio";
+export type ModelModality = "text" | "vision" | "audio" | "omni";
 
 export type UserSubscriptionTier = "none" | "free" | "basic" | "plus" | "pro" | "max" | "ultimate";
 
 /** GGUF file name the Python AI service expects for each model key. */
 export const MODEL_FILE_BY_KEY: Record<ModelKey, string> = {
 	[TEXT_MODEL_230M]: "LFM2.5-230M-Q4_K_M.gguf",
-	[TEXT_MODEL_350M]: "LFM2.5-350M-Q8_0.gguf",
-	[TEXT_MODEL_1_2B_INSTRUCT]: "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
-	[TEXT_MODEL_1_2B_THINKING]: "LFM2.5-1.2B-Thinking-Q4_K_M.gguf",
-	[TEXT_MODEL_2_6B]: "LFM2.5-2.6B-Q4_0.gguf",
-	[TEXT_MODEL_8B]: "LFM2.5-8B-A1B-Q4_K_M.gguf",
-	[VISION_MODEL_450M]: "LFM2.5-VL-450M-Q4_K_M.gguf",
-	[VISION_MODEL_3B]: "LFM2.5-VL-3B-Q4_K_M.gguf",
-	[AUDIO_MODEL_1_5B]: "LFM2.5-Audio-1.5B-Q4_0.gguf",
+	[TEXT_MODEL_1_7B]: "LFM3-1.7B-Q4_K_M.gguf",
+	[VISION_MODEL_2B]: "LFM3-VL-2B-Q4_K_M.gguf",
+	[AUDIO_MODEL_2B]: "LFM3-Audio-2B-Q4_K_M.gguf",
+	[OMNI_MODEL_2B]: "LFM3-Omni-2B-Q4_K_M.gguf",
 };
 
 export const MODEL_LABEL_BY_KEY: Record<ModelKey, string> = {
 	[TEXT_MODEL_230M]: "LFM 2.5 230M",
-	[TEXT_MODEL_350M]: "LFM 2.5 350M",
-	[TEXT_MODEL_1_2B_INSTRUCT]: "LFM 2.5 1.2B Instruct",
-	[TEXT_MODEL_1_2B_THINKING]: "LFM 2.5 1.2B Thinking",
-	[TEXT_MODEL_2_6B]: "LFM 2.5 2.6B",
-	[TEXT_MODEL_8B]: "LFM 2.5 8B A1B",
-	[VISION_MODEL_450M]: "LFM 2.5 VL 450M",
-	[VISION_MODEL_3B]: "LFM 2.5 VL 3B",
-	[AUDIO_MODEL_1_5B]: "LFM 2.5 Audio 1.5B",
+	[TEXT_MODEL_1_7B]: "LFM 3 1.7B",
+	[VISION_MODEL_2B]: "LFM 3 VL 2B",
+	[AUDIO_MODEL_2B]: "LFM 3 Audio 2B",
+	[OMNI_MODEL_2B]: "LFM 3 Omni 2B",
 };
 
 export const MODEL_MODALITY_BY_KEY: Record<ModelKey, ModelModality> = {
 	[TEXT_MODEL_230M]: "text",
-	[TEXT_MODEL_350M]: "text",
-	[TEXT_MODEL_1_2B_INSTRUCT]: "text",
-	[TEXT_MODEL_1_2B_THINKING]: "text",
-	[TEXT_MODEL_2_6B]: "text",
-	[TEXT_MODEL_8B]: "text",
-	[VISION_MODEL_450M]: "vision",
-	[VISION_MODEL_3B]: "vision",
-	[AUDIO_MODEL_1_5B]: "audio",
+	[TEXT_MODEL_1_7B]: "text",
+	[VISION_MODEL_2B]: "vision",
+	[AUDIO_MODEL_2B]: "audio",
+	[OMNI_MODEL_2B]: "omni",
 };
 
 export const MODEL_DESCRIPTION_BY_KEY: Record<ModelKey, string> = {
-	[TEXT_MODEL_230M]: "Smallest and fastest. Included on every plan.",
-	[TEXT_MODEL_350M]: "Higher quality text, a little slower.",
-	[TEXT_MODEL_1_2B_INSTRUCT]: "Balanced instruct model for everyday chat.",
-	[TEXT_MODEL_1_2B_THINKING]: "Shows its reasoning before answering.",
-	[TEXT_MODEL_2_6B]: "Strong general chat. Heavier, best for nuance.",
-	[TEXT_MODEL_8B]: "Most capable. Mixture-of-experts, slowest.",
-	[VISION_MODEL_450M]: "Image understanding, 450M.",
-	[VISION_MODEL_3B]: "Sharper image understanding, 3B.",
-	[AUDIO_MODEL_1_5B]: "Speech and audio input/output.",
+	[TEXT_MODEL_230M]: "Smallest and fastest. Included on the Free plan.",
+	[TEXT_MODEL_1_7B]: "Everyday chat and reasoning. The default on paid plans.",
+	[VISION_MODEL_2B]: "Image understanding. Included from Plus.",
+	[AUDIO_MODEL_2B]: "Speech and audio input/output. Included from Max.",
+	[OMNI_MODEL_2B]: "Text, image and audio in one model. Ultimate only.",
 };
 
 /**
  * The context levels the site works in.
  *
  * These are the steps of the ladder a customer can pick a context at: 16K, 32K,
- * 64K and 128K. Every model is offered at the top of it, and the Kafelot chat
- * runs at 32K.
+ * 64K, 128K and 256K. LFM 3 models are served with 256K; LFM 2.5 230M keeps its
+ * 128K window, so the UI must offer only the levels that model actually has.
  */
-export const CONTEXT_LEVELS = [16384, 32768, 65536, 131072] as const;
+export const CONTEXT_LEVELS = [16384, 32768, 65536, 131072, 262144] as const;
 
 /**
  * The context window each model is actually served with, in tokens.
@@ -106,28 +81,25 @@ export const CONTEXT_LEVELS = [16384, 32768, 65536, 131072] as const;
  * number the UI gets to choose: the server allocates the context, so a request
  * for more tokens than this is silently truncated by llama.cpp.
  *
- * Every model is the same: the LFM 2.5 models are trained for 128K, and the
- * router serves them with a 128K window. The table is still per model, because
- * the UI asks per model and a model with a different window must not be shown
- * one it does not have.
- *
  * `tests/model-context.test.ts` reads the ini file and fails if this table
  * drifts from it.
  */
 export const MODEL_CONTEXT_TOKENS: Record<ModelKey, number> = {
 	[TEXT_MODEL_230M]: 131072,
-	[TEXT_MODEL_350M]: 131072,
-	[TEXT_MODEL_1_2B_INSTRUCT]: 131072,
-	[TEXT_MODEL_1_2B_THINKING]: 131072,
-	[TEXT_MODEL_2_6B]: 131072,
-	[TEXT_MODEL_8B]: 131072,
-	[VISION_MODEL_450M]: 131072,
-	[VISION_MODEL_3B]: 131072,
-	[AUDIO_MODEL_1_5B]: 131072,
+	[TEXT_MODEL_1_7B]: 262144,
+	[VISION_MODEL_2B]: 262144,
+	[AUDIO_MODEL_2B]: 262144,
+	[OMNI_MODEL_2B]: 262144,
 };
 
+/** Context levels a particular model can actually serve. */
+export function contextLevelsForModel(model: ModelKey): number[] {
+	const maximum = MODEL_CONTEXT_TOKENS[model];
+	return (CONTEXT_LEVELS as readonly number[]).filter((level) => level <= maximum);
+}
+
 /**
- * A context size as the site writes it: "16K", "32K", "64K", "128K".
+ * A context size as the site writes it: "16K", "32K", "64K", "128K", "256K".
  *
  * The ladder is what customers are sold, so it is how the site says it. A size
  * that is not a whole number of KiB is written out in full rather than rounded
@@ -143,17 +115,16 @@ export const DEFAULT_INPUT_CONTEXT_TOKENS = CONTEXT_LEVELS[0];
 export const DEFAULT_OUTPUT_TOKENS = 2048;
 
 /** Exported so the Playground can offer every model; each is priced individually. */
-export const ALL_TEXT_MODEL_KEYS: TextModelKey[] = [
-	TEXT_MODEL_230M,
-	TEXT_MODEL_350M,
-	TEXT_MODEL_1_2B_INSTRUCT,
-	TEXT_MODEL_1_2B_THINKING,
-	TEXT_MODEL_2_6B,
-	TEXT_MODEL_8B,
+export const ALL_TEXT_MODEL_KEYS: TextModelKey[] = [TEXT_MODEL_230M, TEXT_MODEL_1_7B];
+const VISION_MODEL_KEYS: VisionModelKey[] = [VISION_MODEL_2B];
+const AUDIO_MODEL_KEYS: AudioModelKey[] = [AUDIO_MODEL_2B];
+const OMNI_MODEL_KEYS: OmniModelKey[] = [OMNI_MODEL_2B];
+export const PLAYGROUND_MODEL_KEYS: ModelKey[] = [
+	...ALL_TEXT_MODEL_KEYS,
+	...VISION_MODEL_KEYS,
+	...AUDIO_MODEL_KEYS,
+	...OMNI_MODEL_KEYS,
 ];
-const VISION_MODEL_KEYS: VisionModelKey[] = [VISION_MODEL_450M, VISION_MODEL_3B];
-const AUDIO_MODEL_KEYS: AudioModelKey[] = [AUDIO_MODEL_1_5B];
-export const PLAYGROUND_MODEL_KEYS: ModelKey[] = [...ALL_TEXT_MODEL_KEYS, ...VISION_MODEL_KEYS, ...AUDIO_MODEL_KEYS];
 export function isPlaygroundModelKey(value: string): value is ModelKey {
 	return PLAYGROUND_MODEL_KEYS.includes(value as ModelKey);
 }
@@ -203,20 +174,18 @@ export function normalizeModelTier(rawTier: unknown, fallback: UserSubscriptionT
 
 /**
  * Explicit entitlement matrix. Written out rather than derived from an ordering
- * so the answer to "who gets 8B?" is readable without evaluating the code, and
- * so the `basic` no-vision rule is stated rather than implied by an off-by-one.
+ * so the answer to "who gets Omni?" is readable without evaluating the code.
+ *
+ * LFM 2.5 230M is the Free plan's model and is not offered on paid plans.
+ * LFM 3 1.7B is the default paid model, Vision joins at Plus, Audio at Max and
+ * Omni is Ultimate only.
  */
-/** Tier entitlements per model. Exported so feature gating derives from the same table. */
 export const MODEL_TIERS: Record<ModelKey, readonly UserSubscriptionTier[]> = {
-	[TEXT_MODEL_230M]: ["free", "basic", "plus", "pro", "max", "ultimate"],
-	[TEXT_MODEL_350M]: ["basic", "plus", "pro", "max", "ultimate"],
-	[TEXT_MODEL_1_2B_INSTRUCT]: ["plus", "pro", "max", "ultimate"],
-	[TEXT_MODEL_1_2B_THINKING]: ["pro", "max", "ultimate"],
-	[TEXT_MODEL_2_6B]: ["max", "ultimate"],
-	[TEXT_MODEL_8B]: ["ultimate"],
-	[VISION_MODEL_450M]: ["plus", "pro", "max", "ultimate"],
-	[VISION_MODEL_3B]: ["max", "ultimate"],
-	[AUDIO_MODEL_1_5B]: ["ultimate"],
+	[TEXT_MODEL_230M]: ["free"],
+	[TEXT_MODEL_1_7B]: ["basic", "plus", "pro", "max", "ultimate"],
+	[VISION_MODEL_2B]: ["plus", "pro", "max", "ultimate"],
+	[AUDIO_MODEL_2B]: ["max", "ultimate"],
+	[OMNI_MODEL_2B]: ["ultimate"],
 };
 
 export function tierAllowsModel(tier: UserSubscriptionTier, modelKey: ModelKey): boolean {
@@ -241,48 +210,32 @@ export function allowedAudioModelsForTier(tier: UserSubscriptionTier): AudioMode
 
 /** Cheapest model a tier may use. This is the default selection for that tier. */
 export function defaultModelForTier(tier: UserSubscriptionTier): ModelKey {
-	return tierAllowsModel(tier, TEXT_MODEL_230M) ? TEXT_MODEL_230M : TEXT_MODEL_350M;
+	return tierAllowsModel(tier, TEXT_MODEL_230M) ? TEXT_MODEL_230M : TEXT_MODEL_1_7B;
 }
 
 /** True when the tier may use a model that emits visible reasoning. */
 export function tierCanUseThinkingModel(tier: UserSubscriptionTier): boolean {
-	return tierAllowsModel(tier, TEXT_MODEL_1_2B_THINKING) || tierAllowsModel(tier, TEXT_MODEL_8B);
+	return tierAllowsModel(tier, TEXT_MODEL_1_7B);
 }
 
-/**
- * Monthly prompt allowance per model per tier.
- *
- * Each value is a ceiling *for that model alone*, never a share of a shared
- * pool, and each is at or below the plan's overall headline limit in
- * `kafelot.service.ts` (free 15 / basic 50 / plus 100 / pro 150 / max 300 /
- * ultimate 1000). Bigger models get smaller allowances because they hold the
- * single llama.cpp slot for longer.
- *
- * `0` means "not entitled on this plan" and is rendered as unavailable rather
- * than as an exhausted quota, so it cannot be confused with a used-up limit.
- */
 /**
  * Which plans include which model.
  *
  * This used to be a quota table of prompts-per-month and the numbers are gone: usage is
  * metered in RON now (`nestjs-backend/src/billing/tier-allowance.ts`), so a prompt count
  * here would advertise a second, contradictory budget. Entitlement survives, because it is
- * the only thing stopping a free account from reaching the 8B A1B.
+ * the only thing stopping a free account from reaching the LFM 3 family.
  *
  * The backend enforces this matrix; this copy decides which models are *shown*. The two
  * are checked against each other by `nestjs-backend/test/model-limits.test.ts`, because a
  * model shown but refused is the bug that matters.
  */
 export const MODEL_TIER_ACCESS: Record<ModelKey, Record<string, boolean>> = {
-	[TEXT_MODEL_230M]: { free: true, basic: true, plus: true, pro: true, max: true, ultimate: true },
-	[TEXT_MODEL_350M]: { basic: true, plus: true, pro: true, max: true, ultimate: true },
-	[TEXT_MODEL_1_2B_INSTRUCT]: { plus: true, pro: true, max: true, ultimate: true },
-	[TEXT_MODEL_1_2B_THINKING]: { pro: true, max: true, ultimate: true },
-	[TEXT_MODEL_2_6B]: { max: true, ultimate: true },
-	[TEXT_MODEL_8B]: { ultimate: true },
-	[VISION_MODEL_450M]: { plus: true, pro: true, max: true, ultimate: true },
-	[VISION_MODEL_3B]: { max: true, ultimate: true },
-	[AUDIO_MODEL_1_5B]: { ultimate: true },
+	[TEXT_MODEL_230M]: { free: true },
+	[TEXT_MODEL_1_7B]: { basic: true, plus: true, pro: true, max: true, ultimate: true },
+	[VISION_MODEL_2B]: { plus: true, pro: true, max: true, ultimate: true },
+	[AUDIO_MODEL_2B]: { max: true, ultimate: true },
+	[OMNI_MODEL_2B]: { ultimate: true },
 };
 
 /**
@@ -290,25 +243,22 @@ export const MODEL_TIER_ACCESS: Record<ModelKey, Record<string, boolean>> = {
  *
  * `SubscriptionPageContent` picks an icon by scanning the leading emoji and then
  * strips it before display, so these prefixes are load-bearing rather than
- * decoration. The vision/audio prefixes must stay in its `getIcon` chain.
+ * decoration. The vision/audio/omni prefixes must stay in its `getIcon` chain.
  */
 const MODALITY_EMOJI: Record<ModelModality, string> = {
 	text: "\u{1F9E0}",
 	vision: "\u{1F4F7}",
 	audio: "\u{1F3BC}",
+	omni: "\u{2728}",
 };
 
 /** Model keys in the order a plan should advertise them (cheapest first). */
 const MODEL_DISPLAY_ORDER: ModelKey[] = [
 	TEXT_MODEL_230M,
-	TEXT_MODEL_350M,
-	TEXT_MODEL_1_2B_INSTRUCT,
-	TEXT_MODEL_1_2B_THINKING,
-	TEXT_MODEL_2_6B,
-	TEXT_MODEL_8B,
-	VISION_MODEL_450M,
-	VISION_MODEL_3B,
-	AUDIO_MODEL_1_5B,
+	TEXT_MODEL_1_7B,
+	VISION_MODEL_2B,
+	AUDIO_MODEL_2B,
+	OMNI_MODEL_2B,
 ];
 
 /**

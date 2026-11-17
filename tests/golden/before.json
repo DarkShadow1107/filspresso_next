@@ -89,13 +89,12 @@
           ],
           "status": "str",
           "text_model_endpoints": {
-            "Gemma3-1B-it-Q4_0.gguf": "str",
-            "LFM2.5-2.6B-Q4_0.gguf": "str",
-            "MiniLM-L6-v2.gguf": "str"
+            "LFM2.5-230M-Q4_K_M.gguf": "str",
+            "LFM3-1.7B-Q4_K_M.gguf": "str"
           },
           "thinking_default": "bool",
           "vision_model_endpoints": {
-            "LFM2-VL-450M-Q4_0.gguf": "str"
+            "LFM3-VL-2B-Q4_K_M.gguf": "str"
           }
         },
         "database": "str",

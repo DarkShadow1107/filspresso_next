@@ -13,44 +13,54 @@
  *
  * ## Output
  *
- * Output is five times input. That is stated once, here, as a multiplier, rather than
- * as nine more numbers that could be typed wrong.
+ * Output is stated explicitly per model rather than derived from a multiplier. The
+ * LFM 3 family is priced at 4x input (15/60, 20/80, 25/100) while LFM 2.5 230M keeps
+ * its historical 5x (0.30/1.50), so a single multiplier would be wrong for one of them.
+ *
+ * ## Long context
+ *
+ * Every LFM 3 model is served with a 256K window. A request whose input is within the
+ * first 128K tokens is billed at the listed API rate; a request above 128K is billed at
+ * **double** that rate for the whole request. The Free-only 230M has a 128K window and is
+ * never surcharged, so its own requests cannot reach the threshold.
  *
  * ## Subscription discount
  *
  * `subscriberDiscountPercent` is the reduction applied to *both* input and output for an
- * account with an active subscription, so a subscriber pays 30% less per token across the
- * board and the output rate stays exactly 5x their input rate. Discounting only the input
- * rate would leave the headline "5x output" inconsistent between the two audiences.
- *
- * A non-subscriber pays `apiInputPer1M` / `apiOutputPer1M`. A subscriber pays
- * `subscriberInputPer1M` / `subscriberOutputPer1M`, and the API price is *not* shown to
- * them anywhere.
+ * account with an active subscription. The LFM 3 models are `0` because both Kafelot and
+ * the Playground charge their published API rate. The Free-only 230M keeps its existing
+ * discount; it is not reachable from a paid plan.
  */
 
-/** Output tokens cost this multiple of input tokens. */
-export const OUTPUT_PRICE_MULTIPLIER = 5;
+/** Historical output/input ratio for the Free-only LFM 2.5 230M entry. */
+export const LEGACY_230M_OUTPUT_PRICE_MULTIPLIER = 5;
+
+/** Input above this many tokens is billed at the long-context rate. */
+export const LONG_CONTEXT_THRESHOLD_TOKENS = 131_072;
+
+/** Multiplier applied to every rate when a request exceeds the threshold. */
+export const LONG_CONTEXT_PRICE_MULTIPLIER = 2;
 
 export type TokenPrice = {
 	/** RON per 1M input tokens, list price. */
 	apiInputPer1M: number;
+	/** RON per 1M output tokens, list price. */
+	apiOutputPer1M: number;
 	/** Reduction for a subscribed account, applied to input and output alike. */
 	subscriberDiscountPercent: number;
+	/** Whether input above the long-context threshold is billed at double the rate. */
+	longContextPricing: boolean;
 	/** Human label, for the admin table and the picker. */
 	label: string;
 };
 
 export const MODEL_TOKEN_PRICING: Record<string, TokenPrice> = {
 	// prettier-ignore
-	lfm2_5_230m_q4_k_m:           { apiInputPer1M:  0.30, subscriberDiscountPercent: 30, label: "LFM 2.5 230M" },
-	lfm2_5_350m_q8_0:             { apiInputPer1M:  0.50, subscriberDiscountPercent: 30, label: "LFM 2.5 350M" },
-	lfm2_5_1_2b_instruct_q4_k_m:  { apiInputPer1M:  2.00, subscriberDiscountPercent: 60, label: "LFM 2.5 1.2B Instruct" },
-	lfm2_5_1_2b_thinking_q4_k_m:  { apiInputPer1M:  3.00, subscriberDiscountPercent: 60, label: "LFM 2.5 1.2B Thinking" },
-	lfm2_5_2_6b_q4_0:             { apiInputPer1M:  7.00, subscriberDiscountPercent: 40, label: "LFM 2.5 2.6B" },
-	lfm2_5_8b_a1b_q4_k_m:         { apiInputPer1M: 20.00, subscriberDiscountPercent: 25, label: "LFM 2.5 8B A1B" },
-	lfm2_5_vl_450m_q4_k_m:        { apiInputPer1M:  1.00, subscriberDiscountPercent: 25, label: "LFM 2.5 VL 450M" },
-	lfm2_5_vl_3b_q4_k_m:          { apiInputPer1M: 10.00, subscriberDiscountPercent: 25, label: "LFM 2.5 VL 3B" },
-	lfm2_5_audio_1_5b_q4_0:       { apiInputPer1M:  5.00, subscriberDiscountPercent: 25, label: "LFM 2.5 Audio 1.5B" },
+	lfm2_5_230m_q4_k_m:   { apiInputPer1M:  0.30, apiOutputPer1M:  1.50, subscriberDiscountPercent: 30, longContextPricing: false, label: "LFM 2.5 230M" },
+	lfm3_1_7b_q4_k_m:     { apiInputPer1M: 15.00, apiOutputPer1M: 60.00, subscriberDiscountPercent:  0, longContextPricing: true, label: "LFM 3 1.7B" },
+	lfm3_vl_2b_q4_k_m:    { apiInputPer1M: 20.00, apiOutputPer1M: 80.00, subscriberDiscountPercent:  0, longContextPricing: true, label: "LFM 3 VL 2B" },
+	lfm3_audio_2b_q4_k_m: { apiInputPer1M: 20.00, apiOutputPer1M: 80.00, subscriberDiscountPercent:  0, longContextPricing: true, label: "LFM 3 Audio 2B" },
+	lfm3_omni_2b_q4_k_m:  { apiInputPer1M: 25.00, apiOutputPer1M: 100.00, subscriberDiscountPercent: 0, longContextPricing: true, label: "LFM 3 Omni 2B" },
 };
 
 export type ResolvedTokenPrice = {
@@ -66,6 +76,8 @@ export type ResolvedTokenPrice = {
 	subscriberInputPer1M: number;
 	subscriberOutputPer1M: number;
 	subscriberDiscountPercent: number;
+	/** Whether this model is surcharged above the long-context threshold. */
+	longContextPricing: boolean;
 	/** The rate this call is actually charged, resolved once so nobody recomputes it. */
 	chargedInputPer1M: number;
 	chargedOutputPer1M: number;
@@ -78,7 +90,7 @@ export type ResolvedTokenPrice = {
  * the moment the Spectre Playground arrived:
  *
  *  - `list`       an anonymous or free account: the published API rate.
- *  - `subscriber` a paying tier *in Kafelot*: the discounted rate.
+ *  - `subscriber` a paying tier *in Kafelot*: the discounted rate (zero discount for LFM 3).
  *  - `playground` any tier or add-on *in the Spectre Playground*: the published API rate,
  *                 with no discount.
  *
@@ -121,14 +133,15 @@ export function resolveTokenPrice(modelKey: string, priceMode: PriceMode | boole
 			subscriberInputPer1M: 0,
 			subscriberOutputPer1M: 0,
 			subscriberDiscountPercent: 0,
+			longContextPricing: false,
 			chargedInputPer1M: 0,
 			chargedOutputPer1M: 0,
 		};
 	}
 
-	const apiOutputPer1M = roundMoney(entry.apiInputPer1M * OUTPUT_PRICE_MULTIPLIER);
 	const factor = 1 - entry.subscriberDiscountPercent / 100;
 	const apiInput = roundMoney(entry.apiInputPer1M);
+	const apiOutputPer1M = roundMoney(entry.apiOutputPer1M);
 	const subscriberInputPer1M = roundMoney(entry.apiInputPer1M * factor);
 	const subscriberOutputPer1M = roundMoney(apiOutputPer1M * factor);
 
@@ -143,6 +156,7 @@ export function resolveTokenPrice(modelKey: string, priceMode: PriceMode | boole
 		subscriberInputPer1M,
 		subscriberOutputPer1M,
 		subscriberDiscountPercent: entry.subscriberDiscountPercent,
+		longContextPricing: entry.longContextPricing,
 		// The Playground deliberately takes the list rate even for a paying tier, so this
 		// cannot be derived from `subscriber` alone any more.
 		chargedInputPer1M: subscriber ? subscriberInputPer1M : apiInput,
@@ -160,6 +174,31 @@ export function effectiveRates(price: ResolvedTokenPrice): { inputPer1M: number;
 	return price.subscriber
 		? { inputPer1M: price.subscriberInputPer1M, outputPer1M: price.subscriberOutputPer1M }
 		: { inputPer1M: price.apiInputPer1M, outputPer1M: price.apiOutputPer1M };
+}
+
+/** True when a request with this many input tokens is billed at the long-context rate. */
+export function appliesLongContextPricing(inputTokens: unknown): boolean {
+	return clampTokens(inputTokens) > LONG_CONTEXT_THRESHOLD_TOKENS;
+}
+
+/**
+ * Rates as stored against a charge, including the long-context multiplier.
+ *
+ * Kept separate from `effectiveRates` so the audit row records what was actually
+ * charged rather than the base list price.
+ */
+export function billedRates(
+	price: ResolvedTokenPrice,
+	inputTokens: unknown,
+): { inputPer1M: number; outputPer1M: number; longContext: boolean } {
+	const rates = effectiveRates(price);
+	const longContext = price.longContextPricing && appliesLongContextPricing(inputTokens);
+	const multiplier = longContext ? LONG_CONTEXT_PRICE_MULTIPLIER : 1;
+	return {
+		inputPer1M: roundMoney(rates.inputPer1M * multiplier),
+		outputPer1M: roundMoney(rates.outputPer1M * multiplier),
+		longContext,
+	};
 }
 
 /** Sub-second half-up rounding to 8 decimals: the smallest amount we ever store. */
@@ -180,15 +219,20 @@ export type TokenUsage = {
  * from `subscriber` alone, which silently ignored the Playground mode: a Max account was
  * charged the subscriber rate there while the resolved price object beside it said list.
  *
+ * A request whose input exceeds 128K tokens is charged at double the resolved rate when
+ * the model opts into long-context pricing, as stated on the plans page. The whole request
+ * is doubled, not just the excess, because that is the published rule and it is simpler to
+ * audit.
+ *
  * Tokens are counted as non-negative integers; anything else is treated as zero so a
  * malformed usage block bills nothing rather than billing NaN.
  */
 export function costRon(modelKey: string, usage: TokenUsage, priceMode: PriceMode | boolean): number {
 	const price = resolveTokenPrice(modelKey, priceMode);
 	if (!price.known) return 0;
-	const rates = effectiveRates(price);
 	const inputTokens = clampTokens(usage?.inputTokens);
 	const outputTokens = clampTokens(usage?.outputTokens);
+	const rates = billedRates(price, inputTokens);
 	const cost = (inputTokens / 1_000_000) * rates.inputPer1M + (outputTokens / 1_000_000) * rates.outputPer1M;
 	return roundMoney(cost);
 }
@@ -203,13 +247,18 @@ function clampTokens(value: unknown): number {
 export function pricingTable(): {
 	currency: "RON";
 	unit: "per_1m_tokens";
-	outputMultiplier: number;
+	/** @deprecated No single multiplier applies; use each model's explicit output rate. */
+	outputMultiplier: null;
+	longContextThresholdTokens: number;
+	longContextMultiplier: number;
 	models: ResolvedTokenPrice[];
 } {
 	return {
 		currency: "RON",
 		unit: "per_1m_tokens",
-		outputMultiplier: OUTPUT_PRICE_MULTIPLIER,
+		outputMultiplier: null,
+		longContextThresholdTokens: LONG_CONTEXT_THRESHOLD_TOKENS,
+		longContextMultiplier: LONG_CONTEXT_PRICE_MULTIPLIER,
 		models: Object.keys(MODEL_TOKEN_PRICING).map((key) => resolveTokenPrice(key, false)),
 	};
 }

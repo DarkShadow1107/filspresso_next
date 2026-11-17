@@ -15,9 +15,8 @@ import {
 	allowedVisionModelsForTier as sharedAllowedVisionModels,
 	defaultModelForTier,
 	TEXT_MODEL_230M,
-	TEXT_MODEL_2_6B,
-	TEXT_MODEL_1_2B_THINKING,
-	VISION_MODEL_450M,
+	TEXT_MODEL_1_7B,
+	VISION_MODEL_2B,
 	MODEL_FILE_BY_KEY,
 	isTextModelKey,
 	isVisionModelKey,
@@ -88,19 +87,20 @@ function isDirectPngOrJpegType(mime: string, extension: string): boolean {
 	return false;
 }
 
-/** Models that emit visible reasoning. Thinking is its own GGUF, not a flag. */
+/**
+ * Models that emit visible reasoning. LFM 3 1.7B is the reasoning-capable
+ * paid model; the LFM 2.5 thinking GGUFs are retired.
+ */
 function thinkingCapable(model: TextModelKey): boolean {
-	return model === TEXT_MODEL_1_2B_THINKING || model === TEXT_MODEL_2_6B;
+	return model === TEXT_MODEL_1_7B;
 }
 
 function resolveTextModelTag(model: TextModelKey, thinkingEnabled: boolean): string {
-	if (model === TEXT_MODEL_1_2B_THINKING) {
-		return "LFM 2.5 Thinking";
+	const tag = TEXT_MODEL_TAG_BY_KEY[model] || "Kafelot text model";
+	if (thinkingEnabled && model === TEXT_MODEL_1_7B) {
+		return `${tag} Thinking`;
 	}
-	if (model === TEXT_MODEL_2_6B && thinkingEnabled) {
-		return "LFM 2.5 2.6B Thinking";
-	}
-	return TEXT_MODEL_TAG_BY_KEY[model] || "Kafelot text model";
+	return tag;
 }
 
 function buildInvalidImageResponse(requestId: string, message: string, limitCheck: PromptLimitCheck, status: number) {
@@ -240,25 +240,31 @@ function parseOptionalBoolean(value: unknown): boolean | null {
 }
 
 // Legacy keys are still accepted so in-flight clients (and any cached UI state)
-// keep resolving to a real model instead of silently falling back to MiniLM.
+// keep resolving to a real model instead of silently falling back to the cheapest
+// one. Retired LFM 2.5 keys map to the LFM 3 model that replaced them.
 const LEGACY_TEXT_MODEL_ALIASES: Record<string, TextModelKey> = {
-	qwen3_06b_q8_0_gguf: TEXT_MODEL_2_6B,
-	qwen3_06b_q8_0_thinking: TEXT_MODEL_2_6B,
+	qwen3_06b_q8_0_gguf: TEXT_MODEL_1_7B,
+	qwen3_06b_q8_0_thinking: TEXT_MODEL_1_7B,
+	lfm2_5_350m_q8_0: TEXT_MODEL_1_7B,
+	lfm2_5_1_2b_instruct_q4_k_m: TEXT_MODEL_1_7B,
+	lfm2_5_1_2b_thinking_q4_k_m: TEXT_MODEL_1_7B,
+	lfm2_5_2_6b_q4_0: TEXT_MODEL_1_7B,
+	lfm2_5_8b_a1b_q4_k_m: TEXT_MODEL_1_7B,
 };
 
 const LEGACY_VISION_MODEL_ALIASES: Record<string, VisionModelKey> = {
-	qwen3_vl_2b_q4_0_gguf: VISION_MODEL_450M,
+	qwen3_vl_2b_q4_0_gguf: VISION_MODEL_2B,
+	lfm2_5_vl_450m_q4_k_m: VISION_MODEL_2B,
+	lfm2_5_vl_3b_q4_k_m: VISION_MODEL_2B,
 };
 
 /**
  * Resolve whatever the client sent into a canonical model key.
  *
- * This used to accept only a hand-maintained legacy alias table, which meant the
- * two things callers actually send -- the canonical key (`lfm2_5_8b_a1b_q4_k_m`, what
- * CoffeeRecommender sends) and the GGUF file name (`LFM2.5-8B-A1B-Q4_K_M.gguf`,
- * what /api/playground/chat sends) -- both resolved to `null`. The route then fell
- * back to the cheapest allowed model, so a user who picked the 8B silently got the
- * 230M, and per-model metering charged the wrong model.
+ * Callers send either the canonical key (`lfm3_1_7b_q4_k_m`, what
+ * CoffeeRecommender sends) or the GGUF file name (`LFM3-1.7B-Q4_K_M.gguf`,
+ * what /api/playground/chat sends). Both must resolve, or the route falls back
+ * to the cheapest allowed model and per-model metering charges the wrong model.
  *
  * Order matters: canonical keys win, then file names, then the legacy aliases.
  */
@@ -276,9 +282,6 @@ function normalizeTextModelKey(value: unknown): TextModelKey | null {
 	const legacy = LEGACY_TEXT_MODEL_ALIASES[normalized];
 	if (legacy) return legacy;
 
-	if (normalized === "minilm_l6_v2_gguf" || normalized === "lfm2_5_2_6b_q4_0_gguf" || normalized === "gemma3_1b_it_q4_0_gguf") {
-		return normalized as TextModelKey;
-	}
 	return null;
 }
 
@@ -296,9 +299,6 @@ function normalizeVisionModelKey(value: unknown): VisionModelKey | null {
 	const legacy = LEGACY_VISION_MODEL_ALIASES[normalized];
 	if (legacy) return legacy;
 
-	if (normalized === "lfm2_vl_450m_q4_0_gguf") {
-		return normalized as VisionModelKey;
-	}
 	return null;
 }
 
@@ -309,13 +309,13 @@ function normalizeVisionModelKey(value: unknown): VisionModelKey | null {
  */
 const TEXT_MODEL_KEY_SET_BY_FILE: Map<string, TextModelKey> = new Map(
 	(Object.entries(MODEL_FILE_BY_KEY) as Array<[string, string]>)
-		.filter(([key]) => key !== "minilm_l6_v2_gguf")
+		.filter(([key]) => isTextModelKey(key))
 		.map(([key, file]) => [file.trim().toLowerCase(), key as TextModelKey]),
 );
 
 const VISION_MODEL_KEY_SET_BY_FILE: Map<string, VisionModelKey> = new Map(
 	(Object.entries(MODEL_FILE_BY_KEY) as Array<[string, string]>)
-		.filter(([key]) => key === "lfm2_5_vl_450m_q4_k_m" || key === "lfm2_5_vl_3b_q4_k_m")
+		.filter(([key]) => isVisionModelKey(key))
 		.map(([key, file]) => [file.trim().toLowerCase(), key as VisionModelKey]),
 );
 
@@ -431,8 +431,8 @@ export async function POST(request: Request) {
 				return NextResponse.json(
 					{
 						error: "VISION_MODEL_LOCKED",
-						message: "Vision upload is available for BASIC, PLUS, PRO, MAX, and ULTIMATE subscriptions.",
-						model_used: "LFM 2 Vision locked-tier",
+						message: "Vision upload is available for PLUS, PRO, MAX, and ULTIMATE subscriptions.",
+						model_used: "LFM 3 VL locked-tier",
 						request_id: reqId,
 						...(typeof limitCheck.prompts_remaining === "number"
 							? { prompts_remaining: limitCheck.prompts_remaining }

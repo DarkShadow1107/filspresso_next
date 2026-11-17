@@ -16,33 +16,15 @@ import type { PriceMode } from "./model-pricing";
  *  - Kafelot, free or anonymous: list rate, their allowance then nothing.
  *  - Playground, add-on only: list rate, **wallet only**. The 99.99 RON subscription buys
  *    access to the product and includes no usage at all, so there is no allowance to draw.
- *  - Playground, Max or Ultimate: list rate, allowance then wallet -- with one exception,
- *    below.
+ *  - Playground, Max or Ultimate: list rate, allowance then wallet.
  *
- * ## The 8B exception
+ * ## Why every model draws on the allowance
  *
- * Max may run the LFM 2.5 8B, but not out of its allowance. Its 100 RON would be consumed
- * by a handful of long answers, and a customer who spent it on the big model would find
- * the small models gone too. So Max pays for the 8B from the wallet. Ultimate is exempt:
- * its allowance is large enough that the distinction is not worth making.
+ * The retired 8B A1B exception is gone with the model. Under LFM 3 a Max or Ultimate
+ * customer's allowance covers every model they can select, so there is no per-model
+ * carve-out left to encode.
  */
 export type BillFrom = "allowance_then_wallet" | "wallet_only";
-
-/**
- * Models that cannot draw on a plan allowance, by tier.
- *
- * A whitelist of tiers rather than of models, so adding a new model defaults to *allowed*:
- * the safe direction to fail is a customer being unable to use something, not a plan
- * quietly promising included usage that does not exist.
- */
-const ALLOWANCE_EXCLUDED_MODELS: Record<string, ReadonlySet<string>> = {
-	max: new Set(["lfm2_5_8b_a1b_q4_k_m"]),
-};
-
-export function allowanceCoversModel(tier: string, modelKey: string): boolean {
-	const excluded = ALLOWANCE_EXCLUDED_MODELS[String(tier || "").trim().toLowerCase()];
-	return !excluded?.has(String(modelKey || "").trim());
-}
 
 export type BillingContext = {
 	/** How the caller is charged. */
@@ -52,11 +34,7 @@ export type BillingContext = {
 	/** True when the charge consumed plan allowance, for the ledger and for the UI. */
 	drewFromAllowance: boolean;
 	/** A short human reason, surfaced in the 402 so the customer is told the right remedy. */
-	reason:
-		| "included"
-		| "wallet_only_no_allowance"
-		| "model_excluded_from_allowance"
-		| "no_allowance_remaining";
+	reason: "included" | "wallet_only_no_allowance" | "no_allowance_remaining";
 };
 
 /**
@@ -77,7 +55,7 @@ export function resolveBillingContext(params: {
 	accessSource: "addon" | "tier" | null;
 	modelKey: string;
 }): BillingContext {
-	const { scope, tier, accessSource, modelKey } = params;
+	const { scope, tier, accessSource } = params;
 
 	if (scope === "kafelot") {
 		// Untouched by any of this: a paid tier keeps its discount and its allowance in
@@ -110,14 +88,6 @@ export function resolveBillingContext(params: {
 		};
 	}
 
-	if (!allowanceCoversModel(tier, modelKey)) {
-		return {
-			priceMode: "playground",
-			billFrom: "wallet_only",
-			drewFromAllowance: false,
-			reason: "model_excluded_from_allowance",
-		};
-	}
 	return {
 		priceMode: "playground",
 		billFrom: "allowance_then_wallet",

@@ -24,19 +24,16 @@ from models.residency import ModelResidencyCoordinator, router_model_id
 logger = logging.getLogger(__name__)
 
 TEXT_MODEL_230M = "LFM2.5-230M-Q4_K_M.gguf"
-TEXT_MODEL_350M = "LFM2.5-350M-Q8_0.gguf"
-TEXT_MODEL_1_2B_INSTRUCT = "LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
-TEXT_MODEL_1_2B_THINKING = "LFM2.5-1.2B-Thinking-Q4_K_M.gguf"
-TEXT_MODEL_2_6B = "LFM2.5-2.6B-Q4_0.gguf"
-TEXT_MODEL_8B = "LFM2.5-8B-A1B-Q4_K_M.gguf"
+TEXT_MODEL_1_7B = "LFM3-1.7B-Q4_K_M.gguf"
 
-VISION_MODEL_450M = "LFM2.5-VL-450M-Q4_K_M.gguf"
-VISION_MODEL_3B = "LFM2.5-VL-3B-Q4_K_M.gguf"
+VISION_MODEL_2B = "LFM3-VL-2B-Q4_K_M.gguf"
 
-AUDIO_MODEL_1_5B = "LFM2.5-Audio-1.5B-Q4_0.gguf"
+AUDIO_MODEL_2B = "LFM3-Audio-2B-Q4_K_M.gguf"
+
+OMNI_MODEL_2B = "LFM3-Omni-2B-Q4_K_M.gguf"
 
 # Still loaded, but only as the internal coffee_facts retrieval embedder. It is
-# not offered as a chat model: LFM2.5 230M replaced it for the Free plan.
+# not offered as a chat model: LFM 2.5 230M is the Free plan's chat model.
 TEXT_MODEL_MINILM = "MiniLM-L6-v2.gguf"
 # Embeddings from another GGUF, tokenizer or pooling configuration are not interchangeable.
 # Change this identifier and rebuild the separate index whenever those inputs change.
@@ -44,10 +41,10 @@ MINILM_INDEX_ID = os.getenv("MINILM_INDEX_ID", "minilm-l6-v2-gguf-5a30b84d-pooli
 
 # The context the Kafelot chat runs with.
 #
-# The models are served with 128K and the Playground uses all of it. The coffee
-# chat is a different surface -- a question, five retrieved facts and an answer
-# -- and it is capped at 32K so the answer's share of the context is predictable
-# and the two surfaces do not end up sharing one number.
+# LFM 3 models are served with 256K and the Playground can use up to that. The
+# coffee chat is a different surface -- a question, five retrieved facts and an
+# answer -- and it is capped at 32K so the answer's share of the context is
+# predictable and the two surfaces do not end up sharing one number.
 KAFELOT_CHAT_CONTEXT_TOKENS = 32_768
 
 # Characters per token, used to estimate how large a prompt is.
@@ -104,20 +101,19 @@ def _build_solid_png(size: int, rgb: tuple[int, int, int] = (128, 128, 128)) -> 
 
 TEXT_MODEL_TAGS = {
     TEXT_MODEL_230M: "LFM 2.5 230M access",
-    TEXT_MODEL_350M: "LFM 2.5 350M access",
-    TEXT_MODEL_1_2B_INSTRUCT: "LFM 2.5 1.2B Instruct access",
-    TEXT_MODEL_1_2B_THINKING: "LFM 2.5 1.2B Thinking access",
-    TEXT_MODEL_2_6B: "LFM 2.5 2.6B access",
-    TEXT_MODEL_8B: "LFM 2.5 8B A1B access",
+    TEXT_MODEL_1_7B: "LFM 3 1.7B access",
 }
 
 VISION_MODEL_TAGS = {
-    VISION_MODEL_450M: "LFM 2.5 VL 450M access",
-    VISION_MODEL_3B: "LFM 2.5 VL 3B access",
+    VISION_MODEL_2B: "LFM 3 VL 2B access",
 }
 
 AUDIO_MODEL_TAGS = {
-    AUDIO_MODEL_1_5B: "LFM 2.5 Audio 1.5B access",
+    AUDIO_MODEL_2B: "LFM 3 Audio 2B access",
+}
+
+OMNI_MODEL_TAGS = {
+    OMNI_MODEL_2B: "LFM 3 Omni 2B access",
 }
 
 MODE_DISPLAY_NAMES = {
@@ -133,9 +129,9 @@ def _model_unavailable_error(model_name: str, base_url: str, exc: Exception) -> 
 
     Without this a model whose llama.cpp service is not running surfaced the raw
     resolver error verbatim -- "[Errno -5] No address associated with hostname" --
-    which tells the reader nothing. The heavy models (2.6B, 8B, VL 3B) live
-    behind the `large` compose profile, so "service not started" is an expected
-    state rather than an outage, and the message says so.
+    which tells the reader nothing. The heavy LFM 3 models live behind one router
+    that loads them on demand, so "service not started" is an expected state rather
+    than an outage, and the message says so.
     """
     host = base_url.replace("http://", "").replace("https://", "").split("/")[0]
     if isinstance(exc, httpx.ConnectError):
@@ -223,10 +219,10 @@ class TankaModel:
             os.getenv("LLAMA_CPP_MODEL", TEXT_MODEL_230M) or TEXT_MODEL_230M
         ).strip()
         self._default_vision_model = (
-            os.getenv("LLAMA_CPP_VISION_MODEL", VISION_MODEL_450M) or VISION_MODEL_450M
+            os.getenv("LLAMA_CPP_VISION_MODEL", VISION_MODEL_2B) or VISION_MODEL_2B
         ).strip()
         self._default_audio_model = (
-            os.getenv("LLAMA_CPP_AUDIO_MODEL", AUDIO_MODEL_1_5B) or AUDIO_MODEL_1_5B
+            os.getenv("LLAMA_CPP_AUDIO_MODEL", AUDIO_MODEL_2B) or AUDIO_MODEL_2B
         ).strip()
 
         # Per-model endpoints let us run dedicated llama.cpp containers for each
@@ -235,8 +231,8 @@ class TankaModel:
         # URL would contend for the same single slot.
         # Every chat GGUF is served by the SAME llama.cpp router, which keeps one
         # model resident at a time (--models-max 1) and swaps on demand. That means
-        # one endpoint for all nine, and -- critically -- that the concurrency gate
-        # can no longer key on the URL: nine models behind one URL would collapse
+        # one endpoint for all five, and -- critically -- that the concurrency gate
+        # can no longer key on the URL: five models behind one URL would collapse
         # into a single slot. Admission is keyed on the MODEL instead, via
         # models/residency.py.
         #
@@ -246,14 +242,10 @@ class TankaModel:
         chat_base_url = _base_url("LLAMA_CPP_CHAT_BASE_URL", "http://llama-lfm:8080")
         self._model_base_urls = {
             TEXT_MODEL_230M: chat_base_url,
-            TEXT_MODEL_350M: chat_base_url,
-            TEXT_MODEL_1_2B_INSTRUCT: chat_base_url,
-            TEXT_MODEL_1_2B_THINKING: chat_base_url,
-            TEXT_MODEL_2_6B: chat_base_url,
-            TEXT_MODEL_8B: chat_base_url,
-            VISION_MODEL_450M: chat_base_url,
-            VISION_MODEL_3B: chat_base_url,
-            AUDIO_MODEL_1_5B: chat_base_url,
+            TEXT_MODEL_1_7B: chat_base_url,
+            VISION_MODEL_2B: chat_base_url,
+            AUDIO_MODEL_2B: chat_base_url,
+            OMNI_MODEL_2B: chat_base_url,
             TEXT_MODEL_MINILM: _base_url("LLAMA_CPP_MINILM_BASE_URL", "http://llama-minilm:8080"),
         }
         self._text_model_base_urls = {
@@ -264,6 +256,9 @@ class TankaModel:
         }
         self._audio_model_base_urls = {
             name: url for name, url in self._model_base_urls.items() if name in AUDIO_MODEL_TAGS
+        }
+        self._omni_model_base_urls = {
+            name: url for name, url in self._model_base_urls.items() if name in OMNI_MODEL_TAGS
         }
 
         # One pooled client for the whole process. httpx opens its pool
@@ -476,16 +471,12 @@ class TankaModel:
     def _text_model_tag(self, model_name: str, thinking: bool = False) -> str:
         """Display tag for a text model.
 
-        Thinking is a separate GGUF (LFM2.5-1.2B-Thinking) rather than a flag on
-        a larger model, so the tag comes from the model identity. The `thinking`
-        argument is still honoured because LFM 2.5 emits `reasoning_content` even
-        when reasoning is switched off, and the UI labels what the user sees.
+        The LFM 3 1.7B is the reasoning-capable model; thinking is a request
+        flag rather than a separate GGUF. The UI labels what the user sees.
         """
         tag = TEXT_MODEL_TAGS.get(model_name, "Kafelot text access")
-        if model_name == TEXT_MODEL_1_2B_THINKING:
+        if thinking and model_name == TEXT_MODEL_1_7B:
             return f"{tag} (thinking)"
-        if thinking and model_name == TEXT_MODEL_2_6B:
-            return "LFM 2.5 2.6B access (thinking)"
         return tag
 
     def _vision_model_tag(self, model_name: str) -> str:

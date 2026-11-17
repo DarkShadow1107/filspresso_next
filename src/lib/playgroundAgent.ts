@@ -7,7 +7,7 @@ export type NativeHistoryGroup = { text: string; tool_calls: NativeCall[]; tool_
 export type NativeConversationTurn = { message: string; text: string; history: NativeHistoryGroup[] };
 export type NativeAgentRequest = {
 	version: 1; model: string; mode: "plan" | "build"; message: string; system_prompt?: string;
-	temperature: number; max_tokens: number; input_context_tokens: 16384 | 32768 | 65536 | 131072; tools: NativeTool[];
+	temperature: number; max_tokens: number; input_context_tokens: 16384 | 32768 | 65536 | 131072 | 262144; tools: NativeTool[];
 	history: NativeHistoryGroup[]; conversation?: NativeConversationTurn[]; session_uuid?: string;
 	compaction_mode?: "permissive" | "balanced" | "aggressive";
 	thinking_level?: "off" | "default" | "low" | "medium" | "high";
@@ -97,7 +97,7 @@ export function parseNativeAgentReply(body: Record<string, unknown>, request: Na
 			const fraction = { permissive: .8, balanced: .65, aggressive: .45 }[value.mode as NativeAgentCompaction["mode"]];
 			if (!Number.isInteger(value.consumedGroups) || Number(value.consumedGroups) < 1 || Number(value.consumedGroups) >= request.history.length + (request.conversation?.length ?? 0) ||
 				typeof value.summary !== "string" || !value.summary.trim() || value.summary.length > 32_000 || /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value.summary) ||
-				Number(value.tokensAfter) >= Number(value.tokensBefore) || Number(value.tokensAfter) >= Math.min(Math.floor(request.input_context_tokens * fraction), 131_072 - request.max_tokens - 256) ||
+				Number(value.tokensAfter) >= Number(value.tokensBefore) || Number(value.tokensAfter) >= Math.floor(request.input_context_tokens * fraction) ||
 				!object(value.usage) || !count(value.usage.prompt_tokens) || !count(value.usage.completion_tokens) || Number(value.usage.prompt_tokens) + Number(value.usage.completion_tokens) === 0 ||
 				Number(value.usage.prompt_tokens) > Number(body.usage.prompt_tokens) || Number(value.usage.completion_tokens) > Math.min(2048, Math.floor(request.max_tokens / 4), Number(body.usage.completion_tokens))) throw new Error("Invalid agent compaction receipt.");
 		} else if (value.consumedGroups !== 0 || value.tokensBefore !== value.tokensAfter || value.summary !== undefined || value.usage !== null) throw new Error("Invalid agent context measurement.");

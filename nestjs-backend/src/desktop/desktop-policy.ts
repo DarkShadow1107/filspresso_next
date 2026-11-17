@@ -8,12 +8,11 @@ import { resolveBillingContext } from "../billing/billing-context";
  * surface of it, and it exists because the desktop scope has one extra question the web
  * Playground never asks: can *this particular model* be afforded right now.
  *
- * That question has a real answer that is not "is the account rich enough". A Max customer
- * can run the 8B, but not out of their allowance, and an add-on holder cannot spend their
- * plan allowance on the Playground at all -- the subscription buys access, not usage. So
- * "the account has 5 RON of allowance" and "this message can be paid for" are different
- * questions, and a client that only asked the first one would let a customer start a
- * generation that is refused at the far end.
+ * That question has a real answer that is not "is the account rich enough". An add-on
+ * holder cannot spend their plan allowance on the Playground at all -- the subscription
+ * buys access, not usage. So "the account has 5 RON of allowance" and "this message can
+ * be paid for" are different questions, and a client that only asked the first one would
+ * let a customer start a generation that is refused at the far end.
  */
 export function desktopModelAccess(params: {
 	modelKey: string;
