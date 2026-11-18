@@ -17,6 +17,17 @@ public sealed class DesktopPreferencesTests
     }
 
     [Fact]
+    public void LegacyLfm25PreferenceNormalizesToTheCurrentSelectableModelButRemainsKnownForHistory()
+    {
+        var oldPreference = new DesktopPreferences { ModelKey = "lfm2_5_230m_q4_k_m" }.Normalize();
+
+        Assert.Equal(DesktopPreferences.DefaultModel, oldPreference.ModelKey);
+        Assert.Equal("lfm3_1_7b_q4_k_m", DesktopPreferences.DefaultModel);
+        Assert.Contains("lfm2_5_230m_q4_k_m", DesktopPreferences.KnownModels);
+        Assert.DoesNotContain("lfm2_5_230m_q4_k_m", DesktopPreferences.SelectableModels);
+    }
+
+    [Fact]
     public void PreferencesRoundTripWithoutLeavingATemporaryFile()
     {
         var root = Path.Combine(Path.GetTempPath(), "FilspressoPreferences-" + Guid.NewGuid().ToString("N"));

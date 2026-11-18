@@ -4906,24 +4906,25 @@ body.capsules-popup-open > *:not(.capsules-popup-backdrop) {
 	display: flex;
 	flex-direction: column;
 	align-items: flex-end;
-	gap: 1px;
-	font-size: 0.62rem;
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
+	gap: 3px;
+	font-size: 0.7rem;
+	text-transform: none;
+	letter-spacing: 0;
 	color: rgba(255, 255, 255, 0.4);
-	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+	white-space: normal;
+	text-align: right;
 }
+.pgm-lineup-price > span { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; align-items: baseline; }
 .pgm-lineup-price b {
 	font-size: 0.78rem;
 	font-weight: 600;
-	text-transform: none;
-	letter-spacing: 0;
 	color: #fcd34d;
 	font-variant-numeric: tabular-nums;
 }
-.pgm-lineup-price em {
-	display: none;
-}
+.pgm-lineup-price small { font-size: 0.58rem; color: rgba(255, 255, 255, 0.43); }
+.pgm-lineup-state-history { color: #d8ad8d; font-size: .68rem; white-space: nowrap; }
+.pgm-lineup-row[data-historical="true"] .pgm-lineup-name { color: #d6b49a; }
 
 /* The Spectre paywall. Two paragraphs because the second one is the one customers get
    wrong: the subscription is access, not usage. */

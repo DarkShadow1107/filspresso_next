@@ -56,7 +56,7 @@ test("question queue rejects stale/double answers, snapshots inputs and cancels 
 test("question rendering offers custom answers and labels them as clarification, not approval", () => {
 	const html = renderToStaticMarkup(<PlaygroundAgentQuestion challenge={challenge()} answer={() => { throw new Error("No event during render"); }} />);
 	assert.match(html, /Your own answer: Database/); assert.match(html, /type="radio"/); assert.match(html, /type="checkbox"/);
-	assert.match(html, /They do not approve/); assert.match(html, /Dismiss and stop/); assert.doesNotMatch(html, /Approve once/);
+	assert.match(html, /They never approve/); assert.match(html, /Dismiss and stop/); assert.doesNotMatch(html, /Approve once/);
 });
 
 test("a native question pauses the loop and never enters sandbox approval or dispatch", async () => {
@@ -66,7 +66,7 @@ test("a native question pauses the loop and never enters sandbox approval or dis
 		ask: (q, signal) => queue.request(q, signal), approve: async q => { calls.push("approve"); return { approvalId: q.id, approved: true }; },
 		invoke: async () => { calls.push("invoke"); throw new Error("Question must not execute"); }, abort: async () => { calls.push("abort"); return true; } };
 	const events: AgentLoopEvent[] = [];
-	const pending = (async () => { for await (const event of new NativeAgentLoop(services).run({ model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16384 }, "build", "Ask first.")) events.push(event); })();
+	const pending = (async () => { for await (const event of new NativeAgentLoop(services).run({ model: "lfm3_1_7b_q4_k_m", inputContextTokens: 16384 }, "build", "Ask first.")) events.push(event); })();
 	await new Promise<void>(resolve => { const off = queue.subscribe(() => { if (queue.getSnapshot()) { off(); resolve(); } }); });
 	const q = queue.getSnapshot()!; assert.deepEqual(calls, []); assert.equal(requests.length, 1); queue.answer(decision(q)); await pending;
 	assert.deepEqual(calls, []); assert.equal(events.at(-1)?.kind, "finished");
@@ -79,7 +79,7 @@ test("dismissed questions prevent follow-up inference without claiming sandbox e
 	const services: AgentLoopServices = { workspace: { id: crypto.randomUUID(), location: "hosted-docker" }, supportsModel: () => true,
 		turn: async () => reply([questionCall()]),
 		ask: async q => ({ version: 1, id: q.id, cancelled: true, answers: [] }), invoke: async () => { invoked++; throw new Error(); }, abort: async () => true };
-	const events: AgentLoopEvent[] = []; for await (const event of new NativeAgentLoop(services).run({ model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16384 }, "build", "Ask.")) events.push(event);
+	const events: AgentLoopEvent[] = []; for await (const event of new NativeAgentLoop(services).run({ model: "lfm3_1_7b_q4_k_m", inputContextTokens: 16384 }, "build", "Ask.")) events.push(event);
 	assert.equal(invoked, 0); assert.equal(events.at(-1)?.kind, "stopped"); assert.equal(events.some(event => event.kind === "approval.required"), false);
 });
 

@@ -34,7 +34,7 @@ function upstreamFrames(frames: unknown[]): Response {
 	return new Response(wire, { headers: { "Content-Type": "text/event-stream" } });
 }
 
-const MODEL = { model: "lfm2_5_230m_q4_k_m", message: "What changed in browsers this month?" };
+const MODEL = { model: "lfm3_1_7b_q4_k_m", message: "What changed in browsers this month?" };
 const WEB_MODEL = { ...MODEL, web_research: true };
 
 test("the web research flag is strict, like the thinking flag", () => {

@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Filspresso.Core.Platform;
 using Xunit;
 
@@ -129,5 +130,23 @@ public class PlatformRequirementTests
         var result = PlatformRequirementCheck.Evaluate(26100, PlatformRequirementCheck.ParseEdition("Professional", null));
         Assert.True(result.Supported);
         Assert.Equal("Pro", result.Edition);
+    }
+
+    [Theory]
+    [InlineData(Architecture.Arm64)]
+    [InlineData(Architecture.X86)]
+    public void X64DesktopPackageRefusesUnsupportedOperatingSystemArchitectures(Architecture architecture)
+    {
+        var result = PlatformRequirementCheck.Evaluate(26100, WindowsEdition.Pro, architecture);
+        Assert.False(result.Supported);
+        Assert.Contains("Windows x64", result.Reason, StringComparison.Ordinal);
+        Assert.Contains(architecture.ToString(), result.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void X64ArchitecturePassesTheArchitectureGate()
+    {
+        var result = PlatformRequirementCheck.Evaluate(26100, WindowsEdition.Pro, Architecture.X64);
+        Assert.True(result.Supported, result.Reason);
     }
 }

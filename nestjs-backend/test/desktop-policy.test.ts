@@ -7,7 +7,7 @@ import type { BillingService } from "../src/billing/billing.service";
 import type { AddonsService } from "../src/billing/addons.service";
 import type { Response } from "express";
 
-const small = "lfm2_5_230m_q4_k_m";
+const small = "lfm3_1_7b_q4_k_m";
 const big = "lfm3_omni_2b_q4_k_m";
 
 /**

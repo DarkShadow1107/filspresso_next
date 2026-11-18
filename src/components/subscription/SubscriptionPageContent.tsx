@@ -31,7 +31,7 @@ import {
 	PenIcon,
 } from "@/icons";
 
-import { PLAYGROUND_MODEL_KEYS, normalizeModelTier } from "@/lib/modelAccess";
+import { PLAYGROUND_SELECTABLE_MODEL_KEYS, normalizeModelTier } from "@/lib/modelAccess";
 import { featureLinesForTier, modelAccessLinesForTier, SPECTRE_SUBSCRIPTION, tierCanUsePlayground } from "@/lib/entitlements";
 
 type CurrentSubscription = {
@@ -241,8 +241,9 @@ export default function SubscriptionPageContent() {
 	// Left empty on failure, and the card says so. A placeholder row reading zero would be
 	// worse than no table: it reads as a price someone set.
 	const [spectrePrices, setSpectrePrices] = useState<
-		Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }>
+		Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number; longContextPricing: boolean }>
 	>([]);
+	const [longContextMultiplier, setLongContextMultiplier] = useState(2);
 	const [historicalPrices, setHistoricalPrices] = useState<Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }>>([]);
 
 	// The add-on's bullets, phrased so the card reads the same whether or not the
@@ -264,15 +265,24 @@ export default function SubscriptionPageContent() {
 		let cancelled = false;
 		fetch(`${API_BASE}/api/billing/pricing?audience=api`, { credentials: "same-origin" as const })
 			.then((res) => (res.ok ? res.json() : null))
-			.then((body: { models?: Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }>; historicalModels?: Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }> } | null) => {
+			.then((body: {
+				models?: Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number; longContextPricing?: boolean }>;
+				historicalModels?: Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }>;
+				longContextMultiplier?: number;
+			} | null) => {
 				if (cancelled || !body?.models) return;
-				setHistoricalPrices(body.historicalModels ?? []);
-				const order = PLAYGROUND_MODEL_KEYS as readonly string[];
+				if (body.longContextMultiplier === 2) setLongContextMultiplier(body.longContextMultiplier);
+				const previousCurrentRates = body.models
+					.filter((model) => model.modelKey.startsWith("lfm2_5_"))
+					.map(({ modelKey, label, inputPer1M, outputPer1M }) => ({ modelKey, label, inputPer1M, outputPer1M }));
+				setHistoricalPrices([...previousCurrentRates, ...(body.historicalModels ?? [])]);
+				const order = PLAYGROUND_SELECTABLE_MODEL_KEYS as readonly string[];
 				const byKey = new Map(body.models.map((m) => [m.modelKey, m]));
 				setSpectrePrices(
 					order
 						.map((key) => byKey.get(key))
-						.filter((m): m is NonNullable<typeof m> => Boolean(m)),
+						.filter((m): m is NonNullable<typeof m> => Boolean(m))
+						.map((model) => ({ ...model, longContextPricing: model.longContextPricing === true })),
 				);
 			})
 			.catch(() => {
@@ -1101,8 +1111,8 @@ if (benefit.toLowerCase().includes("lfm") || benefit.toLowerCase().includes("qwe
 								<thead>
 									<tr>
 										<th scope="col">Model</th>
-										<th scope="col">Input</th>
-										<th scope="col">Output</th>
+										<th scope="col">Input ≤128K</th>
+										<th scope="col">Output ≤128K</th>
 									</tr>
 								</thead>
 									<tbody>
@@ -1116,12 +1126,18 @@ if (benefit.toLowerCase().includes("lfm") || benefit.toLowerCase().includes("qwe
 									</tbody>
 								</table>
 							)}
-							<p className="card-spectre__prices-note">
-								Rates are for the first 128K tokens of context. Usage above 128K is billed at double these rates.
-							</p>
+							{spectrePrices.some((row) => row.longContextPricing) && <div className="card-spectre__long-context">
+								<p className="card-spectre__prices-note">For requests with input above 128K, the whole request uses these doubled rates:</p>
+								<table className="card-spectre__prices-table">
+									<thead><tr><th scope="col">Model</th><th scope="col">Input &gt;128K</th><th scope="col">Output &gt;128K</th></tr></thead>
+									<tbody>{spectrePrices.filter((row) => row.longContextPricing).map((row) => (
+										<tr key={row.modelKey}><td>{row.label}</td><td>{(row.inputPer1M * longContextMultiplier).toFixed(2)}</td><td>{(row.outputPer1M * longContextMultiplier).toFixed(2)}</td></tr>
+									))}</tbody>
+								</table>
+							</div>}
 							<details>
 								<summary>Previous LFM 2.5 API rates</summary>
-								<p>LFM 2.5 models were deprecated in favor of the LFM 3 family, except the Free-plan 230M. Previous usage remains in your history at its recorded cost.</p>
+								<p>LFM 2.5 models are not selectable in either Playground. Their API rates remain here for historical reference; previous usage stays recorded at its original cost.</p>
 								{historicalPrices.length > 0 && <table className="billing-table"><thead><tr><th>Model</th><th>Input / 1M</th><th>Output / 1M</th></tr></thead><tbody>{historicalPrices.map(row => <tr key={row.modelKey}><td>{row.label}</td><td>{row.inputPer1M.toFixed(2)} RON</td><td>{row.outputPer1M.toFixed(2)} RON</td></tr>)}</tbody></table>}
 							</details>
 						</div>

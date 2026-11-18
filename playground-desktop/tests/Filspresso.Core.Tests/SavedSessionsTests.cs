@@ -228,7 +228,7 @@ public sealed class SavedSessionsTests
             using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
             var body = json.RootElement;
             Assert.Equal(uuid, body.GetProperty("session_uuid").GetString());
-            Assert.Equal("lfm2_5_350m_q8_0", body.GetProperty("model").GetString());
+            Assert.Equal(DesktopPreferences.DefaultModel, body.GetProperty("model").GetString());
             Assert.Equal(65536, body.GetProperty("input_context_tokens").GetInt32());
             Assert.Equal("aggressive", body.GetProperty("compaction_mode").GetString());
             Assert.Equal("Retained memory", body.GetProperty("history")[0].GetProperty("content").GetString());
@@ -274,7 +274,7 @@ public sealed class SavedSessionsTests
         var preferences = saved.RestorePreferences(new DesktopPreferences { TextSize = 18, EnterToSend = false });
         Assert.Equal(limit, preferences.InputContextTokens);
         Assert.Equal(mode, preferences.CompactionMode);
-        Assert.Equal("lfm2_5_350m_q8_0", preferences.ModelKey);
+        Assert.Equal(DesktopPreferences.DefaultModel, preferences.ModelKey);
         Assert.Equal(18, preferences.TextSize);
         Assert.False(preferences.EnterToSend);
     }

@@ -5,7 +5,7 @@ import { AgentConsentQueue } from "../../src/lib/playgroundAgentConsent";
 import { AgentTransportError, type NativeAgentReply, type NativeAgentRequest, type NativeCall } from "../../src/lib/playgroundAgent";
 import { validateAgentRequest } from "../../nestjs-backend/src/desktop/playground-agent-contract";
 
-const context = { model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 };
+const context = { model: "lfm3_1_7b_q4_k_m", inputContextTokens: 16_384 };
 let sequence = 0;
 const call = (id = "call_1", name = "read_file", args = '{"path":"src/main.py"}'): NativeCall => ({ id, name, arguments: args });
 const write = (id = "call_1") => call(id, "write_file", '{"path":"src/main.py","text":"print(1)"}');

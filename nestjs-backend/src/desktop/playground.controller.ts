@@ -6,7 +6,7 @@ import { BillingService } from "../billing/billing.service";
 import { AddonsService } from "../billing/addons.service";
 import { canUseSpectre } from "../billing/tier-allowance";
 import { desktopModelAccess } from "./desktop-policy";
-import { playgroundModelFile } from "./text-models";
+import { playgroundModelFile, playgroundModelKeys } from "./text-models";
 import { DesktopGatewayService } from "./desktop-gateway.service";
 import { fetchBounded } from "../common/utils/httpClient";
 
@@ -20,6 +20,10 @@ export class PlaygroundController {
 
 	@Post("chat/stream")
 	async chat(@Req() req: Caller, @Res() res: Response, @Body() body: Record<string, unknown>) {
+		const model = typeof body?.model === "string" ? body.model : "";
+		if (!playgroundModelKeys().includes(model)) {
+			return res.status(400).json({ error: "UNKNOWN_MODEL", message: "Choose a current LFM 3 model for the Playground." });
+		}
 		const accountId = Number(req.user?.id);
 		const tier = await this.billing.resolveTierFor(accountId);
 		const result = await this.gateway.streamChat(res, accountId, tier, body ?? {}, "playground");
@@ -40,7 +44,8 @@ export class PlaygroundController {
 	async load(@Req() req: Caller, @Body() body: { model?: unknown }) {
 		const modelKey = typeof body?.model === "string" ? body.model : "";
 		const file = playgroundModelFile(modelKey);
-		if (!file) throw new BadRequestException({ error: "UNKNOWN_MODEL", message: "Choose an available model." });
+		if (!file || !playgroundModelKeys().includes(modelKey))
+			throw new BadRequestException({ error: "UNKNOWN_MODEL", message: "Choose a current LFM 3 model." });
 		try {
 			const accountId = Number(req.user?.id);
 			const tier = await this.billing.resolveTierFor(accountId);

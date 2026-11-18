@@ -16,7 +16,7 @@ test("all three compaction modes are accepted; balanced is the shared default", 
 	for (const mode of ["off", "proactive", "constructor", 0]) assert.throws(() => readInputContext({ compaction_mode: mode }));
 });
 
-for (const scenario of [{ tier: "pro", source: "addon", model: "lfm2_5_230m_q4_k_m" }, { tier: "max", source: "addon", model: "lfm3_omni_2b_q4_k_m" }]) {
+for (const scenario of [{ tier: "pro", source: "addon", model: "lfm3_1_7b_q4_k_m" }, { tier: "max", source: "addon", model: "lfm3_omni_2b_q4_k_m" }]) {
 	test(`web model loading refuses ${scenario.tier}/${scenario.model} without wallet funds`, async () => {
 		const billing = { resolveTierFor: async () => scenario.tier, getBalance: async () => ({ canGenerate: false }), getAllowance: async () => ({ remainingRon: 100 }) } as unknown as BillingService;
 		const addons = { resolveSpectreAccess: async () => ({ hasAccess: true, source: scenario.source }) } as unknown as AddonsService;
@@ -31,8 +31,36 @@ test("web requests use the backend gateway and its playground settlement scope",
 		assert.equal(account, 42); assert.equal(tier, "max"); actualScope = scope; return { kind: "sent", requestId: "server-id" };
 	} } as unknown as DesktopGatewayService;
 	const controller = new PlaygroundController({ resolveTierFor: async () => "max" } as unknown as BillingService, {} as AddonsService, gateway);
-	await controller.chat({ user: { id: 42 } }, {} as ExpressResponse, { model: "lfm2_5_230m_q4_k_m", message: "hello" });
+	await controller.chat({ user: { id: 42 } }, {} as ExpressResponse, { model: "lfm3_1_7b_q4_k_m", message: "hello" });
 	assert.equal(actualScope, "playground");
+});
+
+test("LFM 2.5 remains priced for history but is refused for new Playground turns", async () => {
+	let billingChecks = 0;
+	let gatewayCalls = 0;
+	const controller = new PlaygroundController(
+		{ resolveTierFor: async () => { billingChecks++; return "ultimate"; } } as unknown as BillingService,
+		{} as AddonsService,
+		{ streamChat: async () => { gatewayCalls++; return { kind: "sent", requestId: "unexpected" }; } } as unknown as DesktopGatewayService,
+	);
+	const response = new Reply() as unknown as ExpressResponse & { statusCode: number; payload: unknown };
+	await controller.chat({ user: { id: 42 } }, response, { model: "lfm2_5_230m_q4_k_m", message: "hello" });
+	assert.equal(response.statusCode, 400);
+	assert.deepEqual(response.payload, { error: "UNKNOWN_MODEL", message: "Choose a current LFM 3 model for the Playground." });
+	assert.equal(billingChecks, 0);
+	assert.equal(gatewayCalls, 0);
+
+	const charges: Array<Record<string, unknown>> = [];
+	const previousFetch = globalThis.fetch;
+	globalThis.fetch = async () => { throw new Error("Retired Playground model must not reach inference."); };
+	try {
+		const result = await fundedGateway(charges).streamChat(new Reply() as unknown as ExpressResponse, 42, "ultimate", {
+			model: "lfm2_5_230m_q4_k_m", message: "hello",
+		}, "desktop");
+		assert.equal(result.kind, "refused");
+		if (result.kind === "refused") assert.equal(result.error, "UNKNOWN_MODEL");
+		assert.equal(charges.length, 0);
+	} finally { globalThis.fetch = previousFetch; }
 });
 
 test("authorized warmup carries the internal service credential", async () => {
@@ -46,7 +74,7 @@ test("authorized warmup carries the internal service credential", async () => {
 	try {
 		const billing = { resolveTierFor: async () => "max", getBalance: async () => ({ canGenerate: true }), getAllowance: async () => ({ remainingRon: 10 }) } as unknown as BillingService;
 		const addons = { resolveSpectreAccess: async () => ({ hasAccess: true, source: "tier" }) } as unknown as AddonsService;
-		assert.deepEqual(await new PlaygroundController(billing, addons, {} as DesktopGatewayService).load({ user: { id: 42 } }, { model: "lfm2_5_230m_q4_k_m" }), { status: "warming" });
+		assert.deepEqual(await new PlaygroundController(billing, addons, {} as DesktopGatewayService).load({ user: { id: 42 } }, { model: "lfm3_1_7b_q4_k_m" }), { status: "warming" });
 	} finally { globalThis.fetch = previousFetch; if (previousKey === undefined) delete process.env.AI_SERVICE_KEY; else process.env.AI_SERVICE_KEY = previousKey; }
 });
 
@@ -54,7 +82,10 @@ class Reply extends EventEmitter {
 	body = "";
 	destroyed = false;
 	headersSent = false;
-	status() { return this; }
+	statusCode = 200;
+	payload: unknown;
+	status(code: number) { this.statusCode = code; return this; }
+	json(payload: unknown) { this.payload = payload; return this; }
 	setHeader() { return this; }
 	flushHeaders() { this.headersSent = true; }
 	write(value: string) { this.body += value; return true; }
@@ -76,7 +107,7 @@ test("summary and answer usage settle once with distinct server IDs before compl
 		const res = new Reply();
 		const originalWrite = res.write.bind(res);
 		res.write = value => { if (value.includes('"done":true')) assert.equal(charges.length, 2); return originalWrite(value); };
-		assert.equal((await fundedGateway(charges).streamChat(res as unknown as ExpressResponse, 42, "max", { model: "lfm2_5_230m_q4_k_m", message: "hello" }, "playground")).kind, "sent");
+		assert.equal((await fundedGateway(charges).streamChat(res as unknown as ExpressResponse, 42, "max", { model: "lfm3_1_7b_q4_k_m", message: "hello" }, "playground")).kind, "sent");
 		assert.equal(charges.length, 2);
 		assert.ok(String(charges[0].requestId).endsWith("-compaction"));
 		assert.equal(charges[1].scope, "playground");
@@ -89,7 +120,7 @@ test("a compaction that consumes tokens but cannot fit still settles only that w
 	const previousFetch = globalThis.fetch;
 	globalThis.fetch = async () => Response.json({ error: "INPUT_CONTEXT_EXCEEDED", message: "History preserved", compaction_usage: { prompt_tokens: 20, completion_tokens: 5 } }, { status: 413 });
 	try {
-		const result = await fundedGateway(charges).streamChat(new Reply() as unknown as ExpressResponse, 42, "max", { model: "lfm2_5_230m_q4_k_m", message: "hello" }, "playground");
+		const result = await fundedGateway(charges).streamChat(new Reply() as unknown as ExpressResponse, 42, "max", { model: "lfm3_1_7b_q4_k_m", message: "hello" }, "playground");
 		assert.equal(result.kind, "refused");
 		assert.equal(charges.length, 1);
 		assert.ok(String(charges[0].requestId).endsWith("-compaction"));

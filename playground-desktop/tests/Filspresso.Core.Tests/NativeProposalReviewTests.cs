@@ -12,7 +12,7 @@ namespace Filspresso.Core.Tests;
 
 public sealed class NativeProposalReviewTests
 {
-    private const string Model = "lfm2_5_230m_q4_k_m";
+    private const string Model = "lfm3_1_7b_q4_k_m";
     private static ToolCall Call(string path = "src/main.py") => new("call_1", "read_file", $"{{\"path\":\"{path}\"}}");
     private static AgentModelReply.Completed Good() => new("Inspecting.", new TokenUsage(100, 12), new[] { Call() }, AgentFinishReason.ToolCalls)
     { RunId = "dsk-0123456789abcdef01234567", SettlementRecorded = true };

@@ -166,6 +166,15 @@
 .pgw-source audio, .pgw-source video { width: 100%; max-height: 110px; margin-top: 6px; border-radius: 6px; }
 .pgw-message-sources { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-top: 8px; }
 .pgw-message-sources > span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border: 1px solid #473528; border-radius: 6px; color: #bca18a; font-size: 10px; }
+.pgw-agent-source-review { display: grid; gap: 10px; margin: 0 0 12px; padding: 12px 14px; border: 1px solid #9b6947; border-left: 3px solid #d69a6b; border-radius: 10px; background: #2b211c; color: #dfc8b3; }
+.pgw-agent-source-review > div:first-child strong { color: #f0c39f; font-size: 12px; }
+.pgw-agent-source-review p { margin: 5px 0 0; color: #c0aa98; font-size: 11px; line-height: 1.6; }
+.pgw-agent-source-review details { border-top: 1px solid #594234; padding-top: 8px; font-size: 11px; }
+.pgw-agent-source-review summary { cursor: pointer; color: #dfb38e; }
+.pgw-agent-source-review pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; margin: 8px 0 0; border-radius: 7px; background: #171413; color: #d7c5b5; font-size: 10px; line-height: 1.55; }
+.pgw-agent-source-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.pgw-agent-source-review .pgw-source-review-note { color: #f1b69b; }
+.pgw-message-source-note { margin: 5px 0 0; color: #a9917d; font-size: 10px; line-height: 1.5; }
 .pgw-dialog-backdrop { display: grid; place-items: center; position: fixed; inset: var(--pgw-nav-height, 120px) 0 0; z-index: 7; padding: 20px; background: #000a; }
 .pgw-project-dialog { width: min(100%, 480px); padding: 27px; background: #211b18; border: 1px solid #6c4b32; border-radius: 17px; box-shadow: 0 20px 70px #0008; }
 .pgw-project-dialog h2 { display: flex; align-items: center; gap: 11px; margin: 0 0 15px; color: #f3d8c0; font-size: 19px; }

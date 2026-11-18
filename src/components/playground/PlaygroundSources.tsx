@@ -109,7 +109,7 @@ export function SourceList({ sources, onRemove, disabled = false }: { sources: P
 		{source.preview && source.kind === "image" && <img src={source.preview} alt={source.name} className="pgw-source-image" />}
 		{source.preview && source.kind === "audio" && <audio src={source.preview} controls preload="metadata" />}
 		{source.preview && source.kind === "video" && <video src={source.preview} controls preload="metadata" />}
-		<p role="status">{source.status === "ready" ? "Ready" : source.status === "error" ? source.error : source.status === "queued" ? "Queued…" : source.kind === "document" || source.kind === "github" ? "Reading source…" : "Analyzing media…"}</p>
+		<p role="status">{source.status === "ready" ? `Ready${source.kind === "github" && source.text ? ` · ${source.text.length.toLocaleString()} characters` : ""}` : source.status === "error" ? source.error : source.status === "queued" ? "Queued…" : source.kind === "document" || source.kind === "github" ? "Reading source…" : "Analyzing media…"}</p>
 		{source.warnings?.length ? <details><summary>Source details</summary>{source.warnings.map((warning) => <p key={warning}>{warning}</p>)}</details> : null}
 	</div>)}</div>;
 }

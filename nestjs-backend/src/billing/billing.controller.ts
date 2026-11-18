@@ -100,16 +100,20 @@ constructor(
 				currency: table.currency,
 				unit: table.unit,
 				outputMultiplier: table.outputMultiplier,
+				longContextThresholdTokens: table.longContextThresholdTokens,
+				longContextMultiplier: table.longContextMultiplier,
 				subscriber: false,
 				listPrice: true,
 				historicalModels: Object.entries(RETIRED_MODEL_PRICING).map(([modelKey, price]) => ({
-					modelKey, label: price.label, inputPer1M: price.apiInputPer1M, outputPer1M: price.apiOutputPer1M,
+					modelKey, label: price.label, inputPer1M: price.apiInputPer1M,
+					outputPer1M: price.apiOutputPer1M, longContextPricing: price.longContextPricing,
 				})),
 				models: table.models.map((m) => ({
 					modelKey: m.modelKey,
 					label: m.label,
 					apiInputPer1M: m.apiInputPer1M,
 					apiOutputPer1M: m.apiOutputPer1M,
+					longContextPricing: m.longContextPricing,
 					subscriberInputPer1M: m.subscriberInputPer1M,
 					subscriberOutputPer1M: m.subscriberOutputPer1M,
 					subscriberDiscountPercent: m.subscriberDiscountPercent,
@@ -124,11 +128,14 @@ constructor(
 			currency: table.currency,
 			unit: table.unit,
 			outputMultiplier: table.outputMultiplier,
+			longContextThresholdTokens: table.longContextThresholdTokens,
+			longContextMultiplier: table.longContextMultiplier,
 			subscriber,
 			/** True when these are list prices, i.e. not what this caller is charged. */
 			listPrice: showApi,
 			historicalModels: Object.entries(RETIRED_MODEL_PRICING).map(([modelKey, price]) => ({
-				modelKey, label: price.label, inputPer1M: price.apiInputPer1M, outputPer1M: price.apiOutputPer1M,
+				modelKey, label: price.label, inputPer1M: price.apiInputPer1M,
+				outputPer1M: price.apiOutputPer1M, longContextPricing: price.longContextPricing,
 			})),
 			models: table.models.map((m) =>
 				showApi
@@ -137,12 +144,14 @@ constructor(
 						label: m.label,
 						inputPer1M: m.apiInputPer1M,
 						outputPer1M: m.apiOutputPer1M,
+						longContextPricing: m.longContextPricing,
 					}
 : {
 							modelKey: m.modelKey,
 							label: m.label,
 							inputPer1M: m.subscriberInputPer1M,
 							outputPer1M: m.subscriberOutputPer1M,
+							longContextPricing: m.longContextPricing,
 							// No discount percentage here, and deliberately so. The rate is already
 							// what this caller pays, which is all any customer surface needs, and
 							// stating the policy invites a client to depend on it. It is worth being

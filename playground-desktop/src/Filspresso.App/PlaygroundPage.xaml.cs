@@ -148,16 +148,20 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         if (_disposed || StateBar is null) return;
         var selectedKey = (ModelBox.SelectedItem as ModelView)?.ModelKey ?? _services.Preferences.ModelKey;
         var catalogue = _session.Catalogue;
+        var entitlement = _session.Entitlement;
         _rendering = true;
         ModelBox.ItemsSource = catalogue.Usable.ToArray();
         ModelBox.SelectedItem = catalogue.Usable.FirstOrDefault(model => model.ModelKey == selectedKey) ?? catalogue.DefaultModel;
         var rows = catalogue.Models.Select(model => new CatalogueRow(
-            model.Label,
-            $"{model.InputPer1M:0.00} / {model.OutputPer1M:0.00} RON",
-            !model.IsUsable ? "Locked" : !model.CanGenerate ? "Needs credit" : model.Availability == ModelAvailability.WalletOnly ? "Wallet only" : "Allowance, then wallet"));
+                model.Label,
+                FormatApiRates(model),
+                !model.IsUsable ? "Locked" : !model.CanGenerate ? "Needs credit" : model.Availability == ModelAvailability.WalletOnly ? "Wallet only" : "Allowance, then wallet"))
+            .Concat((entitlement?.HistoricalModels ?? Array.Empty<HistoricalModelEntry>()).Select(model => new CatalogueRow(
+                model.Label,
+                $"≤128K · {model.InputPer1M:0.00} / {model.OutputPer1M:0.00} RON per 1M",
+                "Historical · not selectable")));
         CatalogueList.ItemsSource = rows.ToArray();
         _rendering = false;
-        var entitlement = _session.Entitlement;
         BalanceHint.Text = entitlement is null ? "Direct model access · 128K context" :
             $"128K context · {entitlement.Tier.ToUpperInvariant()} plan · Allowance {entitlement.Allowance.RemainingRon:0.00} RON · Wallet {entitlement.Wallet.BalanceRon:0.00} RON";
         ThinkingButton.Visibility = entitlement?.Tier is "max" or "ultimate" ? Visibility.Visible : Visibility.Collapsed;
@@ -171,8 +175,9 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         var selected = ModelBox.SelectedItem as ModelView;
         var state = selected is null ? _session.Availability : _session.ForModel(selected.ModelKey);
         PriceHint.Text = selected is null ? string.Empty :
-            $"{selected.InputPer1M:0.00} input / {selected.OutputPer1M:0.00} output RON per 1M tokens · " +
-            (selected.Availability == ModelAvailability.WalletOnly ? "Paid from your wallet" : "Allowance first, then wallet");
+            $"{FormatApiRates(selected)} · " +
+            (selected.Availability == ModelAvailability.WalletOnly ? "Paid from your wallet" : "Allowance first, then wallet") +
+            (selected.LongContextPricing ? " · Desktop input is capped at 128K; the >128K rate cannot apply in this app." : string.Empty);
 
         (StateBar.Title, StateBar.Message, StateBar.Severity) = state switch
         {
@@ -287,6 +292,15 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         if (_rendering || _inFlight is not null || sender is not ChoicePicker picker || picker.SelectedIndex < 0) return;
         var mode = picker.SelectedIndex switch { 0 => "permissive", 2 => "aggressive", _ => "balanced" };
         if (mode != _services.Preferences.CompactionMode) _services.SavePreferences(_services.Preferences with { CompactionMode = mode });
+    }
+
+    private static string FormatApiRates(ModelView model)
+    {
+        var threshold = Math.Max(1, model.LongContextThresholdTokens / 1024);
+        var baseRate = $"≤{threshold}K · {model.InputPer1M:0.00} / {model.OutputPer1M:0.00} RON per 1M";
+        return model.LongContextPricing
+            ? $"{baseRate}\n>{threshold}K · {model.InputPer1M * model.LongContextMultiplier:0.00} / {model.OutputPer1M * model.LongContextMultiplier:0.00} RON per 1M"
+            : baseRate;
     }
     private void OnChatModeChanged(object sender, SelectionChangedEventArgs args)
     {
@@ -878,7 +892,9 @@ public sealed partial class PlaygroundPage : UserControl, IDisposable
         public void Complete(ApiResult<PreparedSource> result)
         {
             Context = result.Ok ? result.Value : null;
-            Status = Context is not null ? "Ready" + (Context.Warnings.Length > 0 ? " · " + string.Join(" ", Context.Warnings) : string.Empty) : result.Message;
+            Status = Context is not null
+                ? $"Ready · {Context.Text.Length:N0} characters" + (Context.Warnings.Length > 0 ? " · " + string.Join(" ", Context.Warnings) : string.Empty)
+                : result.Message;
         }
         public event PropertyChangedEventHandler? PropertyChanged;
     }

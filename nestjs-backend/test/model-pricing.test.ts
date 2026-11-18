@@ -16,6 +16,7 @@ import {
 	pricingTable,
 	resolveTokenPrice,
 } from "../src/billing/model-pricing";
+import { BillingController } from "../src/billing/billing.controller";
 
 const { describe, it } = test;
 
@@ -25,6 +26,23 @@ const LIMITS = readFileSync(
 	path.resolve(__dirname, "..", "src", "kafelot", "model-usage.service.ts"),
 	"utf-8",
 );
+
+test("public Playground API pricing exposes explicit long-context rates and historical LFM 2.5 rates", async () => {
+	const controller = new BillingController({} as never, {} as never, {} as never);
+	const response = await controller.getPricing({ query: { audience: "api" } });
+	const responseModels = response.models as Array<{ modelKey: string; inputPer1M: number; outputPer1M: number; longContextPricing: boolean }>;
+	const lfm3 = responseModels.find((model) => model.modelKey === "lfm3_1_7b_q4_k_m");
+	const legacy = responseModels.find((model) => model.modelKey === "lfm2_5_230m_q4_k_m");
+	const prior = response.historicalModels as Array<{ modelKey: string; inputPer1M: number; outputPer1M: number }>;
+
+	assert.equal(response.longContextThresholdTokens, LONG_CONTEXT_THRESHOLD_TOKENS);
+	assert.equal(response.longContextMultiplier, 2);
+	assert.deepEqual([lfm3?.inputPer1M, lfm3?.outputPer1M, lfm3?.longContextPricing], [15, 60, true]);
+	assert.equal(lfm3!.inputPer1M * response.longContextMultiplier, 30);
+	assert.equal(lfm3!.outputPer1M * response.longContextMultiplier, 120);
+	assert.deepEqual([legacy?.inputPer1M, legacy?.outputPer1M, legacy?.longContextPricing], [0.3, 1.5, false]);
+	assert.ok(prior.some((model) => model.modelKey === "lfm2_5_1_2b_instruct_q4_k_m"));
+});
 
 /**
  * The agreed price list, written out independently of the implementation.

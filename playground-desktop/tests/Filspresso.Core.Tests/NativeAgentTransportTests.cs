@@ -19,10 +19,10 @@ namespace Filspresso.Core.Tests;
 
 public sealed class NativeAgentTransportTests
 {
-    private const string Model = "lfm2_5_230m_q4_k_m";
+    private const string Model = "lfm3_1_7b_q4_k_m";
     private static readonly string Fixture = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "playground-agent.json"));
     private static string Reply => JsonNode.Parse(Fixture)!["reply"]!.ToJsonString();
-    private const string Capabilities = "{\"version\":1,\"protocol\":\"native-v1\",\"executesTools\":false,\"models\":[\"lfm2_5_230m_q4_k_m\"]}";
+    private const string Capabilities = "{\"version\":1,\"protocol\":\"native-v1\",\"executesTools\":false,\"models\":[\"lfm3_1_7b_q4_k_m\"]}";
     private static readonly ToolDefinition Read = new("read_file", "Read a workspace file as data.",
         new ToolArgumentSchema(new Dictionary<string, ToolParameter> { ["path"] = new(ToolParameterKind.WorkspacePath, MinLength: 1, MaxLength: 240) }), ToolEffect.ReadOnly);
     private static AgentModelRequest Request(IReadOnlyList<AgentExchange>? history = null) => new(

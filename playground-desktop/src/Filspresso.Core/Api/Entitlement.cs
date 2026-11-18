@@ -52,6 +52,16 @@ public sealed record Entitlement
     [JsonPropertyName("models")]
     public IReadOnlyList<ModelEntry> Models { get; init; } = Array.Empty<ModelEntry>();
 
+    [JsonPropertyName("longContextThresholdTokens")]
+    public int LongContextThresholdTokens { get; init; } = 131_072;
+
+    [JsonPropertyName("longContextMultiplier")]
+    public int LongContextMultiplier { get; init; } = 2;
+
+    /// <summary>Prior LFM 2.5 rates for reference only; these entries are never selectable.</summary>
+    [JsonPropertyName("historicalModels")]
+    public IReadOnlyList<HistoricalModelEntry> HistoricalModels { get; init; } = Array.Empty<HistoricalModelEntry>();
+
     [JsonPropertyName("attachmentModels")]
     public IReadOnlyList<ModelEntry> AttachmentModels { get; init; } = Array.Empty<ModelEntry>();
 
@@ -64,6 +74,21 @@ public sealed record Entitlement
     /// would cost.
     /// </summary>
     public bool HasAccess => Access.HasAccess;
+}
+
+public sealed record HistoricalModelEntry
+{
+    [JsonPropertyName("modelKey")]
+    public string ModelKey { get; init; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; init; } = string.Empty;
+
+    [JsonPropertyName("inputPer1M")]
+    public decimal InputPer1M { get; init; }
+
+    [JsonPropertyName("outputPer1M")]
+    public decimal OutputPer1M { get; init; }
 }
 
 public sealed record SpectreAccess
@@ -168,6 +193,9 @@ public sealed record ModelEntry
 
     [JsonPropertyName("outputPer1M")]
     public decimal OutputPer1M { get; init; }
+
+    [JsonPropertyName("longContextPricing")]
+    public bool LongContextPricing { get; init; }
 
     [JsonPropertyName("priceMode")]
     public string PriceMode { get; init; } = "playground";

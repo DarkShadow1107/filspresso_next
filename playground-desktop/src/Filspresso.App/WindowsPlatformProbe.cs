@@ -1,6 +1,7 @@
 using System;
 using Microsoft.Win32;
 using Filspresso.Core.Platform;
+using System.Runtime.InteropServices;
 
 namespace Filspresso.App;
 
@@ -62,7 +63,7 @@ public static class WindowsPlatformProbe
                 Convert.ToString(key.GetValue("CurrentBuildNumber"), System.Globalization.CultureInfo.InvariantCulture),
                 out var build);
 
-            return PlatformRequirementCheck.Evaluate(build, edition);
+            return PlatformRequirementCheck.Evaluate(build, edition, RuntimeInformation.OSArchitecture);
         }
         catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
         {

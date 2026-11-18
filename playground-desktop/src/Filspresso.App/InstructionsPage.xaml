@@ -9,6 +9,8 @@
                 <StackPanel Spacing="12">
                     <TextBlock Text="System &amp; updates" FontSize="16" />
                     <TextBlock x:Name="SystemFacts" TextWrapping="Wrap" FontSize="12" IsTextSelectionEnabled="True" />
+                    <TextBlock x:Name="CompatibilityFacts" TextWrapping="Wrap" FontSize="11" />
+                    <TextBlock x:Name="IsolationFacts" TextWrapping="Wrap" FontSize="11" AutomationProperties.LiveSetting="Polite" />
                     <TextBlock x:Name="VersionFacts" FontSize="12" />
                     <TextBlock x:Name="UpdateStatus" FontSize="12" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                     <TextBlock x:Name="UpdatePackageFacts" FontSize="10" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />

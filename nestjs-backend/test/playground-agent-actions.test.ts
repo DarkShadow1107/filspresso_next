@@ -27,7 +27,7 @@ const write: AgentCall = { id: "call_1", name: "write_file", arguments: '{"path"
 const command: AgentCall = { id: "call_1", name: "run_command", arguments: '{"command":"python3 main.py"}' };
 const build = (call = write) => ({ request: { ...fixture.request, mode: "build" } as AgentRequest, reply: { ...fixture.reply, tool_calls: [call] } as AgentReply });
 async function enabled(work: () => Promise<void>) {
-	const values = { PLAYGROUND_AGENT_EXECUTION_ENABLED: "true", PLAYGROUND_AGENT_ACTION_KEY: "test-only-" + "k".repeat(40), PLAYGROUND_AGENT_MODEL_FILES: "LFM2.5-230M-Q4_K_M.gguf", AI_SERVICE_KEY: "internal-fixture" };
+	const values = { PLAYGROUND_AGENT_EXECUTION_ENABLED: "true", PLAYGROUND_AGENT_ACTION_KEY: "test-only-" + "k".repeat(40), PLAYGROUND_AGENT_MODEL_FILES: "LFM3-1.7B-Q4_K_M.gguf", AI_SERVICE_KEY: "internal-fixture" };
 	const previous = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
 	Object.assign(process.env, values);
 	try { await work(); } finally { for (const key of Object.keys(values)) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } }

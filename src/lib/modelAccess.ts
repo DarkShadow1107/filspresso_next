@@ -10,9 +10,9 @@
  * check happens against the live session in the backend, and /api/python-chat
  * re-resolves the requested model through these same tables before proxying.
  *
- * Lineup note: the LFM 2.5 350M, 1.2B, 2.6B, 8B A1B, VL and Audio entries are
- * retired. LFM 2.5 230M remains for the Free plan only; every paid plan uses the
- * LFM 3 family. All LFM 3 models are served with a 256K context window.
+ * LFM 2.5 is not selectable in either Playground. Its recorded/API rates remain
+ * available for history; Kafelot keeps its separate Free-plan 230M entitlement.
+ * All selectable Playground models are LFM 3, served with a 256K context window.
  */
 
 export const TEXT_MODEL_230M = "lfm2_5_230m_q4_k_m";
@@ -57,7 +57,7 @@ export const MODEL_MODALITY_BY_KEY: Record<ModelKey, ModelModality> = {
 };
 
 export const MODEL_DESCRIPTION_BY_KEY: Record<ModelKey, string> = {
-	[TEXT_MODEL_230M]: "Smallest and fastest. Included on the Free plan.",
+	[TEXT_MODEL_230M]: "Historical API rate only · not selectable in the Playground.",
 	[TEXT_MODEL_1_7B]: "Everyday chat and reasoning. The default on paid plans.",
 	[VISION_MODEL_2B]: "Image understanding. Included from Plus.",
 	[AUDIO_MODEL_2B]: "Speech and audio input/output. Included from Max.",
@@ -116,6 +116,8 @@ export const DEFAULT_OUTPUT_TOKENS = 2048;
 
 /** Exported so the Playground can offer every model; each is priced individually. */
 export const ALL_TEXT_MODEL_KEYS: TextModelKey[] = [TEXT_MODEL_230M, TEXT_MODEL_1_7B];
+/** Text models customers may newly choose in the Playground; legacy keys stay known for history. */
+export const PLAYGROUND_SELECTABLE_TEXT_MODEL_KEYS: TextModelKey[] = [TEXT_MODEL_1_7B];
 const VISION_MODEL_KEYS: VisionModelKey[] = [VISION_MODEL_2B];
 const AUDIO_MODEL_KEYS: AudioModelKey[] = [AUDIO_MODEL_2B];
 const OMNI_MODEL_KEYS: OmniModelKey[] = [OMNI_MODEL_2B];
@@ -125,8 +127,19 @@ export const PLAYGROUND_MODEL_KEYS: ModelKey[] = [
 	...AUDIO_MODEL_KEYS,
 	...OMNI_MODEL_KEYS,
 ];
+/** Selectable models are distinct from known keys used to restore old transcripts and prices. */
+export const PLAYGROUND_SELECTABLE_MODEL_KEYS: ModelKey[] = [
+	...PLAYGROUND_SELECTABLE_TEXT_MODEL_KEYS,
+	...VISION_MODEL_KEYS,
+	...AUDIO_MODEL_KEYS,
+	...OMNI_MODEL_KEYS,
+];
+const SELECTABLE_PLAYGROUND_MODEL_KEY_SET = new Set<string>(PLAYGROUND_SELECTABLE_MODEL_KEYS);
 export function isPlaygroundModelKey(value: string): value is ModelKey {
 	return PLAYGROUND_MODEL_KEYS.includes(value as ModelKey);
+}
+export function isSelectablePlaygroundModelKey(value: string): value is ModelKey {
+	return SELECTABLE_PLAYGROUND_MODEL_KEY_SET.has(value);
 }
 
 const TEXT_MODEL_KEY_SET = new Set<string>(ALL_TEXT_MODEL_KEYS);

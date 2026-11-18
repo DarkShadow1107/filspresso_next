@@ -1,16 +1,28 @@
 /**
- * The Playground's explicitly mapped models: two text, two Vision/Audio and one Omni.
- * The text subset is retained for modality-specific callers; the full catalogue supports
- * media-import recommendations. Tests check every GGUF mapping against the frontend table.
+ * Newly selectable Playground text models. LFM 2.5 mappings remain below for historical
+ * sessions and price display, but are not returned as capabilities or accepted for new turns.
  */
 export const PLAYGROUND_TEXT_MODEL_KEYS: readonly string[] = [
-	"lfm2_5_230m_q4_k_m",
 	"lfm3_1_7b_q4_k_m",
+] as const;
+
+export const HISTORICAL_PLAYGROUND_TEXT_MODEL_KEYS: readonly string[] = [
+	"lfm2_5_230m_q4_k_m",
+] as const;
+
+export const KNOWN_PLAYGROUND_TEXT_MODEL_KEYS: readonly string[] = [
+	...PLAYGROUND_TEXT_MODEL_KEYS,
+	...HISTORICAL_PLAYGROUND_TEXT_MODEL_KEYS,
 ] as const;
 
 /** Cheapest first, so the catalogue reads as a ladder the way the web line-up does. */
 export function playgroundTextModelKeys(): string[] {
 	return [...PLAYGROUND_TEXT_MODEL_KEYS];
+}
+
+/** Known old text models are accepted only when restoring historical session metadata. */
+export function knownPlaygroundTextModelKeys(): string[] {
+	return [...KNOWN_PLAYGROUND_TEXT_MODEL_KEYS];
 }
 
 export function isPlaygroundTextModel(modelKey: string): boolean {
@@ -43,6 +55,6 @@ export const PLAYGROUND_TEXT_MODEL_FILES: Readonly<Record<string, string>> = {
 
 /** The GGUF filename for a model key, or null when the key is not a Playground model. */
 export function playgroundModelFile(modelKey: string): string | null {
-	if (isPlaygroundTextModel(modelKey)) return PLAYGROUND_TEXT_MODEL_FILES[modelKey] ?? null;
+	if (KNOWN_PLAYGROUND_TEXT_MODEL_KEYS.includes(modelKey)) return PLAYGROUND_TEXT_MODEL_FILES[modelKey] ?? null;
 	return Object.prototype.hasOwnProperty.call(PLAYGROUND_MEDIA_MODEL_FILES, modelKey) ? PLAYGROUND_MEDIA_MODEL_FILES[modelKey] : null;
 }

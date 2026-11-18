@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { PLAYGROUND_MODEL_KEYS, DEFAULT_INPUT_CONTEXT_TOKENS, MODEL_LABEL_BY_KEY, TEXT_MODEL_1_7B, contextLevelsForModel, formatContextTokens, type ModelKey } from "@/lib/modelAccess";
+import { PLAYGROUND_SELECTABLE_MODEL_KEYS, DEFAULT_INPUT_CONTEXT_TOKENS, MODEL_LABEL_BY_KEY, TEXT_MODEL_1_7B, contextLevelsForModel, formatContextTokens, type ModelKey } from "@/lib/modelAccess";
 import WorkspaceIcon from "./WorkspaceIcon";
 import { COMPACTION_OPTIONS, type CompactionMode } from "@/lib/playgroundContext";
 import PlaygroundDocumentsManager from "./PlaygroundDocuments";
@@ -67,9 +67,9 @@ export default function PlaygroundSettings({ preferences, thinkingAllowed, strea
 								const inputContextTokens = levels.includes(draft.inputContextTokens) ? draft.inputContextTokens : levels[0];
 								setDraft({ ...draft, model, inputContextTokens });
 							}}>
-								{PLAYGROUND_MODEL_KEYS.map((key) => <option key={key} value={key}>{MODEL_LABEL_BY_KEY[key]}</option>)}
+								{PLAYGROUND_SELECTABLE_MODEL_KEYS.map((key) => <option key={key} value={key}>{MODEL_LABEL_BY_KEY[key]}</option>)}
 							</select>
-							<small>Each model has its own validated context window; the input limit below follows the selected model. You can also switch models in the composer.</small>
+							<small>Only the current LFM 3 family is selectable. LFM 2.5 rates remain visible in API Prices for history, but LFM 2.5 models cannot be newly selected. The input limit follows the selected model.</small>
 						</label>
 						<label className="pgw-setting">
 							<span>Maximum input tokens</span>

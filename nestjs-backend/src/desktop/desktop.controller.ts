@@ -4,7 +4,14 @@ import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { BillingService } from "../billing/billing.service";
 import { AddonsService } from "../billing/addons.service";
 import { SPECTRE_ADDON_SUMMARY } from "../billing/addons.service";
-import { MODEL_TOKEN_PRICING, effectiveRates, resolveTokenPrice } from "../billing/model-pricing";
+import {
+	LONG_CONTEXT_PRICE_MULTIPLIER,
+	LONG_CONTEXT_THRESHOLD_TOKENS,
+	MODEL_TOKEN_PRICING,
+	RETIRED_MODEL_PRICING,
+	effectiveRates,
+	resolveTokenPrice,
+} from "../billing/model-pricing";
 import { canUseSpectre } from "../billing/tier-allowance";
 import { playgroundModelKeys } from "./text-models";
 import { DesktopGatewayService } from "./desktop-gateway.service";
@@ -319,6 +326,17 @@ export class DesktopController {
 				includesUsage: SPECTRE_ADDON_SUMMARY.includesUsage,
 			},
 			models,
+			longContextThresholdTokens: LONG_CONTEXT_THRESHOLD_TOKENS,
+			longContextMultiplier: LONG_CONTEXT_PRICE_MULTIPLIER,
+			historicalModels: Object.entries({
+				...RETIRED_MODEL_PRICING,
+				lfm2_5_230m_q4_k_m: MODEL_TOKEN_PRICING.lfm2_5_230m_q4_k_m,
+			}).map(([modelKey, price]) => ({
+				modelKey,
+				label: price.label,
+				inputPer1M: price.apiInputPer1M,
+				outputPer1M: price.apiOutputPer1M,
+			})),
 			attachmentModels: ["lfm3_vl_2b_q4_k_m", "lfm3_audio_2b_q4_k_m", "lfm3_omni_2b_q4_k_m"].map((modelKey) => {
 				const price = resolveTokenPrice(modelKey, "playground");
 				return { modelKey, label: price.label, ...effectiveRates(price) };
@@ -361,6 +379,7 @@ export class DesktopController {
 					label: price.label,
 					inputPer1M: rates.inputPer1M,
 					outputPer1M: rates.outputPer1M,
+					longContextPricing: price.longContextPricing,
 					priceMode: price.priceMode,
 					...desktopModelAccess({
 						modelKey,

@@ -7,12 +7,12 @@ import { join } from "node:path";
 import { HostedAgentWorkspace, HostedAgentServices, type HostedAgentIo, type HostedAgentSnapshot } from "../../src/lib/playgroundHostedAgent";
 import { AgentConsentQueue } from "../../src/lib/playgroundAgentConsent";
 import { AgentTransportError, nativeConversationModels, parseNativeAgentReply, type NativeAgentReply, type NativeCall } from "../../src/lib/playgroundAgent";
-import { PLAYGROUND_MODEL_KEYS } from "../../src/lib/modelAccess";
+import { PLAYGROUND_SELECTABLE_MODEL_KEYS } from "../../src/lib/modelAccess";
 import { buildProposalReview } from "../../src/lib/playgroundAgentReview";
 import PlaygroundAgentWorkspace from "../../src/components/playground/PlaygroundAgentWorkspace";
 import { normalizeToolPermissions, permissionForTool } from "../../src/lib/playgroundToolPermissions";
 
-const context = { model: "lfm2_5_230m_q4_k_m", inputContextTokens: 16_384 };
+const context = { model: "lfm3_1_7b_q4_k_m", inputContextTokens: 16_384 };
 const sandboxId = "00000000-0000-4000-8000-000000000042";
 const sandbox = { id: sandboxId, location: "hosted-docker", network: "disabled", workspace: "/workspace", ephemeral: true, policyVersion: 2 };
 const write: NativeCall = { id: "write_1", name: "write_file", arguments: '{"path":"main.py","text":"print(1)"}' };
@@ -154,7 +154,7 @@ test("server date accepts the server's read-only challenge and respects ask-firs
 });
 
 test("a completed conversation can switch models without reusing approvals", async () => {
-	const state = setup(); const second = "lfm3_1_7b_q4_k_m";
+	const state = setup(); const second = "lfm3_omni_2b_q4_k_m";
 	state.io.models = async () => [context.model, second]; state.replies.push(response(), response());
 	await state.workspace.check(); await state.workspace.startSandbox();
 	await state.workspace.run(context, "build", "First question");
@@ -167,10 +167,10 @@ test("a completed conversation can switch models without reusing approvals", asy
 	await state.workspace.stop();
 });
 
-test("all nine configured models pass capability validation without granting execution", async t => {
-	t.mock.method(globalThis, "fetch", async () => Response.json({ version: 1, protocol: "native-v1", executesTools: false, conversationProtocol: "completed-turns-v1", interactionProtocols: ["question-v1"], models: PLAYGROUND_MODEL_KEYS }));
-	assert.deepEqual(await nativeConversationModels(), PLAYGROUND_MODEL_KEYS);
-	const state = setup(); state.io.models = async () => [...PLAYGROUND_MODEL_KEYS];
+test("all selectable models pass capability validation without granting execution", async t => {
+	t.mock.method(globalThis, "fetch", async () => Response.json({ version: 1, protocol: "native-v1", executesTools: false, conversationProtocol: "completed-turns-v1", interactionProtocols: ["question-v1"], models: PLAYGROUND_SELECTABLE_MODEL_KEYS }));
+	assert.deepEqual(await nativeConversationModels(), PLAYGROUND_SELECTABLE_MODEL_KEYS);
+	const state = setup(); state.io.models = async () => [...PLAYGROUND_SELECTABLE_MODEL_KEYS];
 	await state.workspace.check();
 	assert.equal(state.workspace.getSnapshot().executionEnabled, true);
 	assert.equal(state.workspace.getSnapshot().workspace, null);

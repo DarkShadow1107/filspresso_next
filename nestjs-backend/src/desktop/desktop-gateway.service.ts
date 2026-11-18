@@ -361,12 +361,12 @@ export class DesktopGatewayService {
 	): Promise<DesktopStreamResult> {
 		const modelKey = String(body?.model ?? body?.modelKey ?? "").trim();
 		const modelFile = playgroundModelFile(modelKey);
-		if (!modelFile) {
+		if (!modelFile || !playgroundModelKeys().includes(modelKey)) {
 			return {
 				kind: "refused",
 				status: 400,
 				error: "UNKNOWN_MODEL",
-				message: "That model is not available in the Playground.",
+				message: "Choose a current LFM 3 model. LFM 2.5 rates remain in history but are not available for new Playground turns.",
 			};
 		}
 

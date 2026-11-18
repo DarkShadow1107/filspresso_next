@@ -17,9 +17,9 @@ public sealed record DesktopPreferences
 {
     public static readonly int[] InputLevels = [16_384, 32_768, 65_536, 131_072];
     public const int ContextTokens = 131_072;
-    public const string DefaultModel = "lfm2_5_230m_q4_k_m";
-    public const string VisionModel = "lfm2_5_vl_450m_q4_k_m";
-    public const string AudioModel = "lfm2_5_audio_1_5b_q4_0";
+    public const string DefaultModel = "lfm3_1_7b_q4_k_m";
+    public const string VisionModel = "lfm3_vl_2b_q4_k_m";
+    public const string AudioModel = "lfm3_audio_2b_q4_k_m";
 
     public string ModelKey { get; init; } = DefaultModel;
     public int InputContextTokens { get; init; } = InputLevels[0];
@@ -47,7 +47,7 @@ public sealed record DesktopPreferences
 
     public DesktopPreferences Normalize() => this with
     {
-        ModelKey = KnownModels.Contains(ModelKey, StringComparer.Ordinal) ? ModelKey : DefaultModel,
+        ModelKey = SelectableModels.Contains(ModelKey, StringComparer.Ordinal) ? ModelKey : DefaultModel,
         InputContextTokens = InputLevels.Contains(LegacyMaxTokens ?? InputContextTokens) ? LegacyMaxTokens ?? InputContextTokens : InputLevels[0],
         LegacyMaxTokens = null,
         CompactionMode = CompactionMode is "permissive" or "aggressive" ? CompactionMode : "balanced",
@@ -55,11 +55,21 @@ public sealed record DesktopPreferences
         AgentSessionSpendCapRon = AgentSessionSpendCapRon is { } cap && cap is > 0 and <= 10_000 ? cap : null,
     };
 
+    public static string[] SelectableModels =>
+    [
+        DefaultModel, "lfm3_vl_2b_q4_k_m", "lfm3_audio_2b_q4_k_m", "lfm3_omni_2b_q4_k_m",
+    ];
+
+    /// <summary>
+    /// Active model keys plus retired keys needed to label saved transcripts. Retired models
+    /// are not valid preferences; Normalize uses SelectableModels instead.
+    /// </summary>
     public static string[] KnownModels =>
     [
-        DefaultModel, "lfm2_5_350m_q8_0", "lfm2_5_1_2b_instruct_q4_k_m",
+        .. SelectableModels,
+        "lfm2_5_230m_q4_k_m", "lfm2_5_350m_q8_0", "lfm2_5_1_2b_instruct_q4_k_m",
         "lfm2_5_1_2b_thinking_q4_k_m", "lfm2_5_2_6b_q4_0", "lfm2_5_8b_a1b_q4_k_m",
-        VisionModel, "lfm2_5_vl_3b_q4_k_m", AudioModel,
+        "lfm2_5_vl_450m_q4_k_m", "lfm2_5_vl_3b_q4_k_m", "lfm2_5_audio_1_5b_q4_0",
     ];
 }
 

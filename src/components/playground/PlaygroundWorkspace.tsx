@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { PLAYGROUND_MODEL_KEYS, VISION_MODEL_2B, AUDIO_MODEL_2B, MODEL_CONTEXT_TOKENS, MODEL_LABEL_BY_KEY, contextLevelsForModel, formatContextTokens, isPlaygroundModelKey, isVisionModelKey, isAudioModelKey, tierCanUseThinkingModel, type UserSubscriptionTier } from "@/lib/modelAccess";
+import { PLAYGROUND_SELECTABLE_MODEL_KEYS, VISION_MODEL_2B, AUDIO_MODEL_2B, MODEL_CONTEXT_TOKENS, MODEL_LABEL_BY_KEY, contextLevelsForModel, formatContextTokens, isPlaygroundModelKey, isSelectablePlaygroundModelKey, isVisionModelKey, isAudioModelKey, tierCanUseThinkingModel, type UserSubscriptionTier } from "@/lib/modelAccess";
 import { buildPageHref } from "@/lib/pages";
 import { getOrCreateFingerprint } from "@/lib/fingerprint";
 import { useModelPrewarm } from "@/hooks/useModelPrewarm";
@@ -26,6 +26,8 @@ import LlamaMessageStatistics from "./LlamaMessageStatistics";
 import { HostedAgentWorkspace, agentResultText } from "@/lib/playgroundHostedAgent";
 import { conversationContext, conversationContextFromCheckpoint } from "@/lib/playgroundConversationContext";
 import { displayToolText } from "@/lib/playgroundToolText";
+import { projectAgentMessage } from "@/lib/playgroundAgentSources";
+import type { AgentMessageProjection } from "@/lib/playgroundAgentSources";
 import { readAccountSession } from "@/lib/accountSession";
 import WorkspacePicker from "./WorkspacePicker";
 import WorkspacePopover from "./WorkspacePopover";
@@ -68,6 +70,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	const [copied, setCopied] = useState<string | null>(null);
 	const [githubOpen, setGithubOpen] = useState(false);
 	const [notice, setNotice] = useState("");
+	const [agentContextPreview, setAgentContextPreview] = useState<AgentMessageProjection | null>(null);
 	const [contextState, setContextState] = useState<ContextState | null>(null);
 	const [compactNext, setCompactNext] = useState(false);
 	const compactNowRef = useRef(false);
@@ -102,7 +105,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 	useEffect(() => {
 		const identity = () => { const account = readAccountSession(); return account?.email || account?.username || null; };
 		let account = identity();
-		const changed = () => { const next = identity(); if (next !== account || !next) { accountRevision.current++; sessionIds.current.clear(); checkpoints.current.clear(); legacySessions.current.clear(); legacyContexts.current.clear(); setConversations([]); setServerSessions([]); void agent.stop(true); abortRef.current?.abort(); setMessages([]); setInput(""); } account = next; };
+		const changed = () => { const next = identity(); if (next !== account || !next) { accountRevision.current++; sessionIds.current.clear(); checkpoints.current.clear(); legacySessions.current.clear(); legacyContexts.current.clear(); setConversations([]); setServerSessions([]); void agent.stop(true); abortRef.current?.abort(); setMessages([]); setInput(""); setAgentContextPreview(null); } account = next; };
 		window.addEventListener("session-update", changed); window.addEventListener("storage", changed);
 		return () => { window.removeEventListener("session-update", changed); window.removeEventListener("storage", changed); };
 	}, [agent]);
@@ -139,7 +142,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			try {
 				const saved = JSON.parse(localStorage.getItem(PREFERENCES_KEY) || localStorage.getItem("filspresso_playground_preferences_v1") || "null") as (Partial<PlaygroundPreferences> & { maxTokens?: number }) | null;
 				if (!saved) return;
-				const savedModel = typeof saved.model === "string" && isPlaygroundModelKey(saved.model) ? saved.model : DEFAULT_PREFERENCES.model;
+				const savedModel = typeof saved.model === "string" && isSelectablePlaygroundModelKey(saved.model) ? saved.model : DEFAULT_PREFERENCES.model;
 				const savedLevels = contextLevelsForModel(savedModel);
 				const savedContext = Number(saved.inputContextTokens ?? saved.maxTokens);
 				setPreferences({
@@ -205,8 +208,9 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 
 	const savePreferences = (next: PlaygroundPreferences) => {
 		if (streaming || agentBusy) return false;
-		const levels = contextLevelsForModel(next.model);
-		const safe = { ...next, inputContextTokens: levels.includes(next.inputContextTokens) ? next.inputContextTokens : levels[0], thinking: thinkingAllowed && next.thinking, toolPermissions: normalizeToolPermissions(next.toolPermissions) };
+		const model = isSelectablePlaygroundModelKey(next.model) ? next.model : DEFAULT_PREFERENCES.model;
+		const levels = contextLevelsForModel(model);
+		const safe = { ...next, model, inputContextTokens: levels.includes(next.inputContextTokens) ? next.inputContextTokens : levels[0], thinking: thinkingAllowed && next.thinking, toolPermissions: normalizeToolPermissions(next.toolPermissions) };
 		setPreferences(safe);
 		try { localStorage.setItem(PREFERENCES_KEY, JSON.stringify(safe)); return true; } catch { return false; }
 	};
@@ -222,6 +226,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		setMessages([]);
 		setContextState(null); setCompactNext(false);
 		setInput("");
+		setAgentContextPreview(null);
 		setEditingFrom(null);
 		setBalanceGate(null);
 		setView("chat");
@@ -239,6 +244,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		setContextState(checkpoints.current.get(chat.id)?.state || null); setCompactNext(false);
 		setView("chat");
 		setInput("");
+		setAgentContextPreview(null);
 		setEditingFrom(null);
 		setBalanceGate(null);
 		setSidebarOpen(false);
@@ -283,6 +289,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		setContextState(saved.activeContext ? { ...saved.activeContext, inputLimit: saved.activeContext.inputLimit || saved.inputContextTokens } : null);
 		setCompactNext(false);
 		setInput("");
+		setAgentContextPreview(null);
 		setEditingFrom(null);
 		setBalanceGate(null);
 		setSidebarOpen(false);
@@ -312,13 +319,14 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 			const row = raw as Record<string, unknown>;
 			if ((row.role !== "user" && row.role !== "assistant") || typeof row.content !== "string") throw new Error("The file contains an invalid message.");
 			const sources = Array.isArray(row.sources) ? row.sources.filter((source): source is SourceContext => Boolean(source && typeof source === "object" && typeof source.name === "string" && typeof source.text === "string" && source.text.length <= 240_000)).slice(0, 8).map(({ name, kind, text }) => ({ name, kind: typeof kind === "string" ? kind : "document", text })) : undefined;
-			return { id: crypto.randomUUID(), role: row.role, content: row.content, reasoning: typeof row.reasoning === "string" ? row.reasoning : undefined, model: typeof row.model === "string" && isPlaygroundModelKey(row.model) ? row.model : undefined, sources };
+			return { id: crypto.randomUUID(), role: row.role, content: row.content, reasoning: typeof row.reasoning === "string" ? row.reasoning : undefined, model: typeof row.model === "string" && isPlaygroundModelKey(row.model) ? row.model : undefined, sourceNote: typeof row.sourceNote === "string" && row.sourceNote.length <= 500 ? row.sourceNote : undefined, sources };
 		});
 		rememberCurrent();
 		setConversationId(crypto.randomUUID());
 		setMessages(imported);
 		setContextState(null); setCompactNext(false);
 		setInput("");
+		setAgentContextPreview(null);
 		setEditingFrom(null);
 		setBalanceGate(null);
 		setView("chat");
@@ -424,19 +432,37 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 		}
 	}, [input, editingFrom, messages, model, preferences.inputContextTokens, preferences.compactionMode, preferences.thinking, preferences.thinkingLevel, thinkingAllowed, waitUntilLoaded, attachments, conversationId, compactNext]);
 
-	const sendAgent = async (runMode: "plan" | "build" = mode === "build" ? "build" : "plan") => {
+	const sendAgent = async (runMode: "plan" | "build" = mode === "build" ? "build" : "plan", approvedPreview?: string) => {
 		if (streaming || agentBusy || agentStartingRef.current) return;
+		if (editingFrom !== null) { setNotice("Cancel the message edit before using agent tools."); return; }
+		const sources = attachments.contexts;
+		const prompt = input.trim() || (sources.length ? "Please analyze the attached sources." : "");
+		if (!prompt || !attachments.ready) return;
+		const projection = projectAgentMessage(prompt, sources);
+		if (approvedPreview !== undefined && approvedPreview !== projection.compactMessage) {
+			setAgentContextPreview(projection.needsConfirmation ? projection : null);
+			setNotice(projection.needsConfirmation
+				? "The prompt or attached sources changed. Review the updated agent-context preview before sending."
+				: "The prompt or attached sources changed. Send again to use the current complete context.");
+			return;
+		}
+		if (projection.needsConfirmation && approvedPreview === undefined) {
+			setAgentContextPreview(projection);
+			setNotice("");
+			return;
+		}
+		if (projection.needsConfirmation && !projection.canIncludeSource) {
+			setAgentContextPreview(projection);
+			setNotice("This prompt uses the full 8,000-character agent limit. Shorten it to include project excerpts, or send the full source without tools.");
+			return;
+		}
+		const request = projection.compactMessage;
+		setAgentContextPreview(null);
 		agentStartingRef.current = true;
 		const preparation = new AbortController();
 		agentPreparationRef.current = preparation;
 		setStreaming(true);
 		try {
-			if (editingFrom !== null) throw new Error("Cancel the message edit before using agent tools.");
-			const sources = attachments.contexts;
-			const prompt = input.trim() || (sources.length ? "Please analyze the attached sources." : "");
-			if (!prompt || !attachments.ready) return;
-			const request = messageWithSources({ id: "", role: "user", content: prompt, sources });
-			if (request.length > 8000) throw new Error("These sources exceed the agent message limit; nothing was silently removed.");
 			if (!agent.setToolPermissions(preferences.toolPermissions)) throw new Error("Tool settings cannot change while an agent run is active.");
 			if (!agent.getSnapshot().workspace) {
 				setNotice("Checking agent availability…");
@@ -454,7 +480,12 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				preparation.signal.throwIfAborted();
 			}
 			if (!agent.getSnapshot().workspace) throw new Error(agent.getSnapshot().error || "The isolated workspace could not be started. Please retry.");
-			const visible = messages.filter(message => !message.failed).map(message => ({ ...message, content: messageWithSources(message) }));
+			const visible = messages.filter(message => !message.failed).map(message => ({
+				...message,
+				content: message.role === "user" && message.sources?.length
+					? projectAgentMessage(message.content, message.sources).message
+					: messageWithSources(message),
+			}));
 			const checkpoint = checkpoints.current.get(conversationId);
 			const validCheckpoint = checkpoint && checkpoint.ids.length > 0 && checkpoint.ids.every((id, index) => visible[index]?.id === id);
 			const history = validCheckpoint
@@ -462,7 +493,10 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				: conversationContext(visible);
 			if (!agent.continueFromTranscript(history)) throw new Error("This workspace needs cleanup before another request. Discard it and start fresh; previous approval is never reused.");
 			const id = crypto.randomUUID(); const firstEvent = agent.getSnapshot().events.length; const agentStarted = performance.now();
-			setMessages(previous => [...previous, { id: crypto.randomUUID(), role: "user", content: prompt, sources }, { id, role: "assistant", content: "", model }]);
+			const sourceNote = projection.needsConfirmation
+				? "Agent tools received the reviewed project overview and selected excerpts. The complete source snapshot remains attached to this message."
+				: undefined;
+			setMessages(previous => [...previous, { id: crypto.randomUUID(), role: "user", content: prompt, sources, sourceNote }, { id, role: "assistant", content: "", model }]);
 			setInput(""); setNotice(""); setStreaming(true); attachments.clear();
 			const update = () => {
 				const snapshot = agent.getSnapshot(); const events = snapshot.events.slice(firstEvent);
@@ -597,14 +631,14 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 				<PlaygroundRuntime open={workspaceOpen && view === "chat"} />
 				{view === "review" && <div className="pgw-page-scroll"><PlaygroundAgentReview key={`${conversationId}:${model}:${preferences.inputContextTokens}:${sessionIds.current.get(conversationId) || ""}`} context={{ model, inputContextTokens: preferences.inputContextTokens, sessionUuid: sessionIds.current.get(conversationId) }} /></div>}
 				{view === "settings" && <div className="pgw-page-scroll"><PlaygroundSettings preferences={preferences} thinkingAllowed={thinkingAllowed} streaming={streaming} onSave={savePreferences} onExport={exportConversation} onImport={importConversation} hasMessages={messages.length > 0} /></div>}
-				{view === "prices" && <div className="pgw-page-scroll"><section className="pgw-prices"><h1><WorkspaceIcon name="prices" width={28} height={28} /> API Prices</h1><p>Every model is priced at its API rate. Context goes up to 256K on LFM 3 models; usage above 128K is billed at double the listed rate. Image/video attachments use Vision; audio uses Audio.</p><span className="pgw-pricing-unit">RON per 1M tokens · input / output</span><PlaygroundModelLineup tier={tier} access={access} disclosure={false} /></section></div>}
+				{view === "prices" && <div className="pgw-page-scroll"><section className="pgw-prices"><h1><WorkspaceIcon name="prices" width={28} height={28} /> API Prices</h1><p>Every selectable model is LFM 3 and priced at its API rate. The lineup shows both rates: up to 128K and the doubled whole-request rate above 128K. LFM 3 supports up to 256K context. Image/video attachments use Vision; audio uses Audio. LFM 2.5 rates remain visible for reference, but cannot be selected.</p><span className="pgw-pricing-unit">RON per 1M tokens · input / output</span><PlaygroundModelLineup tier={tier} access={access} disclosure={false} /></section></div>}
 				{view === "chat" && <div className={`pgw-chat${empty ? " pgw-chat-empty" : ""}`}>
 					{!empty && <div className="pgw-scroll" ref={scrollRef} role="log" aria-label="Conversation" aria-busy={streaming}>
 						<div className="pgw-transcript">{messages.map((message, index) => {
 							const isCurrent = streaming && index === messages.length - 1 && message.role === "assistant";
 							const display = message.role === "assistant" ? displayToolText(message.content, isCurrent) : { text: message.content, names: [] };
 							return <article key={message.id} className={`pgw-message pgw-message-${message.role}`} data-failed={message.failed}>
-								{message.role === "user" ? <><p className="pgw-user-text">{message.content}</p>{message.sources?.length ? <div className="pgw-message-sources">{message.sources.map((source, sourceIndex) => <span key={sourceIndex}><WorkspaceIcon name={source.kind === "github" ? "github" : "paperclip"} width={13} />{source.name}</span>)}</div> : null}</> : <>
+								{message.role === "user" ? <><p className="pgw-user-text">{message.content}</p>{message.sources?.length ? <div className="pgw-message-sources">{message.sources.map((source, sourceIndex) => <span key={sourceIndex}><WorkspaceIcon name={source.kind === "github" ? "github" : "paperclip"} width={13} />{source.name}</span>)}</div> : null}{message.sourceNote && <p className="pgw-message-source-note">{message.sourceNote}</p>}</> : <>
 									{message.reasoning && <details className="pgw-reasoning"><summary>Reasoning</summary><PlaygroundMessageContent text={message.reasoning} /></details>}
 									{message.tools?.map(tool => <LlamaToolActivity key={tool.id} tool={tool} />)}
 									{display.names.map((name, i) => <details className="pgw-tool-activity" key={`${name}:${i}`}><summary><strong>{name}</strong><span>Not executed</span></summary><p>The model wrote tool syntax as text. It was not a verified tool call and was not executed.</p></details>)}
@@ -635,9 +669,25 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 						<form className="pgw-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
 							{editingFrom !== null && <div className="pgw-editing-banner"><span>Editing message · sending will replace this reply and any messages after it.</span><button type="button" className="pgw-text-button" onClick={() => { setEditingFrom(null); setInput(""); }}>Cancel</button></div>}
 							{attachments.sources.length > 0 && <SourceList sources={attachments.sources} onRemove={attachments.remove} disabled={streaming} />}
+							{agentContextPreview && <section className="pgw-agent-source-review" aria-label="Review selected agent source context" role="status">
+								<div>
+									<strong>Large source snapshot · review before using tools</strong>
+									<p>The attached snapshot is {agentContextPreview.fullCharacters.toLocaleString()} characters; one agent message is limited to 8,000. Nothing is deleted. Confirm the exact selected overview and excerpts below, or send the complete sources without tools.</p>
+								</div>
+								<details>
+									<summary>Preview the exact {agentContextPreview.projectedCharacters.toLocaleString()} characters sent to the agent</summary>
+									<pre>{agentContextPreview.compactMessage}</pre>
+								</details>
+								<div className="pgw-agent-source-actions">
+									<button type="button" className="pgw-primary-button" disabled={!agentContextPreview.canIncludeSource || streaming || agentBusy || !attachments.ready} onClick={() => void sendAgent(undefined, agentContextPreview.compactMessage)}>Send with tools using these excerpts</button>
+									<button type="button" className="pgw-outlined-button" disabled={streaming || agentBusy || !attachments.ready} onClick={() => { setAgentContextPreview(null); void send(); }}>Send full sources without tools</button>
+									<button type="button" className="pgw-text-button" disabled={streaming || agentBusy} onClick={() => setAgentContextPreview(null)}>Keep editing</button>
+								</div>
+								{!agentContextPreview.canIncludeSource && <p className="pgw-source-review-note">Your prompt uses all 8,000 characters. Shorten it to include excerpts, or send the full source without tools.</p>}
+							</section>}
 							{recommendations.map((item) => <div className="pgw-model-suggestion" role="status" key={item.key}><span>{item.description}</span><button type="button" className="pgw-text-button" disabled={streaming} onClick={() => savePreferences({ ...preferences, model: item.key })}>Use {MODEL_LABEL_BY_KEY[item.key]}</button></div>)}
 							{attachments.error && <p className="pgw-notice" role="alert">{attachments.error}</p>}
-							<textarea ref={inputRef} rows={2} aria-label="Message" placeholder="Ask a question or describe a change…" value={input} maxLength={8000} disabled={streaming || agentBusy} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!streaming) attachments.addFiles(event.dataTransfer.files); }} onPaste={(event) => { if (event.clipboardData.files.length && !streaming) { event.preventDefault(); attachments.addFiles(event.clipboardData.files); } }} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && preferences.enterToSend) { event.preventDefault(); submit(); } }} />
+							<textarea ref={inputRef} rows={2} aria-label="Message" placeholder="Ask a question or describe a change…" value={input} maxLength={8000} disabled={streaming || agentBusy} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!streaming) attachments.addFiles(event.dataTransfer.files); }} onPaste={(event) => { if (event.clipboardData.files.length && !streaming) { event.preventDefault(); attachments.addFiles(event.clipboardData.files); } }} onChange={(event) => { setInput(event.target.value); setAgentContextPreview(null); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && preferences.enterToSend) { event.preventDefault(); submit(); } }} />
 							<div className="pgw-composer-toolbar">
 								<div className="pgw-composer-left">
 									<AttachmentMenu disabled={streaming} onFiles={attachments.addFiles} />
@@ -650,7 +700,7 @@ export default function PlaygroundWorkspace({ tier, access }: { tier: UserSubscr
 									{thinkingAllowed && !isVisionModelKey(model) && !isAudioModelKey(model) && <WorkspacePicker label="Thinking budget" icon="brain" disabled={streaming || agentBusy} value={preferences.thinking ? thinkingLevel(preferences.thinkingLevel) : "off"} options={THINKING_OPTIONS} onChange={value => savePreferences({ ...preferences, thinking: value !== "off", thinkingLevel: thinkingLevel(value) })} />}
 									<button type="button" ref={contextButtonRef} className="pgw-icon-button pgw-context-ring-wrap" aria-label="Context usage" aria-haspopup="menu" aria-expanded={contextOpen} title="Context usage" onClick={() => setContextOpen(open => !open)}><svg className="pgw-context-ring" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" className="pgw-context-ring-track" /><circle cx="16" cy="16" r="11" fill="none" strokeWidth="3" strokeLinecap="round" strokeDasharray={2 * Math.PI * 11} strokeDashoffset={2 * Math.PI * 11 * (1 - (contextPercent ?? 0) / 100)} transform="rotate(-90 16 16)" className="pgw-context-ring-value" data-level={contextPercent !== null && contextPercent >= 95 ? "high" : contextPercent !== null && contextPercent >= 80 ? "elevated" : "ok"} /></svg></button>
 									{contextOpen && <WorkspacePopover anchor={contextButtonRef} onClose={closeContext} label="Context usage" className="pgw-context-popup" width={280}><div className="pgw-context-popup-heading"><strong>Context</strong><span>{measuredInputTokens === undefined ? "Not measured" : `${measuredInputTokens.toLocaleString()} / ${measuredInputLimit.toLocaleString()}`}</span></div>{contextPercent === null || measuredInputTokens === undefined ? <p>No context measurement available yet.</p> : <><div className="pgw-context-progress" aria-hidden="true"><span style={{ width: `${contextPercent}%` }} data-level={contextPercent >= 95 ? "high" : contextPercent >= 80 ? "elevated" : "ok"} /></div><div className="pgw-context-popup-heading"><span>{contextPercent}% of input limit</span><span>{Math.max(0, measuredInputLimit - measuredInputTokens).toLocaleString()} remaining</span></div><p>Last measured input, not live KV cache usage. The next request may differ.</p></>}{mode === "chat" && messages.length >= 2 && <button type="button" role="menuitem" className="pgw-outlined-button" disabled={streaming} onClick={() => { setCompactNext(!compactNext); closeContext(); }}>{compactNext ? "Cancel queued compaction" : "Compact on next send"}</button>}</WorkspacePopover>}
-									<WorkspacePicker label="Model" disabled={streaming || agentBusy} value={model} options={PLAYGROUND_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
+									<WorkspacePicker label="Model" disabled={streaming || agentBusy} value={model} options={PLAYGROUND_SELECTABLE_MODEL_KEYS.map(key => ({ key, label: MODEL_LABEL_BY_KEY[key] }))} onChange={value => savePreferences({ ...preferences, model: value as PlaygroundPreferences["model"] })} />
 									{streaming ? <button type="button" className="pgw-send-button" aria-label="Stop generation" title="Stop generation" onClick={() => { abortRef.current?.abort(); agentPreparationRef.current?.abort(); if (!abortRef.current) void agent.stop(); }}><WorkspaceIcon name="stop" /></button> : <button type="submit" className="pgw-send-button" aria-label="Send message" title="Send message" disabled={agentBusy || (!input.trim() && !attachments.contexts.length) || !attachments.ready || (mode !== "chat" && agentState.requiresReset)}><WorkspaceIcon name="send" /></button>}
 								</div>
 							</div>

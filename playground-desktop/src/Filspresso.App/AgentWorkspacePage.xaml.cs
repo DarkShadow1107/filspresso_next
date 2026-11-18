@@ -102,8 +102,13 @@ public sealed partial class AgentWorkspacePage : UserControl, IDisposable
         _services = services; InitializeComponent();
         services.Auth.Changed += OnAccountChanged; services.PreferencesChanged += OnPreferencesChanged;
         var system = WindowsPlatformProbe.TryReadSystemReport();
-        SystemCheck.Text = system is null ? "Windows system details could not be read. Verification is still required."
-            : $"This PC · {system.Edition ?? "Edition not reported"} · build {system.Build?.ToString() ?? "not reported"}{(system.Ubr is { } ubr ? "." + ubr : string.Empty)} · {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}. Sandbox safety verification is separate.";
+        var requirement = WindowsPlatformProbe.CurrentRequirement();
+        var facts = system is null ? "Windows system details could not be read."
+            : $"This PC · {system.Edition ?? "Edition not reported"} · build {system.Build?.ToString() ?? "not reported"}{(system.Ubr is { } ubr ? "." + ubr : string.Empty)} · {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}.";
+        SystemCheck.Text = facts + "\n" +
+            (requirement.Supported
+                ? "Windows app compatibility: supported. VM and native isolation are verified separately."
+                : $"Windows app compatibility: not supported · {requirement.Reason}");
     }
     public void Reload(string? session)
     {

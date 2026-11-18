@@ -16,7 +16,6 @@ public sealed class AttachmentModelsTests
 
     [Theory]
     [InlineData("clip.mp4", DesktopPreferences.VisionModel)]
-    [InlineData("clip.mp4", "lfm2_5_vl_3b_q4_k_m")]
     [InlineData("voice.wav", DesktopPreferences.AudioModel)]
     [InlineData("report.pdf", DesktopPreferences.DefaultModel)]
     public void ACompatibleModelOrDocumentNeedsNoSuggestion(string filename, string selected) =>

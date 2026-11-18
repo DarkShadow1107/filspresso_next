@@ -20,7 +20,7 @@
                     <Border Height="1" Background="{StaticResource FilspressoBorder}" />
                     <StackPanel x:Name="GeneralPanel" Spacing="26">
                         <ComboBox x:Name="DefaultModelBox" Header="Default model" HorizontalAlignment="Stretch" DisplayMemberPath="Label" AutomationProperties.Name="Default model" />
-                        <TextBlock Text="Every model has a 128K context window. You can also switch models inside the composer." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
+                        <TextBlock Text="Only current LFM 3 models are selectable. LFM 2.5 API rates remain in the price list for reference. Desktop input is limited to 128K; larger web contexts use the explicitly listed >128K rates." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
                         <StackPanel Spacing="12">
                             <ComboBox x:Name="InputContextBox" Header="Maximum input tokens" AutomationProperties.Name="Maximum input tokens" HorizontalAlignment="Stretch"><ComboBoxItem Content="16K" /><ComboBoxItem Content="32K" /><ComboBoxItem Content="64K" /><ComboBoxItem Content="128K" /></ComboBox>
                             <TextBlock Text="Limits the prompt, conversation history, attachments and project sources. Output length is managed separately." FontSize="11" Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />

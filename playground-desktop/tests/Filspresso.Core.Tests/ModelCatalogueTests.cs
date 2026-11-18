@@ -127,13 +127,15 @@ public class ModelCatalogueTests
         decimal input = 0.30m,
         decimal output = 1.50m,
         bool usesAllowance = true,
-        bool canPay = true) => new()
+        bool canPay = true,
+        bool longContext = false) => new()
     {
         ModelKey = key,
         Label = label,
         InputPer1M = input,
         OutputPer1M = output,
         UsesAllowance = usesAllowance,
+        LongContextPricing = longContext,
         // Locked is deliberately not set here. The catalogue derives availability from the
         // entitlement and the server's own usesAllowance answer, so a per-model Locked flag
         // in the fixture would be a second source of truth that nothing reads.
@@ -206,6 +208,19 @@ public class ModelCatalogueTests
         ]));
 
         Assert.Equal("small", catalogue.DefaultModel!.ModelKey);
+    }
+
+    [Fact]
+    public void ModelCatalogueCarriesTheExplicitLongContextRatePolicy()
+    {
+        var entitlement = Entitlement(models: Model("lfm3_1_7b_q4_k_m", "LFM 3 1.7B", 15m, 60m, longContext: true));
+        var model = Assert.Single(new ModelCatalogue(entitlement).Models);
+
+        Assert.True(model.LongContextPricing);
+        Assert.Equal(131072, model.LongContextThresholdTokens);
+        Assert.Equal(2, model.LongContextMultiplier);
+        Assert.Equal(30m, model.InputPer1M * model.LongContextMultiplier);
+        Assert.Equal(120m, model.OutputPer1M * model.LongContextMultiplier);
     }
 
     [Fact]

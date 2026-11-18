@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Filspresso.Core.Platform;
 
 /// <summary>The Windows editions we recognise, as the installer reads them.</summary>
@@ -125,8 +127,16 @@ public static class PlatformRequirementCheck
     /// <summary>
     /// The full decision, with a sentence fit to put in front of a user.
     /// </summary>
-    public static PlatformRequirement Evaluate(int build, WindowsEdition edition)
+    public static PlatformRequirement Evaluate(int build, WindowsEdition edition, Architecture? architecture = null)
     {
+        if (architecture is { } reportedArchitecture && reportedArchitecture != Architecture.X64)
+        {
+            return new PlatformRequirement(
+                edition.ToString(),
+                Supported: false,
+                Reason: $"This desktop package requires Windows x64. This PC reports {reportedArchitecture}; no ARM64 or 32-bit execution path is qualified.");
+        }
+
         if (!IsVersionSupported(build))
         {
             return new PlatformRequirement(

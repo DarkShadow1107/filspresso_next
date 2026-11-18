@@ -146,7 +146,10 @@ public sealed record ModelView(
     decimal InputPer1M,
     decimal OutputPer1M,
     ModelAvailability Availability,
-    bool CanGenerate)
+    bool CanGenerate,
+    bool LongContextPricing,
+    int LongContextThresholdTokens,
+    int LongContextMultiplier)
 {
     /// <summary>Whether a message can be sent with this model at all.</summary>
     public bool IsUsable => Availability != ModelAvailability.Locked;
@@ -193,7 +196,10 @@ public sealed class ModelCatalogue
                     : m.UsesAllowance
                         ? ModelAvailability.Included
                         : ModelAvailability.WalletOnly,
-                entitlement.HasAccess && !m.Locked && m.CanGenerate))
+                entitlement.HasAccess && !m.Locked && m.CanGenerate,
+                m.LongContextPricing,
+                entitlement.LongContextThresholdTokens > 0 ? entitlement.LongContextThresholdTokens : 131_072,
+                entitlement.LongContextMultiplier > 0 ? entitlement.LongContextMultiplier : 2))
             .ToArray();
     }
 

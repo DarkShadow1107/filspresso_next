@@ -18,8 +18,8 @@ const DEVICE_MIGRATION = path.resolve(BACKEND_ROOT, "data", "migrations", "2026-
  * Read a `const NAME = [...]` array, resolving entries that are themselves constants.
  *
  * Both halves are needed, and both halves were a bug first. The backend list holds string
- * literals; the frontend's `ALL_TEXT_MODEL_KEYS` holds references to `TEXT_MODEL_230M` and
- * friends, each of which is `export const TEXT_MODEL_230M = "lfm2_5_230m_q4_k_m"`. Reading
+ * literals; the frontend's selectable text-model list holds a reference to `TEXT_MODEL_1_7B`,
+ * which is resolved from its `export const TEXT_MODEL_1_7B = "lfm3_1_7b_q4_k_m"`. Reading
  * only literals reports the frontend list as empty and the comparison passes vacuously,
  * which is the worst way for a drift guard to fail: it looks like a working test.
  */
@@ -70,15 +70,15 @@ describe("the Playground's text-model list", () => {
   const backend = readFileSync(TEXT_MODELS, "utf8");
   const frontend = readFileSync(FRONTEND_ACCESS, "utf8");
 
-  it("is the same set the web client offers", () => {
+  it("is the same set the web client can newly select", () => {
     const fromBackend = readConstArray(backend, "PLAYGROUND_TEXT_MODEL_KEYS");
-    const fromFrontend = readConstArray(frontend, "ALL_TEXT_MODEL_KEYS");
-    assert.ok(fromFrontend.length > 0, "could not parse ALL_TEXT_MODEL_KEYS from the frontend");
+    const fromFrontend = readConstArray(frontend, "PLAYGROUND_SELECTABLE_TEXT_MODEL_KEYS");
+    assert.ok(fromFrontend.length > 0, "could not parse PLAYGROUND_SELECTABLE_TEXT_MODEL_KEYS from the frontend");
     assert.ok(fromBackend.length > 0, "could not parse PLAYGROUND_TEXT_MODEL_KEYS from the backend");
     assert.deepEqual(
       [...fromBackend].sort(),
       [...fromFrontend].sort(),
-      "the desktop catalogue and the web line-up must offer the same models; add to both or neither",
+      "the desktop catalogue and the web picker must offer the same models; add to both or neither",
     );
   });
 
@@ -112,10 +112,12 @@ describe("the Playground's text-model list", () => {
     // media models, because they share a family prefix. The catalogue uses an explicit list.
     const controller = readFileSync(DESKTOP_CONTROLLER, "utf8");
     assert.match(controller, /playgroundModelKeys\(\)/);
-    assert.equal(playgroundModelKeys().length, 5);
+    assert.equal(playgroundModelKeys().length, 4);
     assert.equal(playgroundModelFile("lfm3_vl_2b_q4_k_m"), "LFM3-VL-2B-Q4_K_M.gguf");
     assert.equal(playgroundModelFile("lfm3_audio_2b_q4_k_m"), "LFM3-Audio-2B-Q4_K_M.gguf");
     assert.equal(playgroundModelFile("lfm3_omni_2b_q4_k_m"), "LFM3-Omni-2B-Q4_K_M.gguf");
+    assert.equal(playgroundModelFile("lfm2_5_230m_q4_k_m"), "LFM2.5-230M-Q4_K_M.gguf");
+    assert.ok(!playgroundModelKeys().includes("lfm2_5_230m_q4_k_m"), "historical LFM 2.5 is not selectable");
     assert.equal(playgroundModelFile("constructor"), null);
     for (const key of playgroundModelKeys()) assert.equal(playgroundModelFile(key), frontendFileForKey(frontend, key));
     assert.doesNotMatch(

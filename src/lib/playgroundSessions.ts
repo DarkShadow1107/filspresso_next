@@ -1,4 +1,4 @@
-import { CONTEXT_LEVELS, isPlaygroundModelKey, type ModelKey } from "@/lib/modelAccess";
+import { CONTEXT_LEVELS, isPlaygroundModelKey, isSelectablePlaygroundModelKey, type ModelKey } from "@/lib/modelAccess";
 import { compactionMode, type CompactionMode, type ContextState } from "@/lib/playgroundContext";
 import type { SourceContext } from "@/components/playground/PlaygroundSources";
 import type { DocumentFrame } from "@/lib/playgroundDocuments";
@@ -14,7 +14,7 @@ import type { DocumentFrame } from "@/lib/playgroundDocuments";
 
 export type SavedSourceReference = { name?: string; kind?: string; sourceUrl?: string; size?: number };
 export type SavedToolActivity = { id: string; name: string; arguments: string; status: "proposed" | "finished"; result?: string };
-export type SavedMessage = { id: string; role: "user" | "assistant"; content: string; reasoning?: string; model?: ModelKey; failed?: boolean; seconds?: number; outputTokens?: number; inputTokens?: number; sources?: SourceContext[]; webSources?: Array<{ title: string; url: string; snippet: string }>; documents?: DocumentFrame[]; tools?: SavedToolActivity[] };
+export type SavedMessage = { id: string; role: "user" | "assistant"; content: string; reasoning?: string; model?: ModelKey; failed?: boolean; seconds?: number; outputTokens?: number; inputTokens?: number; sources?: SourceContext[]; sourceNote?: string; webSources?: Array<{ title: string; url: string; snippet: string }>; documents?: DocumentFrame[]; tools?: SavedToolActivity[] };
 
 export type SavedSession = {
 	uuid: string;
@@ -65,6 +65,7 @@ export function transcriptFromRow(value: unknown): SavedMessage[] | null {
 		const item = raw as Record<string, unknown>;
 		const message: SavedMessage = { id: item.id as string, role: item.role as "user" | "assistant", content: item.content as string };
 		if (typeof item.reasoning === "string") message.reasoning = item.reasoning;
+		if (typeof item.sourceNote === "string" && item.sourceNote.length <= 500) message.sourceNote = item.sourceNote;
 		if (typeof item.model === "string" && isPlaygroundModelKey(item.model)) message.model = item.model;
 		if (typeof item.failed === "boolean") message.failed = item.failed;
 		for (const key of ["seconds", "outputTokens", "inputTokens"] as const) if (typeof item[key] === "number" && Number.isFinite(item[key]) && item[key] >= 0) message[key] = item[key];
@@ -130,7 +131,7 @@ type SessionPreferences = { model: ModelKey; inputContextTokens: number; compact
 export function preferencesForServerSession<T extends SessionPreferences>(saved: SavedSession, current: T): Omit<T, keyof SessionPreferences> & SessionPreferences {
 	return {
 		...current,
-		model: isPlaygroundModelKey(saved.model) ? saved.model : current.model,
+		model: isSelectablePlaygroundModelKey(saved.model) ? saved.model : current.model,
 		inputContextTokens: saved.inputContextTokens,
 		compactionMode: saved.compactionMode,
 	};

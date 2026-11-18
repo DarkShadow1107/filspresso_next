@@ -148,13 +148,13 @@
             <ScrollViewer x:Name="PricesPanel" Grid.Row="1" Visibility="Collapsed">
                 <StackPanel MaxWidth="900" HorizontalAlignment="Stretch" Padding="42,20,42,40" Spacing="16">
                     <TextBlock Text="API Prices" FontSize="29" />
-                    <TextBlock Text="Every model. 128K context. Pay for the tokens you use." Foreground="{StaticResource FilspressoMuted}" />
+                    <TextBlock Text="LFM 3 is selectable. LFM 2.5 rates are historical and cannot be chosen. Long-context API rates are listed explicitly; this Windows app caps input at 128K, so its requests cannot incur the >128K surcharge." Foreground="{StaticResource FilspressoMuted}" TextWrapping="Wrap" />
                     <TextBlock Text="RON per 1M tokens · input / output" FontSize="11" Foreground="{StaticResource FilspressoAccent}" />
                     <ListView x:Name="CatalogueList" SelectionMode="None" HorizontalContentAlignment="Stretch">
                         <ListView.ItemTemplate><DataTemplate>
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="28" Padding="0,18" MinWidth="520">
                                 <StackPanel Spacing="5"><TextBlock Text="{Binding Label}" /><TextBlock Text="{Binding State}" FontSize="11" Foreground="{StaticResource FilspressoMuted}" /></StackPanel>
-                                <StackPanel Grid.Column="1" Spacing="5" HorizontalAlignment="Right"><TextBlock Text="{Binding Price}" Foreground="{StaticResource FilspressoAccent}" /><TextBlock Text="128K context" FontSize="10" Foreground="{StaticResource FilspressoMuted}" HorizontalAlignment="Right" /></StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="5" HorizontalAlignment="Right" MaxWidth="250"><TextBlock Text="{Binding Price}" Foreground="{StaticResource FilspressoAccent}" TextWrapping="Wrap" /></StackPanel>
                             </Grid>
                         </DataTemplate></ListView.ItemTemplate>
                     </ListView>

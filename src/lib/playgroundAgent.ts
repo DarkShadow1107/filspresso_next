@@ -1,5 +1,5 @@
 import { parseQuestionForm } from "../../nestjs-backend/src/desktop/playground-question-contract";
-import { isPlaygroundModelKey, PLAYGROUND_MODEL_KEYS } from "./modelAccess";
+import { isSelectablePlaygroundModelKey, PLAYGROUND_SELECTABLE_MODEL_KEYS } from "./modelAccess";
 /** Native model proposals only. This module has no executor or approval authority. */
 export type NativeTool = { name: string; description: string; effect: "read_only" | "mutation" | "execution" | "interaction"; parameters: Record<string, unknown> };
 export type NativeCall = { id: string; name: string; arguments: string };
@@ -22,7 +22,7 @@ const MAX_BYTES = 1_048_576;
 
 /** Only a bounded server error code is exposed; response bodies are never rendered. */
 export class AgentTransportError extends Error {
-	constructor(readonly status: number, readonly code: string) { super(`Model request failed (HTTP ${status}${code ? ` · ${code}` : ""}).`); }
+	constructor(readonly status: number, readonly code: string) { super(`Model request failed (HTTP ${status}${code ? ` · ${code}` : ""}). No automatic retry was attempted.`); }
 }
 
 export async function readAgentJson(url: string, init: RequestInit, signal: AbortSignal | undefined, timeoutMs: number, requireVersion = true): Promise<Record<string, unknown>> {
@@ -57,7 +57,7 @@ export async function readAgentJson(url: string, init: RequestInit, signal: Abor
 
 export async function nativeAgentModels(signal?: AbortSignal): Promise<string[]> {
 	const body = await readAgentJson("/api/playground/agent/capabilities", { method: "GET" }, signal, 8_000);
-	if (body.protocol !== "native-v1" || body.executesTools !== false || !Array.isArray(body.models) || body.models.length > PLAYGROUND_MODEL_KEYS.length || body.models.some(model => typeof model !== "string" || !isPlaygroundModelKey(model)) || new Set(body.models).size !== body.models.length)
+	if (body.protocol !== "native-v1" || body.executesTools !== false || !Array.isArray(body.models) || body.models.length > PLAYGROUND_SELECTABLE_MODEL_KEYS.length || body.models.some(model => typeof model !== "string" || !isSelectablePlaygroundModelKey(model)) || new Set(body.models).size !== body.models.length)
 		throw new Error("Invalid native agent capabilities.");
 	return body.models as string[];
 }
@@ -66,8 +66,8 @@ export async function nativeAgentModels(signal?: AbortSignal): Promise<string[]>
 export async function nativeConversationModels(signal?: AbortSignal): Promise<string[]> {
 	const body = await readAgentJson("/api/playground/agent/capabilities", { method: "GET" }, signal, 8_000);
 	if (body.protocol !== "native-v1" || body.executesTools !== false || body.conversationProtocol !== "completed-turns-v1" ||
-		!Array.isArray(body.interactionProtocols) || !body.interactionProtocols.includes("question-v1") || !Array.isArray(body.models) || body.models.length > PLAYGROUND_MODEL_KEYS.length ||
-		body.models.some(model => typeof model !== "string" || !isPlaygroundModelKey(model)) || new Set(body.models).size !== body.models.length) throw new Error("Native conversation/question protocol is unavailable.");
+		!Array.isArray(body.interactionProtocols) || !body.interactionProtocols.includes("question-v1") || !Array.isArray(body.models) || body.models.length > PLAYGROUND_SELECTABLE_MODEL_KEYS.length ||
+		body.models.some(model => typeof model !== "string" || !isSelectablePlaygroundModelKey(model)) || new Set(body.models).size !== body.models.length) throw new Error("Native conversation/question protocol is unavailable.");
 	return body.models as string[];
 }
 

@@ -249,7 +249,7 @@ test("one generation stream becomes one ordered, session-linked run", async () =
 		const service = new DesktopGatewayService(billing, addons, recorder(pool));
 		const res = new Reply() as unknown as ExpressResponse;
 		const result = await service.streamChat(res, 7, "max", {
-			model: "lfm2_5_230m_q4_k_m",
+			model: "lfm3_1_7b_q4_k_m",
 			message: "continue",
 			compaction_mode: "aggressive",
 			session_uuid: "44444444-4444-4444-8444-444444444444",
@@ -279,7 +279,7 @@ test("a run refused upstream still has its start and its reason", async () => {
 		const billing = { getBalance: async () => ({ canGenerate: true }), getAllowance: async () => ({ remainingRon: 100 }), recordUsage: async () => {} } as unknown as BillingService;
 		const addons = { resolveSpectreAccess: async () => ({ hasAccess: true, source: "tier" }) } as unknown as AddonsService;
 		const service = new DesktopGatewayService(billing, addons, recorder(pool));
-		const result = await service.streamChat(new Reply() as unknown as ExpressResponse, 7, "max", { model: "lfm2_5_230m_q4_k_m", message: "hello" }, "playground");
+		const result = await service.streamChat(new Reply() as unknown as ExpressResponse, 7, "max", { model: "lfm3_1_7b_q4_k_m", message: "hello" }, "playground");
 		assert.equal(result.kind, "refused");
 		// A refusal carries no request id back to the client by design; the fresh pool has
 		// exactly one run in it, so the rows belong to it. The writes are fire-and-forget,
@@ -298,7 +298,7 @@ test("a compaction that spent tokens and failed to fit still settles that work",
 		const billing = { getBalance: async () => ({ canGenerate: true }), getAllowance: async () => ({ remainingRon: 100 }), recordUsage: async () => {} } as unknown as BillingService;
 		const addons = { resolveSpectreAccess: async () => ({ hasAccess: true, source: "tier" }) } as unknown as AddonsService;
 		const service = new DesktopGatewayService(billing, addons, recorder(pool));
-		const result = await service.streamChat(new Reply() as unknown as ExpressResponse, 7, "max", { model: "lfm2_5_230m_q4_k_m", message: "hello" }, "playground");
+		const result = await service.streamChat(new Reply() as unknown as ExpressResponse, 7, "max", { model: "lfm3_1_7b_q4_k_m", message: "hello" }, "playground");
 		assert.equal(result.kind, "refused");
 		// The compaction work happened upstream before the refusal was final, so its
 		// settlement lands; the refused frame explains why no generation followed.
