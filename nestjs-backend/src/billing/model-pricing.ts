@@ -63,6 +63,18 @@ export const MODEL_TOKEN_PRICING: Record<string, TokenPrice> = {
 	lfm3_omni_2b_q4_k_m:  { apiInputPer1M: 25.00, apiOutputPer1M: 100.00, subscriberDiscountPercent: 0, longContextPricing: true, label: "LFM 3 Omni 2B" },
 };
 
+/** Historical list rates only. Retired models must never be accepted for new billing. */
+export const RETIRED_MODEL_PRICING: Record<string, TokenPrice> = {
+	lfm2_5_350m_q8_0: { apiInputPer1M: 0.5, apiOutputPer1M: 2.5, subscriberDiscountPercent: 30, longContextPricing: false, label: "LFM 2.5 350M" },
+	lfm2_5_1_2b_instruct_q4_k_m: { apiInputPer1M: 2, apiOutputPer1M: 10, subscriberDiscountPercent: 60, longContextPricing: false, label: "LFM 2.5 1.2B Instruct" },
+	lfm2_5_1_2b_thinking_q4_k_m: { apiInputPer1M: 3, apiOutputPer1M: 15, subscriberDiscountPercent: 60, longContextPricing: false, label: "LFM 2.5 1.2B Thinking" },
+	lfm2_5_2_6b_q4_0: { apiInputPer1M: 7, apiOutputPer1M: 35, subscriberDiscountPercent: 40, longContextPricing: false, label: "LFM 2.5 2.6B" },
+	lfm2_5_8b_a1b_q4_k_m: { apiInputPer1M: 20, apiOutputPer1M: 100, subscriberDiscountPercent: 25, longContextPricing: false, label: "LFM 2.5 8B A1B" },
+	lfm2_5_vl_450m_q4_k_m: { apiInputPer1M: 1, apiOutputPer1M: 5, subscriberDiscountPercent: 25, longContextPricing: false, label: "LFM 2.5 VL 450M" },
+	lfm2_5_vl_3b_q4_k_m: { apiInputPer1M: 10, apiOutputPer1M: 50, subscriberDiscountPercent: 25, longContextPricing: false, label: "LFM 2.5 VL 3B" },
+	lfm2_5_audio_1_5b_q4_0: { apiInputPer1M: 5, apiOutputPer1M: 25, subscriberDiscountPercent: 25, longContextPricing: false, label: "LFM 2.5 Audio 1.5B" },
+};
+
 export type ResolvedTokenPrice = {
 	modelKey: string;
 	label: string;

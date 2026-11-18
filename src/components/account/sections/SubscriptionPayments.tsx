@@ -94,6 +94,9 @@ export default function SubscriptionPayments({ className }: { className?: string
 				</div>
 
 				{error && <p className="billing-error">{error}</p>}
+				<p className="billing-muted">
+					These are simulated subscription payment records; no money is charged by a payment provider.
+				</p>
 				{!error && payments.length === 0 && !loading && (
 					<p className="billing-muted">
 						No subscription payments yet. Your first paid plan will appear here.

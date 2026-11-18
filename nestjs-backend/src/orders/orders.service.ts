@@ -414,7 +414,7 @@ export class OrdersService {
     const pool = this.db.getPool();
     const client = await pool.connect();
     try {
-      const [ordersRes, currencyRes] = await Promise.all([
+      const [ordersRes, currencyRes, subscriptionsRes] = await Promise.all([
         client.query(`SELECT COALESCE(SUM(total), 0) as orders_total FROM orders WHERE account_id = $1 AND status != 'cancelled'`, [accountId]),
         client.query(
           `SELECT UPPER(COALESCE(currency_code,'RON')) as currency_code, COUNT(*)::int as order_count,
@@ -423,8 +423,16 @@ export class OrdersService {
            GROUP BY UPPER(COALESCE(currency_code,'RON')) ORDER BY ron_equivalent_total DESC`,
           [accountId],
         ),
+        client.query(
+          `SELECT COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN amount_ron
+                                    WHEN payment_status = 'refunded' THEN -ABS(amount_ron)
+                                    ELSE 0 END), 0) AS subscription_total
+             FROM subscription_payments WHERE account_id = $1`,
+          [accountId],
+        ),
       ]);
       const ordersTotal = Number(ordersRes.rows[0]?.orders_total) || 0;
+      const subscriptionsTotal = Number(subscriptionsRes.rows[0]?.subscription_total) || 0;
       const totalRon = currencyRes.rows.reduce((s, r) => s + (Number(r.ron_equivalent_total) || 0), 0);
       const usage = currencyRes.rows.map((r) => ({
         currencyCode: r.currency_code, orderCount: Number(r.order_count),
@@ -432,7 +440,7 @@ export class OrdersService {
         percentage: totalRon > 0 ? Math.round((Number(r.ron_equivalent_total) / totalRon) * 10000) / 100 : 0,
       }));
       return {
-        spending: { orders: ordersTotal, total: ordersTotal },
+        spending: { orders: ordersTotal, subscriptions: subscriptionsTotal, total: ordersTotal + subscriptionsTotal },
         currency: { preferredCurrency: usage[0]?.currencyCode || "RON", totalOrders: usage.reduce((s, r) => s + r.orderCount, 0), multiCurrency: usage.length > 1, usage },
       };
     } finally { client.release(); }

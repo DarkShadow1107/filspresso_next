@@ -19,7 +19,7 @@ type Subscription = {
 	auto_renew: boolean;
 	status?: "active" | "ending" | "scheduled" | "cancelled";
 	card?: {
-		id: number;
+		id: number | null;
 		last_four: string;
 		type: string;
 	} | null;
@@ -683,7 +683,7 @@ export default function ManageSubscriptionContent() {
 								color: "#888",
 							}}
 						>
-							<p>No payment method on file</p>
+							<p>No saved card or recorded subscription card is available.</p>
 							<button
 								onClick={() => setShowChangeCardModal(true)}
 								style={{

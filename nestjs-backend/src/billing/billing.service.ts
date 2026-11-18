@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 
 import { DatabaseService } from "../database/database.service";
 import {
+	RETIRED_MODEL_PRICING,
 	billedRates,
 	costRon,
 	resolveTokenPrice,
@@ -1041,7 +1042,7 @@ export class BillingService {
 			const price = resolveTokenPrice(String(r.model_key), false);
 			return {
 				modelKey: r.model_key,
-				label: price.label || String(r.model_key),
+				label: RETIRED_MODEL_PRICING[String(r.model_key)]?.label ?? price.label ?? String(r.model_key),
 				inputTokens: Number(r.input_tokens),
 				outputTokens: Number(r.output_tokens),
 				costRon: Number(r.cost_ron),

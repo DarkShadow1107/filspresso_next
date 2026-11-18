@@ -8,17 +8,27 @@ import type { SavedToolActivity } from "@/lib/playgroundSessions";
  * components cannot be mounted directly in the Next/React tree. */
 export default function LlamaToolActivity({ tool }: { tool: SavedToolActivity }) {
 	const name = tool.name === "research_web" ? "Web Search & Read" : tool.name.replaceAll("_", " ").replace(/\b\w/g, letter => letter.toUpperCase());
+	const status = tool.status === "finished" ? "Finished" : "Proposed · not run";
 	let args = tool.arguments;
 	try { args = JSON.stringify(JSON.parse(args), null, 2); } catch { /* Preserve the original inert text. */ }
 	let result = tool.result;
 	if (result) {
 		const split = result.indexOf("\n");
-		if (split >= 0) {
-			try { result = `${result.slice(0, split)}\n${JSON.stringify(JSON.parse(result.slice(split + 1)), null, 2)}`; } catch { /* Non-JSON output remains unchanged. */ }
-		}
+		const prefix = split >= 0 ? `${result.slice(0, split)}\n` : "";
+		const payload = split >= 0 ? result.slice(split + 1) : result;
+		try { result = `${prefix}${JSON.stringify(JSON.parse(payload), null, 2)}`; } catch { /* Non-JSON output remains unchanged. */ }
 	}
 	return <details className="pgw-tool-activity">
-		<summary><span className="pgw-tool-title"><WorkspaceIcon name={tool.name.includes("web") || tool.name === "fetch_page" ? "search" : "settings"} width={16} /><strong>{name}</strong><em>{tool.status === "finished" ? "Finished" : "Pending"}</em></span><span className="pgw-tool-chevron" aria-hidden="true">⌄</span></summary>
-		<div className="pgw-tool-content"><p>Input</p><pre>{args}</pre>{result && <><p>Output</p><pre>{result}</pre></>}</div>
+		<summary aria-label={`${name}: ${status}`}>
+			<span className="pgw-tool-title">
+				<WorkspaceIcon name={tool.name.includes("web") || tool.name === "fetch_page" ? "search" : "settings"} width={16} />
+				<strong>{name}</strong><em data-status={tool.status}>{status}</em>
+			</span>
+			<span className="pgw-tool-chevron" aria-hidden="true">⌄</span>
+		</summary>
+		<div className="pgw-tool-content">
+			<p>Arguments</p><pre>{args}</pre>
+			{result ? <><p>Result</p><pre>{result}</pre></> : <p className="pgw-tool-empty">This proposal was not executed.</p>}
+		</div>
 	</details>;
 }

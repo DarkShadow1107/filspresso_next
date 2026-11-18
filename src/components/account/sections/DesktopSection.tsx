@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BrandWindowsIcon, RefreshIcon, TriangleAlertIcon } from "@/icons";
+import { BrandWindowsIcon, RefreshIcon } from "@/icons";
 
 type DesktopInstallationsResponse = {
 	acknowledgements: Array<{
@@ -113,18 +113,17 @@ export function DesktopSection() {
 				<BrandWindowsIcon size={18} /> Desktop app
 			</h3>
 
-			<h4 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>Last reported installation per device</h4>
+			<h4 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>Your devices</h4>
 			{installations.length === 0 ? (
 				<p className="billing-muted">
-					No installed copy of the Playground has reported in. The app sends this itself the
-					first time it runs on a machine signed in to your account.
+					No devices reported yet. Sign in from the desktop app to see one here.
 				</p>
 			) : (
 				<table className="billing-table">
 					<thead>
 						<tr>
 							<th scope="col">Device</th>
-							<th scope="col">Operating system (as reported by the app)</th>
+							<th scope="col">Operating system</th>
 							<th scope="col">App version</th>
 							<th scope="col">Last seen</th>
 						</tr>
@@ -144,16 +143,14 @@ export function DesktopSection() {
 				</table>
 			)}
 			<p className="billing-muted billing-footnote">
-				The signed-in app reports its running version and Windows details per device. A download
-				alone does not prove installation; this is the last report, not a live inventory.
+				Last reported by the app; not a live device check.
 			</p>
 
 			<details style={{ marginTop: "1.25rem" }}>
-			<summary>Download history (not installed versions)</summary>
+			<summary>Download history</summary>
 			{acks.length === 0 ? (
 				<p className="billing-muted">
-					You have not acknowledged a desktop download yet. Downloading the installer records
-					the acknowledged version here, along with what you stated about your system.
+					No downloads recorded yet.
 				</p>
 			) : (
 				<table className="billing-table">
@@ -161,7 +158,7 @@ export function DesktopSection() {
 						<tr>
 							<th scope="col">Version</th>
 							<th scope="col">Downloads</th>
-							<th scope="col">OS stated at acknowledgement</th>
+							<th scope="col">OS stated</th>
 							<th scope="col">Acknowledged</th>
 							<th scope="col">Last download</th>
 						</tr>
@@ -180,9 +177,7 @@ export function DesktopSection() {
 				</table>
 			)}
 			<p className="billing-muted billing-footnote">
-				<TriangleAlertIcon size={12} /> The installed-OS row is what the app read from the machine; the
-				&ldquo;OS stated&rdquo; column is what you chose in the download dialog and was never verified.
-				Neither is an entitlement input.
+				Downloads do not confirm installation. OS stated is self-reported and unverified.
 			</p>
 			</details>
 		</div>

@@ -243,6 +243,7 @@ export default function SubscriptionPageContent() {
 	const [spectrePrices, setSpectrePrices] = useState<
 		Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }>
 	>([]);
+	const [historicalPrices, setHistoricalPrices] = useState<Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }>>([]);
 
 	// The add-on's bullets, phrased so the card reads the same whether or not the
 	// account's plan already includes the Playground.
@@ -263,8 +264,9 @@ export default function SubscriptionPageContent() {
 		let cancelled = false;
 		fetch(`${API_BASE}/api/billing/pricing?audience=api`, { credentials: "same-origin" as const })
 			.then((res) => (res.ok ? res.json() : null))
-			.then((body: { models?: Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }> } | null) => {
+			.then((body: { models?: Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }>; historicalModels?: Array<{ modelKey: string; label: string; inputPer1M: number; outputPer1M: number }> } | null) => {
 				if (cancelled || !body?.models) return;
+				setHistoricalPrices(body.historicalModels ?? []);
 				const order = PLAYGROUND_MODEL_KEYS as readonly string[];
 				const byKey = new Map(body.models.map((m) => [m.modelKey, m]));
 				setSpectrePrices(
@@ -1117,6 +1119,11 @@ if (benefit.toLowerCase().includes("lfm") || benefit.toLowerCase().includes("qwe
 							<p className="card-spectre__prices-note">
 								Rates are for the first 128K tokens of context. Usage above 128K is billed at double these rates.
 							</p>
+							<details>
+								<summary>Previous LFM 2.5 API rates</summary>
+								<p>LFM 2.5 models were deprecated in favor of the LFM 3 family, except the Free-plan 230M. Previous usage remains in your history at its recorded cost.</p>
+								{historicalPrices.length > 0 && <table className="billing-table"><thead><tr><th>Model</th><th>Input / 1M</th><th>Output / 1M</th></tr></thead><tbody>{historicalPrices.map(row => <tr key={row.modelKey}><td>{row.label}</td><td>{row.inputPer1M.toFixed(2)} RON</td><td>{row.outputPer1M.toFixed(2)} RON</td></tr>)}</tbody></table>}
+							</details>
 						</div>
 					</article>
 

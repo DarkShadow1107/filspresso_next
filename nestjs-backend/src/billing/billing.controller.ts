@@ -27,7 +27,7 @@ import {
 	BillingService,
 	MAX_FUNDED_BALANCE_RON,
 } from "./billing.service";
-import { pricingTable, resolveTokenPrice } from "./model-pricing";
+import { pricingTable, resolveTokenPrice, RETIRED_MODEL_PRICING } from "./model-pricing";
 import { ChargeProvider, SimulatedChargeProvider } from "./charge-provider";
 import { AddonsController } from "./addons.controller";
 import { AddonsService } from "./addons.service";
@@ -102,6 +102,9 @@ constructor(
 				outputMultiplier: table.outputMultiplier,
 				subscriber: false,
 				listPrice: true,
+				historicalModels: Object.entries(RETIRED_MODEL_PRICING).map(([modelKey, price]) => ({
+					modelKey, label: price.label, inputPer1M: price.apiInputPer1M, outputPer1M: price.apiOutputPer1M,
+				})),
 				models: table.models.map((m) => ({
 					modelKey: m.modelKey,
 					label: m.label,
@@ -124,6 +127,9 @@ constructor(
 			subscriber,
 			/** True when these are list prices, i.e. not what this caller is charged. */
 			listPrice: showApi,
+			historicalModels: Object.entries(RETIRED_MODEL_PRICING).map(([modelKey, price]) => ({
+				modelKey, label: price.label, inputPer1M: price.apiInputPer1M, outputPer1M: price.apiOutputPer1M,
+			})),
 			models: table.models.map((m) =>
 				showApi
 					? {

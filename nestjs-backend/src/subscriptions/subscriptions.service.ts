@@ -79,9 +79,17 @@ export class SubscriptionsService {
       const currentResult = await client.query(
         `SELECT us.id, us.subscription_tier, us.billing_cycle, us.price_ron,
                 us.start_date, us.renewal_date, us.end_date, us.is_active, us.auto_renew, us.status,
-                us.card_id, uc.card_last_four, uc.card_type
+                us.card_id, uc.card_last_four, uc.card_type,
+                payment.card_last_four_snapshot, payment.card_type_snapshot
          FROM user_subscriptions us
          LEFT JOIN user_cards uc ON us.card_id = uc.id
+         LEFT JOIN LATERAL (
+           SELECT card_last_four_snapshot, card_type_snapshot
+             FROM subscription_payments
+             WHERE subscription_id = us.id AND scope = 'tier'
+               AND (card_last_four_snapshot IS NOT NULL OR card_type_snapshot IS NOT NULL)
+            ORDER BY created_at DESC, id DESC LIMIT 1
+         ) payment ON TRUE
          WHERE us.account_id = $1 AND us.status IN ('active', 'ending')
          ORDER BY us.is_active DESC, us.created_at DESC LIMIT 1`,
         [accountId],
@@ -106,8 +114,13 @@ export class SubscriptionsService {
           scheduled: null,
         };
       }
-      const cardOf = (sub: Record<string, unknown>) =>
-        sub.card_id ? { id: sub.card_id, last_four: sub.card_last_four, type: sub.card_type } : null;
+      const cardOf = (sub: Record<string, unknown>) => {
+        const lastFour = sub.card_last_four ?? sub.card_last_four_snapshot;
+        const type = sub.card_type ?? sub.card_type_snapshot;
+        return sub.card_id || lastFour || type
+          ? { id: sub.card_id ? Number(sub.card_id) : null, last_four: lastFour ?? null, type: type ?? "Card" }
+          : null;
+      };
       return {
         subscription: {
           id: currentSub.id,
@@ -129,7 +142,10 @@ export class SubscriptionsService {
     }
   }
 
-  async createSubscription(accountId: number, body: { tier?: string; billingCycle?: string; cardId?: number }) {
+  async createSubscription(accountId: number, body: {
+    tier?: string; billingCycle?: string; cardId?: number; cardLastFour?: string;
+    cardType?: string; reference?: string; idempotencyKey?: string;
+  }) {
     const { tier, billingCycle, cardId } = body;
     if (!tier || !["free", "basic", "plus", "pro", "max", "ultimate"].includes(String(tier))) {
       throw new BadRequestException({ error: "Invalid subscription tier" });
@@ -144,11 +160,16 @@ export class SubscriptionsService {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      if (cardId != null) {
+        const card = await client.query("SELECT id FROM user_cards WHERE id = $1 AND account_id = $2", [cardId, accountId]);
+        if (!card.rows[0]) throw new BadRequestException({ error: "Card not found" });
+      }
       await client.query("UPDATE user_subscriptions SET is_active = FALSE, status = 'cancelled' WHERE account_id = $1", [accountId]);
       const result = await client.query(
         `INSERT INTO user_subscriptions (account_id, subscription_tier, billing_cycle, price_ron, start_date, renewal_date, is_active, auto_renew, status, card_id) VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,'active',$8) RETURNING id`,
         [accountId, tier, billingCycle || "monthly", price, startDate, renewalDate, tier !== "free", cardId || null],
       );
+      const subscriptionId = Number(result.rows[0].id);
       await client.query("UPDATE accounts SET subscription = $1 WHERE id = $2", [tier.charAt(0).toUpperCase() + tier.slice(1), accountId]);
 
       // A plan that already includes the Playground makes any Spectre subscription on this
@@ -168,8 +189,9 @@ export class SubscriptionsService {
         await client.query(
           `INSERT INTO subscription_payments
              (account_id, tier, billing_cycle, amount_ron, currency, card_id,
-              payment_status, fulfilment_status, reference, idempotency_key)
-           VALUES ($1, $2, $3, $4, 'RON', $5, 'paid', 'delivered', $6, $7)
+              payment_status, fulfilment_status, reference, idempotency_key,
+              subscription_id, card_last_four_snapshot, card_type_snapshot)
+            VALUES ($1, $2, $3, $4, 'RON', $5, 'paid', 'delivered', $6, $7, $8, $9, $10)
            ON CONFLICT (account_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
           [
             accountId,
@@ -177,8 +199,11 @@ export class SubscriptionsService {
             billingCycle || "monthly",
             price,
             cardId || null,
-            body["reference"] ? String(body["reference"]).slice(0, 64) : null,
-            body["idempotencyKey"] ? String(body["idempotencyKey"]).slice(0, 128) : null,
+            body.reference ? String(body.reference).slice(0, 64) : `sim-sub-${subscriptionId}`,
+            body.idempotencyKey ? String(body.idempotencyKey).slice(0, 128) : `subscription-${subscriptionId}`,
+            subscriptionId,
+            /^\d{4}$/.test(String(body.cardLastFour ?? "")) ? String(body.cardLastFour) : null,
+            /^[a-z][a-z -]{0,39}$/i.test(String(body.cardType ?? "")) ? String(body.cardType).trim() : null,
           ],
         );
       }
@@ -187,7 +212,7 @@ export class SubscriptionsService {
     } catch (e) { await client.query("ROLLBACK").catch(() => undefined); throw e; } finally { client.release(); }
   }
 
-  async changeSubscription(accountId: number, body: { tier?: string; billingCycle?: string; cardId?: number }) {
+  async changeSubscription(accountId: number, body: { tier?: string; billingCycle?: string; cardId?: number; cardLastFour?: string; cardType?: string }) {
     const { tier, billingCycle, cardId } = body;
     if (!tier || !["basic", "plus", "pro", "max", "ultimate"].includes(String(tier))) throw new BadRequestException({ error: "Invalid subscription tier" });
     if (!["monthly", "annual"].includes(String(billingCycle || ""))) throw new BadRequestException({ error: "Invalid billing cycle" });
@@ -195,20 +220,65 @@ export class SubscriptionsService {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const cr = await client.query(`SELECT id, subscription_tier, renewal_date, card_id FROM user_subscriptions WHERE account_id = $1 AND is_active = TRUE AND status IN ('active','ending') LIMIT 1`, [accountId]);
+       const cr = await client.query(
+         `SELECT us.id, us.subscription_tier, us.renewal_date, us.card_id,
+                 uc.card_last_four, uc.card_type,
+                 payment.card_last_four_snapshot, payment.card_type_snapshot
+            FROM user_subscriptions us
+            LEFT JOIN user_cards uc ON uc.id = us.card_id
+            LEFT JOIN LATERAL (
+              SELECT card_last_four_snapshot, card_type_snapshot
+                FROM subscription_payments
+                WHERE subscription_id = us.id AND scope = 'tier'
+                  AND (card_last_four_snapshot IS NOT NULL OR card_type_snapshot IS NOT NULL)
+               ORDER BY created_at DESC, id DESC LIMIT 1
+            ) payment ON TRUE
+           WHERE us.account_id = $1 AND us.is_active = TRUE
+             AND us.status IN ('active','ending')
+           ORDER BY us.created_at DESC LIMIT 1`,
+         [accountId],
+       );
       const currentSub = cr.rows[0];
       if (!currentSub) { await client.query("ROLLBACK"); throw new BadRequestException({ error: "No active subscription to change from" }); }
       await client.query(`DELETE FROM user_subscriptions WHERE account_id = $1 AND status = 'scheduled'`, [accountId]);
       const price = SUBSCRIPTION_PRICES[tier]?.[billingCycle as string] ?? 0;
       const useCardId = cardId || currentSub.card_id;
+      let paymentCardLastFour = body.cardLastFour ?? currentSub.card_last_four ?? currentSub.card_last_four_snapshot;
+      let paymentCardType = body.cardType ?? currentSub.card_type ?? currentSub.card_type_snapshot;
+      if (useCardId != null) {
+        const card = await client.query(
+          "SELECT id, card_last_four, card_type FROM user_cards WHERE id = $1 AND account_id = $2",
+          [useCardId, accountId],
+        );
+        if (!card.rows[0]) throw new BadRequestException({ error: "Card not found" });
+        paymentCardLastFour = card.rows[0].card_last_four;
+        paymentCardType = card.rows[0].card_type;
+      }
       const isUpgrade = (TIER_LEVELS[tier] || 0) > (TIER_LEVELS[String(currentSub.subscription_tier)] || 0);
       if (isUpgrade) {
         await client.query(`UPDATE user_subscriptions SET status='ending', end_date=CURRENT_DATE, auto_renew=FALSE, is_active=FALSE WHERE id=$1`, [currentSub.id]);
         const startDate = new Date().toISOString().split("T")[0];
         const renewalDate = calculateRenewalDate(billingCycle as string);
         const result = await client.query(`INSERT INTO user_subscriptions (account_id,subscription_tier,billing_cycle,price_ron,start_date,renewal_date,is_active,auto_renew,status,card_id) VALUES ($1,$2,$3,$4,$5,$6,TRUE,TRUE,'active',$7) RETURNING id`, [accountId, tier, billingCycle, price, startDate, renewalDate, useCardId]);
+        const subscriptionId = Number(result.rows[0].id);
         await client.query("UPDATE accounts SET subscription=$1 WHERE id=$2", [tier.charAt(0).toUpperCase() + tier.slice(1), accountId]);
         await this.endRedundantAddon(accountId, tier);
+        if (price > 0) {
+          await client.query(
+            `INSERT INTO subscription_payments
+               (account_id, tier, billing_cycle, amount_ron, currency, card_id,
+                payment_status, fulfilment_status, reference, idempotency_key,
+                subscription_id, card_last_four_snapshot, card_type_snapshot)
+             VALUES ($1, $2, $3, $4, 'RON', $5, 'paid', 'delivered', $6, $6, $7, $8, $9)
+             ON CONFLICT (account_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
+            [
+              accountId, tier, billingCycle, price, useCardId,
+              `sim-sub-${subscriptionId}`, subscriptionId,
+              /^\d{4}$/.test(String(paymentCardLastFour ?? "")) ? String(paymentCardLastFour) : null,
+              /^[a-z][a-z -]{0,39}$/i.test(String(paymentCardType ?? "")) ? String(paymentCardType).trim() : null,
+            ],
+          );
+        }
         await client.query("COMMIT");
         return { message: "Subscription upgraded successfully! Your new plan is now active.", isUpgrade: true, subscription: { id: Number(result.rows[0].id), tier, billing_cycle: billingCycle, price_ron: price, start_date: startDate, renewal_date: renewalDate, is_active: true, status: "active" } };
       }
@@ -290,9 +360,9 @@ export class SubscriptionsService {
           await client.query(
             `INSERT INTO subscription_payments
                (account_id, tier, billing_cycle, amount_ron, currency, card_id,
-                payment_status, fulfilment_status, reference, refund_of)
-             VALUES ($1, $2, $3, -($4)::numeric, 'RON', (SELECT card_id FROM user_subscriptions WHERE id=$5),
-                     'refunded', 'revoked', $6, $7::bigint)`,
+                 payment_status, fulfilment_status, reference, refund_of, subscription_id)
+              VALUES ($1, $2, $3, -($4)::numeric, 'RON', (SELECT card_id FROM user_subscriptions WHERE id=$5),
+                      'refunded', 'revoked', $6, $7::bigint, $5)`,
             [accountId, sub.subscription_tier, sub.billing_cycle, paid.rows[0].amount_ron,
              sub.id, result2.providerReference, paid.rows[0].id],
           );
@@ -346,9 +416,10 @@ export class SubscriptionsService {
     try {
       await client.query("BEGIN");
       const due = await client.query(
-        `SELECT id, account_id, subscription_tier, billing_cycle, price_ron,
-                renewal_date, card_id
-           FROM user_subscriptions
+        `SELECT us.id, us.account_id, us.subscription_tier, us.billing_cycle, us.price_ron,
+                us.renewal_date, us.card_id, uc.card_last_four, uc.card_type
+           FROM user_subscriptions us
+           LEFT JOIN user_cards uc ON uc.id = us.card_id
           WHERE is_active = TRUE
             AND auto_renew = TRUE
             AND status = 'active'
@@ -357,7 +428,7 @@ export class SubscriptionsService {
             AND renewal_date <= CURRENT_DATE
           ORDER BY renewal_date ASC
           LIMIT 200
-          FOR UPDATE SKIP LOCKED`,
+          FOR UPDATE OF us SKIP LOCKED`,
       );
 
       for (const row of due.rows) {
@@ -388,10 +459,11 @@ export class SubscriptionsService {
         await client.query(
           `INSERT INTO subscription_payments
              (account_id, tier, billing_cycle, amount_ron, currency, card_id,
-              payment_status, fulfilment_status, reference, idempotency_key)
-           VALUES ($1, $2, $3, $4, 'RON', $5, 'paid', 'delivered', $6, $6)
+              payment_status, fulfilment_status, reference, idempotency_key,
+              subscription_id, card_last_four_snapshot, card_type_snapshot)
+           VALUES ($1, $2, $3, $4, 'RON', $5, 'paid', 'delivered', $6, $6, $7, $8, $9)
            ON CONFLICT (account_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
-          [row.account_id, row.subscription_tier, row.billing_cycle, price, cardId, reference],
+          [row.account_id, row.subscription_tier, row.billing_cycle, price, cardId, reference, row.id, row.card_last_four, row.card_type],
         );
         renewed += 1;
       }
@@ -474,8 +546,10 @@ export class SubscriptionsService {
   async paymentHistory(accountId: number): Promise<Array<Record<string, unknown>>> {
     const pool = this.db.getPool();
     const result = await pool.query(
-      `SELECT p.id, p.tier, p.billing_cycle, p.amount_ron, p.currency, p.payment_status,
-              p.fulfilment_status, p.reference, p.created_at, c.card_last_four
+       `SELECT p.id, p.tier, p.billing_cycle, p.amount_ron, p.currency, p.payment_status,
+               p.fulfilment_status, p.reference, p.created_at,
+               COALESCE(c.card_last_four, p.card_last_four_snapshot) AS card_last_four,
+               COALESCE(c.card_type, p.card_type_snapshot) AS card_type
          FROM subscription_payments p
          LEFT JOIN user_cards c ON c.id = p.card_id
         WHERE p.account_id = $1
@@ -491,6 +565,7 @@ export class SubscriptionsService {
       currency: row.currency,
       // Last four only, the same as the subscription card view. Never the number itself.
       cardLastFour: row.card_last_four ?? null,
+      cardType: row.card_type ?? null,
       paymentStatus: row.payment_status,
       fulfilmentStatus: row.fulfilment_status,
       reference: row.reference,

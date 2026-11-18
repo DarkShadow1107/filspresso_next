@@ -44,11 +44,10 @@ export function DesktopCompatibilityDetails({ result }: { result: DesktopCompati
 			<div><dt>Windows edition & build</dt><dd>Checked in the app</dd></div>
 		</dl>
 		<details className="desktop-setup-details"><summary>System requirements & device check</summary>
-			<p><strong>Windows x64 · build 19041+.</strong> Home is supported for inspection and opt-in native restricted mode.</p>
-			<p><strong>Windows Sandbox (preferred):</strong> Windows 11 24H2+ Pro/Enterprise/Education, virtualization and the Sandbox feature enabled. Admin approval and a restart may be needed.</p>
-			<p><strong>Native restricted (opt-in):</strong> uses AppContainer and process limits; shares the host kernel. Weaker than a VM, not Codex MXC.</p>
-			<p>Both edit a staged copy, with separate command/web approval and reviewed diffs. Command networking and bundled developer tools are not included.</p>
-			<p className="desktop-download-note">A website <strong>cannot verify</strong> Home/Pro/Enterprise, your exact build or virtualization. In the app, open <strong>Instructions → System & updates</strong> for the actual edition/build, and <strong>Workspace → Workspace setup → Verify</strong> for isolation. No browser hint grants execution access.</p>
+			<p><strong>Windows x64, build 19041 or newer.</strong> Windows Home is supported for inspection and opt-in native restricted mode.</p>
+			<p><strong>Windows Sandbox (preferred):</strong> Windows 11 24H2+ Pro, Enterprise or Education, with virtualization and Sandbox enabled. Setup may require admin approval and a restart.</p>
+			<p><strong>Native restricted (opt-in):</strong> AppContainer shares the host kernel and is weaker than a VM. Both modes use staged copies and require command and web approval; commands have no network access.</p>
+			<p className="desktop-download-note">Your browser cannot verify the Windows edition, build or virtualization. Check the actual edition/build in <strong>Instructions → System & updates</strong> and isolation in <strong>Workspace → Workspace setup → Verify</strong>. Browser hints never grant execution access.</p>
 		</details>
 	</>;
 }

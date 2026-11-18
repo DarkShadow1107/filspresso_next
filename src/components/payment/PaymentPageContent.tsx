@@ -705,9 +705,10 @@ export default React.memo(function PaymentPageContent() {
 					window.sessionStorage.removeItem("allow_payment_ts");
 				} catch {}
 
+				let checkoutCardId = selectedSavedCard?.id ?? null;
 				if (shouldSaveCard && !selectedSavedCard && signedIn) {
 					try {
-						await fetch(`${API_BASE}/api/cards`, {
+						const cardResponse = await fetch(`${API_BASE}/api/cards`, {
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
@@ -720,6 +721,10 @@ export default React.memo(function PaymentPageContent() {
 								cardHolder: accountSession?.full_name || accountSession?.username || "Valued Customer",
 							}),
 						});
+						if (!cardResponse.ok) throw new Error("Could not save card");
+						const saved = await cardResponse.json();
+						checkoutCardId = Number(saved.card?.id) || null;
+						if (!checkoutCardId) throw new Error("Saved card has no ID");
 						notify("Card saved securely!", 3000, "success", "payment");
 					} catch (e) {
 						console.error("Failed to save card", e);
@@ -753,7 +758,9 @@ export default React.memo(function PaymentPageContent() {
 							body: JSON.stringify({
 								tier: subscriptionTier,
 								billingCycle: billingCycle,
-								cardId: selectedSavedCard?.id || null,
+								cardId: checkoutCardId,
+								cardLastFour: selectedCardLastFour || null,
+								cardType: normalizedCardType,
 							}),
 						});
 

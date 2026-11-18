@@ -7,6 +7,7 @@ import path from "node:path";
 import {
 	LONG_CONTEXT_THRESHOLD_TOKENS,
 	MODEL_TOKEN_PRICING,
+	RETIRED_MODEL_PRICING,
 	LEGACY_230M_OUTPUT_PRICE_MULTIPLIER,
 	appliesLongContextPricing,
 	billedRates,
@@ -195,6 +196,13 @@ describe("cost arithmetic", () => {
 });
 
 describe("unknown models", () => {
+	it("retains retired rates for history without enabling new billing", () => {
+		assert.equal(RETIRED_MODEL_PRICING.lfm2_5_2_6b_q4_0.apiInputPer1M, 7);
+		assert.equal(RETIRED_MODEL_PRICING.lfm2_5_2_6b_q4_0.apiOutputPer1M, 35);
+		for (const key of Object.keys(RETIRED_MODEL_PRICING)) {
+			assert.equal(resolveTokenPrice(key, false).known, false);
+		}
+	});
 	it("resolve to zero and report known=false", () => {
 		// A typo must not 500 a request llama.cpp already served. The caller decides what
 		// to do about a zero charge; `known` is how it finds out.

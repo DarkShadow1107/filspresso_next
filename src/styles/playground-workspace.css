@@ -477,12 +477,16 @@ body:has(.pgw) .header_body { background: #100f10; }
  .pgw-help-topics { grid-template-columns: 1fr; gap: 0; }
  .pgw-section-heading h1 { font-size: 22px; }
 }
-.pgw-tool-activity { margin: .5rem 0; border: 1px solid var(--pgw-border, #d9d9d9); border-radius: .65rem; overflow: hidden; }
-.pgw-tool-activity summary { display: flex; justify-content: space-between; gap: .5rem; align-items: center; cursor: pointer; padding: .75rem; background: var(--pgw-surface); list-style: none; color: var(--pgw-muted); }
+.pgw-tool-activity { margin: .5rem 0; border: 1px solid var(--pgw-border, #d9d9d9); border-radius: .75rem; overflow: hidden; }
+.pgw-tool-activity summary { display: flex; justify-content: space-between; gap: .75rem; align-items: center; cursor: pointer; padding: .75rem 1rem; background: var(--pgw-surface); list-style: none; color: var(--pgw-muted); }
+.pgw-tool-activity summary:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
 .pgw-tool-activity summary::-webkit-details-marker { display: none; }
 .pgw-tool-title { display: inline-flex; align-items: center; gap: .5rem; font: 500 .875rem monospace; }
-.pgw-tool-title em { font: italic .75rem sans-serif; }
-.pgw-tool-chevron { line-height: .55; font-size: 12px; text-align: center; }
+.pgw-tool-title em { font: 500 .7rem sans-serif; padding: .2rem .45rem; border: 1px solid var(--pgw-border); border-radius: 999px; }
+.pgw-tool-title em[data-status=finished] { color: var(--pgw-success, #27815c); }
+.pgw-tool-chevron { line-height: 1; font-size: 14px; text-align: center; transition: transform .15s ease; }
+.pgw-tool-activity[open] .pgw-tool-chevron { transform: rotate(180deg); }
 .pgw-tool-content { border-top: 1px solid var(--pgw-border); padding: 0 .75rem .75rem; }
 .pgw-tool-content p { margin: .75rem 0; color: var(--pgw-muted); font-size: .75rem; }
+.pgw-tool-content .pgw-tool-empty { margin-bottom: 0; padding: .65rem .75rem; border-radius: .5rem; background: var(--pgw-surface); }
 .pgw-tool-activity pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow: auto; margin: 0; padding: .75rem; background: var(--pgw-surface); border: 1px solid var(--pgw-border); border-radius: .5rem; font-size: .75rem; }
